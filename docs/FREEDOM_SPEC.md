@@ -125,7 +125,7 @@ grant any sensitive capability. Content-addressed origins (`bzz://`, `ipfs://`,
 fresh "origin" — so they must **never** receive a default or ambient write
 grant. Every sensitive write (e.g. `storage.swarm.write`) requires an explicit,
 per-origin user grant, exactly like `https://`. This is the conservative
-resolution of Open Q3 (§21). In Phase 1 this is already enforced structurally:
+resolution of Open Q3 (§21). This is already enforced structurally:
 all writes route through `requestAccess`, which prompts per origin and stores
 the grant origin-scoped — there is no scheme-based fast path that bypasses it.
 
@@ -209,10 +209,10 @@ MetaMask exposes a provider. Freedom exposes an environment.
 # Part II — Implementation Specification
 
 This part pins concrete shapes, maps the surface onto the code that exists
-today, and phases the work. Phase 1 is the minimal surface needed to write,
-publish, and resolve content on the dweb.
+today, and sequences the work. The core surface is the minimal surface needed
+to write, publish, and resolve content on the dweb.
 
-## 13. Phase 1 Surface
+## 13. Core Surface
 
 ```ts
 interface NavigatorFreedom {
@@ -264,8 +264,8 @@ Rules:
   gate is off, the Ant node isn't ready, or no usable postage stamp exists.
 - `storage.ipfs.available` is `false` (`reason: "write-not-supported"`) until
   the native IPFS write path exists (§18).
-- `dweb.available` is `true` in Phase 1: `resolve` is wired and ungated. (Only
-  the Phase 2 `fetch` remains unimplemented; presence of `resolve` is what the
+- `dweb.available` is `true` today: `resolve` is wired and ungated. (Only
+  the planned `fetch` remains unimplemented; presence of `resolve` is what the
   flag reports.)
 
 ## 15. `wallet` (Tier 2, compatibility-aligned)
@@ -290,7 +290,7 @@ interface FreedomWallet {
 - Existing dapp code continues to use `window.ethereum`; `navigator.freedom.wallet`
   is the canonical equivalent and may be documented as the preferred form.
 
-**Provider semantics — façade, not the same object (important).** In Phase 1
+**Provider semantics — façade, not the same object (important).** Currently
 `navigator.freedom.wallet` is a *compatible façade* that delegates to
 `window.ethereum`, not the same provider object:
 
@@ -362,7 +362,7 @@ Normalization rules for `data`:
 - `Blob`/`File` → bytes via `arrayBuffer()`; `contentType`/`filename` inferred if absent.
 - `ArrayBuffer`/`Uint8Array` → bytes as-is.
 
-**Abort semantics (`signal`).** In Phase 1 cancellation is **best-effort**: an
+**Abort semantics (`signal`).** Cancellation is **best-effort**: an
 already-aborted signal rejects before any work starts, and a signal that fires
 mid-upload settles the caller's promise with `AbortError`. The in-flight network
 upload is **not** truly canceled — the bytes may still land on the node (the
@@ -376,8 +376,8 @@ For callers that need protocol-specific options (Swarm feeds/SOCs, IPFS pin
 flags). These are thin and return the same `UploadResult` for the upload case:
 
 ```ts
-interface SwarmStorage { upload(o: Omit<UploadOptions,"network">): Promise<UploadResult>; /* feeds, SOC — Phase 2 */ }
-interface IpfsStorage  { add(o: Omit<UploadOptions,"network">): Promise<UploadResult>;    /* pin opts — Phase 2 */ }
+interface SwarmStorage { upload(o: Omit<UploadOptions,"network">): Promise<UploadResult>; /* feeds, SOC — planned */ }
+interface IpfsStorage  { add(o: Omit<UploadOptions,"network">): Promise<UploadResult>;    /* pin opts — planned */ }
 ```
 
 ### 16.3 Permissions & approval
@@ -390,19 +390,19 @@ interface IpfsStorage  { add(o: Omit<UploadOptions,"network">): Promise<UploadRe
 
 ## 17. `dweb` (Tier 2)
 
-Naming/resolution first; mediated fetch is Phase 2.
+Naming/resolution first; mediated fetch is planned.
 
 ```ts
 interface FreedomDweb {
   resolve(name: string): Promise<{ protocol: "bzz"|"ipfs"|"ipns"; hash: string; url: string }>;
-  // fetch(url): Promise<Response>  — Phase 2, browser-mediated; reads otherwise
+  // fetch(url): Promise<Response>  — planned, browser-mediated; reads otherwise
   //                                  happen by navigating bzz:// / ipfs:// directly.
 }
 ```
 
 `resolve("example.eth")` wraps the in-process ENS resolver
 (`src/main/ens-resolver.js`) and returns the transport + contenthash, matching
-the address-bar resolution. It is **implemented in Phase 1**: because
+the address-bar resolution. It is **implemented today**: because
 resolution is public and read-only, the sandboxed webview preload invokes
 `ens:resolve` directly (no host-renderer hop, no approval UI, ungated by
 `enableIdentityWallet`). The page-realm facade maps the resolver's `{ type:
@@ -427,13 +427,13 @@ on-chain via `wallet`, then `resolve()` (or open) the name.
 
 Both existing globals stay. `window.ethereum` is EIP-1193 (+ EIP-6963);
 `window.swarm` is the SWIP-shaped Swarm Provider API. The long-term intent and
-the Phase 1 reality run in **opposite directions**, and the spec states both
+the current reality run in **opposite directions**, and the spec states both
 honestly rather than only the idealized end state:
 
 - **Long-term (target):** `navigator.freedom` is canonical and owns the logic.
   `window.ethereum` and `window.swarm` become Tier 1 **compatibility shims**
   backed by `navigator.freedom.wallet` / `navigator.freedom.storage`.
-- **Phase 1 (now):** the dependency is **inverted** — `window.ethereum` and
+- **Today:** the dependency is **inverted** — `window.ethereum` and
   `window.swarm` are the real implementations (they own the request bridge,
   approval UI, and permission stores), and `navigator.freedom` is a thin façade
   that *delegates to them*. The façade direction flips in a later phase, at
@@ -448,13 +448,13 @@ Canonical permission names, the tier they belong to, and the existing store
 each maps onto. `permissions.query` / `permissions.request` unify these; names
 are stable identifiers (origin-scoped at the store level).
 
-| Permission name | Tier | Backed by | Phase 1 |
+| Permission name | Tier | Backed by | Status |
 | --- | --- | --- | --- |
 | `wallet.accounts` | 2 | `dapp-permissions.js` (connect/accounts) | query + request |
 | `wallet.sign` | 2 | `dapp-permissions.js` (signing) | granted via connect; no separate prompt yet |
 | `wallet.send` | 2 | `dapp-permissions.js` (tx) | granted via connect; per-tx approval at call time |
 | `storage.swarm.write` | 2 | `swarm-permissions` | query (approx) + request |
-| `dweb.name-resolution` | 2 | `ens-resolver.js` | implicit grant — `resolve` is public/read-only/ungated (Phase 1); `fetch` reserved (Phase 2) |
+| `dweb.name-resolution` | 2 | `ens-resolver.js` | implicit grant — `resolve` is public/read-only/ungated (today); `fetch` reserved (planned) |
 | `runtime.status` | 3 | service registry (privileged) | not exposed to open web |
 
 Notes: `query` returns `granted` / `denied` / `prompt`. The three
@@ -462,7 +462,7 @@ Notes: `query` returns `granted` / `denied` / `prompt`. The three
 origin's connection state to `granted` (connected) or `prompt` (not), and to
 `denied` when the Identity & Wallet gate is off; `wallet.sign` / `wallet.send`
 may still surface a per-call approval (a runtime gate, not a permission state).
-`dweb.name-resolution` is an implicit `granted` (public/read-only). In Phase 1,
+`dweb.name-resolution` is an implicit `granted` (public/read-only). Currently,
 `storage.swarm.write` query is **best-effort** (`prompt` unless already
 connected) because there is no page-level swarm permission read yet; this
 partially relaxes §7's "inspectable by page API" guarantee, so pages must not
@@ -471,7 +471,7 @@ connect/approval flow). Names outside this table reject with
 `TypeError`, matching the platform Permissions API; new permission names must be
 added here before use.
 
-**`storage.ipfs.write` is intentionally not in the registry** (Phase 1). Because
+**`storage.ipfs.write` is intentionally not in the registry** (currently). Because
 the native IPFS write path doesn't exist yet, IPFS unavailability is reported
 through `capabilities().storage.ipfs` (`available:false`, `reason:
 "write-not-supported"`) and through the `NotSupportedError` that
@@ -520,9 +520,9 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
   the precedent; not exposed to the open web.
 - `db` — local-first/replicated DB. Unspecified.
 
-## 20. Phasing
+## 20. Roadmap
 
-**Phase 1 — Core surface**
+**Now — Core surface**
 
 - Inject `navigator.freedom` with `version`, `capabilities()`, `wallet`,
   `storage.upload` (swarm working; ipfs reports unavailable), `permissions.query/request`.
@@ -531,14 +531,14 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 - Honest gate handling per §18 "Feature gate": `capabilities()` reflects the
   flag, no auto-enable, and "settings not yet loaded" is treated as pending.
 
-**Phase 2**
+**Next**
 
 - Native IPFS write → enable `storage.upload({network:"ipfs"})`.
 - `storage.swarm` feeds/SOC helpers; `storage.ipfs` pin options.
 - `dweb.fetch` (browser-mediated reads).
 - Lifecycle events on `wallet` and `storage` (`accountschange`, upload progress as events).
 
-**Phase 3**
+**Later**
 
 - `runtime` (Tier 3, `freedom://`-scoped) and `db`.
 - Capability discovery hardening, privacy review, revocation UI.
@@ -551,7 +551,7 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
    `navigator.freedom.wallet` is documented as the canonical equivalent;
    `storage.upload` is the lead Freedom-native capability.
 2. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
-   vs. event-based — pick one before Phase 2.
+   vs. event-based — pick one before native IPFS write lands.
 3. **Resolved.** `bzz://`/`ipfs://`/`ipns://` pages are secure contexts and so
    are *eligible* for Tier 2, but sensitive **writes** require an explicit
    per-origin grant like `https://` — never default/ambient exposure (§6.1).

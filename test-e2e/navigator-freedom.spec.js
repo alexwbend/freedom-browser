@@ -1,4 +1,4 @@
-// navigator.freedom (Phase 1) — verifies the capability façade is injected
+// navigator.freedom — verifies the capability façade is injected
 // into a real page realm and behaves per spec. Navigates to the
 // freedom://playground internal page (loaded in a webview, where the preload
 // injects the providers) and drives navigator.freedom via the guest's
@@ -62,7 +62,7 @@ async function gotoPlayground(window) {
     .toBe('object');
 }
 
-test.describe('navigator.freedom (Phase 1)', () => {
+test.describe('navigator.freedom', () => {
   test('is injected with the expected surface and version', async ({ window }) => {
     await gotoPlayground(window);
 
@@ -140,7 +140,7 @@ test.describe('navigator.freedom (Phase 1)', () => {
     expect(parsed.storage.swarm.reason).toBe('identity-wallet-disabled');
   });
 
-  test('storage.upload rejects ipfs with NotSupportedError (Phase 1)', async ({ window }) => {
+  test('storage.upload rejects ipfs with NotSupportedError', async ({ window }) => {
     await gotoPlayground(window);
 
     const result = await runInGuest(

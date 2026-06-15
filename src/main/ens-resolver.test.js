@@ -887,7 +887,7 @@ describe('ens-resolver', () => {
   });
 
   // --------------------------------------------------------------------
-  // Quorum-path tests (Phase 1). Covers consensus outcomes that don't
+  // Quorum-path tests. Covers consensus outcomes that don't
   // exist in the legacy single-provider flow: conflict, degraded K=1
   // unverified, user-configured fast-path labelling, block pinning.
   // --------------------------------------------------------------------

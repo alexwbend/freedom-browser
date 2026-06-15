@@ -704,7 +704,7 @@ ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
 });
 
 // ============================================
-// navigator.freedom (Phase 1 facade)
+// navigator.freedom (facade)
 // ============================================
 //
 // Injected after the ethereum + swarm providers. The wallet/storage facets

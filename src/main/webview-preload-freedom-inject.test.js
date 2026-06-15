@@ -186,7 +186,7 @@ describe('webview-preload-freedom-inject', () => {
       });
     });
 
-    test('rejects ipfs writes with NotSupportedError (Phase 1)', async () => {
+    test('rejects ipfs writes with NotSupportedError', async () => {
       const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
       await expect(
         freedom.storage.upload({ data: 'x', network: 'ipfs' })

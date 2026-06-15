@@ -36,7 +36,7 @@ Each card drives one part of the surface (see `docs/FREEDOM_SPEC.md`):
    `window.ethereum` / `window.swarm`, and `capabilities()`.
 2. **Wallet** — `wallet.request('eth_requestAccounts')` then `personal_sign`.
 3. **Storage** — `storage.upload({ network: 'swarm' })`; the IPFS button is
-   expected to reject with `NotSupportedError` in Phase 1.
+   expected to reject with `NotSupportedError` (IPFS write is not implemented yet).
 4. **dweb** — `dweb.resolve(name)` against a live ENS name.
 5. **Permissions** — `permissions.query` / `permissions.request` for any name
    (e.g. `wallet.accounts`, `dweb.name-resolution`, `storage.ipfs.write`, or a

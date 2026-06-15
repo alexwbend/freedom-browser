@@ -1,5 +1,5 @@
 /**
- * navigator.freedom injection source (Phase 1).
+ * navigator.freedom injection source.
  *
  * IMPORTANT: this file is source-as-data, exactly like
  * webview-preload-ethereum-inject.js. It never executes in a Node context —
@@ -10,7 +10,7 @@
  * Blob, DOMException, ...) and the already-injected window.ethereum /
  * window.swarm providers.
  *
- * Phase 1 scope (see docs/FREEDOM_SPEC.md §13–§20): navigator.freedom is a
+ * Scope (see docs/FREEDOM_SPEC.md §13–§20): navigator.freedom is a
  * thin, capability-shaped facade over the existing EIP-1193 wallet
  * (window.ethereum) and the Swarm provider (window.swarm). It introduces no
  * new IPC bridge of its own — it delegates to providers that are already
@@ -180,7 +180,7 @@
   }
 
   // Reject `promise` with AbortError if `signal` fires before it settles.
-  // Phase 1 caveat: this only settles the caller's promise — the in-flight
+  // Caveat: this only settles the caller's promise — the in-flight
   // network upload is not actually canceled and may still complete on the node
   // (see FREEDOM_SPEC §16: abort is best-effort, no mid-upload cancellation).
   function withAbort(signal, promise) {
@@ -234,13 +234,13 @@
       return Promise.reject(new DOMException('Upload aborted', 'AbortError'));
     }
 
-    // Phase 1: IPFS write is not implemented — the embedded node is
+    // IPFS write is not implemented — the embedded node is
     // retrieval-only. Tracked as a native dependency (spec §18).
     if (network === 'ipfs') {
       return Promise.reject(
         notSupported(
           'write-not-supported',
-          'IPFS write is not available yet. Use network:"swarm" (see FREEDOM_SPEC Phase 2).'
+          'IPFS write is not available yet. Use network:"swarm" (see FREEDOM_SPEC §18).'
         )
       );
     }
@@ -371,7 +371,7 @@
     'runtime.status',
   ]);
 
-  // All three wallet permissions are "granted via connect" in Phase 1: once an
+  // All three wallet permissions are "granted via connect": once an
   // origin has connected accounts, accounts/sign/send are usable (send and
   // sign may still surface a per-call approval, which is a runtime gate, not a
   // permission state). So query maps connection state → granted | prompt, and
