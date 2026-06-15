@@ -425,11 +425,17 @@ are stable identifiers (origin-scoped at the store level).
 | `dweb.name-resolution` | 2 | `ens-resolver.js` | implicit grant — `resolve` is public/read-only/ungated (Phase 1); `fetch` reserved (Phase 2) |
 | `runtime.status` | 3 | service registry (privileged) | not exposed to open web |
 
-Notes: `query` returns `granted` / `denied` / `prompt`. In Phase 1,
+Notes: `query` returns `granted` / `denied` / `prompt`. The three
+`wallet.*` permissions form one "granted via connect" group — `query` maps the
+origin's connection state to `granted` (connected) or `prompt` (not), and to
+`denied` when the Identity & Wallet gate is off; `wallet.sign` / `wallet.send`
+may still surface a per-call approval (a runtime gate, not a permission state).
+`dweb.name-resolution` is an implicit `granted` (public/read-only). In Phase 1,
 `storage.swarm.write` query is approximate (`prompt` unless already connected)
 because there is no page-level swarm permission read yet; `request` is exact
-(drives the real connect/approval flow). New permission names must be added to
-this table before use.
+(drives the real connect/approval flow). Names outside this table reject with
+`TypeError`, matching the platform Permissions API; new permission names must be
+added here before use.
 
 ### Feature gate
 

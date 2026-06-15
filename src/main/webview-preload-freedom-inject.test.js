@@ -349,5 +349,70 @@ describe('webview-preload-freedom-inject', () => {
       });
       expect(swarm.requestAccess).toHaveBeenCalled();
     });
+
+    test('query("wallet.sign"/"wallet.send") track connection state, not a blanket grant', async () => {
+      const connected = defaultEthereum({ request: jest.fn(async () => ['0xabc']) });
+      const a = createInstance({ ethereum: connected, swarm: defaultSwarm() }).freedom;
+      await expect(a.permissions.query({ name: 'wallet.sign' })).resolves.toEqual({
+        state: 'granted',
+      });
+      await expect(a.permissions.query({ name: 'wallet.send' })).resolves.toEqual({
+        state: 'granted',
+      });
+
+      const disconnected = defaultEthereum({ request: jest.fn(async () => []) });
+      const b = createInstance({ ethereum: disconnected, swarm: defaultSwarm() }).freedom;
+      await expect(b.permissions.query({ name: 'wallet.sign' })).resolves.toEqual({
+        state: 'prompt',
+      });
+      await expect(b.permissions.query({ name: 'wallet.send' })).resolves.toEqual({
+        state: 'prompt',
+      });
+    });
+
+    test('query wallet.* reports denied when the gate is off (4900)', async () => {
+      const ethereum = defaultEthereum({
+        request: jest.fn(async () => {
+          throw makeError(4900, 'Disconnected');
+        }),
+      });
+      const { freedom } = createInstance({ ethereum, swarm: defaultSwarm() });
+      await expect(freedom.permissions.query({ name: 'wallet.send' })).resolves.toEqual({
+        state: 'denied',
+      });
+    });
+
+    test('query maps non-wallet names per the registry', async () => {
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
+      await expect(freedom.permissions.query({ name: 'dweb.name-resolution' })).resolves.toEqual({
+        state: 'granted',
+      });
+      await expect(freedom.permissions.query({ name: 'storage.swarm.write' })).resolves.toEqual({
+        state: 'prompt',
+      });
+      await expect(freedom.permissions.query({ name: 'storage.ipfs.write' })).resolves.toEqual({
+        state: 'denied',
+      });
+      await expect(freedom.permissions.query({ name: 'runtime.status' })).resolves.toEqual({
+        state: 'denied',
+      });
+    });
+
+    test('query/request reject unknown permission names with TypeError', async () => {
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
+      await expect(freedom.permissions.query({ name: 'wallet.teleport' })).rejects.toBeInstanceOf(
+        TypeError
+      );
+      await expect(freedom.permissions.request({ name: 'bogus.permission' })).rejects.toBeInstanceOf(
+        TypeError
+      );
+    });
+
+    test('request("dweb.name-resolution") grants without a prompt', async () => {
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
+      await expect(freedom.permissions.request({ name: 'dweb.name-resolution' })).resolves.toEqual({
+        state: 'granted',
+      });
+    });
   });
 });

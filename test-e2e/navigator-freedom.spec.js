@@ -14,12 +14,25 @@ const { test, expect } = require('./fixtures');
 // Run an expression in the active webview's guest realm and return its
 // (awaited) value. The host renderer can call <webview>.executeJavaScript,
 // which resolves promises and structured-clones the result back.
+//
+// The webview element can briefly detach/re-attach during tab churn, so the
+// lookup is retried for a short window rather than failing on the first miss.
 async function runInGuest(window, expression) {
-  return window.evaluate((code) => {
-    const wv = document.querySelector('webview.active, webview:not(.hidden)');
-    if (!wv || !wv.executeJavaScript) throw new Error('no active webview');
-    return wv.executeJavaScript(code);
-  }, expression);
+  return window.evaluate(
+    async ({ code, deadlineMs }) => {
+      const findWebview = () =>
+        document.querySelector('webview.active, webview:not(.hidden)');
+      const start = Date.now();
+      let wv = findWebview();
+      while ((!wv || !wv.executeJavaScript) && Date.now() - start < deadlineMs) {
+        await new Promise((r) => setTimeout(r, 50));
+        wv = findWebview();
+      }
+      if (!wv || !wv.executeJavaScript) throw new Error('no active webview');
+      return wv.executeJavaScript(code);
+    },
+    { code: expression, deadlineMs: 2000 }
+  );
 }
 
 async function gotoPlayground(window) {
@@ -229,5 +242,35 @@ test.describe('navigator.freedom (Phase 1)', () => {
     );
 
     expect(JSON.parse(result)).toEqual({ name: 'TypeError' });
+  });
+
+  test('permissions.query maps registry names and rejects unknown ones', async ({ window }) => {
+    await gotoPlayground(window);
+
+    const result = await runInGuest(
+      window,
+      `(async () => {
+        const out = {};
+        out.dweb = (await navigator.freedom.permissions.query({ name: 'dweb.name-resolution' })).state;
+        out.ipfs = (await navigator.freedom.permissions.query({ name: 'storage.ipfs.write' })).state;
+        out.runtime = (await navigator.freedom.permissions.query({ name: 'runtime.status' })).state;
+        out.swarm = (await navigator.freedom.permissions.query({ name: 'storage.swarm.write' })).state;
+        try {
+          await navigator.freedom.permissions.query({ name: 'wallet.teleport' });
+          out.unknown = 'resolved';
+        } catch (e) {
+          out.unknown = e.name;
+        }
+        return JSON.stringify(out);
+      })()`
+    );
+
+    expect(JSON.parse(result)).toEqual({
+      dweb: 'granted',
+      ipfs: 'denied',
+      runtime: 'denied',
+      swarm: 'prompt',
+      unknown: 'TypeError',
+    });
   });
 });

@@ -291,6 +291,33 @@
   };
 
   // ---- permissions ---------------------------------------------------------
+  // Canonical permission names, mirroring the registry in FREEDOM_SPEC §18.
+  // Unknown names reject with TypeError, matching the platform Permissions API
+  // contract for unsupported descriptors.
+  var WALLET_PERMISSIONS = ['wallet.accounts', 'wallet.sign', 'wallet.send'];
+  var KNOWN_PERMISSIONS = WALLET_PERMISSIONS.concat([
+    'storage.swarm.write',
+    'storage.ipfs.write',
+    'dweb.name-resolution',
+    'runtime.status',
+  ]);
+
+  // All three wallet permissions are "granted via connect" in Phase 1: once an
+  // origin has connected accounts, accounts/sign/send are usable (send and
+  // sign may still surface a per-call approval, which is a runtime gate, not a
+  // permission state). So query maps connection state → granted | prompt, and
+  // surfaces the disabled Identity & Wallet gate (DISCONNECTED) as denied.
+  function queryWalletState() {
+    if (!window.ethereum) return Promise.resolve({ state: 'denied' });
+    return window.ethereum
+      .request({ method: 'eth_accounts' })
+      .then(function (accounts) {
+        return { state: accounts && accounts.length ? 'granted' : 'prompt' };
+      })
+      .catch(function (err) {
+        return { state: err && err.code === EIP1193.DISCONNECTED ? 'denied' : 'prompt' };
+      });
+  }
 
   var permissions = {
     query: function (descriptor) {
@@ -298,19 +325,21 @@
       if (!name) {
         return Promise.reject(new TypeError('permissions.query: a { name } descriptor is required'));
       }
-      if (name.indexOf('wallet.') === 0) {
-        if (!window.ethereum) return Promise.resolve({ state: 'denied' });
-        return window.ethereum
-          .request({ method: 'eth_accounts' })
-          .then(function (accounts) {
-            return { state: accounts && accounts.length ? 'granted' : 'prompt' };
-          })
-          .catch(function (err) {
-            return { state: err && err.code === EIP1193.DISCONNECTED ? 'denied' : 'prompt' };
-          });
+      if (KNOWN_PERMISSIONS.indexOf(name) === -1) {
+        return Promise.reject(new TypeError('permissions.query: unknown permission "' + name + '"'));
       }
-      if (name === 'storage.ipfs.write') return Promise.resolve({ state: 'denied' });
-      // storage.swarm.write / dweb / runtime: no page-level query in Phase 1.
+      if (WALLET_PERMISSIONS.indexOf(name) !== -1) {
+        return queryWalletState();
+      }
+      // Resolution is public, read-only, and ungated → implicit grant.
+      if (name === 'dweb.name-resolution') return Promise.resolve({ state: 'granted' });
+      // IPFS write is unavailable until the native path lands; runtime is a
+      // privileged Tier 3 surface, never granted to the open web.
+      if (name === 'storage.ipfs.write' || name === 'runtime.status') {
+        return Promise.resolve({ state: 'denied' });
+      }
+      // storage.swarm.write: no page-level permission read yet, so approximate
+      // as prompt (request drives the real connect/approval flow).
       return Promise.resolve({ state: 'prompt' });
     },
     request: function (descriptor) {
@@ -318,7 +347,13 @@
       if (!name) {
         return Promise.reject(new TypeError('permissions.request: a { name } descriptor is required'));
       }
-      if (name.indexOf('wallet.') === 0) {
+      if (KNOWN_PERMISSIONS.indexOf(name) === -1) {
+        return Promise.reject(
+          new TypeError('permissions.request: unknown permission "' + name + '"')
+        );
+      }
+      if (WALLET_PERMISSIONS.indexOf(name) !== -1) {
+        // A single connect grants the whole wallet permission group.
         return wallet
           .request({ method: 'eth_requestAccounts' })
           .then(function () {
@@ -329,6 +364,7 @@
             throw err;
           });
       }
+      if (name === 'dweb.name-resolution') return Promise.resolve({ state: 'granted' });
       if (name === 'storage.swarm.write') {
         if (!window.swarm) {
           return Promise.reject(notSupported('storage-unavailable', 'Swarm storage is not available'));
@@ -347,9 +383,8 @@
       if (name === 'storage.ipfs.write') {
         return Promise.reject(notSupported('write-not-supported', 'IPFS write is not available yet'));
       }
-      return Promise.reject(
-        notSupported('not-implemented', 'permission "' + name + '" is not requestable in Phase 1')
-      );
+      // runtime.status (Tier 3) is not requestable from the open web.
+      return Promise.resolve({ state: 'denied' });
     },
   };
 
