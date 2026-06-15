@@ -193,7 +193,7 @@ This part pins concrete shapes, maps the surface onto the code that exists
 today, and phases the work. The forcing function is the DappCon "Writing the
 dweb" workshop: Phase 1 is exactly the surface that workshop touches.
 
-## 13. Surface Summary (v1)
+## 13. Phase 1 Surface
 
 ```ts
 interface NavigatorFreedom {
@@ -212,6 +212,14 @@ detection via `typeof navigator.freedom !== "undefined"` — as the workshop
 setup step does — succeeds whenever Freedom injects the surface). Individual
 *capabilities* may still be unavailable; that is reported by `capabilities()`
 and by per-call errors, never by the namespace being absent.
+
+> **Privacy note.** Namespace presence alone uniquely fingerprints Freedom — a
+> site can detect that it is running in this browser without any permission.
+> This is an accepted trade-off (it mirrors `navigator.brave`, and Freedom is a
+> purpose-built dweb browser whose users opt into that identity), but it is a
+> deliberate choice, not an oversight. Capability *details* beyond mere presence
+> are gated behind `capabilities()` and permissions precisely to keep the
+> default fingerprinting surface coarse.
 
 ## 14. `capabilities()`
 
@@ -259,6 +267,24 @@ interface FreedomWallet {
 - `window.ethereum` remains as the Tier 1 compatibility alias (unchanged).
 - The workshop's wallet calls continue to use `window.ethereum`; `navigator.freedom.wallet`
   is the canonical equivalent and may be documented as the preferred form.
+
+**Provider semantics — façade, not the same object (important).** In Phase 1
+`navigator.freedom.wallet` is a *compatible façade* that delegates to
+`window.ethereum`, not the same provider object:
+
+- **Shared** — request pipeline and event stream. `wallet.request(...)` forwards
+  to `window.ethereum.request(...)`, and `wallet.on('accountsChanged', …)`
+  registers on the real provider, so accounts/chain/connection state are one and
+  the same. Request queueing and nonce/ordering behaviour are inherited.
+- **Not shared** — object identity and discovery metadata.
+  `navigator.freedom.wallet !== window.ethereum`; the façade carries no
+  `isMetaMask`/`isFreedomBrowser` flags and emits no EIP-6963 announcement, and
+  it is not its own EIP-1193 event emitter (it has no independent listener set).
+- **Guidance** — libraries that compare provider *identity*, sniff provider
+  flags, or rely on EIP-6963 discovery must use `window.ethereum`.
+  `navigator.freedom.wallet` is for app code that wants the canonical namespace.
+  A later phase may make the namespace the primary emitter and demote
+  `window.ethereum` to a shim (see "Coexistence" in §18).
 
 ## 16. `storage` (Tier 2, permission-gated)
 
@@ -355,6 +381,47 @@ nice-to-have for Phase 1, not required.
 | `dweb.resolve` | `src/main/ens-resolver.js` | already used by the address bar |
 | `capabilities()` | service registry + settings + permission stores | aggregate readiness |
 | `permissions.query/request` | `dapp-permissions.js` / `swarm-permissions` | unify under one query API |
+
+### Coexistence with `window.ethereum` / `window.swarm`
+
+Both existing globals stay. `window.ethereum` is EIP-1193 (+ EIP-6963);
+`window.swarm` is the SWIP-shaped Swarm Provider API. The long-term intent and
+the Phase 1 reality run in **opposite directions**, and the spec states both
+honestly rather than only the idealized end state:
+
+- **Long-term (target):** `navigator.freedom` is canonical and owns the logic.
+  `window.ethereum` and `window.swarm` become Tier 1 **compatibility shims**
+  backed by `navigator.freedom.wallet` / `navigator.freedom.storage`.
+- **Phase 1 (now):** the dependency is **inverted** — `window.ethereum` and
+  `window.swarm` are the real implementations (they own the request bridge,
+  approval UI, and permission stores), and `navigator.freedom` is a thin façade
+  that *delegates to them*. The façade direction flips in a later phase, at
+  which point the globals are reimplemented on top of the canonical surface.
+
+Until that flip, treat the globals as authoritative for object identity,
+discovery, and event emission (see §15 "Provider semantics").
+
+### Permission name registry
+
+Canonical permission names, the tier they belong to, and the existing store
+each maps onto. `permissions.query` / `permissions.request` unify these; names
+are stable identifiers (origin-scoped at the store level).
+
+| Permission name | Tier | Backed by | Phase 1 |
+| --- | --- | --- | --- |
+| `wallet.accounts` | 2 | `dapp-permissions.js` (connect/accounts) | query + request |
+| `wallet.sign` | 2 | `dapp-permissions.js` (signing) | granted via connect; no separate prompt yet |
+| `wallet.send` | 2 | `dapp-permissions.js` (tx) | granted via connect; per-tx approval at call time |
+| `storage.swarm.write` | 2 | `swarm-permissions` | query (approx) + request |
+| `storage.ipfs.write` | 2 | — (native write pending, §18) | always `denied` |
+| `dweb.name-resolution` | 2 | `ens-resolver.js` | reserved (resolve stubbed in Phase 1) |
+| `runtime.status` | 3 | service registry (privileged) | not exposed to open web |
+
+Notes: `query` returns `granted` / `denied` / `prompt`. In Phase 1,
+`storage.swarm.write` query is approximate (`prompt` unless already connected)
+because there is no page-level swarm permission read yet; `request` is exact
+(drives the real connect/approval flow). New permission names must be added to
+this table before use.
 
 ### Feature gate (resolved)
 
