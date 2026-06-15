@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      'unsafe-inline' in script-src is required because the browser injects the
+      window.ethereum / window.swarm / navigator.freedom providers as inline
+      <script> elements (see src/main/webview-preload.js). The page's own logic
+      loads from 'self' (scripts/playground.js).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none';"
+    />
+    <title>navigator.freedom playground</title>
+    <style>
+      :root {
+        --bg: #0f1115;
+        --panel: #171a21;
+        --line: #262b35;
+        --ink: #e8ece3;
+        --muted: #8a92a0;
+        --accent: #ec5b13;
+        --ok: #5dd39e;
+        --err: #ff6b6b;
+        --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+        --sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.5;
+        padding: 28px clamp(16px, 4vw, 48px) 64px;
+      }
+      h1 { font-size: 1.5rem; margin: 0 0 2px; }
+      h2 { font-size: 1rem; margin: 0 0 12px; letter-spacing: -0.01em; }
+      .sub { color: var(--muted); font-size: 0.9rem; margin: 0 0 24px; }
+      .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); max-width: 1100px; }
+      .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+      label { font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+      button {
+        font-family: var(--mono); font-size: 0.82rem; cursor: pointer;
+        background: var(--accent); color: #fff; border: 0; border-radius: 4px;
+        padding: 8px 14px; font-weight: 600;
+      }
+      button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      input, textarea {
+        font-family: var(--mono); font-size: 0.82rem; width: 100%;
+        background: #0c0e12; color: var(--ink); border: 1px solid var(--line);
+        border-radius: 4px; padding: 8px;
+      }
+      textarea { min-height: 64px; resize: vertical; }
+      .pill { font-family: var(--mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+      .pill.ok { color: var(--ok); border-color: var(--ok); }
+      .pill.err { color: var(--err); border-color: var(--err); }
+      .out { font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin-top: 10px; }
+      .out a { color: var(--accent); }
+      #log {
+        max-width: 1100px; margin-top: 24px; background: #0c0e12; border: 1px solid var(--line);
+        border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 0.76rem;
+        white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;
+      }
+      #log .ts { color: #4a5160; }
+      #log .l-ok { color: var(--ok); }
+      #log .l-err { color: var(--err); }
+      #log .l-info { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <h1>navigator.freedom <span id="version" class="pill">…</span></h1>
+    <p class="sub">
+      Phase 1 playground — exercise the capability surface end to end:
+      detect → capabilities → connect wallet → publish to Swarm → sign.
+    </p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>1 · Detection &amp; capabilities</h2>
+        <div class="row">
+          <span>navigator.freedom:</span><span id="detect" class="pill">checking…</span>
+        </div>
+        <div class="row">
+          <button id="caps-btn">capabilities()</button>
+        </div>
+        <div id="caps-out" class="out"></div>
+      </section>
+
+      <section class="card">
+        <h2>2 · Wallet</h2>
+        <div class="row">
+          <button id="connect-btn">connect wallet</button>
+          <span id="account" class="pill">not connected</span>
+        </div>
+        <div class="row">
+          <label for="sign-msg">message</label>
+          <textarea id="sign-msg">I published to the dweb.</textarea>
+        </div>
+        <div class="row">
+          <button id="sign-btn" class="ghost" disabled>personal_sign</button>
+        </div>
+        <div id="sign-out" class="out"></div>
+      </section>
+
+      <section class="card">
+        <h2>3 · Storage — publish to Swarm</h2>
+        <div class="row">
+          <label for="content">content</label>
+          <textarea id="content">&lt;h1&gt;Hello dweb&lt;/h1&gt;</textarea>
+        </div>
+        <div class="row">
+          <label for="ctype">contentType</label>
+          <input id="ctype" value="text/html" />
+        </div>
+        <div class="row">
+          <button id="publish-btn">storage.upload(swarm)</button>
+          <button id="publish-ipfs-btn" class="ghost">try ipfs (expect NotSupported)</button>
+        </div>
+        <div id="publish-out" class="out"></div>
+      </section>
+    </div>
+
+    <div id="log" aria-live="polite"></div>
+
+    <script src="scripts/playground.js"></script>
+  </body>
+</html>
