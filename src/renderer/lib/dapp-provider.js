@@ -14,13 +14,23 @@ import { showDappConnect, getSelectedChainId, setSelectedChainId, updateConnecti
 import { buildDappTxContext, extractSelector } from './wallet/dapp-tx.js';
 import { getPermissionKey } from './origin-utils.js';
 
-// Feature flag state
+// Feature flag state. Until the initial settings load resolves, the gate is
+// "pending", not "disabled": a request arriving in that startup window awaits
+// the load (below) instead of being spuriously rejected with DISCONNECTED.
+// The setting defaults to enabled, so the old `= false` initial value made the
+// first calls after page load racy.
 let identityWalletEnabled = false;
+let identityWalletLoaded = false;
 
-// Load initial flag state and listen for changes
-window.electronAPI?.getSettings?.().then((settings) => {
-  identityWalletEnabled = settings?.enableIdentityWallet === true;
-}).catch(() => {});
+const identityWalletReady = Promise.resolve(window.electronAPI?.getSettings?.())
+  .then((settings) => {
+    if (settings) identityWalletEnabled = settings.enableIdentityWallet === true;
+  })
+  .catch(() => {})
+  .finally(() => {
+    identityWalletLoaded = true;
+  });
+
 window.addEventListener('settings:updated', (event) => {
   identityWalletEnabled = event.detail?.enableIdentityWallet === true;
 });
@@ -125,7 +135,12 @@ async function getCurrentChainId() {
 async function handleProviderRequest(webview, request) {
   const { id, method, params } = request;
 
-  // Gate: if Identity & Wallet feature is disabled, reject all provider requests
+  // Gate: if Identity & Wallet feature is disabled, reject all provider
+  // requests. Await the initial settings load first so a request that races
+  // page startup isn't rejected before we know the real flag value.
+  if (!identityWalletLoaded) {
+    await identityWalletReady;
+  }
   if (!identityWalletEnabled) {
     sendProviderResponse(webview, id, null, ERRORS.DISCONNECTED);
     return;

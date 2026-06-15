@@ -21,12 +21,21 @@ const ERRORS = {
   INTERNAL_ERROR: { code: -32603, message: 'Internal error' },
 };
 
-// Feature flag state (same pattern as dapp-provider.js)
+// Feature flag state (same pattern as dapp-provider.js). The gate is "pending"
+// until the initial settings load resolves, so a request racing page startup
+// awaits the real flag value instead of being spuriously rejected.
 let identityWalletEnabled = false;
+let identityWalletLoaded = false;
 
-window.electronAPI?.getSettings?.().then((settings) => {
-  identityWalletEnabled = settings?.enableIdentityWallet === true;
-}).catch(() => {});
+const identityWalletReady = Promise.resolve(window.electronAPI?.getSettings?.())
+  .then((settings) => {
+    if (settings) identityWalletEnabled = settings.enableIdentityWallet === true;
+  })
+  .catch(() => {})
+  .finally(() => {
+    identityWalletLoaded = true;
+  });
+
 window.addEventListener('settings:updated', (event) => {
   identityWalletEnabled = event.detail?.enableIdentityWallet === true;
 });
@@ -52,7 +61,11 @@ export function setupSwarmProvider(webview) {
 async function handleSwarmRequest(webview, request) {
   const { id, method, params } = request;
 
-  // Gate: reject if feature disabled
+  // Gate: reject if feature disabled. Await the initial settings load first so
+  // a request that races page startup isn't rejected before the real flag is known.
+  if (!identityWalletLoaded) {
+    await identityWalletReady;
+  }
   if (!identityWalletEnabled) {
     sendSwarmResponse(webview, id, null, ERRORS.DISCONNECTED);
     return;
