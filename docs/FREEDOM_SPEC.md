@@ -196,7 +196,7 @@ publish, and resolve content on the dweb.
 
 ```ts
 interface NavigatorFreedom {
-  readonly version: string;                       // spec/impl version, e.g. "0.3"
+  readonly version: string;                       // spec version only, e.g. "0.3" — never a build/commit string (see §9 fingerprinting)
   capabilities(): Promise<Capabilities>;
   readonly permissions: FreedomPermissions;
   readonly wallet: FreedomWallet;                 // EIP-1193-shaped, browser-owned
@@ -304,13 +304,19 @@ interface UploadOptions {
   signal?: AbortSignal;        // cancellation → AbortError
 }
 
-interface UploadProgress { loaded?: number; total?: number; phase?: string; }
+type UploadPhase = "encoding" | "uploading" | "syncing";
+
+interface UploadProgress {
+  loaded?: number;             // bytes processed so far
+  total?: number;              // total bytes; Swarm may omit until chunking completes
+  phase?: UploadPhase;
+}
 
 interface UploadResult {
   network: "swarm" | "ipfs";
   hash: string;                // swarm: 64/128-hex reference; ipfs: CIDv1 base32
   url: string;                 // swarm: "bzz://<hash>"; ipfs: "ipfs://<cid>"
-  raw?: unknown;               // underlying provider result (tagUid, batchId, …)
+  _providerRaw?: unknown;      // unstable: raw provider result (tagUid, batchId, …); shape may change between phases
 }
 
 interface FreedomStorage {
@@ -327,7 +333,7 @@ const upload = await navigator.freedom.storage.upload({
   data: new Blob(["<h1>Hello dweb</h1>"], { type: "text/html" }),
   network: "swarm",
 });
-// → { network: "swarm", hash: "7a3f…c91e", url: "bzz://7a3f…c91e", raw: { tagUid, … } }
+// → { network: "swarm", hash: "7a3f…c91e", url: "bzz://7a3f…c91e", _providerRaw: { tagUid, … } }
 ```
 
 Normalization rules for `data`:
@@ -383,7 +389,7 @@ on-chain via `wallet`, then `resolve()` (or open) the name.
 | --- | --- | --- |
 | Injection of `navigator.freedom` | `src/main/webview-preload.js` + a new inject source modeled on `webview-preload-ethereum-inject.js` | page-realm object that postMessages to the preload bridge, same pattern as `window.ethereum` / `window.swarm` |
 | `wallet.request` | `dapp-provider.js` (renderer) → wallet IPC | reuse verbatim; route `navigator.freedom.wallet` requests through the same `dapp:provider-request` channel |
-| `storage.upload({network:"swarm"})` | `swarm-provider.js` → `swarm-provider-ipc.js` → `publish-service.js` | call `swarm_publishData`; map `{ reference, bzzUrl, tagUid }` → `{ network, hash: reference, url: bzzUrl, raw }` |
+| `storage.upload({network:"swarm"})` | `swarm-provider.js` → `swarm-provider-ipc.js` → `publish-service.js` | call `swarm_publishData`; map `{ reference, bzzUrl, tagUid }` → `{ network, hash: reference, url: bzzUrl, _providerRaw }` |
 | `storage.upload({network:"ipfs"})` | **does not exist yet** | native `freedom-ipfs` node is retrieval-only (`src/main/ipfs/` is a request dispatcher). Tracked work item — see below |
 | `dweb.resolve` | `src/main/ens-resolver.js` (`ens:resolve`) | invoked directly from the webview preload — public, read-only, ungated; result mapped to `{ protocol, hash, url }` |
 | `capabilities()` | service registry + settings + permission stores | aggregate readiness |
@@ -430,9 +436,11 @@ origin's connection state to `granted` (connected) or `prompt` (not), and to
 `denied` when the Identity & Wallet gate is off; `wallet.sign` / `wallet.send`
 may still surface a per-call approval (a runtime gate, not a permission state).
 `dweb.name-resolution` is an implicit `granted` (public/read-only). In Phase 1,
-`storage.swarm.write` query is approximate (`prompt` unless already connected)
-because there is no page-level swarm permission read yet; `request` is exact
-(drives the real connect/approval flow). Names outside this table reject with
+`storage.swarm.write` query is **best-effort** (`prompt` unless already
+connected) because there is no page-level swarm permission read yet; this
+partially relaxes §7's "inspectable by page API" guarantee, so pages must not
+build load-bearing UI on the queried state. `request` is exact (drives the real
+connect/approval flow). Names outside this table reject with
 `TypeError`, matching the platform Permissions API; new permission names must be
 added here before use.
 
@@ -498,8 +506,11 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 
 ## 21. Open Questions
 
-1. Is `navigator.freedom.wallet` documented as *preferred*, or do we keep
-   pointing developers to `window.ethereum` to match every other dapp tutorial?
+1. **Resolved.** For wallet access, point developers to `window.ethereum` — it
+   is the identity-bearing provider (EIP-6963 discovery, provider flags) that
+   libraries expect, and the §15 façade caveats make it the safe default.
+   `navigator.freedom.wallet` is documented as the canonical equivalent;
+   `storage.upload` is the lead Freedom-native capability.
 2. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
    vs. event-based — pick one before Phase 2.
 3. Should `bzz://`/`ipfs://` pages count as secure contexts for Tier 2 exposure

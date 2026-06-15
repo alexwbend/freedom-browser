@@ -159,7 +159,7 @@ describe('webview-preload-freedom-inject', () => {
         network: 'swarm',
         hash: 'abc123',
         url: 'bzz://abc123',
-        raw: { reference: 'abc123', bzzUrl: 'bzz://abc123' },
+        _providerRaw: { reference: 'abc123', bzzUrl: 'bzz://abc123' },
       });
     });
 

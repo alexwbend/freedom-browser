@@ -206,7 +206,7 @@
             network: 'swarm',
             hash: result.reference,
             url: result.bzzUrl || 'bzz://' + result.reference,
-            raw: result,
+            _providerRaw: result,
           };
         });
     });
