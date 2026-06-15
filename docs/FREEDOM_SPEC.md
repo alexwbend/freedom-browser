@@ -118,6 +118,17 @@ Tier 2 APIs are only exposed in secure contexts: `https://`, browser-owned
 (which Freedom registers as standard, secure schemes — see README "Swarm /
 IPFS Content Retrieval").
 
+**Content-addressed schemes are read-eligible but write-gated.** Being a secure
+context only makes an origin *eligible* to see Tier 2 surfaces; it does not
+grant any sensitive capability. Content-addressed origins (`bzz://`, `ipfs://`,
+`ipns://`) have no CA, no reputation, and no stable operator — any hash is a
+fresh "origin" — so they must **never** receive a default or ambient write
+grant. Every sensitive write (e.g. `storage.swarm.write`) requires an explicit,
+per-origin user grant, exactly like `https://`. This is the conservative
+resolution of Open Q3 (§21). In Phase 1 this is already enforced structurally:
+all writes route through `requestAccess`, which prompts per origin and stores
+the grant origin-scoped — there is no scheme-based fast path that bypasses it.
+
 ### 6.2 Untrusted Contexts
 
 These contexts do not receive sensitive Freedom capabilities by default:
@@ -530,5 +541,8 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
    `storage.upload` is the lead Freedom-native capability.
 2. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
    vs. event-based — pick one before Phase 2.
-3. Should `bzz://`/`ipfs://` pages count as secure contexts for Tier 2 exposure
-   by default, or require an explicit per-origin grant like `https://`?
+3. **Resolved.** `bzz://`/`ipfs://`/`ipns://` pages are secure contexts and so
+   are *eligible* for Tier 2, but sensitive **writes** require an explicit
+   per-origin grant like `https://` — never default/ambient exposure (§6.1).
+   Content-addressed origins have no CA/reputation layer, so a default grant
+   would let arbitrary Swarm/IPFS content prompt for `storage.swarm.write`.
