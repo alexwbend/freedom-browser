@@ -1,4 +1,4 @@
-// freedom://playground — live smoke test for the Phase 1 navigator.freedom
+// freedom://playground — live smoke test for the navigator.freedom
 // surface. Uses the page-realm globals injected by the webview preload
 // (navigator.freedom + window.ethereum), not the internal freedomAPI bridge.
 
@@ -39,6 +39,102 @@
     } catch {
       return String(value);
     }
+  }
+
+  // ---- call snippets ---------------------------------------------------------
+  // Mirror the exact navigator.freedom call each control runs, so the page is a
+  // copy-pasteable reference and not just a black-box of buttons.
+
+  function setCall(id, code) {
+    var el = $(id);
+    if (el) el.textContent = code;
+  }
+
+  function copyText(text) {
+    // Internal freedom:// pages run inside a sandboxed webview where the async
+    // Clipboard API is blocked (the main-process permission handler denies it
+    // and freedom:// is not a secure context). Route through the preload bridge,
+    // which copies via Electron's main-process clipboard, with API fallbacks.
+    if (window.freedomAPI && typeof window.freedomAPI.copyText === 'function') {
+      return Promise.resolve(window.freedomAPI.copyText(text)).then(function (res) {
+        if (res && res.success === false) {
+          throw new Error(res.error || 'clipboard copy failed');
+        }
+      });
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'absolute';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) resolve();
+        else reject(new Error('copy command was rejected'));
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  function wireCopyButtons() {
+    var buttons = document.querySelectorAll('.copy');
+    Array.prototype.forEach.call(buttons, function (btn) {
+      btn.addEventListener('click', function () {
+        var target = $(btn.getAttribute('data-copy'));
+        if (!target) return;
+        copyText(target.textContent).then(
+          function () {
+            var label = btn.textContent;
+            btn.textContent = 'copied';
+            btn.classList.add('copied');
+            log('copied call: ' + target.textContent.replace(/\s+/g, ' '), 'ok');
+            setTimeout(function () {
+              btn.textContent = label;
+              btn.classList.remove('copied');
+            }, 1200);
+          },
+          function (err) {
+            log('copy failed — ' + describeError(err), 'err');
+          }
+        );
+      });
+    });
+  }
+
+  function renderCalls() {
+    var msg = ($('sign-msg') && $('sign-msg').value) || '';
+    var contentType = ($('ctype') && $('ctype').value) || '';
+    var name = ($('dweb-name') && $('dweb-name').value.trim()) || '';
+
+    setCall('caps-call', 'await navigator.freedom.capabilities()');
+    setCall(
+      'connect-call',
+      "await navigator.freedom.wallet.request({ method: 'eth_requestAccounts' })"
+    );
+    setCall(
+      'sign-call',
+      'await navigator.freedom.wallet.request({\n' +
+        "  method: 'personal_sign',\n" +
+        '  params: [' + JSON.stringify(msg) + ', account]\n' +
+        '})'
+    );
+    setCall(
+      'publish-call',
+      'await navigator.freedom.storage.upload({\n' +
+        '  data: blob,\n' +
+        "  network: 'swarm',\n" +
+        '  contentType: ' + JSON.stringify(contentType || undefined) + '\n' +
+        '})'
+    );
+    setCall('resolve-call', 'await navigator.freedom.dweb.resolve(' + JSON.stringify(name) + ')');
   }
 
   // ---- detection -----------------------------------------------------------
@@ -93,6 +189,7 @@
         $('account').textContent = account || 'no account';
         $('account').className = account ? 'pill ok' : 'pill err';
         $('sign-btn').disabled = !account;
+        $('disconnect-btn').disabled = !account;
         log('connected: ' + account, 'ok');
       },
       function (err) {
@@ -101,6 +198,19 @@
         log('connect failed — ' + describeError(err), 'err');
       }
     );
+  }
+
+  function disconnectWallet() {
+    // EIP-1193 has no dapp-initiated disconnect and the wallet exposes no
+    // revoke method to the page, so this clears the page's own session state.
+    // The browser keeps the granted permission until revoked from the wallet UI.
+    account = null;
+    $('account').textContent = 'not connected';
+    $('account').className = 'pill';
+    $('sign-btn').disabled = true;
+    $('disconnect-btn').disabled = true;
+    $('sign-out').textContent = '';
+    log('wallet disconnected (cleared page session)', 'info');
   }
 
   function signMessage() {
@@ -130,6 +240,14 @@
     var text = $('content').value;
     var contentType = $('ctype').value || undefined;
     var blob = new Blob([text], { type: contentType || 'text/plain' });
+    setCall(
+      'publish-call',
+      'await navigator.freedom.storage.upload({\n' +
+        '  data: blob,\n' +
+        '  network: ' + JSON.stringify(network) + ',\n' +
+        '  contentType: ' + JSON.stringify(contentType) + '\n' +
+        '})'
+    );
     log('storage.upload({ network: "' + network + '" }) …');
     navigator.freedom.storage.upload({ data: blob, network: network, contentType: contentType }).then(
       function (result) {
@@ -186,14 +304,20 @@
     runDetection();
     $('caps-btn').addEventListener('click', runCapabilities);
     $('connect-btn').addEventListener('click', connectWallet);
+    $('disconnect-btn').addEventListener('click', disconnectWallet);
     $('sign-btn').addEventListener('click', signMessage);
     $('publish-btn').addEventListener('click', function () {
       publish('swarm');
     });
-    $('publish-ipfs-btn').addEventListener('click', function () {
-      publish('ipfs');
-    });
     $('resolve-btn').addEventListener('click', resolveName);
+
+    // Keep the call snippets in sync with the current inputs.
+    renderCalls();
+    ['sign-msg', 'ctype', 'dweb-name'].forEach(function (id) {
+      $(id).addEventListener('input', renderCalls);
+    });
+    wireCopyButtons();
+
     // Surface the current capability state immediately.
     runCapabilities();
   });

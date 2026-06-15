@@ -60,6 +60,21 @@
       .pill.err { color: var(--err); border-color: var(--err); }
       .out { font-family: var(--mono); font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; color: var(--muted); margin-top: 10px; }
       .out a { color: var(--accent); }
+      .call-wrap { position: relative; }
+      .call {
+        display: block; font-family: var(--mono); font-size: 0.76rem;
+        background: #0c0e12; border: 1px solid var(--line); border-left: 2px solid var(--accent);
+        border-radius: 4px; padding: 8px 56px 8px 10px; margin: 8px 0;
+        color: var(--accent); white-space: pre-wrap; word-break: break-word;
+      }
+      .copy {
+        position: absolute; top: 6px; right: 6px;
+        font-family: var(--mono); font-size: 0.68rem; line-height: 1; font-weight: 600;
+        padding: 4px 8px; background: transparent; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 4px; cursor: pointer;
+      }
+      .copy:hover { color: var(--ink); border-color: var(--muted); }
+      .copy.copied { color: var(--ok); border-color: var(--ok); }
       #log {
         max-width: 1100px; margin-top: 24px; background: #0c0e12; border: 1px solid var(--line);
         border-radius: 8px; padding: 14px; font-family: var(--mono); font-size: 0.76rem;
@@ -74,7 +89,7 @@
   <body>
     <h1>navigator.freedom <span id="version" class="pill">…</span></h1>
     <p class="sub">
-      Phase 1 playground — exercise the capability surface end to end:
+      Exercise the navigator.freedom capability surface end to end:
       detect → capabilities → connect wallet → publish to Swarm → sign →
       resolve a dweb name.
     </p>
@@ -88,6 +103,10 @@
         <div class="row">
           <button id="caps-btn">capabilities()</button>
         </div>
+        <div class="call-wrap">
+          <code class="call" id="caps-call"></code>
+          <button class="copy" type="button" data-copy="caps-call">copy</button>
+        </div>
         <div id="caps-out" class="out"></div>
       </section>
 
@@ -95,7 +114,12 @@
         <h2>2 · Wallet</h2>
         <div class="row">
           <button id="connect-btn">connect wallet</button>
+          <button id="disconnect-btn" class="ghost" disabled>disconnect</button>
           <span id="account" class="pill">not connected</span>
+        </div>
+        <div class="call-wrap">
+          <code class="call" id="connect-call"></code>
+          <button class="copy" type="button" data-copy="connect-call">copy</button>
         </div>
         <div class="row">
           <label for="sign-msg">message</label>
@@ -103,6 +127,10 @@
         </div>
         <div class="row">
           <button id="sign-btn" class="ghost" disabled>personal_sign</button>
+        </div>
+        <div class="call-wrap">
+          <code class="call" id="sign-call"></code>
+          <button class="copy" type="button" data-copy="sign-call">copy</button>
         </div>
         <div id="sign-out" class="out"></div>
       </section>
@@ -119,7 +147,10 @@
         </div>
         <div class="row">
           <button id="publish-btn">storage.upload(swarm)</button>
-          <button id="publish-ipfs-btn" class="ghost">try ipfs (expect NotSupported)</button>
+        </div>
+        <div class="call-wrap">
+          <code class="call" id="publish-call"></code>
+          <button class="copy" type="button" data-copy="publish-call">copy</button>
         </div>
         <div id="publish-out" class="out"></div>
       </section>
@@ -132,6 +163,10 @@
         </div>
         <div class="row">
           <button id="resolve-btn">dweb.resolve()</button>
+        </div>
+        <div class="call-wrap">
+          <code class="call" id="resolve-call"></code>
+          <button class="copy" type="button" data-copy="resolve-call">copy</button>
         </div>
         <div id="resolve-out" class="out"></div>
       </section>
