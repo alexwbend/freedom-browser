@@ -1,9 +1,8 @@
 # Freedom Browser Developer Platform Specification (v0.3)
 
-> **Status.** Part I (Architecture) is the design thesis carried forward from
-> v0.2. Part II (Implementation Specification) is new in v0.3 and is the
-> contract engineering builds against. Where the two disagree, Part II wins for
-> anything shipping in a phase; Part I governs long-term direction.
+> Part I (Architecture) is the design thesis and governs long-term direction.
+> Part II (Implementation Specification) is the contract engineering builds
+> against. Where the two disagree, Part II wins for shipping behavior.
 
 ---
 
@@ -423,34 +422,27 @@ because there is no page-level swarm permission read yet; `request` is exact
 (drives the real connect/approval flow). New permission names must be added to
 this table before use.
 
-### Feature gate (resolved)
+### Feature gate
 
 Both underlying providers (`dapp-provider.js`, `swarm-provider.js`) are gated
 behind the `enableIdentityWallet` setting and reject every request with
-`DISCONNECTED` (code 4900) when it is off. However, the setting **defaults to
-`true`** (`src/main/settings-store.js`), so a fresh install already has the
-surface live.
+`DISCONNECTED` (code 4900) when it is off. The setting **defaults to `true`**
+(`src/main/settings-store.js`), so a fresh install has the surface live.
 
-**Resolution — rely on the default, report honestly, no workshop-specific
-auto-enable:**
+Gate behavior:
 
-1. Do **not** add a config-import / auto-enable mechanism for the workshop.
-   Leaning on the default-on flag is less fragile than pushing hidden config.
-2. `capabilities()` reflects the gate honestly: when off, `wallet.available` and
-   `storage.swarm.available` are `false` with `reason: "identity-wallet-disabled"`,
-   and direct calls reject with `NotAllowedError` carrying an actionable message
-   ("Enable Identity & Wallet in Settings → Experimental") — never a silent
-   `DISCONNECTED`.
-3. **Fix the init race** in both providers: they start `identityWalletEnabled =
-   false` and load the real value asynchronously, so a call in the first tick can
-   be spuriously rejected. Treat "settings not yet loaded" as *pending* (await the
-   first settings load) rather than *disabled*.
-4. Workshop setup guide: a single verify line ("confirm Identity & Wallet is on
-   — it is by default").
+- `capabilities()` reflects the gate honestly: when off, `wallet.available` and
+  `storage.swarm.available` are `false` with `reason: "identity-wallet-disabled"`,
+  and direct calls reject with `NotAllowedError` carrying an actionable message
+  ("Enable Identity & Wallet in Settings → Experimental") — never a silent
+  `DISCONNECTED`.
+- "Settings not yet loaded" is treated as *pending* (callers await the first
+  settings load) rather than *disabled*, so a call in the first tick is not
+  spuriously rejected.
+- There is no auto-enable mechanism; the surface relies on the default-on flag.
 
-Settings placement (decided): the flag stays under `Settings → Experimental`
-("Enable Identity & Wallet (Beta)") for now. Graduating it out of Experimental
-is deferred to a later settings cleanup pass — out of scope for Phase 1.
+The flag lives under `Settings → Experimental` ("Enable Identity & Wallet
+(Beta)").
 
 ### Tracked dependency — native IPFS write
 
@@ -469,14 +461,14 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 
 ## 20. Phasing
 
-**Phase 1 — Workshop surface (this effort)**
+**Phase 1 — Workshop surface**
 
 - Inject `navigator.freedom` with `version`, `capabilities()`, `wallet`,
   `storage.upload` (swarm working; ipfs reports unavailable), `permissions.query/request`.
 - `storage.upload` swarm path end-to-end over existing publish pipeline.
 - `dweb.resolve` (optional but cheap).
-- Honest gate handling per §18 "Feature gate (resolved)": no workshop auto-enable,
-  `capabilities()` reflects the flag, and fix the provider init race.
+- Honest gate handling per §18 "Feature gate": `capabilities()` reflects the
+  flag, no auto-enable, and "settings not yet loaded" is treated as pending.
 
 **Phase 2**
 
@@ -492,13 +484,9 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 
 ## 21. Open Questions
 
-1. ~~Workshop gate: auto-enable `enableIdentityWallet`?~~ **Resolved** — rely on
-   the default-on flag, report state via `capabilities()`, fix the init race; no
-   workshop-specific auto-enable. See §18 "Feature gate (resolved)". The flag
-   stays under "Experimental" for now; settings cleanup is deferred.
-2. Is `navigator.freedom.wallet` documented as *preferred* for the workshop, or
+1. Is `navigator.freedom.wallet` documented as *preferred* for the workshop, or
    do we keep teaching `window.ethereum` to match every other dapp tutorial?
-3. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
+2. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
    vs. event-based — pick one before Phase 2.
-4. Should `bzz://`/`ipfs://` pages count as secure contexts for Tier 2 exposure
+3. Should `bzz://`/`ipfs://` pages count as secure contexts for Tier 2 exposure
    by default, or require an explicit per-origin grant like `https://`?
