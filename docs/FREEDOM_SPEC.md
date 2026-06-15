@@ -149,7 +149,7 @@ Browser-style failure semantics rather than protocol-specific ad hoc errors:
 | Capability not available on this platform/build | `NotSupportedError` |
 | Permission denied by user / not connected | `NotAllowedError` |
 | Local service disabled or not ready | `InvalidStateError` |
-| User canceled upload or prompt, or `signal` aborted | `AbortError` |
+| User canceled upload or prompt, or `signal` aborted (best-effort; §16.1) | `AbortError` |
 | Decentralized fetch / upload could not complete | `NetworkError` |
 | Bad arguments | `TypeError` |
 
@@ -301,7 +301,7 @@ interface UploadOptions {
   contentType?: string;        // defaults: Blob/File type, else "application/octet-stream"
   filename?: string;           // hint for single-file manifests
   onProgress?: (p: UploadProgress) => void;
-  signal?: AbortSignal;        // cancellation → AbortError
+  signal?: AbortSignal;        // best-effort cancellation → AbortError (see note below)
 }
 
 type UploadPhase = "encoding" | "uploading" | "syncing";
@@ -341,6 +341,14 @@ Normalization rules for `data`:
 - `string` → encoded UTF-8 bytes, default `contentType: "text/plain"` unless given.
 - `Blob`/`File` → bytes via `arrayBuffer()`; `contentType`/`filename` inferred if absent.
 - `ArrayBuffer`/`Uint8Array` → bytes as-is.
+
+**Abort semantics (`signal`).** In Phase 1 cancellation is **best-effort**: an
+already-aborted signal rejects before any work starts, and a signal that fires
+mid-upload settles the caller's promise with `AbortError`. The in-flight network
+upload is **not** truly canceled — the bytes may still land on the node (the
+page-realm facade rejects the caller without a host-renderer round-trip). Treat
+`signal` as pre-flight cancellation plus caller-side detach, not a guarantee
+that nothing was published.
 
 ### 16.2 Advanced: per-network helpers
 

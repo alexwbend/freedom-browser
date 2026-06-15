@@ -201,6 +201,23 @@ describe('webview-preload-freedom-inject', () => {
       ).rejects.toMatchObject({ name: 'AbortError' });
     });
 
+    test('rejects with AbortError when the signal fires mid-upload', async () => {
+      const controller = new AbortController();
+      const swarm = defaultSwarm({
+        // Never resolves on its own, so only the abort can settle the promise.
+        publishData: jest.fn(() => new Promise(() => {})),
+      });
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm });
+      const pending = freedom.storage.upload({
+        data: 'x',
+        network: 'swarm',
+        signal: controller.signal,
+      });
+      await Promise.resolve();
+      controller.abort();
+      await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
     test('storage.swarm.upload forwards to the unified upload', async () => {
       const swarm = defaultSwarm();
       const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm });

@@ -151,6 +151,41 @@
     );
   }
 
+  // Reject `promise` with AbortError if `signal` fires before it settles.
+  // Phase 1 caveat: this only settles the caller's promise — the in-flight
+  // network upload is not actually canceled and may still complete on the node
+  // (see FREEDOM_SPEC §16: abort is best-effort, no mid-upload cancellation).
+  function withAbort(signal, promise) {
+    if (!signal || typeof signal.addEventListener !== 'function') return promise;
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      function cleanup() {
+        if (signal.removeEventListener) signal.removeEventListener('abort', onAbort);
+      }
+      function onAbort() {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(new DOMException('Upload aborted', 'AbortError'));
+      }
+      signal.addEventListener('abort', onAbort);
+      promise.then(
+        function (value) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        },
+        function (err) {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        }
+      );
+    });
+  }
+
   function upload(options) {
     if (!options || typeof options !== 'object') {
       return Promise.reject(new TypeError('storage.upload: an options object is required'));
@@ -186,7 +221,7 @@
       return Promise.reject(notSupported('storage-unavailable', 'Swarm storage is not available'));
     }
 
-    return normalizeData(data, options.contentType, options.filename).then(function (norm) {
+    var work = normalizeData(data, options.contentType, options.filename).then(function (norm) {
       // requestAccess is idempotent — shows the connect prompt only on first
       // use for this origin, otherwise resolves immediately.
       return window.swarm
@@ -210,6 +245,8 @@
           };
         });
     });
+
+    return withAbort(signal, work);
   }
 
   var storage = {
