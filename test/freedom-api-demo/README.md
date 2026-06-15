@@ -35,8 +35,9 @@ Each card drives one part of the surface (see `docs/FREEDOM_SPEC.md`):
 1. **Detection & capabilities** — `navigator.freedom.version`, presence of
    `window.ethereum` / `window.swarm`, and `capabilities()`.
 2. **Wallet** — `wallet.request('eth_requestAccounts')` then `personal_sign`.
-3. **Storage** — `storage.upload({ network: 'swarm' })`; the IPFS button is
-   expected to reject with `NotSupportedError` (IPFS write is not implemented yet).
+3. **Storage** — `storage.upload({ network: 'swarm' })`. Only the Swarm path is
+   exercised; IPFS write is not implemented yet (`capabilities()` reports it
+   unavailable, and `network: 'ipfs'` rejects with `NotSupportedError`).
 4. **dweb** — `dweb.resolve(name)` against a live ENS name.
 5. **Permissions** — `permissions.query` / `permissions.request` for any name
    (e.g. `wallet.accounts`, `dweb.name-resolution`, `storage.ipfs.write`, or a
@@ -53,9 +54,13 @@ Each card drives one part of the surface (see `docs/FREEDOM_SPEC.md`):
 - `server.js` is a zero-dependency static file server (GET/HEAD only, with a
   path-traversal guard). It is a manual testing aid and is not part of the
   automated unit or e2e suites.
+- The page logic is **shared verbatim** with the internal `freedom://playground`
+  page: it lives in `src/renderer/pages/scripts/freedom-surface.js`, and
+  `server.js` serves that single canonical copy at `/freedom-surface.js`. The
+  script feature-detects which cards a page renders and picks the clipboard
+  transport from the document protocol, so the same file drives both contexts.
 
 ## Files
 
 - `index.html` — the demo page (markup + styles).
-- `app.js` — page logic calling `navigator.freedom`.
-- `server.js` — the static HTTP server.
+- `server.js` — the static HTTP server (also serves the shared `freedom-surface.js`).

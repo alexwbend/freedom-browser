@@ -18,6 +18,14 @@ const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
 
+// The page logic is shared with the internal freedom://playground page; serve
+// the single canonical copy from src instead of duplicating it here.
+const SHARED_SCRIPT_NAME = 'freedom-surface.js';
+const SHARED_SCRIPT_PATH = path.join(
+  ROOT,
+  '../../src/renderer/pages/scripts/freedom-surface.js'
+);
+
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -42,12 +50,18 @@ const server = http.createServer((req, res) => {
 
   const urlPath = decodeURIComponent((req.url || '/').split('?')[0].split('#')[0]);
   const relPath = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
-  const filePath = path.join(ROOT, relPath);
 
-  // Path-traversal guard: the resolved path must stay inside ROOT.
-  if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
-    sendError(res, 403, 'Forbidden');
-    return;
+  let filePath;
+  if (relPath === SHARED_SCRIPT_NAME) {
+    // Canonical shared script lives in src/, outside ROOT — serve it explicitly.
+    filePath = SHARED_SCRIPT_PATH;
+  } else {
+    filePath = path.join(ROOT, relPath);
+    // Path-traversal guard: the resolved path must stay inside ROOT.
+    if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
+      sendError(res, 403, 'Forbidden');
+      return;
+    }
   }
 
   fs.stat(filePath, (err, stats) => {

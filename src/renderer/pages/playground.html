@@ -6,7 +6,7 @@
       'unsafe-inline' in script-src is required because the browser injects the
       window.ethereum / window.swarm / navigator.freedom providers as inline
       <script> elements (see src/main/webview-preload.js). The page's own logic
-      loads from 'self' (scripts/playground.js).
+      loads from 'self' (scripts/freedom-surface.js).
     -->
     <meta
       http-equiv="Content-Security-Policy"
@@ -98,8 +98,13 @@
       <section class="card">
         <h2>1 · Detection &amp; capabilities</h2>
         <div class="row">
-          <span>navigator.freedom:</span><span id="detect" class="pill">checking…</span>
+          <button id="detect-btn">detect</button>
         </div>
+        <div class="call-wrap">
+          <code class="call" id="detect-call"></code>
+          <button class="copy" type="button" data-copy="detect-call">copy</button>
+        </div>
+        <div id="detect-out" class="out"></div>
         <div class="row">
           <button id="caps-btn">capabilities()</button>
         </div>
@@ -170,10 +175,27 @@
         </div>
         <div id="resolve-out" class="out"></div>
       </section>
+
+      <section class="card">
+        <h2>5 · Permissions</h2>
+        <div class="row">
+          <label for="perm-name">permission name</label>
+          <input id="perm-name" value="wallet.accounts" />
+        </div>
+        <div class="row">
+          <button id="perm-query-btn">permissions.query()</button>
+          <button id="perm-request-btn" class="ghost">permissions.request()</button>
+        </div>
+        <div class="call-wrap">
+          <code class="call" id="perm-call"></code>
+          <button class="copy" type="button" data-copy="perm-call">copy</button>
+        </div>
+        <div id="perm-out" class="out"></div>
+      </section>
     </div>
 
     <div id="log" aria-live="polite"></div>
 
-    <script src="scripts/playground.js"></script>
+    <script src="scripts/freedom-surface.js"></script>
   </body>
 </html>
