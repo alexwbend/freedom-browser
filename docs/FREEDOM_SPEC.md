@@ -189,8 +189,8 @@ MetaMask exposes a provider. Freedom exposes an environment.
 # Part II — Implementation Specification
 
 This part pins concrete shapes, maps the surface onto the code that exists
-today, and phases the work. The forcing function is the DappCon "Writing the
-dweb" workshop: Phase 1 is exactly the surface that workshop touches.
+today, and phases the work. Phase 1 is the minimal surface needed to write,
+publish, and resolve content on the dweb.
 
 ## 13. Phase 1 Surface
 
@@ -207,10 +207,10 @@ interface NavigatorFreedom {
 ```
 
 `navigator.freedom` is always present in a supported context (so feature
-detection via `typeof navigator.freedom !== "undefined"` — as the workshop
-setup step does — succeeds whenever Freedom injects the surface). Individual
-*capabilities* may still be unavailable; that is reported by `capabilities()`
-and by per-call errors, never by the namespace being absent.
+detection via `typeof navigator.freedom !== "undefined"` succeeds whenever
+Freedom injects the surface). Individual *capabilities* may still be
+unavailable; that is reported by `capabilities()` and by per-call errors, never
+by the namespace being absent.
 
 > **Privacy note.** Namespace presence alone uniquely fingerprints Freedom — a
 > site can detect that it is running in this browser without any permission.
@@ -267,7 +267,7 @@ interface FreedomWallet {
   `eth_sendTransaction`, `wallet_switchEthereumChain`, read-only RPC, etc.
   (see `src/renderer/lib/dapp-provider.js`).
 - `window.ethereum` remains as the Tier 1 compatibility alias (unchanged).
-- The workshop's wallet calls continue to use `window.ethereum`; `navigator.freedom.wallet`
+- Existing dapp code continues to use `window.ethereum`; `navigator.freedom.wallet`
   is the canonical equivalent and may be documented as the preferred form.
 
 **Provider semantics — façade, not the same object (important).** In Phase 1
@@ -320,7 +320,7 @@ interface FreedomStorage {
 }
 ```
 
-This is the exact shape the workshop relies on:
+The canonical upload shape:
 
 ```js
 const upload = await navigator.freedom.storage.upload({
@@ -374,9 +374,8 @@ resolution is public and read-only, the sandboxed webview preload invokes
 `enableIdentityWallet`). The page-realm facade maps the resolver's `{ type:
 "ok", protocol, decoded, uri }` result to `{ protocol, hash, url }`; a
 `not_found`/`error` result rejects with `NetworkError` and an unsupported
-contenthash codec with `NotSupportedError`. The workshop's ENS segment is a
-demo: set the contenthash on-chain via `wallet`, then `resolve()` (or open) the
-name.
+contenthash codec with `NotSupportedError`. Typical flow: set the contenthash
+on-chain via `wallet`, then `resolve()` (or open) the name.
 
 ## 18. Mapping onto existing implementation
 
@@ -476,7 +475,7 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 
 ## 20. Phasing
 
-**Phase 1 — Workshop surface**
+**Phase 1 — Core surface**
 
 - Inject `navigator.freedom` with `version`, `capabilities()`, `wallet`,
   `storage.upload` (swarm working; ipfs reports unavailable), `permissions.query/request`.
@@ -499,8 +498,8 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 
 ## 21. Open Questions
 
-1. Is `navigator.freedom.wallet` documented as *preferred* for the workshop, or
-   do we keep teaching `window.ethereum` to match every other dapp tutorial?
+1. Is `navigator.freedom.wallet` documented as *preferred*, or do we keep
+   pointing developers to `window.ethereum` to match every other dapp tutorial?
 2. Progress reporting for `storage.upload`: `onProgress` callback (in spec now)
    vs. event-based — pick one before Phase 2.
 3. Should `bzz://`/`ipfs://` pages count as secure contexts for Tier 2 exposure
