@@ -131,6 +131,16 @@ function notConnected() {
   return notAuthorized('not_connected');
 }
 
+// Map a publish failure to a provider error, preserving a distinct stamp/node
+// `reason` from publish-service when present so the page facade can tell a
+// postage problem apart from a generic internal error (spec §8).
+function uploadError(err) {
+  if (err && err.reason) {
+    return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message, data: { reason: err.reason } } };
+  }
+  return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
+}
+
 function feedNotGranted() {
   return notAuthorized('feed_not_granted');
 }
@@ -467,7 +477,7 @@ async function handlePublishData(params, origin) {
   } catch (err) {
     updateEntry(historyEntry.id, { status: 'failed', errorMessage: err.message });
     log.error(`[SwarmProvider] publishData failed for ${origin}:`, err.message);
-    return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
+    return uploadError(err);
   }
 }
 
@@ -620,7 +630,7 @@ async function handlePublishFiles(params, origin) {
   } catch (err) {
     updateEntry(historyEntry.id, { status: 'failed', errorMessage: err.message });
     log.error(`[SwarmProvider] publishFiles failed for ${origin}:`, err.message);
-    return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
+    return uploadError(err);
   }
 }
 

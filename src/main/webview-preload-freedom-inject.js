@@ -39,8 +39,8 @@
   var GATE_MESSAGE =
     'Freedom Identity & Wallet is disabled. Enable it in Settings \u2192 Experimental.';
 
-  function notSupported(reason, message) {
-    var err = new DOMException(message || 'Capability not supported', 'NotSupportedError');
+  function domError(name, reason, message) {
+    var err = new DOMException(message || name, name);
     try {
       err.reason = reason;
     } catch {
@@ -49,13 +49,41 @@
     return err;
   }
 
+  function notSupported(reason, message) {
+    return domError('NotSupportedError', reason, message || 'Capability not supported');
+  }
+
+  // Pre-flight node/stamp problems are a local-state issue, not a permission
+  // denial — map them to InvalidStateError with an actionable message (§8).
+  var READINESS_MESSAGES = {
+    'no-usable-stamps': 'No usable postage stamp is available. Buy or top up a stamp to publish.',
+    'node-not-ready': 'The Swarm node is not ready yet. Try again shortly.',
+    'node-stopped': 'The Swarm node is not running.',
+    'ultra-light-mode': 'The Swarm node is in ultra-light mode and cannot publish.',
+  };
+
   // Map an underlying provider error (EIP-1193 numeric codes) to the DOM-style
   // error model defined in the spec (§8). The gate-off case (DISCONNECTED) is
   // surfaced as a clear, actionable NotAllowedError rather than a bare
   // "Disconnected" string — this is the resolved gate decision (§18).
   function mapError(err) {
     var code = err && err.code;
+    var reason = err && err.data && err.data.reason;
     var message = (err && err.message) || 'Freedom request failed';
+
+    // Branch on reason before code: node/stamp failures share code 4900 with
+    // the disabled gate, but they are a different story (§8). The gate-off
+    // case carries no reason, so it still falls through to NotAllowedError.
+    if (READINESS_MESSAGES[reason]) {
+      return domError('InvalidStateError', reason, READINESS_MESSAGES[reason]);
+    }
+    if (reason === 'stamp-exhausted') {
+      return domError(
+        'NetworkError',
+        reason,
+        'The postage stamp was exhausted before the upload completed.'
+      );
+    }
 
     if (code === EIP1193.DISCONNECTED) {
       return new DOMException(GATE_MESSAGE, 'NotAllowedError');

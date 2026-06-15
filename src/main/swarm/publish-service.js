@@ -19,6 +19,26 @@ const log = require('electron-log');
 // the freedom://publish UI). dApp-driven publishes pass their actual origin.
 const USER_ORIGIN = 'freedom://publish';
 
+// Build an error for "no usable postage batch" so callers can distinguish a
+// pre-flight stamp problem from a generic failure (spec §8).
+function noStampError() {
+  const err = new Error('No usable postage batch available. Purchase stamps first.');
+  err.reason = 'no-usable-stamps';
+  return err;
+}
+
+// Tag an upload failure as stamp exhaustion when the node reports the batch ran
+// out of postage mid-upload. Heuristic on the node/bee-js message — there is no
+// dedicated error code — so it stays best-effort (spec §8). Returns the same
+// error with `reason` set when it matches, otherwise unchanged.
+function classifyUploadError(err) {
+  const message = (err && err.message) || '';
+  if (/payment required|insufficient|not usable|fully used|out of (funds|space|stamp)|batch.*(expired|exhaust)|\b402\b/i.test(message)) {
+    err.reason = 'stamp-exhausted';
+  }
+  return err;
+}
+
 /**
  * Normalize an UploadResult to a Freedom publish result.
  */
@@ -68,16 +88,21 @@ async function publishData(data, options = {}) {
   const batchId = options.batchId || await selectBestBatch(sizeEstimate);
 
   if (!batchId) {
-    throw new Error('No usable postage batch available. Purchase stamps first.');
+    throw noStampError();
   }
 
-  // Use uploadFile so the content gets a manifest and is browsable via bzz://
-  const result = await bee.uploadFile(batchId, data, options.name || 'data', {
-    pin: true,
-    deferred: false,
-    contentType: options.contentType || 'text/plain',
-    ...options.uploadOptions,
-  });
+  let result;
+  try {
+    // Use uploadFile so the content gets a manifest and is browsable via bzz://
+    result = await bee.uploadFile(batchId, data, options.name || 'data', {
+      pin: true,
+      deferred: false,
+      contentType: options.contentType || 'text/plain',
+      ...options.uploadOptions,
+    });
+  } catch (err) {
+    throw classifyUploadError(err);
+  }
 
   return normalizeUploadResult(result, batchId, sizeEstimate);
 }
@@ -91,20 +116,25 @@ async function publishFile(filePath, options = {}) {
   const batchId = options.batchId || await selectBestBatch(stat.size);
 
   if (!batchId) {
-    throw new Error('No usable postage batch available. Purchase stamps first.');
+    throw noStampError();
   }
 
   const stream = fs.createReadStream(filePath);
   const name = path.basename(filePath);
   const contentType = options.contentType || undefined;
 
-  const result = await bee.uploadFile(batchId, stream, name, {
-    pin: true,
-    deferred: true,
-    contentType,
-    size: stat.size,
-    ...options.uploadOptions,
-  });
+  let result;
+  try {
+    result = await bee.uploadFile(batchId, stream, name, {
+      pin: true,
+      deferred: true,
+      contentType,
+      size: stat.size,
+      ...options.uploadOptions,
+    });
+  } catch (err) {
+    throw classifyUploadError(err);
+  }
 
   return normalizeUploadResult(result, batchId, stat.size);
 }
@@ -122,19 +152,24 @@ async function publishDirectory(dirPath, options = {}) {
   const batchId = options.batchId || await selectBestBatch(totalSize);
 
   if (!batchId) {
-    throw new Error('No usable postage batch available. Purchase stamps first.');
+    throw noStampError();
   }
 
   // Use explicit indexDocument if provided, otherwise auto-detect index.html
   const indexDocument = options.indexDocument ||
     (fs.existsSync(path.join(dirPath, 'index.html')) ? 'index.html' : undefined);
 
-  const result = await bee.uploadFilesFromDirectory(batchId, dirPath, {
-    pin: true,
-    deferred: true,
-    indexDocument,
-    ...options.uploadOptions,
-  });
+  let result;
+  try {
+    result = await bee.uploadFilesFromDirectory(batchId, dirPath, {
+      pin: true,
+      deferred: true,
+      indexDocument,
+      ...options.uploadOptions,
+    });
+  } catch (err) {
+    throw classifyUploadError(err);
+  }
 
   return normalizeUploadResult(result, batchId, totalSize);
 }

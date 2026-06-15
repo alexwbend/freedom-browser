@@ -18,6 +18,13 @@ function makeError(code, message) {
   return err;
 }
 
+function makeReasonError(code, reason, message) {
+  const err = new Error(message || reason);
+  err.code = code;
+  err.data = { reason };
+  return err;
+}
+
 // Build a fake page-realm `window` with a minimal message bus. The dweb facet
 // posts a FREEDOM_DWEB_REQUEST and awaits a FREEDOM_DWEB_RESPONSE; in the real
 // browser the sandboxed webview preload fulfils that by invoking `ens:resolve`
@@ -216,6 +223,43 @@ describe('webview-preload-freedom-inject', () => {
       await Promise.resolve();
       controller.abort();
       await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    });
+
+    test('maps a no-usable-stamps failure to InvalidStateError, not the gate', async () => {
+      const swarm = defaultSwarm({
+        publishData: jest.fn(async () => {
+          // Pre-flight stamp failure shares code 4900 with the disabled gate.
+          throw makeReasonError(4900, 'no-usable-stamps', 'Node not available: no-usable-stamps');
+        }),
+      });
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm });
+      await expect(
+        freedom.storage.upload({ data: 'x', network: 'swarm' })
+      ).rejects.toMatchObject({ name: 'InvalidStateError', reason: 'no-usable-stamps' });
+    });
+
+    test('maps a mid-upload stamp exhaustion to NetworkError', async () => {
+      const swarm = defaultSwarm({
+        publishData: jest.fn(async () => {
+          throw makeReasonError(-32603, 'stamp-exhausted', 'batch fully used');
+        }),
+      });
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm });
+      await expect(
+        freedom.storage.upload({ data: 'x', network: 'swarm' })
+      ).rejects.toMatchObject({ name: 'NetworkError', reason: 'stamp-exhausted' });
+    });
+
+    test('still maps the disabled gate (4900, no reason) to NotAllowedError', async () => {
+      const swarm = defaultSwarm({
+        requestAccess: jest.fn(async () => {
+          throw makeError(4900, 'Swarm provider is not available');
+        }),
+      });
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm });
+      await expect(
+        freedom.storage.upload({ data: 'x', network: 'swarm' })
+      ).rejects.toMatchObject({ name: 'NotAllowedError' });
     });
 
     test('storage.swarm.upload forwards to the unified upload', async () => {

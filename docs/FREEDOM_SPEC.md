@@ -149,9 +149,18 @@ Browser-style failure semantics rather than protocol-specific ad hoc errors:
 | Capability not available on this platform/build | `NotSupportedError` |
 | Permission denied by user / not connected | `NotAllowedError` |
 | Local service disabled or not ready | `InvalidStateError` |
+| Node not ready or no usable postage stamp (pre-flight) | `InvalidStateError` (`reason`: `no-usable-stamps` · `node-not-ready` · `node-stopped` · `ultra-light-mode`) |
 | User canceled upload or prompt, or `signal` aborted (best-effort; §16.1) | `AbortError` |
 | Decentralized fetch / upload could not complete | `NetworkError` |
+| Postage stamp exhausted mid-upload | `NetworkError` (`reason`: `stamp-exhausted`) |
 | Bad arguments | `TypeError` |
+
+> **Stamp/node failures.** "No usable postage stamp" and node-readiness
+> conditions are detected pre-flight and surface as `InvalidStateError` with a
+> distinct `reason` (not the opaque gate `NotAllowedError`). A stamp that runs
+> out of capacity *during* an upload surfaces as `NetworkError` with
+> `reason: "stamp-exhausted"`. The `stamp-exhausted` detection is best-effort
+> (heuristic on the node's error — there is no dedicated code).
 
 ## 9. Security and Privacy Constraints
 
