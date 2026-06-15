@@ -18,9 +18,47 @@ function makeError(code, message) {
   return err;
 }
 
-function createInstance({ ethereum, swarm } = {}) {
+// Build a fake page-realm `window` with a minimal message bus. The dweb facet
+// posts a FREEDOM_DWEB_REQUEST and awaits a FREEDOM_DWEB_RESPONSE; in the real
+// browser the sandboxed webview preload fulfils that by invoking `ens:resolve`
+// in main. Here, an optional `ensResolver(name)` stands in for that bridge.
+function createInstance({ ethereum, swarm, ensResolver } = {}) {
   const navigator = {};
-  const window = {};
+  const messageListeners = [];
+  const window = {
+    addEventListener(type, handler) {
+      if (type === 'message') messageListeners.push(handler);
+    },
+    removeEventListener(type, handler) {
+      if (type !== 'message') return;
+      const i = messageListeners.indexOf(handler);
+      if (i > -1) messageListeners.splice(i, 1);
+    },
+    postMessage(data) {
+      // Deliver asynchronously to mirror the real message queue.
+      Promise.resolve().then(() => {
+        for (const handler of messageListeners.slice()) handler({ source: window, data });
+      });
+      // Simulate the webview preload's dweb bridge.
+      if (data && data.type === 'FREEDOM_DWEB_REQUEST') {
+        Promise.resolve()
+          .then(() =>
+            ensResolver ? ensResolver(data.name) : { type: 'not_found', reason: 'NO_FIXTURE' }
+          )
+          .then(
+            (result) =>
+              window.postMessage({ type: 'FREEDOM_DWEB_RESPONSE', id: data.id, result }),
+            (err) =>
+              window.postMessage({
+                type: 'FREEDOM_DWEB_RESPONSE',
+                id: data.id,
+                error: { message: err.message },
+              })
+          );
+      }
+    },
+  };
+  window.self = window;
   if (ethereum !== null) window.ethereum = ethereum;
   if (swarm !== null) window.swarm = swarm;
 
@@ -194,6 +232,8 @@ describe('webview-preload-freedom-inject', () => {
       expect(caps.storage.swarm.available).toBe(true);
       expect(caps.storage.ipfs.available).toBe(false);
       expect(caps.storage.ipfs.reason).toBe('write-not-supported');
+      expect(caps.dweb.available).toBe(true);
+      expect(caps.dweb.protocols).toEqual(['bzz', 'ipfs', 'ipns', 'ens']);
     });
 
     test('treats not-connected as available-on-grant', async () => {
@@ -213,6 +253,74 @@ describe('webview-preload-freedom-inject', () => {
       const caps = await freedom.capabilities();
       expect(caps.storage.swarm.available).toBe(false);
       expect(caps.storage.swarm.reason).toBe('no-postage-stamp');
+    });
+  });
+
+  describe('dweb.resolve', () => {
+    test('maps a resolved ENS contenthash to { protocol, hash, url }', async () => {
+      const ensResolver = jest.fn(async () => ({
+        type: 'ok',
+        name: 'mysite.eth',
+        codec: 'swarm-ns',
+        protocol: 'bzz',
+        decoded: 'deadbeef',
+        uri: 'bzz://deadbeef',
+      }));
+      const { freedom } = createInstance({
+        ethereum: defaultEthereum(),
+        swarm: defaultSwarm(),
+        ensResolver,
+      });
+      await expect(freedom.dweb.resolve('mysite.eth')).resolves.toEqual({
+        protocol: 'bzz',
+        hash: 'deadbeef',
+        url: 'bzz://deadbeef',
+      });
+      expect(ensResolver).toHaveBeenCalledWith('mysite.eth');
+    });
+
+    test('rejects an unresolvable name with NetworkError', async () => {
+      const ensResolver = jest.fn(async () => ({ type: 'not_found', reason: 'NO_RESOLVER' }));
+      const { freedom } = createInstance({
+        ethereum: defaultEthereum(),
+        swarm: defaultSwarm(),
+        ensResolver,
+      });
+      await expect(freedom.dweb.resolve('ghost.eth')).rejects.toMatchObject({
+        name: 'NetworkError',
+      });
+    });
+
+    test('rejects an unsupported contenthash codec with NotSupportedError', async () => {
+      const ensResolver = jest.fn(async () => ({ type: 'unsupported', reason: 'ARWEAVE' }));
+      const { freedom } = createInstance({
+        ethereum: defaultEthereum(),
+        swarm: defaultSwarm(),
+        ensResolver,
+      });
+      await expect(freedom.dweb.resolve('arweave.eth')).rejects.toMatchObject({
+        name: 'NotSupportedError',
+      });
+    });
+
+    test('propagates a bridge error as NetworkError', async () => {
+      const ensResolver = jest.fn(async () => {
+        throw new Error('rpc unreachable');
+      });
+      const { freedom } = createInstance({
+        ethereum: defaultEthereum(),
+        swarm: defaultSwarm(),
+        ensResolver,
+      });
+      await expect(freedom.dweb.resolve('flaky.eth')).rejects.toMatchObject({
+        name: 'NetworkError',
+      });
+    });
+
+    test('rejects a missing or empty name with TypeError', async () => {
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
+      await expect(freedom.dweb.resolve()).rejects.toBeInstanceOf(TypeError);
+      await expect(freedom.dweb.resolve('   ')).rejects.toBeInstanceOf(TypeError);
     });
   });
 

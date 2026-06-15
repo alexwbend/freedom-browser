@@ -707,11 +707,12 @@ ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
 // navigator.freedom (Phase 1 facade)
 // ============================================
 //
-// Injected after the ethereum + swarm providers. The facade only references
-// window.ethereum / window.swarm at call time, so injection order does not
-// affect correctness — both are defined well before any page code calls a
-// navigator.freedom method. No request/response bridge of its own: it
-// delegates to providers already wired through the renderer and main process.
+// Injected after the ethereum + swarm providers. The wallet/storage facets
+// only reference window.ethereum / window.swarm at call time, so injection
+// order does not affect correctness — both are defined well before any page
+// code calls a navigator.freedom method, and they reuse providers already
+// wired through the renderer and main process. The one exception is
+// dweb.resolve, which uses the small ENS bridge below (no host-renderer hop).
 try {
   const freedomScript = document.createElement('script');
   freedomScript.textContent = FREEDOM_INJECT_SOURCE;
@@ -730,6 +731,30 @@ try {
 } catch (err) {
   console.error('[webview-preload] Failed to inject navigator.freedom:', err);
 }
+
+// Bridge navigator.freedom.dweb requests to the main-process ENS resolver.
+// Unlike wallet/swarm, dweb name resolution is public, read-only, and ungated,
+// so the preload invokes `ens:resolve` directly instead of routing through the
+// host renderer. The page posts a request with a name; the raw resolver result
+// is posted back for the page-realm facade to normalize (or map to an error).
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  if (!event.data || event.data.type !== 'FREEDOM_DWEB_REQUEST') return;
+
+  const { id, method, name } = event.data;
+  const respond = (payload) =>
+    window.postMessage({ type: 'FREEDOM_DWEB_RESPONSE', id, ...payload }, window.location.origin);
+
+  if (method !== 'resolve') {
+    respond({ error: { message: `Unsupported dweb method: ${method}` } });
+    return;
+  }
+
+  ipcRenderer
+    .invoke('ens:resolve', { name })
+    .then((result) => respond({ result }))
+    .catch((err) => respond({ error: { message: err?.message || 'ENS resolution failed' } }));
+});
 
 // Note: transient 404/500 recovery for bzz:// sub-resources is handled by the
 // main-process `bzz:` protocol handler in `src/main/swarm/bzz-protocol.js`,

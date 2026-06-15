@@ -151,6 +151,35 @@
     );
   }
 
+  // ---- dweb ------------------------------------------------------------------
+
+  function resolveName() {
+    var name = $('dweb-name').value.trim();
+    if (!name) {
+      log('dweb.resolve: enter a name first', 'err');
+      return;
+    }
+    log('dweb.resolve("' + name + '") …');
+    navigator.freedom.dweb.resolve(name).then(
+      function (result) {
+        var out = $('resolve-out');
+        out.textContent = '';
+        out.appendChild(document.createTextNode(pretty(result) + '\n'));
+        if (result.url) {
+          var a = document.createElement('a');
+          a.href = result.url;
+          a.textContent = 'open ' + result.url;
+          out.appendChild(a);
+        }
+        log('resolved ' + name + ' → ' + result.url, 'ok');
+      },
+      function (err) {
+        $('resolve-out').textContent = describeError(err);
+        log('dweb.resolve(' + name + ') rejected — ' + describeError(err), 'err');
+      }
+    );
+  }
+
   // ---- wiring ----------------------------------------------------------------
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -164,6 +193,7 @@
     $('publish-ipfs-btn').addEventListener('click', function () {
       publish('ipfs');
     });
+    $('resolve-btn').addEventListener('click', resolveName);
     // Surface the current capability state immediately.
     runCapabilities();
   });

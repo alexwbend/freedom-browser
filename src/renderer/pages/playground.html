@@ -75,7 +75,8 @@
     <h1>navigator.freedom <span id="version" class="pill">…</span></h1>
     <p class="sub">
       Phase 1 playground — exercise the capability surface end to end:
-      detect → capabilities → connect wallet → publish to Swarm → sign.
+      detect → capabilities → connect wallet → publish to Swarm → sign →
+      resolve a dweb name.
     </p>
 
     <div class="grid">
@@ -121,6 +122,18 @@
           <button id="publish-ipfs-btn" class="ghost">try ipfs (expect NotSupported)</button>
         </div>
         <div id="publish-out" class="out"></div>
+      </section>
+
+      <section class="card">
+        <h2>4 · dweb — resolve a name</h2>
+        <div class="row">
+          <label for="dweb-name">ENS name</label>
+          <input id="dweb-name" value="vitalik.eth" />
+        </div>
+        <div class="row">
+          <button id="resolve-btn">dweb.resolve()</button>
+        </div>
+        <div id="resolve-out" class="out"></div>
       </section>
     </div>
 

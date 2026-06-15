@@ -244,6 +244,9 @@ Rules:
   gate is off, the Ant node isn't ready, or no usable postage stamp exists.
 - `storage.ipfs.available` is `false` (`reason: "write-not-supported"`) until
   the native IPFS write path exists (§18).
+- `dweb.available` is `true` in Phase 1: `resolve` is wired and ungated. (Only
+  the Phase 2 `fetch` remains unimplemented; presence of `resolve` is what the
+  flag reports.)
 
 ## 15. `wallet` (Tier 2, compatibility-aligned)
 
@@ -365,9 +368,15 @@ interface FreedomDweb {
 
 `resolve("example.eth")` wraps the in-process ENS resolver
 (`src/main/ens-resolver.js`) and returns the transport + contenthash, matching
-the address-bar resolution. The workshop's ENS segment is a demo (set
-contenthash on-chain via `wallet`, then open the name), so `dweb.resolve` is
-nice-to-have for Phase 1, not required.
+the address-bar resolution. It is **implemented in Phase 1**: because
+resolution is public and read-only, the sandboxed webview preload invokes
+`ens:resolve` directly (no host-renderer hop, no approval UI, ungated by
+`enableIdentityWallet`). The page-realm facade maps the resolver's `{ type:
+"ok", protocol, decoded, uri }` result to `{ protocol, hash, url }`; a
+`not_found`/`error` result rejects with `NetworkError` and an unsupported
+contenthash codec with `NotSupportedError`. The workshop's ENS segment is a
+demo: set the contenthash on-chain via `wallet`, then `resolve()` (or open) the
+name.
 
 ## 18. Mapping onto existing implementation
 
@@ -377,7 +386,7 @@ nice-to-have for Phase 1, not required.
 | `wallet.request` | `dapp-provider.js` (renderer) → wallet IPC | reuse verbatim; route `navigator.freedom.wallet` requests through the same `dapp:provider-request` channel |
 | `storage.upload({network:"swarm"})` | `swarm-provider.js` → `swarm-provider-ipc.js` → `publish-service.js` | call `swarm_publishData`; map `{ reference, bzzUrl, tagUid }` → `{ network, hash: reference, url: bzzUrl, raw }` |
 | `storage.upload({network:"ipfs"})` | **does not exist yet** | native `freedom-ipfs` node is retrieval-only (`src/main/ipfs/` is a request dispatcher). Tracked work item — see below |
-| `dweb.resolve` | `src/main/ens-resolver.js` | already used by the address bar |
+| `dweb.resolve` | `src/main/ens-resolver.js` (`ens:resolve`) | invoked directly from the webview preload — public, read-only, ungated; result mapped to `{ protocol, hash, url }` |
 | `capabilities()` | service registry + settings + permission stores | aggregate readiness |
 | `permissions.query/request` | `dapp-permissions.js` / `swarm-permissions` | unify under one query API |
 
@@ -413,7 +422,7 @@ are stable identifiers (origin-scoped at the store level).
 | `wallet.send` | 2 | `dapp-permissions.js` (tx) | granted via connect; per-tx approval at call time |
 | `storage.swarm.write` | 2 | `swarm-permissions` | query (approx) + request |
 | `storage.ipfs.write` | 2 | — (native write pending, §18) | always `denied` |
-| `dweb.name-resolution` | 2 | `ens-resolver.js` | reserved (resolve stubbed in Phase 1) |
+| `dweb.name-resolution` | 2 | `ens-resolver.js` | implicit grant — `resolve` is public/read-only/ungated (Phase 1); `fetch` reserved (Phase 2) |
 | `runtime.status` | 3 | service registry (privileged) | not exposed to open web |
 
 Notes: `query` returns `granted` / `denied` / `prompt`. In Phase 1,
@@ -466,7 +475,7 @@ import bytes and return a CID, then flip `capabilities().storage.ipfs`.
 - Inject `navigator.freedom` with `version`, `capabilities()`, `wallet`,
   `storage.upload` (swarm working; ipfs reports unavailable), `permissions.query/request`.
 - `storage.upload` swarm path end-to-end over existing publish pipeline.
-- `dweb.resolve` (optional but cheap).
+- `dweb.resolve` (implemented; ungated ENS → contenthash via direct `ens:resolve`).
 - Honest gate handling per §18 "Feature gate": `capabilities()` reflects the
   flag, no auto-enable, and "settings not yet loaded" is treated as pending.
 

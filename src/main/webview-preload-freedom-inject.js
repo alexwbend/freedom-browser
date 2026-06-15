@@ -226,14 +226,67 @@
     },
   };
 
-  // ---- dweb: reserved for Phase 1 (resolution stub) ------------------------
-  // Name resolution at the page level is not implemented yet; navigation via
-  // bzz:// / ipfs:// / ENS in the address bar is unaffected.
-  var dweb = {
-    resolve: function () {
-      return Promise.reject(
-        notSupported('not-implemented', 'navigator.freedom.dweb.resolve is not implemented in Phase 1')
+  // ---- dweb: name resolution via the preload's ENS bridge ------------------
+  // The page realm can't reach the main process directly, so dweb.resolve
+  // posts a FREEDOM_DWEB_REQUEST that the sandboxed webview preload fulfils
+  // against the in-process ENS resolver (the same resolver the address bar
+  // uses). Resolution is public and read-only, so — unlike wallet/storage —
+  // it is ungated and needs no approval UI. The raw resolver result is mapped
+  // here to the spec's { protocol, hash, url } shape (§17).
+  var pendingDweb = new Map();
+  var dwebRequestId = 0;
+
+  window.addEventListener('message', function (event) {
+    if (event.source !== window) return;
+    var data = event.data;
+    if (!data || data.type !== 'FREEDOM_DWEB_RESPONSE') return;
+    var pending = pendingDweb.get(data.id);
+    if (!pending) return;
+    pendingDweb.delete(data.id);
+    if (pending.timer) clearTimeout(pending.timer);
+    if (data.error) {
+      pending.reject(new DOMException(data.error.message || 'dweb request failed', 'NetworkError'));
+    } else {
+      pending.resolve(data.result);
+    }
+  });
+
+  function dwebRequest(method, payload) {
+    var id = ++dwebRequestId;
+    return new Promise(function (resolve, reject) {
+      var entry = { resolve: resolve, reject: reject, timer: null };
+      pendingDweb.set(id, entry);
+      window.postMessage(
+        Object.assign({ type: 'FREEDOM_DWEB_REQUEST', id: id, method: method }, payload || {}),
+        '*'
       );
+      entry.timer = setTimeout(function () {
+        if (pendingDweb.has(id)) {
+          pendingDweb.delete(id);
+          reject(new DOMException('dweb.' + method + ' timed out', 'NetworkError'));
+        }
+      }, 30000);
+    });
+  }
+
+  var dweb = {
+    resolve: function (name) {
+      if (typeof name !== 'string' || !name.trim()) {
+        return Promise.reject(new TypeError('dweb.resolve: a non-empty name string is required'));
+      }
+      return dwebRequest('resolve', { name: name }).then(function (result) {
+        if (result && result.type === 'ok') {
+          return { protocol: result.protocol, hash: result.decoded, url: result.uri };
+        }
+        if (result && result.type === 'unsupported') {
+          throw notSupported(
+            'unsupported-contenthash',
+            'ENS name "' + name + '" uses an unsupported contenthash codec'
+          );
+        }
+        var reason = (result && (result.reason || result.type)) || 'not_found';
+        throw new DOMException('Could not resolve "' + name + '" (' + reason + ')', 'NetworkError');
+      });
     },
   };
 
@@ -349,7 +402,7 @@
               ? 'wallet-unavailable'
               : 'identity-wallet-disabled',
         },
-        dweb: { available: false, protocols: ['bzz', 'ipfs', 'ipns', 'ens'], reason: 'not-implemented' },
+        dweb: { available: true, protocols: ['bzz', 'ipfs', 'ipns', 'ens'] },
         storage: {
           swarm: { available: swarmAvailable, reason: swarmReason },
           ipfs: { available: false, reason: 'write-not-supported' },

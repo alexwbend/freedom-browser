@@ -101,7 +101,7 @@ test.describe('navigator.freedom (Phase 1)', () => {
     expect(parsed.storage.swarm.available).toBe(true);
     expect(parsed.storage.ipfs.available).toBe(false);
     expect(parsed.storage.ipfs.reason).toBe('write-not-supported');
-    expect(parsed.dweb.available).toBe(false);
+    expect(parsed.dweb.available).toBe(true);
     expect(parsed.dweb.protocols).toEqual(['bzz', 'ipfs', 'ipns', 'ens']);
     expect(parsed.runtime.available).toBe(false);
   });
@@ -161,5 +161,73 @@ test.describe('navigator.freedom (Phase 1)', () => {
     );
 
     expect(JSON.parse(result)).toEqual({ missingData: 'TypeError', badNetwork: 'TypeError' });
+  });
+
+  test('dweb.resolve maps an ENS contenthash to { protocol, hash, url }', async ({
+    window,
+    harness,
+  }) => {
+    await harness.setEnsFixture('workshop.eth', {
+      type: 'ok',
+      name: 'workshop.eth',
+      codec: 'swarm-ns',
+      protocol: 'bzz',
+      decoded: 'abc123def',
+      uri: 'bzz://abc123def',
+    });
+    await gotoPlayground(window);
+
+    const result = await runInGuest(
+      window,
+      `(async () => {
+        try {
+          const r = await navigator.freedom.dweb.resolve('workshop.eth');
+          return JSON.stringify({ ok: true, r });
+        } catch (e) {
+          return JSON.stringify({ ok: false, name: e.name, message: e.message });
+        }
+      })()`
+    );
+
+    expect(JSON.parse(result)).toEqual({
+      ok: true,
+      r: { protocol: 'bzz', hash: 'abc123def', url: 'bzz://abc123def' },
+    });
+  });
+
+  test('dweb.resolve rejects an unresolvable name with NetworkError', async ({ window }) => {
+    await gotoPlayground(window);
+
+    const result = await runInGuest(
+      window,
+      `(async () => {
+        try {
+          await navigator.freedom.dweb.resolve('definitely-not-registered-xyz.eth');
+          return JSON.stringify({ resolved: true });
+        } catch (e) {
+          return JSON.stringify({ name: e.name });
+        }
+      })()`
+    );
+
+    expect(JSON.parse(result)).toEqual({ name: 'NetworkError' });
+  });
+
+  test('dweb.resolve rejects a missing name with TypeError', async ({ window }) => {
+    await gotoPlayground(window);
+
+    const result = await runInGuest(
+      window,
+      `(async () => {
+        try {
+          await navigator.freedom.dweb.resolve();
+          return JSON.stringify({ resolved: true });
+        } catch (e) {
+          return JSON.stringify({ name: e.name });
+        }
+      })()`
+    );
+
+    expect(JSON.parse(result)).toEqual({ name: 'TypeError' });
   });
 });
