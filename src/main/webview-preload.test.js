@@ -33,6 +33,7 @@ function loadWebviewPreloadModule(options = {}) {
     syncResponses: {
       [IPC.GET_INTERNAL_PAGES]: internalPages,
       [IPC.GET_ETHEREUM_INJECT_SOURCE]: '/* ethereum inject source stub */',
+      [IPC.GET_FREEDOM_INJECT_SOURCE]: '/* freedom inject source stub */',
     },
     invokeResponses: {
       [IPC.HISTORY_GET]: [{ url: 'https://example.com' }],
@@ -166,7 +167,7 @@ describe('webview-preload', () => {
       expect(ipcRenderer.invoke).toHaveBeenCalledWith(channel, ...expectedArgs);
     }
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)');
+    expect(consoleLogSpy).toHaveBeenCalledWith('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + navigator.freedom)');
   });
 
   test('exposes profile mutation methods only on the settings page', async () => {

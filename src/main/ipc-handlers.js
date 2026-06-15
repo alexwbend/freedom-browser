@@ -47,6 +47,13 @@ const ethereumInjectSource = fs.readFileSync(
   'utf-8'
 );
 
+// navigator.freedom facade injection source, served the same way. Unlike the
+// ethereum source it needs no per-session preamble.
+const freedomInjectSource = fs.readFileSync(
+  path.join(__dirname, 'webview-preload-freedom-inject.js'),
+  'utf-8'
+);
+
 // EIP-6963 ProviderInfo static fields. Icon is a 96×96 PNG base64-encoded
 // (spec recommends square, 96×96 minimum, and requires an RFC-2397 data URI).
 // Name and rdns come from src/shared/brand.json. We cannot read them from
@@ -645,6 +652,10 @@ function registerBaseIpcHandlers(callbacks = {}) {
     const infoJson = JSON.stringify(info).replace(/</g, '\\u003c');
     const preamble = `window.__FREEDOM_PROVIDER_CONFIG__ = ${infoJson};\n`;
     event.returnValue = preamble + ethereumInjectSource;
+  });
+
+  ipcMain.on(IPC.GET_FREEDOM_INJECT_SOURCE, (event) => {
+    event.returnValue = freedomInjectSource;
   });
 
   ipcMain.handle(IPC.OPEN_URL_IN_NEW_TAB, (event, url) => {

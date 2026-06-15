@@ -14,6 +14,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 // the content over sync IPC.
 const ETHEREUM_INJECT_SOURCE = ipcRenderer.sendSync('internal:get-ethereum-inject-source');
 
+// navigator.freedom facade source — a capability-shaped wrapper over the
+// ethereum + swarm providers injected below. Served as text over sync IPC
+// for the same sandbox reasons as the ethereum source.
+const FREEDOM_INJECT_SOURCE = ipcRenderer.sendSync('internal:get-freedom-inject-source');
+
 // Internal pages list — canonical source is src/shared/internal-pages.json,
 // served by the main process via sync IPC so preloads don't need require().
 const internalPages = ipcRenderer.sendSync('internal:get-pages');
@@ -698,8 +703,38 @@ ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
   }, window.location.origin);
 });
 
+// ============================================
+// navigator.freedom (Phase 1 facade)
+// ============================================
+//
+// Injected after the ethereum + swarm providers. The facade only references
+// window.ethereum / window.swarm at call time, so injection order does not
+// affect correctness — both are defined well before any page code calls a
+// navigator.freedom method. No request/response bridge of its own: it
+// delegates to providers already wired through the renderer and main process.
+try {
+  const freedomScript = document.createElement('script');
+  freedomScript.textContent = FREEDOM_INJECT_SOURCE;
+
+  const injectFreedom = () => {
+    const head = document.head || document.documentElement;
+    head.insertBefore(freedomScript, head.firstChild);
+    freedomScript.remove();
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectFreedom, { once: true });
+  } else {
+    injectFreedom();
+  }
+} catch (err) {
+  console.error('[webview-preload] Failed to inject navigator.freedom:', err);
+}
+
 // Note: transient 404/500 recovery for bzz:// sub-resources is handled by the
 // main-process `bzz:` protocol handler in `src/main/swarm/bzz-protocol.js`,
 // not by in-page JavaScript. See README "Swarm Content Retrieval".
 
-console.log('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)');
+console.log(
+  '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + navigator.freedom)'
+);
