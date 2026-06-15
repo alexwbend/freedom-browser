@@ -454,7 +454,6 @@ are stable identifiers (origin-scoped at the store level).
 | `wallet.sign` | 2 | `dapp-permissions.js` (signing) | granted via connect; no separate prompt yet |
 | `wallet.send` | 2 | `dapp-permissions.js` (tx) | granted via connect; per-tx approval at call time |
 | `storage.swarm.write` | 2 | `swarm-permissions` | query (approx) + request |
-| `storage.ipfs.write` | 2 | — (native write pending, §18) | always `denied` |
 | `dweb.name-resolution` | 2 | `ens-resolver.js` | implicit grant — `resolve` is public/read-only/ungated (Phase 1); `fetch` reserved (Phase 2) |
 | `runtime.status` | 3 | service registry (privileged) | not exposed to open web |
 
@@ -471,6 +470,18 @@ build load-bearing UI on the queried state. `request` is exact (drives the real
 connect/approval flow). Names outside this table reject with
 `TypeError`, matching the platform Permissions API; new permission names must be
 added here before use.
+
+**`storage.ipfs.write` is intentionally not in the registry** (Phase 1). Because
+the native IPFS write path doesn't exist yet, IPFS unavailability is reported
+through `capabilities().storage.ipfs` (`available:false`, `reason:
+"write-not-supported"`) and through the `NotSupportedError` that
+`upload({network:"ipfs"})` rejects with — *not* through a permission state.
+Returning `denied` would conflate "the user/policy refused" with "the feature
+doesn't exist," so `permissions.query`/`request("storage.ipfs.write")` reject
+with `TypeError` like any unknown name. The Permissions API has no
+"unsupported" state, so this keeps capability existence and grant state on
+separate channels. Add the row (and flip it to a real grant) when native write
+lands (§ "Tracked dependency — native IPFS write").
 
 ### Feature gate
 

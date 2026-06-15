@@ -451,12 +451,21 @@ describe('webview-preload-freedom-inject', () => {
       await expect(freedom.permissions.query({ name: 'storage.swarm.write' })).resolves.toEqual({
         state: 'prompt',
       });
-      await expect(freedom.permissions.query({ name: 'storage.ipfs.write' })).resolves.toEqual({
-        state: 'denied',
-      });
       await expect(freedom.permissions.query({ name: 'runtime.status' })).resolves.toEqual({
         state: 'denied',
       });
+    });
+
+    test('storage.ipfs.write is not in the registry — query/request throw TypeError', async () => {
+      // Until native IPFS write lands, unavailability is reported via
+      // capabilities() + NotSupportedError on upload, not a permission state.
+      const { freedom } = createInstance({ ethereum: defaultEthereum(), swarm: defaultSwarm() });
+      await expect(
+        freedom.permissions.query({ name: 'storage.ipfs.write' })
+      ).rejects.toBeInstanceOf(TypeError);
+      await expect(
+        freedom.permissions.request({ name: 'storage.ipfs.write' })
+      ).rejects.toBeInstanceOf(TypeError);
     });
 
     test('query/request reject unknown permission names with TypeError', async () => {

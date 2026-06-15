@@ -360,9 +360,13 @@
   // Unknown names reject with TypeError, matching the platform Permissions API
   // contract for unsupported descriptors.
   var WALLET_PERMISSIONS = ['wallet.accounts', 'wallet.sign', 'wallet.send'];
+  // `storage.ipfs.write` is intentionally absent until the native write path
+  // lands (§18): query/request reject with TypeError like any unknown name, and
+  // IPFS unavailability is reported solely via capabilities() + the
+  // NotSupportedError on upload({network:"ipfs"}). This keeps "does it exist"
+  // (capabilities) separate from "is it granted" (permissions).
   var KNOWN_PERMISSIONS = WALLET_PERMISSIONS.concat([
     'storage.swarm.write',
-    'storage.ipfs.write',
     'dweb.name-resolution',
     'runtime.status',
   ]);
@@ -398,9 +402,8 @@
       }
       // Resolution is public, read-only, and ungated → implicit grant.
       if (name === 'dweb.name-resolution') return Promise.resolve({ state: 'granted' });
-      // IPFS write is unavailable until the native path lands; runtime is a
-      // privileged Tier 3 surface, never granted to the open web.
-      if (name === 'storage.ipfs.write' || name === 'runtime.status') {
+      // runtime is a privileged Tier 3 surface, never granted to the open web.
+      if (name === 'runtime.status') {
         return Promise.resolve({ state: 'denied' });
       }
       // storage.swarm.write: no page-level permission read yet, so approximate
@@ -444,9 +447,6 @@
             if (mapped && mapped.name === 'AbortError') return { state: 'denied' };
             throw mapped;
           });
-      }
-      if (name === 'storage.ipfs.write') {
-        return Promise.reject(notSupported('write-not-supported', 'IPFS write is not available yet'));
       }
       // runtime.status (Tier 3) is not requestable from the open web.
       return Promise.resolve({ state: 'denied' });
