@@ -336,6 +336,9 @@ Verification in this checkpoint:
 - `npm test` passed after official-package smoke changes: 110 suites passed, 5 skipped; 2071 tests passed, 17 skipped.
 - `git diff --check` passed after official-package smoke changes.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed on the final diff for this checkpoint: 8 tests.
+- Committed and pushed `efaf33b` (`feat(chrome): smoke official package runtime`).
+- GitHub Actions run `27984422444`, job `test` (`82822335543`), passed for `efaf33b`.
+- GitHub Actions run `27984422444`, job `e2e-chrome-runtime` (`82822335377`), passed for `efaf33b`.
 
 ## Next Step
 
