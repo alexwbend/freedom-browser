@@ -146,6 +146,6 @@ npm test
 xvfb-run -a npm run test:e2e
 ```
 
-GitHub Actions does not yet run the bundled/package chrome smoke specs directly.
-Adding that Linux/Xvfb job requires a workflow-scoped credential or a
-user-authored workflow change.
+GitHub Actions runs the bundled/package chrome smoke specs in the Linux
+`e2e-chrome-runtime` job. The job runs the smoke specs under Xvfb and uploads
+`test-results/` and `playwright-report/` on failure.
