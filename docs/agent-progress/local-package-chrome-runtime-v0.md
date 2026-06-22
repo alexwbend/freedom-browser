@@ -418,6 +418,9 @@ Verification in this phase so far:
 - `npm test` passed after file-integrity changes: 110 suites passed, 5 skipped; 2079 tests passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after file-integrity changes: 9 tests.
 - `git diff --check` passed after file-integrity changes.
+- committed as `657cb4e` (`feat(chrome): verify package file integrity`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27988568432`, job `test` (`82835714879`), passed for `657cb4e`.
+- GitHub Actions run `27988568432`, job `e2e-chrome-runtime` (`82835715063`), passed for `657cb4e`.
 
 ## Next Step
 
