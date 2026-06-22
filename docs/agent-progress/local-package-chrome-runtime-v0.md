@@ -351,6 +351,9 @@ Verification in this checkpoint:
 - `npm test` passed after official-package navigation expansion: 110 suites passed, 5 skipped; 2073 tests passed, 17 skipped.
 - `git diff --check` passed after official-package navigation expansion.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed on the final diff for this checkpoint: 8 tests.
+- Committed and pushed `5ce5c82` (`test(chrome): expand official package navigation smoke`).
+- GitHub Actions run `27985238244`, job `test` (`82825004446`), passed for `5ce5c82`.
+- GitHub Actions run `27985238244`, job `e2e-chrome-runtime` (`82825004695`), passed for `5ce5c82`.
 
 ## Next Step
 
