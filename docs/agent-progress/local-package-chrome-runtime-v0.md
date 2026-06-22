@@ -386,6 +386,9 @@ Verification in this checkpoint:
 - `npm test` passed after Radicle disabled-route smoke changes: 110 suites passed, 5 skipped; 2074 tests passed, 17 skipped.
 - `git diff --check` passed after Radicle disabled-route smoke changes.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after Radicle disabled-route smoke changes: 8 tests.
+- Committed and pushed `e1291b3` (`test(chrome): cover package radicle routing`).
+- GitHub Actions run `27987748615`, job `test` (`82833120461`), passed for `e1291b3`.
+- GitHub Actions run `27987748615`, job `e2e-chrome-runtime` (`82833120441`), passed for `e1291b3`.
 
 ## Next Step
 
