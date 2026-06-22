@@ -23,7 +23,7 @@
 - `xvfb-run -a npm run test:e2e` passed: 20 Playwright harness tests.
 - Attempted `git push -u origin goal/local-package-chrome-runtime-v0` with a CI workflow update included; GitHub rejected the push because the OAuth token lacks `workflow` scope.
 - `git push -u origin goal/local-package-chrome-runtime-v0` passed after removing workflow-file changes from the commit.
-- `git push origin goal/local-package-chrome-runtime-v0` passed through `c1ecdc0`.
+- Latest push to `origin/goal/local-package-chrome-runtime-v0` succeeded; use `git log --oneline --decorate -5` for the current head.
 
 ## Smoke Status
 
