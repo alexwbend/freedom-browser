@@ -97,6 +97,39 @@ describe('shell-api', () => {
     );
   });
 
+  test('clones shell API handler results before returning them', async () => {
+    const { mod } = loadShellApi();
+    const value = {
+      ok: true,
+      nested: {
+        keep: 'value',
+      },
+      drop: undefined,
+    };
+
+    const result = mod.cloneShellApiValue(value);
+
+    expect(result).toEqual({
+      ok: true,
+      nested: {
+        keep: 'value',
+      },
+    });
+    expect(result).not.toBe(value);
+    expect(result.nested).not.toBe(value.nested);
+  });
+
+  test('uses stable shell API error codes', () => {
+    const { mod } = loadShellApi();
+    const error = mod.createShellApiError('SHELL_TEST', 'test message', { method: 'getInfo' });
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ShellApiError');
+    expect(error.code).toBe('SHELL_TEST');
+    expect(error.message).toBe('test message');
+    expect(error.details).toEqual({ method: 'getInfo' });
+  });
+
   test('rejects shell requests from missing, destroyed, or unauthorized senders', async () => {
     const { mod } = loadShellApi();
     const destroyedSender = makeSender({ isDestroyed: jest.fn(() => true) });

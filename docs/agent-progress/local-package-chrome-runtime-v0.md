@@ -130,7 +130,7 @@ Verification in this phase so far:
 
 ### Phase 1 Shell API Foundation
 
-Current checkpoint: shared shell API contract slice completed locally on top of `56a3810`; checkpoint commit pending.
+Current checkpoint: shell API compatibility/result-cloning slice committed locally on top of `db4d1bd`; remote push pending.
 
 Implemented in this phase so far:
 
@@ -143,6 +143,9 @@ Implemented in this phase so far:
   - known capability list
 - moved `chrome-package.js` and `shell-api.js` to consume the shared contract version/registry
 - kept `package-preload.js` runtime-safe by avoiding relative imports and added parity tests against the shared contract
+- moved shell API version compatibility parsing/checking into the shared contract
+- shell API handler results are cloned through JSON serialization before returning to callers
+- shell API errors now use a stable `ShellApiError` name plus stable `code` and `details`
 - documented the preload parity rule in `docs/local-package-chrome-runtime.md`
 
 Verification in this phase so far:
@@ -154,7 +157,14 @@ Verification in this phase so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the preload fix: 7 tests.
 - `npm run lint` passed.
 - `npm test` passed: 108 suites passed, 5 skipped; 2046 tests passed, 17 skipped.
+- Committed and pushed `db4d1bd` (`refactor(shell): centralize shell api contract`).
+- GitHub Actions run `27979153647`, job `test` (`82804536703`), passed for `db4d1bd`.
+- GitHub Actions run `27979153647`, job `e2e-chrome-runtime` (`82804536488`), was still in progress during dependency setup at the time of this checkpoint; re-check before relying on remote smoke evidence for `db4d1bd`.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed after version compatibility/result-cloning changes: 3 suites, 22 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after version compatibility/result-cloning changes: 7 tests.
+- `npm run lint` passed after version compatibility/result-cloning changes.
+- `npm test` passed after version compatibility/result-cloning changes: 108 suites passed, 5 skipped; 2049 tests passed, 17 skipped.
 
 ## Next Step
 
-- Commit the Phase 1 shared contract checkpoint, push it, and continue Phase 1 toward explicit caller identity/version compatibility hardening in `/root/codex/freedom-browser-goal2.md`.
+- Push the Phase 1 compatibility/result-cloning checkpoint, check the new GitHub smoke run, and continue Phase 1 toward explicit caller identity hardening in `/root/codex/freedom-browser-goal2.md`.

@@ -15,9 +15,17 @@ const packageCallers = new WeakMap();
 
 function createShellApiError(code, message, details = {}) {
   const error = new Error(message);
+  error.name = 'ShellApiError';
   error.code = code;
   error.details = details;
   return error;
+}
+
+function cloneShellApiValue(value) {
+  if (value === null || value === undefined) {
+    return value;
+  }
+  return JSON.parse(JSON.stringify(value));
 }
 
 function getAppVersion() {
@@ -154,7 +162,7 @@ async function handleShellRequest(event, payload = {}) {
   const caller = getPackageCaller(event);
   assertMethodCapability(caller, method);
 
-  return METHODS[method].handler(payload.args, event);
+  return cloneShellApiValue(await METHODS[method].handler(payload.args, event));
 }
 
 function registerShellApiIpc(options = {}) {
@@ -164,6 +172,7 @@ function registerShellApiIpc(options = {}) {
 
 module.exports = {
   createShellApiError,
+  cloneShellApiValue,
   describeChromePackage,
   getInfo,
   handleShellRequest,

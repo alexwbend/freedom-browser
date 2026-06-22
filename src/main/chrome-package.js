@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 const { version: appVersion } = require('../../package.json');
-const { SHELL_API_VERSION, isKnownShellCapability } = require('../shared/shell-api-policy');
+const {
+  SHELL_API_VERSION,
+  isKnownShellCapability,
+  isShellApiVersionCompatible,
+} = require('../shared/shell-api-policy');
 
 const BUNDLED_CHROME_PACKAGE = Object.freeze({
   kind: 'bundled',
@@ -60,35 +64,8 @@ function readJsonFile(filePath) {
   }
 }
 
-function parseVersion(version) {
-  if (typeof version !== 'string') return null;
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+|x)$/);
-  if (!match) return null;
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: match[3] === 'x' ? 'x' : Number(match[3]),
-  };
-}
-
-function compareVersions(left, right) {
-  for (const key of ['major', 'minor', 'patch']) {
-    if (left[key] === right[key]) continue;
-    return left[key] > right[key] ? 1 : -1;
-  }
-  return 0;
-}
-
 function isVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion = SHELL_API_VERSION) {
-  const current = parseVersion(shellApiVersion);
-  const min = parseVersion(minShellApi);
-  const max = parseVersion(maxShellApi);
-  if (!current || !min || !max) return false;
-  if (compareVersions(current, min) < 0) return false;
-  if (max.patch === 'x') {
-    return current.major === max.major && current.minor === max.minor;
-  }
-  return compareVersions(current, max) <= 0;
+  return isShellApiVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion);
 }
 
 function fail(code, message, details = {}) {

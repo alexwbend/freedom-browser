@@ -5,8 +5,11 @@ const {
   SHELL_API_METHODS,
   SHELL_API_METHOD_CAPABILITIES,
   SHELL_API_VERSION,
+  compareShellApiVersions,
   getRequiredCapabilityForMethod,
   isKnownShellCapability,
+  isShellApiVersionCompatible,
+  parseShellApiVersion,
 } = require('./shell-api-policy');
 
 describe('shell-api-policy', () => {
@@ -47,5 +50,43 @@ describe('shell-api-policy', () => {
       'shell.ready',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
+  });
+
+  test('parses and compares shell API compatibility ranges', () => {
+    expect(parseShellApiVersion('0.1.0')).toEqual({ major: 0, minor: 1, patch: 0 });
+    expect(parseShellApiVersion('0.1.x')).toEqual({ major: 0, minor: 1, patch: 'x' });
+    expect(parseShellApiVersion('nope')).toBeNull();
+
+    expect(
+      compareShellApiVersions(
+        { major: 0, minor: 1, patch: 1 },
+        { major: 0, minor: 1, patch: 0 }
+      )
+    ).toBe(1);
+
+    expect(
+      isShellApiVersionCompatible({
+        minShellApi: '0.1.0',
+        maxShellApi: '0.1.x',
+      })
+    ).toBe(true);
+    expect(
+      isShellApiVersionCompatible({
+        minShellApi: '0.2.0',
+        maxShellApi: '0.2.x',
+      })
+    ).toBe(false);
+    expect(
+      isShellApiVersionCompatible({
+        minShellApi: '0.1.0',
+        maxShellApi: '0.1.0',
+      })
+    ).toBe(true);
+    expect(
+      isShellApiVersionCompatible({
+        minShellApi: '0.1.0',
+        maxShellApi: 'invalid',
+      })
+    ).toBe(false);
   });
 });
