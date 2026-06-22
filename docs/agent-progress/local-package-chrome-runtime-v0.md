@@ -5,25 +5,28 @@
 - Branch: `goal/local-package-chrome-runtime-v0`
 - Starting commit: `7b39944`
 - WP0 smoke-gate code commit: `914614b`
-- Current phase: WP0, bundled-chrome runtime smoke gate
+- Package runtime checkpoint commit: `f7cc1bd`
+- Current phase: WP1-WP4 package loader, narrow preload, local fixture, and fallback smoke are implemented locally
 - Goal brief: `/root/codex/freedom-browser-goal.md`
 - Roadmap context: `/root/codex/swarm-chrome-roadmap.md`
 
 ## Last Verification
 
 - `npm run test:e2e -- test-e2e/chrome-smoke.spec.js` failed on this server because Electron had no X display: `Missing X server or $DISPLAY`.
-- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js` passed, 1 test.
-- `npm run lint` passed after adding the smoke spec.
-- `npm test` passed: 102 suites passed, 5 skipped; 2017 tests passed, 17 skipped.
-- `xvfb-run -a npm run test:e2e` passed: 14 Playwright harness tests.
+- `npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js` passed: 4 suites, 17 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 5 package/fallback smoke tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js` passed: 1 bundled smoke test.
+- `npm run lint` passed.
+- `npm test` passed: 106 suites passed, 5 skipped; 2034 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e` passed: 19 Playwright harness tests.
 - Attempted `git push -u origin goal/local-package-chrome-runtime-v0` with a CI workflow update included; GitHub rejected the push because the OAuth token lacks `workflow` scope.
 - `git push -u origin goal/local-package-chrome-runtime-v0` passed after removing workflow-file changes from the commit.
 
 ## Smoke Status
 
 - Bundled chrome smoke: implemented in `test-e2e/chrome-smoke.spec.js`; passes under Xvfb locally.
-- Package-mode smoke: not started.
-- Fallback smoke: not started.
+- Package-mode smoke: implemented in `test-e2e/chrome-package.spec.js`; passes under Xvfb locally.
+- Fallback smoke: implemented for missing package dir, malformed manifest, incompatible manifest, and missing entry file; passes under Xvfb locally.
 - GitHub/Xvfb smoke: not wired yet. Adding/updating `.github/workflows/ci.yml` is blocked by current push credentials lacking `workflow` scope.
 
 ## Decisions
@@ -32,6 +35,11 @@
 - Build the launched Electron bundled-chrome smoke gate before package runtime work.
 - Keep WP0 deterministic with `FREEDOM_TEST_MODE=1`; live-network tests are not the guardrail for chrome initialization.
 - Direct Electron E2E on this server requires Xvfb.
+- Local package chrome is explicitly opt-in through `FREEDOM_CHROME_PACKAGE_DIR` or `--chrome-package`; CLI wins over env for a launch.
+- Package chrome uses `src/main/package-preload.js`, which exposes only frozen `window.freedomShell`.
+- Shell API v0 currently supports `freedomShell.getInfo()` and `freedomShell.resolveNavigationInput(input)` over `shell:request`.
+- Package validation is local and conservative: absolute package dir, `manifest.json`, manifest version/type, package metadata, compatible shell API range, relative entry, realpath containment, and existing file entry.
+- Runtime load failure for a local package creates a fresh bundled fallback window so bundled chrome gets the broad preload and `webviewTag` back.
 
 ## Changed Files By Checkpoint
 
@@ -43,11 +51,32 @@
 
 - `test-e2e/chrome-smoke.spec.js`
 
+### WP1-WP4 Local Package Runtime
+
+- `src/main/chrome-package.js`
+- `src/main/chrome-package.test.js`
+- `src/main/package-preload.js`
+- `src/main/package-preload.test.js`
+- `src/main/shell-api.js`
+- `src/main/shell-api.test.js`
+- `src/main/windows/mainWindow.js`
+- `src/main/index.js`
+- `src/shared/ipc-channels.js`
+- `src/shared/navigation-input.js`
+- `src/shared/navigation-input.test.js`
+- `test/fixtures/chrome-packages/minimal/`
+- `test-e2e/chrome-package.spec.js`
+
 ## Known Risks
 
 - The smoke currently filters one test-induced WebView dom-ready race while probing guest page state.
 - GitHub Actions smoke cannot be added with the current OAuth token because workflow-file updates require `workflow` scope.
+- `resolveNavigationInput()` is deliberately v0 and does not yet mirror the full renderer navigation stack for Swarm/IPFS/ENS/Radicle.
+- A package whose entry loads successfully but whose own JavaScript self-bricks is not yet detected by a shell-owned recovery heartbeat.
 
 ## Next Step
 
-- Either get a workflow-scoped credential or ask the user to add the CI job before treating remote smoke verification as complete. Then proceed to package-runtime groundwork only while preserving the bundled chrome smoke gate.
+- Push `f7cc1bd` and this ledger update to `origin/goal/local-package-chrome-runtime-v0`.
+- Add GitHub Actions/Xvfb smoke coverage once a workflow-scoped credential or user-authored workflow change is available.
+- Decide whether v0 needs a package readiness/heartbeat recovery check for package JavaScript self-bricking before final completion.
+- Update user-facing docs or roadmap notes with local package launch and verification commands.
