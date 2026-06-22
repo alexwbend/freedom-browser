@@ -368,6 +368,9 @@ Verification in this checkpoint:
 - `npm test` passed after official-package ENS smoke changes: 110 suites passed, 5 skipped; 2074 tests passed, 17 skipped.
 - `git diff --check` passed after official-package ENS smoke changes.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after official-package ENS smoke changes: 8 tests.
+- Committed and pushed `3301d66` (`test(chrome): smoke package ens navigation`).
+- GitHub Actions run `27986296382`, job `test` (`82828455211`), passed for `3301d66`.
+- GitHub Actions run `27986296382`, job `e2e-chrome-runtime` (`82828455313`), passed for `3301d66`.
 
 ## Next Step
 
