@@ -481,8 +481,8 @@ Verification in this phase so far:
 
 ### Phase 7 Independent Update Proof
 
-Current checkpoint: independent local package update proof is implemented and
-verified locally; commit, push, and GitHub target CI evidence remain next.
+Current checkpoint: independent local package update proof is implemented,
+committed, pushed, and verified in GitHub target CI jobs.
 
 Implemented in this phase so far:
 
@@ -509,12 +509,15 @@ Verification in this phase so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
 - `xvfb-run -a npm run test:e2e` passed: 27 tests.
 - `git diff --check` passed.
+- committed as `b5d0a60` (`feat(chrome): rollback unhealthy package renderer`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27991143101`, job `test` (`82843612237`), passed for `b5d0a60`.
+- GitHub Actions run `27991143101`, job `e2e-chrome-runtime` (`82843612229`), passed for `b5d0a60`.
 
 ### Phase 8 Final Hardening And Docs
 
 Current checkpoint: package renderer health failure now uses the same
-rollback/bundled recovery path as load and readiness failures; final GitHub
-target CI evidence remains next.
+rollback/bundled recovery path as load and readiness failures, and the
+checkpoint is verified in GitHub target CI jobs.
 
 Implemented in this phase so far:
 
@@ -531,5 +534,5 @@ Implemented in this phase so far:
 
 ## Next Step
 
-- Commit and push the Phase 7/8 checkpoint, collect GitHub target CI evidence,
-  then prepare the completion report if no final audit gap remains.
+- Final audit the full completion criteria and prepare the completion report if
+  no final gap remains.
