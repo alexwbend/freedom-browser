@@ -136,11 +136,13 @@ The official package smoke currently proves:
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
 - direct `bzz://`, `ipfs://`, and `ipns://` address-bar navigation can load deterministic harness fixtures
 - ENS/contenthash navigation can resolve through the narrow shell API, load a deterministic `ipfs://name.eth/` harness fixture, reject asserted transport mismatches, and route conflicts to the shell-owned interstitial
+- Radicle `rad://` navigation routes to the deterministic disabled-integration interstitial in package mode
 - `freedom://settings` resolves through the package renderer's internal-page fallback
 - `freedom://home` and home-button navigation return to the package home page
 
-Radicle routing still requires additional official-package smoke coverage before
-the full local runtime goal can be called complete.
+Live Radicle node availability is not part of the deterministic package smoke;
+the harness covers the parser and routing decision without depending on a
+running Radicle network.
 
 ## Shell API v0
 

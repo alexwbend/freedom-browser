@@ -9,6 +9,7 @@ const rendererSourceDir = path.join(repoRoot, 'src', 'renderer');
 const sampleBzzHash = 'a'.repeat(64);
 const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
 const sampleIpnsName = 'example.ipns';
+const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
 async function launchFreedom(extraEnv = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
@@ -696,6 +697,28 @@ test('official browser chrome can launch as a local package with transitional we
       })
       .toContain('/pages/ens-conflict.html');
     await expectActiveWebviewText(page, '#name-el', 'conflict.eth');
+
+    await input.click();
+    await input.fill(`rad://${sampleRadicleRid}`);
+    await input.press('Enter');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for Radicle disabled interstitial in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/rad-browser.html');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for Radicle disabled error state',
+        timeout: 10_000,
+      })
+      .toContain('error=disabled');
+    await expectActiveWebviewText(page, '#display-rid', `rad://${sampleRadicleRid}`);
+    await expectActiveWebviewText(
+      page,
+      '#radicle-disabled-error h2',
+      'Radicle Integration Disabled'
+    );
 
     await navigateAddress(page, 'freedom://settings');
     await expect
