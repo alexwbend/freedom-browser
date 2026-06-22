@@ -4,7 +4,7 @@
 
 - Branch: `goal/local-package-chrome-runtime-v0`
 - Starting commit: `7b39944`
-- Latest pushed commit: `914614b`
+- WP0 smoke-gate code commit: `914614b`
 - Current phase: WP0, bundled-chrome runtime smoke gate
 - Goal brief: `/root/codex/freedom-browser-goal.md`
 - Roadmap context: `/root/codex/swarm-chrome-roadmap.md`
