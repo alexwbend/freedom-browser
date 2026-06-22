@@ -1,3 +1,4 @@
+const { EventEmitter } = require('events');
 const { app, ipcMain } = require('electron');
 const IPC = require('../shared/ipc-channels');
 const { version: packageVersion } = require('../../package.json');
@@ -6,6 +7,8 @@ const {
   getActiveChromePackage,
 } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
+
+const shellEvents = new EventEmitter();
 
 function getAppVersion() {
   if (app && typeof app.getVersion === 'function') {
@@ -42,9 +45,28 @@ function getInfo() {
   };
 }
 
+function markReady(event) {
+  shellEvents.emit('package-ready', {
+    sender: event?.sender || null,
+  });
+  return { ok: true };
+}
+
+function onPackageReady(listener) {
+  shellEvents.on('package-ready', listener);
+  return () => shellEvents.removeListener('package-ready', listener);
+}
+
 const METHODS = Object.freeze({
-  getInfo: () => getInfo(),
-  resolveNavigationInput: (input) => resolveNavigationInput(input),
+  getInfo: {
+    handler: () => getInfo(),
+  },
+  markReady: {
+    handler: (_args, event) => markReady(event),
+  },
+  resolveNavigationInput: {
+    handler: ([input]) => resolveNavigationInput(input),
+  },
 });
 
 async function handleShellRequest(_event, payload = {}) {
@@ -55,7 +77,7 @@ async function handleShellRequest(_event, payload = {}) {
     throw new Error(`Unsupported shell API method: ${method || '(missing)'}`);
   }
 
-  return METHODS[method](...args);
+  return METHODS[method].handler(args, _event);
 }
 
 function registerShellApiIpc(options = {}) {
@@ -67,5 +89,7 @@ module.exports = {
   describeChromePackage,
   getInfo,
   handleShellRequest,
+  markReady,
+  onPackageReady,
   registerShellApiIpc,
 };

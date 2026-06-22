@@ -65,6 +65,42 @@ async function expectBundledChromeLoaded(page) {
   await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
 }
 
+async function waitForBundledChromeWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('[data-test="address-input"]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; local package windows do not have bundled chrome selectors.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('[data-test="address-input"]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the replacement bundled window is ready.
+      }
+    }
+  }
+
+  throw new Error('Bundled chrome fallback window did not appear');
+}
+
 test('local package chrome loads through freedomShell without broad preload APIs', async () => {
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
@@ -90,7 +126,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
     }));
     expect(exposure).toEqual({
       hasFreedomShell: true,
-      freedomShellKeys: ['getInfo', 'resolveNavigationInput'],
+      freedomShellKeys: ['getInfo', 'markReady', 'resolveNavigationInput'],
       hasElectronAPI: false,
       hasWallet: false,
       hasIdentity: false,
@@ -98,6 +134,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
       hasSwarmPermissions: false,
       hasDappPermissions: false,
     });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
 
     const info = JSON.parse(await page.locator('[data-test="shell-info-json"]').textContent());
     expect(info).toMatchObject({
@@ -163,6 +200,17 @@ test.describe('local package fallback', () => {
         return root;
       },
     },
+    {
+      name: 'package readiness timeout',
+      env: {
+        FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS: '250',
+      },
+      createPackageDir(parent) {
+        const root = path.join(parent, 'never-ready');
+        writePackage(root);
+        return root;
+      },
+    },
   ];
 
   for (const fallbackCase of cases) {
@@ -171,9 +219,10 @@ test.describe('local package fallback', () => {
       const packageDir = fallbackCase.createPackageDir(parent);
       const launched = await launchFreedom({
         FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+        ...(fallbackCase.env || {}),
       });
       try {
-        const page = await launched.app.firstWindow();
+        const page = await waitForBundledChromeWindow(launched.app);
         await expectBundledChromeLoaded(page);
         await expect(page.locator('[data-test="package-root"]')).toHaveCount(0);
       } finally {

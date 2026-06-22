@@ -7,6 +7,7 @@ const {
   selectChromePackage,
   setActiveChromePackage,
 } = require('../chrome-package');
+const { onPackageReady } = require('../shell-api');
 
 let currentWindowTitle = 'Freedom';
 
@@ -42,6 +43,14 @@ function createBundledFallbackPackage(fallback) {
     ...BUNDLED_CHROME_PACKAGE,
     fallback,
   };
+}
+
+function getPackageReadyTimeoutMs() {
+  const configured = Number(process.env.FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS);
+  if (Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+  return 5000;
 }
 
 function createMainWindow(initialUrl = null, options = {}) {
@@ -84,20 +93,22 @@ function createMainWindow(initialUrl = null, options = {}) {
   mainWindows.add(window);
 
   let recoveredFromPackageLoadFailure = false;
+  let cleanupPackageReadyWait = () => {};
   const recoverFromPackageLoadFailure = (details = {}) => {
     if (chromePackage.kind !== 'local-package' || recoveredFromPackageLoadFailure) {
       return null;
     }
     recoveredFromPackageLoadFailure = true;
+    cleanupPackageReadyWait();
     const fallback = {
       requestedDir: chromePackage.packageRoot,
       error: {
-        code: 'ENTRY_LOAD_FAILED',
+        code: details.code || 'ENTRY_LOAD_FAILED',
         message: details.message || details.errorDescription || 'Chrome package entry failed to load',
         url: details.url || details.validatedURL || '',
       },
     };
-    log.warn('[chrome-package] falling back to bundled chrome after load failure', fallback.error);
+    log.warn('[chrome-package] falling back to bundled chrome after package failure', fallback.error);
     const replacement = createMainWindow(initialUrl, {
       chromePackage: createBundledFallbackPackage(fallback),
     });
@@ -107,14 +118,29 @@ function createMainWindow(initialUrl = null, options = {}) {
     return replacement;
   };
 
-  // Load bundled chrome with optional initial URL. Local package chrome gets
-  // only its manifest entry; persisted activation/launch parameters are out of
-  // scope for the dev-only v0 runtime.
-  const loadPromise = loadChromeEntry(window, chromePackage, initialUrl);
-  if (loadPromise && typeof loadPromise.catch === 'function') {
-    loadPromise.catch((error) => {
-      recoverFromPackageLoadFailure({ message: error?.message || String(error) });
+  if (chromePackage.kind === 'local-package') {
+    const readyTimeout = setTimeout(() => {
+      recoverFromPackageLoadFailure({
+        code: 'PACKAGE_READY_TIMEOUT',
+        message: 'Chrome package did not signal readiness',
+      });
+    }, getPackageReadyTimeoutMs());
+
+    const disposePackageReady = onPackageReady(({ sender }) => {
+      if (sender !== window.webContents) {
+        return;
+      }
+      cleanupPackageReadyWait();
+      log.info('[chrome-package] local package signaled readiness', {
+        packageId: chromePackage.packageId,
+      });
     });
+
+    cleanupPackageReadyWait = () => {
+      clearTimeout(readyTimeout);
+      disposePackageReady();
+      cleanupPackageReadyWait = () => {};
+    };
   }
 
   window.on('ready-to-show', () => {
@@ -127,6 +153,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   });
 
   window.on('closed', () => {
+    cleanupPackageReadyWait();
     mainWindows.delete(window);
   });
 
@@ -155,6 +182,16 @@ function createMainWindow(initialUrl = null, options = {}) {
     });
     wc.on('responsive', () => {
       console.info('[webcontents] renderer responsive again');
+    });
+  }
+
+  // Load bundled chrome with optional initial URL. Local package chrome gets
+  // only its manifest entry; persisted activation/launch parameters are out of
+  // scope for the dev-only v0 runtime.
+  const loadPromise = loadChromeEntry(window, chromePackage, initialUrl);
+  if (loadPromise && typeof loadPromise.catch === 'function') {
+    loadPromise.catch((error) => {
+      recoverFromPackageLoadFailure({ message: error?.message || String(error) });
     });
   }
 

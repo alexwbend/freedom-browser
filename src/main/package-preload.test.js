@@ -39,6 +39,7 @@ describe('package-preload', () => {
     expect(Object.keys(exposures)).toEqual(['freedomShell']);
     expect(Object.keys(exposures.freedomShell)).toEqual([
       'getInfo',
+      'markReady',
       'resolveNavigationInput',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
@@ -56,6 +57,12 @@ describe('package-preload', () => {
     await exposures.freedomShell.getInfo();
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: 'getInfo',
+      args: [],
+    });
+
+    await exposures.freedomShell.markReady();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: 'markReady',
       args: [],
     });
 

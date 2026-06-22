@@ -9,5 +9,5 @@
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "navigation.resolve"]
+  "capabilities": ["shell.info", "shell.ready", "navigation.resolve"]
 }

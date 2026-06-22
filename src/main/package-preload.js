@@ -8,6 +8,7 @@ const invokeShell = (method, ...args) => ipcRenderer.invoke(SHELL_REQUEST, { met
 
 const freedomShell = Object.freeze({
   getInfo: () => invokeShell('getInfo'),
+  markReady: () => invokeShell('markReady'),
   resolveNavigationInput: (input) => invokeShell('resolveNavigationInput', input),
 });
 

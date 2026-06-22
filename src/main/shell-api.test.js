@@ -72,6 +72,22 @@ describe('shell-api', () => {
     );
   });
 
+  test('emits package readiness for the calling webContents', async () => {
+    const { mod } = loadShellApi();
+    const listener = jest.fn();
+    const dispose = mod.onPackageReady(listener);
+    const sender = { id: 42 };
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'markReady', args: [] })
+    ).resolves.toEqual({ ok: true });
+    expect(listener).toHaveBeenCalledWith({ sender });
+
+    dispose();
+    await mod.handleShellRequest({ sender }, { method: 'markReady', args: [] });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
   test('registers the shell request IPC handler', async () => {
     const ipcMain = createIpcMainMock();
     const { mod } = loadShellApi({ ipcMain });

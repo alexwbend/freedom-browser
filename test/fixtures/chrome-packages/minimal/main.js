@@ -33,7 +33,7 @@
   async function loadShellInfo() {
     if (!window.freedomShell || typeof window.freedomShell.getInfo !== 'function') {
       setText('shell-info-status', 'missing-freedomShell');
-      return;
+      return false;
     }
 
     try {
@@ -43,23 +43,41 @@
         ...info,
         broadApisAbsent: missingBroadApis,
       });
+      return true;
     } catch (error) {
       setText('shell-info-status', `error:${error?.message || error}`);
+      return false;
     }
   }
 
   async function resolveExample() {
     if (!window.freedomShell || typeof window.freedomShell.resolveNavigationInput !== 'function') {
       setText('resolve-nav-status', 'missing-resolver');
-      return;
+      return false;
     }
 
     try {
       const result = await window.freedomShell.resolveNavigationInput('example.com');
       setText('resolve-nav-status', result.ok ? result.targetUrl : `error:${result.error?.code}`);
       setJson('resolve-nav-json', result);
+      return result.ok === true;
     } catch (error) {
       setText('resolve-nav-status', `error:${error?.message || error}`);
+      return false;
+    }
+  }
+
+  async function signalReady() {
+    if (!window.freedomShell || typeof window.freedomShell.markReady !== 'function') {
+      document.body.dataset.ready = 'missing-mark-ready';
+      return;
+    }
+
+    try {
+      await window.freedomShell.markReady();
+      document.body.dataset.ready = 'true';
+    } catch (error) {
+      document.body.dataset.ready = `error:${error?.message || error}`;
     }
   }
 
@@ -67,6 +85,11 @@
     resolveExample();
   });
 
-  loadShellInfo();
-  resolveExample();
+  (async () => {
+    const infoReady = await loadShellInfo();
+    const navigationReady = await resolveExample();
+    if (infoReady && navigationReady && presentBroadApis.length === 0) {
+      await signalReady();
+    }
+  })();
 })();
