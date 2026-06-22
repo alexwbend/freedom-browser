@@ -1,11 +1,13 @@
 const {
   KNOWN_SHELL_CAPABILITIES,
   SHELL_API_CAPABILITIES,
+  SHELL_API_EVENTS,
   SHELL_API_EVENT_CAPABILITIES,
   SHELL_API_METHODS,
   SHELL_API_METHOD_CAPABILITIES,
   SHELL_API_VERSION,
   compareShellApiVersions,
+  getRequiredCapabilityForEvent,
   getRequiredCapabilityForMethod,
   isKnownShellCapability,
   isShellApiVersionCompatible,
@@ -43,6 +45,7 @@ describe('shell-api-policy', () => {
       SHELL_READY: 'shell.ready',
       NAVIGATION_RESOLVE: 'navigation.resolve',
     });
+    expect(SHELL_API_EVENTS).toEqual({});
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({});
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'navigation.resolve',
@@ -50,6 +53,16 @@ describe('shell-api-policy', () => {
       'shell.ready',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
+  });
+
+  test('maps every event capability to a declared event and known capability', () => {
+    for (const [eventName, capability] of Object.entries(SHELL_API_EVENT_CAPABILITIES)) {
+      expect(Object.values(SHELL_API_EVENTS)).toContain(eventName);
+      expect(getRequiredCapabilityForEvent(eventName)).toBe(capability);
+      expect(isKnownShellCapability(capability)).toBe(true);
+    }
+
+    expect(getRequiredCapabilityForEvent('tabs.changed')).toBeNull();
   });
 
   test('parses and compares shell API compatibility ranges', () => {

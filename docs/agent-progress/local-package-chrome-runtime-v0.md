@@ -130,7 +130,7 @@ Verification in this phase so far:
 
 ### Phase 1 Shell API Foundation
 
-Current checkpoint: caller identity slice completed locally on top of `2b374f1`; checkpoint commit pending.
+Current checkpoint: event registry closure completed locally; GitHub smoke for this checkpoint pending.
 
 Implemented in this phase so far:
 
@@ -149,6 +149,7 @@ Implemented in this phase so far:
 - registered package callers now carry a path-free structured identity
 - `getInfo()` now reports caller package identity for shell requests
 - capability-denial errors include caller package identity instead of a loose package id
+- shell API policy now has an explicit event registry namespace and event capability lookup helper, even though v0 exposes no package-visible shell events yet
 - documented the preload parity rule in `docs/local-package-chrome-runtime.md`
 - documented `getInfo()` caller identity in `docs/local-package-chrome-runtime.md`
 
@@ -175,7 +176,15 @@ Verification in this phase so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after caller identity changes: 7 tests.
 - `npm run lint` passed after caller identity changes.
 - `npm test` passed after caller identity changes: 108 suites passed, 5 skipped; 2051 tests passed, 17 skipped.
+- Committed and pushed `1927cfd` (`refactor(shell): model package caller identity`).
+- GitHub Actions run `27979727270`, job `test` (`82806527021`), passed for `1927cfd`.
+- GitHub Actions run `27979727270`, job `e2e-chrome-runtime` (`82806527131`), passed for `1927cfd`.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js` passed after event registry closure changes: 3 suites, 18 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after event registry closure changes: 7 tests.
+- `npm run lint` passed after event registry closure changes.
+- `npm test` passed after event registry closure changes: 108 suites passed, 5 skipped; 2052 tests passed, 17 skipped.
+- Committed the event registry closure checkpoint (`refactor(shell): close shell event registry contract`); push and GitHub target jobs pending.
 
 ## Next Step
 
-- Commit and push the Phase 1 caller identity checkpoint, check the new GitHub smoke run, then continue Phase 1 toward any remaining bridge/registry parity gaps in `/root/codex/freedom-browser-goal2.md`.
+- Commit and push the Phase 1 event registry closure checkpoint, check the new GitHub smoke run, then record the Phase 1 gate and begin Phase 2 tab snapshot/command work in `/root/codex/freedom-browser-goal2.md`.

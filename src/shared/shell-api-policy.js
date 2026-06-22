@@ -6,6 +6,8 @@ const SHELL_API_METHODS = Object.freeze({
   RESOLVE_NAVIGATION_INPUT: 'resolveNavigationInput',
 });
 
+const SHELL_API_EVENTS = Object.freeze({});
+
 const SHELL_API_CAPABILITIES = Object.freeze({
   SHELL_INFO: 'shell.info',
   SHELL_READY: 'shell.ready',
@@ -67,6 +69,10 @@ function getRequiredCapabilityForMethod(method) {
   return SHELL_API_METHOD_CAPABILITIES[method] || null;
 }
 
+function getRequiredCapabilityForEvent(eventName) {
+  return SHELL_API_EVENT_CAPABILITIES[eventName] || null;
+}
+
 function isKnownShellCapability(capability) {
   return KNOWN_SHELL_CAPABILITIES.includes(capability);
 }
@@ -74,11 +80,13 @@ function isKnownShellCapability(capability) {
 module.exports = {
   KNOWN_SHELL_CAPABILITIES,
   SHELL_API_CAPABILITIES,
+  SHELL_API_EVENTS,
   SHELL_API_EVENT_CAPABILITIES,
   SHELL_API_METHODS,
   SHELL_API_METHOD_CAPABILITIES,
   SHELL_API_VERSION,
   compareShellApiVersions,
+  getRequiredCapabilityForEvent,
   getRequiredCapabilityForMethod,
   isKnownShellCapability,
   isShellApiVersionCompatible,
