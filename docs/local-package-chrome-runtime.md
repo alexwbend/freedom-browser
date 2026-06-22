@@ -131,8 +131,15 @@ The official package smoke currently proves:
 - the initial tab and home page render
 - the main menu and node menu open
 - new tab, tab switch, and tab close work
+- reload works on the package home page
+- bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
+- direct `bzz://`, `ipfs://`, and `ipns://` address-bar navigation can load deterministic harness fixtures
 - `freedom://settings` resolves through the package renderer's internal-page fallback
-- home navigation returns to the package home page
+- `freedom://home` and home-button navigation return to the package home page
+
+ENS/contenthash trust behavior and Radicle routing still require additional
+official-package smoke coverage before the full local runtime goal can be
+called complete.
 
 ## Shell API v0
 

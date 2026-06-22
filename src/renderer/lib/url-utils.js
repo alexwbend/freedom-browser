@@ -178,7 +178,17 @@ export const formatBzzUrl = (input, bzzRoutePrefix) => {
       const hashInput = `${asUrl.hostname}${asUrl.pathname}${asUrl.search}${asUrl.hash}`;
       const parsedBzz = parseHashInput(hashInput, bzzRoutePrefix);
       if (!parsedBzz) {
-        return null;
+        const hash = asUrl.hostname;
+        if (!isValidSwarmHash(hash)) {
+          return null;
+        }
+        const tail = `${asUrl.pathname}${asUrl.search}${asUrl.hash}`;
+        const displayValue = `bzz://${hash}${tail}`;
+        return {
+          targetUrl: displayValue,
+          displayValue,
+          baseUrl: null,
+        };
       }
       return {
         targetUrl: composeTargetUrl(parsedBzz.baseUrl, parsedBzz.tail || ''),
@@ -216,7 +226,13 @@ export const formatBzzUrl = (input, bzzRoutePrefix) => {
 
     const parsed = parseHashInput(raw, bzzRoutePrefix);
     if (!parsed) {
-      return null;
+      const tail = raw.slice(firstSegment.length);
+      const displayValue = `bzz://${firstSegment}${tail}`;
+      return {
+        targetUrl: displayValue,
+        displayValue,
+        baseUrl: null,
+      };
     }
     return {
       targetUrl: composeTargetUrl(parsed.baseUrl, parsed.tail || ''),

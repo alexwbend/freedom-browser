@@ -197,6 +197,26 @@ describe('url-utils', () => {
       });
     });
 
+    test('formats explicit bzz:// hash directly when no gateway prefix is available', () => {
+      const hash = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+      const result = formatBzzUrl(`bzz://${hash}/index.html?foo=bar#section`, null);
+      expect(result).toEqual({
+        targetUrl: `bzz://${hash}/index.html?foo=bar#section`,
+        displayValue: `bzz://${hash}/index.html?foo=bar#section`,
+        baseUrl: null,
+      });
+    });
+
+    test('formats raw Swarm hash directly when no gateway prefix is available', () => {
+      const hash = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+      const result = formatBzzUrl(`${hash}/index.html`, null);
+      expect(result).toEqual({
+        targetUrl: `bzz://${hash}/index.html`,
+        displayValue: `bzz://${hash}/index.html`,
+        baseUrl: null,
+      });
+    });
+
     test('formats raw 128-char hex hash as bzz://', () => {
       const input =
         '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdefabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';

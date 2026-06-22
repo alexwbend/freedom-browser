@@ -6,6 +6,9 @@ const path = require('path');
 const repoRoot = path.resolve(__dirname, '..');
 const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packages', 'minimal');
 const rendererSourceDir = path.join(repoRoot, 'src', 'renderer');
+const sampleBzzHash = 'a'.repeat(64);
+const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
+const sampleIpnsName = 'example.ipns';
 
 async function launchFreedom(extraEnv = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
@@ -187,6 +190,20 @@ async function getActiveWebviewUrl(page) {
   });
 }
 
+async function getActiveWebviewText(page, selector) {
+  return page.evaluate(async (targetSelector) => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') return null;
+    try {
+      return await webview.executeJavaScript(`
+        document.querySelector(${JSON.stringify(targetSelector)})?.textContent || null
+      `);
+    } catch {
+      return null;
+    }
+  }, selector);
+}
+
 async function expectHomeReady(page) {
   await expect
     .poll(() => getActiveWebviewHomeStatus(page), {
@@ -194,6 +211,29 @@ async function expectHomeReady(page) {
       timeout: 10_000,
     })
     .toBe('ready');
+}
+
+async function expectActiveWebviewText(page, selector, expectedText) {
+  await expect
+    .poll(() => getActiveWebviewText(page, selector), {
+      message: `Waiting for active webview text ${selector}`,
+      timeout: 10_000,
+    })
+    .toBe(expectedText);
+}
+
+async function navigateAddress(page, value, expectedValue = value) {
+  const input = page.locator('[data-test="address-input"]');
+  await input.click();
+  await input.fill(value);
+  await input.press('Enter');
+  await expect(input).toHaveValue(expectedValue);
+}
+
+async function setContentFixture(app, url, fixture) {
+  await app.evaluate(({ ipcMain: _ipcMain }, payload) => {
+    globalThis.__FREEDOM_TEST_HARNESS__.setContentFixture(payload.url, payload.fixture);
+  }, { url, fixture });
 }
 
 async function expectBundledChromeLoaded(page) {
@@ -496,6 +536,8 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('[data-test="new-tab-btn"]')).toBeVisible();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
     await expectHomeReady(page);
+    await page.locator('#reload-btn').click();
+    await expectHomeReady(page);
 
     await page.locator('#menu-button').click();
     await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
@@ -515,17 +557,58 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
 
-    const input = page.locator('[data-test="address-input"]');
-    await input.click();
-    await input.fill('freedom://settings');
-    await input.press('Enter');
-    await expect(input).toHaveValue('freedom://settings');
+    await navigateAddress(page, 'example.com', 'https://example.com');
+    await expectActiveWebviewText(
+      page,
+      '[data-test="harness-http-stub-url"]',
+      'https://example.com/'
+    );
+
+    await navigateAddress(page, 'http://example.test/path');
+    await expectActiveWebviewText(
+      page,
+      '[data-test="harness-http-stub-url"]',
+      'http://example.test/path'
+    );
+
+    await navigateAddress(page, 'https://example.net/path');
+    await expectActiveWebviewText(
+      page,
+      '[data-test="harness-http-stub-url"]',
+      'https://example.net/path'
+    );
+
+    await setContentFixture(launched.app, `bzz://${sampleBzzHash}/`, {
+      body: '<!doctype html><title>bzz fixture</title><p data-test="package-dweb">bzz fixture</p>',
+    });
+    await setContentFixture(launched.app, `ipfs://${sampleIpfsCid}/`, {
+      body:
+        '<!doctype html><title>ipfs fixture</title><p data-test="package-dweb">ipfs fixture</p>',
+    });
+    await setContentFixture(launched.app, `ipns://${sampleIpnsName}/`, {
+      body:
+        '<!doctype html><title>ipns fixture</title><p data-test="package-dweb">ipns fixture</p>',
+    });
+
+    await navigateAddress(page, `ipfs://${sampleIpfsCid}/`);
+    await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ipfs fixture');
+
+    await navigateAddress(page, `ipns://${sampleIpnsName}/`);
+    await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ipns fixture');
+
+    await navigateAddress(page, `bzz://${sampleBzzHash}/`);
+    await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'bzz fixture');
+
+    await navigateAddress(page, 'freedom://settings');
     await expect
       .poll(() => getActiveWebviewUrl(page), {
         message: 'Waiting for freedom://settings to load in package webview',
         timeout: 10_000,
       })
       .toContain('/pages/settings.html');
+
+    await navigateAddress(page, 'freedom://home');
+    await expectHomeReady(page);
 
     await page.locator('#home-btn').click();
     await expectHomeReady(page);

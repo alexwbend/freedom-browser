@@ -316,8 +316,14 @@ Implemented in this phase so far:
   local package, opts into transitional webviews, and proves the real browser
   chrome starts without broad preload globals
 - official package smoke currently verifies initial tab/home render, main menu,
-  node menu, new tab, tab switch, tab close, `freedom://settings`, and home
-  navigation
+  node menu, reload, new tab, tab switch, tab close, bare-domain navigation,
+  `http://`, `https://`, direct `bzz://`, direct `ipfs://`, direct `ipns://`,
+  `freedom://settings`, `freedom://home`, and home-button navigation
+- package-mode direct `bzz://<hash>` routing now works without a gateway prefix
+  by loading the standard `bzz:` scheme directly when no Ant route prefix is
+  available
+- ENS/contenthash trust behavior and Radicle routing remain explicit
+  official-package parity gaps
 
 Verification in this checkpoint:
 
@@ -339,10 +345,17 @@ Verification in this checkpoint:
 - Committed and pushed `efaf33b` (`feat(chrome): smoke official package runtime`).
 - GitHub Actions run `27984422444`, job `test` (`82822335543`), passed for `efaf33b`.
 - GitHub Actions run `27984422444`, job `e2e-chrome-runtime` (`82822335377`), passed for `efaf33b`.
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js src/renderer/lib/url-utils.test.js` passed after official-package navigation expansion: 2 suites, 157 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after official-package navigation expansion: 7 tests.
+- `npm run lint` passed after official-package navigation expansion.
+- `npm test` passed after official-package navigation expansion: 110 suites passed, 5 skipped; 2073 tests passed, 17 skipped.
+- `git diff --check` passed after official-package navigation expansion.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed on the final diff for this checkpoint: 8 tests.
 
 ## Next Step
 
-- Complete Phase 4 transitional webview hardening, then run the official chrome
-  renderer as a local package smoke and bridge only the narrow API gaps required
-  for that smoke while keeping wallet, identity, permissions, x402, and publish
-  prompts as trusted shell-owned surfaces.
+- Continue Phase 4 official-package parity by adding deterministic
+  ENS/contenthash and Radicle smoke coverage, then move into local package
+  store/cache, integrity, update, and rollback work while keeping wallet,
+  identity, permissions, x402, and publish prompts as trusted shell-owned
+  surfaces.

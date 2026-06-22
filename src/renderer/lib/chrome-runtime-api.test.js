@@ -44,6 +44,8 @@ describe('chrome-runtime-api', () => {
     });
     await expect(api.getBookmarks()).resolves.toEqual([]);
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
+    expect(api.startSwarmProbe).toBeUndefined();
+    expect(api.resolveEns).toBeUndefined();
     expect(global.window.electronAPI).toBeUndefined();
   });
 
