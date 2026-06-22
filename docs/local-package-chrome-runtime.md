@@ -135,13 +135,12 @@ The official package smoke currently proves:
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
 - direct `bzz://`, `ipfs://`, and `ipns://` address-bar navigation can load deterministic harness fixtures
-- ENS/contenthash navigation can resolve through the narrow shell API and load a deterministic `ipfs://name.eth/` harness fixture
+- ENS/contenthash navigation can resolve through the narrow shell API, load a deterministic `ipfs://name.eth/` harness fixture, reject asserted transport mismatches, and route conflicts to the shell-owned interstitial
 - `freedom://settings` resolves through the package renderer's internal-page fallback
 - `freedom://home` and home-button navigation return to the package home page
 
-ENS/contenthash transport mismatch/conflict behavior and Radicle routing still
-require additional official-package smoke coverage before the full local
-runtime goal can be called complete.
+Radicle routing still requires additional official-package smoke coverage before
+the full local runtime goal can be called complete.
 
 ## Shell API v0
 

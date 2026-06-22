@@ -291,7 +291,8 @@ Verification in this phase:
 
 Current checkpoint: official browser chrome package smoke passes locally with
 the real renderer copied into a temporary local package, including deterministic
-ENS/contenthash success through the narrow shell API.
+ENS/contenthash success, transport mismatch, and conflict behavior through the
+narrow shell API.
 
 Implemented in this phase so far:
 
@@ -319,7 +320,8 @@ Implemented in this phase so far:
 - official package smoke currently verifies initial tab/home render, main menu,
   node menu, reload, new tab, tab switch, tab close, bare-domain navigation,
   `http://`, `https://`, direct `bzz://`, direct `ipfs://`, direct `ipns://`,
-  ENS/contenthash success loading `ipfs://name.eth/`, `freedom://settings`,
+  ENS/contenthash success loading `ipfs://name.eth/`, asserted transport
+  mismatch rejection, ENS conflict interstitial routing, `freedom://settings`,
   `freedom://home`, and home-button navigation
 - package-mode direct `bzz://<hash>` routing now works without a gateway prefix
   by loading the standard `bzz:` scheme directly when no Ant route prefix is
@@ -330,8 +332,7 @@ Implemented in this phase so far:
 - package-mode ENS shell calls use the existing deterministic main-process
   harness fixtures when `FREEDOM_TEST_MODE=1`, so official package smoke does
   not hit live Ethereum RPC
-- ENS/contenthash transport mismatch/conflict behavior and Radicle routing
-  remain explicit official-package parity gaps
+- Radicle routing remains the explicit official-package parity gap
 
 Verification in this checkpoint:
 
@@ -371,11 +372,15 @@ Verification in this checkpoint:
 - Committed and pushed `3301d66` (`test(chrome): smoke package ens navigation`).
 - GitHub Actions run `27986296382`, job `test` (`82828455211`), passed for `3301d66`.
 - GitHub Actions run `27986296382`, job `e2e-chrome-runtime` (`82828455313`), passed for `3301d66`.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after ENS mismatch/conflict smoke changes: 7 tests.
+- `npm run lint` passed after ENS mismatch/conflict smoke changes.
+- `npm test` passed after ENS mismatch/conflict smoke changes: 110 suites passed, 5 skipped; 2074 tests passed, 17 skipped.
+- `git diff --check` passed after ENS mismatch/conflict smoke changes.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after ENS mismatch/conflict smoke changes: 8 tests.
 
 ## Next Step
 
-- Continue Phase 4 official-package parity by adding deterministic
-  ENS/contenthash mismatch/conflict behavior and Radicle smoke coverage, then
-  move into local package store/cache, integrity, update, and rollback work
-  while keeping wallet, identity, permissions, x402, and publish prompts as
-  trusted shell-owned surfaces.
+- Continue Phase 4 official-package parity by adding deterministic Radicle
+  smoke coverage, then move into local package store/cache, integrity, update,
+  and rollback work while keeping wallet, identity, permissions, x402, and
+  publish prompts as trusted shell-owned surfaces.

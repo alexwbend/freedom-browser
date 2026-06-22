@@ -222,6 +222,30 @@ async function expectActiveWebviewText(page, selector, expectedText) {
     .toBe(expectedText);
 }
 
+async function installRendererAlertCapture(page) {
+  await page.evaluate(() => {
+    window.__freedomTestAlerts = [];
+    window.alert = (message) => {
+      window.__freedomTestAlerts.push(String(message));
+    };
+  });
+}
+
+async function expectRendererAlert(page, pattern) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          return (window.__freedomTestAlerts || []).join('\n');
+        }),
+      {
+        message: `Waiting for renderer alert matching ${pattern}`,
+        timeout: 10_000,
+      }
+    )
+    .toMatch(pattern);
+}
+
 async function navigateAddress(page, value, expectedValue = value) {
   const input = page.locator('[data-test="address-input"]');
   await input.click();
@@ -612,6 +636,32 @@ test('official browser chrome can launch as a local package with transitional we
       body:
         '<!doctype html><title>ens fixture</title><p data-test="package-dweb">ens fixture</p>',
     });
+    await setEnsFixture(launched.app, 'mismatch.eth', {
+      type: 'ok',
+      name: 'mismatch.eth',
+      protocol: 'ipfs',
+      decoded: sampleIpfsCid,
+      uri: `ipfs://${sampleIpfsCid}`,
+      trust: {
+        level: 'verified',
+        status: 'ENS resolution verified',
+      },
+    });
+    await setEnsFixture(launched.app, 'conflict.eth', {
+      type: 'conflict',
+      name: 'conflict.eth',
+      trust: {
+        level: 'conflict',
+        block: {
+          number: 123,
+          hash: '0xabc1230000000000000000000000000000000000000000000000000000000000',
+        },
+      },
+      groups: [
+        { resolvedData: '0x1111', urls: ['https://rpc-a.example'] },
+        { resolvedData: '0x2222', urls: ['https://rpc-b.example'] },
+      ],
+    });
 
     await navigateAddress(page, `ipfs://${sampleIpfsCid}/`);
     await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ipfs fixture');
@@ -628,6 +678,24 @@ test('official browser chrome can launch as a local package with transitional we
     await input.press('Enter');
     await expect(input).toHaveValue(/^ipfs:\/\/vitalik\.eth\/?$/);
     await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ens fixture');
+
+    await installRendererAlertCapture(page);
+    await input.click();
+    await input.fill('bzz://mismatch.eth');
+    await input.press('Enter');
+    await expectRendererAlert(page, /resolves to ipfs, not bzz/);
+    await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ens fixture');
+
+    await input.click();
+    await input.fill('conflict.eth');
+    await input.press('Enter');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for ENS conflict interstitial in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/ens-conflict.html');
+    await expectActiveWebviewText(page, '#name-el', 'conflict.eth');
 
     await navigateAddress(page, 'freedom://settings');
     await expect
