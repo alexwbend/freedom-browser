@@ -7,7 +7,7 @@
 - WP0 smoke-gate code commit: `914614b`
 - Package runtime checkpoint commit: `f7cc1bd`
 - Readiness recovery checkpoint commit: `5869869`
-- Current phase: WP1-WP4 package loader, narrow preload, local fixture, fallback smoke, and readiness-timeout recovery are implemented locally
+- Current phase: WP1-WP4 package loader, narrow preload, local fixture, fallback smoke, and readiness-timeout recovery are implemented and pushed
 - Goal brief: `/root/codex/freedom-browser-goal.md`
 - Roadmap context: `/root/codex/swarm-chrome-roadmap.md`
 
@@ -23,6 +23,7 @@
 - `xvfb-run -a npm run test:e2e` passed: 20 Playwright harness tests.
 - Attempted `git push -u origin goal/local-package-chrome-runtime-v0` with a CI workflow update included; GitHub rejected the push because the OAuth token lacks `workflow` scope.
 - `git push -u origin goal/local-package-chrome-runtime-v0` passed after removing workflow-file changes from the commit.
+- `git push origin goal/local-package-chrome-runtime-v0` passed through `91b127e`.
 
 ## Smoke Status
 
@@ -79,6 +80,5 @@
 
 ## Next Step
 
-- Push `5869869` and this ledger update to `origin/goal/local-package-chrome-runtime-v0`.
 - Add GitHub Actions/Xvfb smoke coverage once a workflow-scoped credential or user-authored workflow change is available.
 - Update user-facing docs or roadmap notes with local package launch and verification commands.
