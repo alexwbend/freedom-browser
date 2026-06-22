@@ -1902,6 +1902,24 @@ describe('ens-resolver', () => {
       expect(result.trust.method).toBe('colibri');
     });
 
+    test('CALL_EXCEPTION without revert data falls through to public RPC quorum', async () => {
+      withColibri();
+      const err = Object.assign(new Error('missing response from Colibri prover'), {
+        code: 'CALL_EXCEPTION',
+        info: { error: { code: -32603, message: 'no response' } },
+      });
+      mockResolveViaColibri.mockRejectedValue(err);
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('prover-down.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.uri).toBe(`ipfs://${IPFS_V0}`);
+      expect(mockUrResolve).toHaveBeenCalled();
+      expect(result.trust.method).not.toBe('colibri');
+      expect(result.trust.quorum).toEqual({ k: 3, m: 2, achieved: true });
+    });
+
     test('non-revert error falls through to the quorum path by default', async () => {
       withColibri();
       mockResolveViaColibri.mockRejectedValue(new Error('proof verification failed'));

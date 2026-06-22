@@ -876,7 +876,7 @@ async function tryColibriPath(name, callData) {
         block: null,
       };
     }
-    if (err.code === 'CALL_EXCEPTION') {
+    if (err.code === 'CALL_EXCEPTION' && getRevertData(err)) {
       // Verified revert with an unknown selector — same semantics as the
       // quorum path's NO_CONTENTHASH bucket. Upstream maps that to
       // RESOLUTION_ERROR for addr lookups and "no contenthash" for content.
