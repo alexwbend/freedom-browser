@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: package-visible tab command result events passed locally; remote CI evidence is pending.
+Current checkpoint: package-visible tab command result events passed locally and in GitHub target CI jobs in `47fb38e`.
 
 Implemented in this phase so far:
 
@@ -227,6 +227,9 @@ Verification in this phase so far:
 - `npm run lint` passed after command-result event changes.
 - `npm test` passed after command-result event changes: 109 suites passed, 5 skipped; 2057 tests passed, 17 skipped.
 - `git diff --check` passed after command-result event changes.
+- Committed and pushed `47fb38e` (`feat(shell): emit package tab command events`).
+- GitHub Actions run `27981261751`, job `test` (`82811643732`), passed for `47fb38e`.
+- GitHub Actions run `27981261751`, job `e2e-chrome-runtime` (`82811643557`), passed for `47fb38e`.
 
 ## Next Step
 
