@@ -307,6 +307,10 @@ function createMainWindow(initialUrl = null, options = {}) {
     });
     wc.on('render-process-gone', (_event, details) => {
       log.error('[render-process-gone]', details);
+      recoverFromPackageLoadFailure({
+        code: 'PACKAGE_RENDERER_GONE',
+        message: `Chrome package renderer exited: ${details?.reason || 'unknown'}`,
+      });
     });
     wc.on('unresponsive', () => {
       log.warn('[webcontents] renderer became unresponsive');

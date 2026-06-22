@@ -300,6 +300,16 @@ async function readShellInfo(page) {
   return JSON.parse(await page.locator('[data-test="shell-info-json"]').textContent());
 }
 
+async function emitActiveWindowRendererGone(app, reason = 'crashed') {
+  await app.evaluate(({ BrowserWindow }, payload) => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+    if (!window) {
+      throw new Error('No active browser window to mark unhealthy');
+    }
+    window.webContents.emit('render-process-gone', {}, { reason: payload.reason });
+  }, { reason });
+}
+
 async function installRendererAlertCapture(page) {
   await page.evaluate(() => {
     window.__freedomTestAlerts = [];
@@ -973,6 +983,73 @@ test('local package feed keeps current cache for corrupt update and rolls back f
   }
 });
 
+test('local package feed rolls back when updated package renderer becomes unhealthy', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-health-e2e-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-health-'));
+  const feedPath = path.join(parent, 'feed.json');
+  const v1Dir = path.join(parent, 'v1');
+  const v2Dir = path.join(parent, 'v2');
+  let launched;
+
+  try {
+    copyFixturePackage(v1Dir, { version: '0.1.0' });
+    writeLocalPackageFeed(feedPath, [v1Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    let page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    await launched.close();
+    launched = null;
+
+    copyFixturePackage(v2Dir, { version: '0.2.0' });
+    writeLocalPackageFeed(feedPath, [v1Dir, v2Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        userDataDir,
+      }
+    );
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.2.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+
+    await emitActiveWindowRendererGone(launched.app);
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    const info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.1.0',
+        source: 'store',
+      },
+    });
+  } finally {
+    if (launched) {
+      await launched.close();
+    }
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('official browser chrome can launch as a local package with transitional webviews', async () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
   const packageDir = path.join(parent, 'official');
@@ -1027,6 +1104,14 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).not.toHaveClass(/open/);
 
+    const profileIndicator = page.locator('#profile-indicator');
+    if (await profileIndicator.isVisible()) {
+      await profileIndicator.click();
+      await expect(page.locator('#profile-menu')).toBeVisible();
+      await profileIndicator.click();
+      await expect(page.locator('#profile-menu')).toBeHidden();
+    }
+
     await page.locator('[data-test="new-tab-btn"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(2);
     await expect(page.locator('[data-test="tab"][data-tab-id="2"]')).toHaveClass(/active/);
@@ -1035,7 +1120,7 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
 
-    await navigateAddress(page, 'example.com', 'https://example.com');
+    await navigateAddress(page, 'example.com', 'https://example.com/');
     await expectActiveWebviewText(
       page,
       '[data-test="harness-http-stub-url"]',

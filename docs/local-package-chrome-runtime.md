@@ -136,6 +136,26 @@ bundled safe chrome is used.
 This feed path is the local stand-in for future Swarm delivery. It does not use
 live Swarm, Ant/Bee, IPFS, ENS, or Radicle network access.
 
+### Independent Package Updates
+
+The local feed path updates chrome packages independently of the Electron shell
+updater. The shell version does not change during this flow: the feed advertises
+a newer package version, the shell validates and stages the package into the
+local store, atomically activates it, and launches it from the cached store.
+
+`freedomShell.getInfo()` reports both versions so smoke tests and diagnostics
+can prove the split:
+
+- `appVersion` is the Electron shell/app version
+- `chromePackage.version` is the active chrome package version
+- `chromePackage.source: "store"` means the package was installed and launched
+  from the local cache
+
+The local feed smoke covers first install, update from one package version to a
+newer package version while `appVersion` remains unchanged, offline launch from
+the cached updated package, corrupt advertised update fallback, readiness-timeout
+rollback, and renderer-health rollback to the previous cached package.
+
 ## Manifest v0
 
 The local package directory must contain `manifest.json`:
@@ -389,11 +409,13 @@ Freedom falls back to bundled safe chrome when:
 - an advertised feed package is corrupt or unavailable
 - the package entry fails to load
 - the package does not signal readiness
+- the package renderer exits or crashes after activation
 
 If a cached package fails to load or does not signal readiness, main first tries
-to roll back to `previous.json`. If no previous package is usable, or the
-rolled-back package also fails in that recovery attempt, Freedom falls back to
-bundled safe chrome.
+to roll back to `previous.json`. The same rollback path handles shell-observed
+package health failures such as a package renderer `render-process-gone` event.
+If no previous package is usable, or the rolled-back package also fails in that
+recovery attempt, Freedom falls back to bundled safe chrome.
 
 Recovery does not depend on Swarm, IPFS, ENS, or live network access.
 

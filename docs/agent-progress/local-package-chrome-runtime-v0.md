@@ -479,7 +479,57 @@ Verification in this phase so far:
 - GitHub Actions run `27990426062`, job `test` (`82841420490`), passed for `3ae5be0`.
 - GitHub Actions run `27990426062`, job `e2e-chrome-runtime` (`82841420591`), passed for `3ae5be0`.
 
+### Phase 7 Independent Update Proof
+
+Current checkpoint: independent local package update proof is implemented and
+verified locally; commit, push, and GitHub target CI evidence remain next.
+
+Implemented in this phase so far:
+
+- launched feed smoke installs package version `0.1.0` from a local feed,
+  records the Electron `appVersion` from `freedomShell.getInfo()`, updates to
+  package version `0.2.0`, and asserts `appVersion` is unchanged while
+  `chromePackage.version` changes
+- the updated package launches from the local store with
+  `chromePackage.source: "store"`
+- the same smoke deletes the feed/source directory and proves offline launch
+  from the cached updated package still reports version `0.2.0`
+- corrupt advertised updates keep the current cached package active
+- readiness-timeout update failure rolls back to the previous cached package
+- docs now describe how local feed package updates differ from the Electron
+  shell updater and how `getInfo()` reports both versions
+
+Verification in this phase so far:
+
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "local package feed rolls back when updated package renderer becomes unhealthy"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the optional profile-menu smoke addition: 1 test.
+- `npm test -- src/main/windows/mainWindow.test.js` passed after health rollback changes: 1 suite, 5 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2099 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `xvfb-run -a npm run test:e2e` passed: 27 tests.
+- `git diff --check` passed.
+
+### Phase 8 Final Hardening And Docs
+
+Current checkpoint: package renderer health failure now uses the same
+rollback/bundled recovery path as load and readiness failures; final GitHub
+target CI evidence remains next.
+
+Implemented in this phase so far:
+
+- local package main renderer `render-process-gone` now triggers package
+  recovery
+- cached package health failure first tries `previous.json` rollback and falls
+  back to bundled safe chrome if rollback is unavailable
+- launched feed smoke now proves an updated package can become unhealthy after
+  activation and the shell rolls back to the previous cached package
+- official package smoke now checks the profile menu when the current package
+  mode exposes it, matching the bundled smoke's optional profile-menu behavior
+- docs now describe renderer-health rollback and the independent local package
+  update flow
+
 ## Next Step
 
-- Move into final independent-update proof/hardening, then collect final local
-  and GitHub target CI evidence for the branch head.
+- Commit and push the Phase 7/8 checkpoint, collect GitHub target CI evidence,
+  then prepare the completion report if no final audit gap remains.
