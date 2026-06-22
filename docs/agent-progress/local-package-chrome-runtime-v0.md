@@ -532,7 +532,65 @@ Implemented in this phase so far:
 - docs now describe renderer-health rollback and the independent local package
   update flow
 
-## Next Step
+Verification in this phase so far:
 
-- Final audit the full completion criteria and prepare the completion report if
-  no final gap remains.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "local package feed rolls back when updated package renderer becomes unhealthy"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `npm test -- src/main/windows/mainWindow.test.js` passed: 1 suite, 5 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2099 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `xvfb-run -a npm run test:e2e` passed: 27 tests.
+- `git diff --check` passed.
+- committed as `b5d0a60` (`feat(chrome): rollback unhealthy package renderer`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- progress evidence committed as `b380b49` (`docs(progress): record package health ci`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27991143101`, job `test` (`82843612237`), passed for `b5d0a60`.
+- GitHub Actions run `27991143101`, job `e2e-chrome-runtime` (`82843612229`), passed for `b5d0a60`.
+- GitHub Actions run `27991329932`, job `test` (`82844216534`), passed for `b380b49`.
+- GitHub Actions run `27991329932`, job `e2e-chrome-runtime` (`82844216520`), passed for `b380b49`.
+
+## Final Completion Audit
+
+Status: no open completion gaps found in the final audit.
+
+Completion criteria mapping:
+
+- Official chrome package runtime: covered by the official package smoke in
+  `test-e2e/chrome-package.spec.js`, including initial tab, home background,
+  menus, profile menu when exposed, tabs, address bar, reload/home,
+  `freedom://home`, `freedom://settings`, and the deterministic protocol
+  parity matrix.
+- Shell API v1: implemented through `window.freedomShell`,
+  `src/main/shell-api.js`, `src/shared/shell-api-policy.js`, and
+  `src/main/package-preload.js`; sender validation, capability enforcement,
+  structured errors, version/capability policy, tab commands, snapshots,
+  navigation resolution, ENS helpers, and command events have unit and smoke
+  coverage.
+- Main-owned security boundaries: package windows use the narrow preload;
+  transitional package webviews are manifest-gated and hardened in
+  `src/main/windows/mainWindow.js`; package chrome cannot choose guest
+  preloads or guest webPreferences.
+- Local package store/cache: implemented with staged installs, internal
+  metadata, `current.json`/`previous.json`, offline cached launch, rollback,
+  and bundled recovery.
+- Package integrity/trust: manifests, shell API ranges, capabilities, file
+  hashes, official identity, downgrade/replay, malformed manifests, missing
+  files, and tampered content are validated and tested.
+- Local update source: deterministic local feed supports first install,
+  update, offline cached launch, unavailable/corrupt feed fallback, readiness
+  rollback, renderer-health rollback, previous rollback, and bundled safe
+  fallback without live Swarm/Ant package delivery.
+- Bundled safe chrome recovery: bundled chrome remains the default recovery
+  surface and is covered by fallback and smoke tests.
+- Independent update proof: local feed smoke proves package version changes
+  while Electron `appVersion` remains unchanged, and docs explain the shell vs.
+  package update split.
+- Documentation: `docs/local-package-chrome-runtime.md` documents the
+  architecture, trust boundaries, manifest, shell API/capabilities, package
+  store, local source/update flow, future Swarm source seam, transitional
+  webview model, recovery behavior, dev workflow, commands, CI gates, and
+  limitations.
+
+Completion report is ready to provide from the final session state after the
+last progress-ledger commit and branch-head CI check.
