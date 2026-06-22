@@ -21,6 +21,13 @@ describe('shell-api-policy', () => {
       GET_INFO: 'getInfo',
       MARK_READY: 'markReady',
       RESOLVE_NAVIGATION_INPUT: 'resolveNavigationInput',
+      TABS_GET_SNAPSHOT: 'tabs.getSnapshot',
+      TABS_CREATE: 'tabs.create',
+      TABS_CLOSE: 'tabs.close',
+      TABS_ACTIVATE: 'tabs.activate',
+      TABS_NAVIGATE: 'tabs.navigate',
+      TABS_RELOAD: 'tabs.reload',
+      TABS_GO_HOME: 'tabs.goHome',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -30,6 +37,13 @@ describe('shell-api-policy', () => {
       getInfo: 'shell.info',
       markReady: 'shell.ready',
       resolveNavigationInput: 'navigation.resolve',
+      'tabs.getSnapshot': 'tabs.read',
+      'tabs.create': 'tabs.write',
+      'tabs.close': 'tabs.write',
+      'tabs.activate': 'tabs.write',
+      'tabs.navigate': 'tabs.write',
+      'tabs.reload': 'tabs.write',
+      'tabs.goHome': 'tabs.write',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -44,6 +58,8 @@ describe('shell-api-policy', () => {
       SHELL_INFO: 'shell.info',
       SHELL_READY: 'shell.ready',
       NAVIGATION_RESOLVE: 'navigation.resolve',
+      TABS_READ: 'tabs.read',
+      TABS_WRITE: 'tabs.write',
     });
     expect(SHELL_API_EVENTS).toEqual({});
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({});
@@ -51,6 +67,8 @@ describe('shell-api-policy', () => {
       'navigation.resolve',
       'shell.info',
       'shell.ready',
+      'tabs.read',
+      'tabs.write',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
   });

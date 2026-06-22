@@ -4,6 +4,7 @@ const IPC = require('../shared/ipc-channels');
 const { version: packageVersion } = require('../../package.json');
 const { getActiveChromePackage } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
+const { createShellTabRegistry } = require('./shell-tabs');
 const {
   SHELL_API_METHODS,
   SHELL_API_VERSION,
@@ -105,7 +106,7 @@ function onPackageReady(listener) {
   return () => shellEvents.removeListener('package-ready', listener);
 }
 
-function registerPackageWebContents(sender, chromePackage = getActiveChromePackage()) {
+function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
   }
@@ -114,6 +115,7 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
   const caller = {
     identity,
     capabilities: new Set(identity.capabilities || []),
+    tabRegistry: options.tabRegistry || createShellTabRegistry(),
   };
   packageCallers.set(sender, caller);
 
@@ -151,6 +153,27 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT]: {
     handler: ([input]) => resolveNavigationInput(input),
+  },
+  [SHELL_API_METHODS.TABS_GET_SNAPSHOT]: {
+    handler: (_args, _event, caller) => caller.tabRegistry.getSnapshot(),
+  },
+  [SHELL_API_METHODS.TABS_CREATE]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.createTab(options),
+  },
+  [SHELL_API_METHODS.TABS_CLOSE]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.closeTab(options),
+  },
+  [SHELL_API_METHODS.TABS_ACTIVATE]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.activateTab(options),
+  },
+  [SHELL_API_METHODS.TABS_NAVIGATE]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.navigateTab(options),
+  },
+  [SHELL_API_METHODS.TABS_RELOAD]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.reloadTab(options),
+  },
+  [SHELL_API_METHODS.TABS_GO_HOME]: {
+    handler: ([options], _event, caller) => caller.tabRegistry.goHome(options),
   },
 });
 

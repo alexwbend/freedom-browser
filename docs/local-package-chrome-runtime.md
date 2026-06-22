@@ -63,7 +63,7 @@ The local package directory must contain `manifest.json`:
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "shell.ready", "navigation.resolve"]
+  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"]
 }
 ```
 
@@ -88,6 +88,13 @@ Package selection is not persisted in v0.
 - `getInfo()`
 - `resolveNavigationInput(input)`
 - `markReady()`
+- `getTabSnapshot()`
+- `createTab(options)`
+- `closeTab(tabId)`
+- `activateTab(tabId)`
+- `navigateTab(tabId, url)`
+- `reloadTab(tabId)`
+- `goHome(tabId)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -106,12 +113,19 @@ bundled chrome window and destroys the failed package window. The default
 timeout is 5000 ms; tests can override it with
 `FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS`.
 
+The tab methods are the first Phase 2 shell-owned tab contract. They expose a
+serializable tab snapshot and validated tab command results for package chrome.
+This contract is intentionally main-owned and does not yet migrate bundled
+renderer tabs away from their current `<webview>` implementation.
+
 Every shell API request must come from a registered local package window and
 must be allowed by the package manifest's declared capabilities:
 
 - `shell.info` allows `getInfo()`
 - `shell.ready` allows `markReady()`
 - `navigation.resolve` allows `resolveNavigationInput(input)`
+- `tabs.read` allows `getTabSnapshot()`
+- `tabs.write` allows tab command methods
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

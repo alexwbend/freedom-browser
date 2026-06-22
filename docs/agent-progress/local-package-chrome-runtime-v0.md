@@ -194,6 +194,27 @@ Phase 1 gate evidence:
 - package fixture smoke still proves `window.freedomShell` is present, broad preload APIs are absent, `getInfo()`, `resolveNavigationInput()`, and `markReady()` work, and broken packages recover to bundled chrome
 - bundled chrome smoke still proves the safe chrome path starts, renders home, keeps menus/tabs/navigation interactive, and loads `freedom://settings`
 
+### Phase 2 Main-Owned Tab Model And Commands
+
+Current checkpoint: first shell-owned tab snapshot/command contract completed locally; commit and GitHub target jobs pending.
+
+Implemented in this phase so far:
+
+- added `src/main/shell-tabs.js`, a main-side tab session model with a serializable snapshot
+- added validated tab command results for create, close, activate, navigate, reload, and home
+- scoped the tab session to each registered package caller in `shell-api.js`
+- added `tabs.read` and `tabs.write` capabilities to the shared shell API policy
+- exposed package-safe tab methods from `package-preload.js` through the existing `shell:request` bridge
+- updated the local fixture package to request tab capabilities and exercise create/navigate/home/activate/close before `markReady()`
+- updated runtime docs to describe the first tab contract as Phase 2 shell-owned API groundwork, not a bundled renderer tab migration
+
+Verification in this phase so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/shell-tabs.test.js src/main/package-preload.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed: 5 suites, 32 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after tab command changes: 7 tests.
+- `npm run lint` passed after tab command changes.
+- `npm test` passed after tab command changes: 109 suites passed, 5 skipped; 2056 tests passed, 17 skipped.
+
 ## Next Step
 
-- Begin Phase 2 by designing a main-owned tab snapshot/command contract around the current renderer-owned `tabs.js` behavior, keeping bundled chrome unchanged while package command coverage is added incrementally.
+- Commit and push the Phase 2 tab command checkpoint, check GitHub `test` and `e2e-chrome-runtime`, then continue Phase 2 toward command completion events and executor bridging.

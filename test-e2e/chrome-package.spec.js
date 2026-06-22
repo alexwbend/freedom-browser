@@ -126,7 +126,18 @@ test('local package chrome loads through freedomShell without broad preload APIs
     }));
     expect(exposure).toEqual({
       hasFreedomShell: true,
-      freedomShellKeys: ['getInfo', 'markReady', 'resolveNavigationInput'],
+      freedomShellKeys: [
+        'getInfo',
+        'markReady',
+        'resolveNavigationInput',
+        'getTabSnapshot',
+        'createTab',
+        'closeTab',
+        'activateTab',
+        'navigateTab',
+        'reloadTab',
+        'goHome',
+      ],
       hasElectronAPI: false,
       hasWallet: false,
       hasIdentity: false,
@@ -156,6 +167,46 @@ test('local package chrome loads through freedomShell without broad preload APIs
       input: 'example.com',
       kind: 'https',
       targetUrl: 'https://example.com',
+    });
+
+    await expect(page.locator('[data-test="tabs-status"]')).toHaveText('ok');
+    const tabs = JSON.parse(await page.locator('[data-test="tabs-json"]').textContent());
+    expect(tabs).toMatchObject({
+      before: {
+        activeTabId: 1,
+        tabs: [expect.objectContaining({ id: 1, url: 'freedom://home', isActive: true })],
+      },
+      created: {
+        ok: true,
+        command: 'tabs.create',
+        tabId: 2,
+      },
+      navigated: {
+        ok: true,
+        command: 'tabs.navigate',
+        tabId: 2,
+        url: 'https://example.net/path',
+      },
+      homed: {
+        ok: true,
+        command: 'tabs.goHome',
+        tabId: 2,
+        url: 'freedom://home',
+      },
+      activated: {
+        ok: true,
+        command: 'tabs.activate',
+        tabId: 1,
+      },
+      closed: {
+        ok: true,
+        command: 'tabs.close',
+        tabId: 2,
+        snapshot: {
+          activeTabId: 1,
+          tabs: [expect.objectContaining({ id: 1, isActive: true })],
+        },
+      },
     });
   } finally {
     await launched.close();

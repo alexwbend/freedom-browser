@@ -43,6 +43,13 @@ describe('package-preload', () => {
       'getInfo',
       'markReady',
       'resolveNavigationInput',
+      'getTabSnapshot',
+      'createTab',
+      'closeTab',
+      'activateTab',
+      'navigateTab',
+      'reloadTab',
+      'goHome',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -79,6 +86,48 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT,
       args: ['example.com'],
+    });
+
+    await exposures.freedomShell.getTabSnapshot();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_GET_SNAPSHOT,
+      args: [],
+    });
+
+    await exposures.freedomShell.createTab({ url: 'https://example.com' });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_CREATE,
+      args: [{ url: 'https://example.com' }],
+    });
+
+    await exposures.freedomShell.closeTab(2);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_CLOSE,
+      args: [{ tabId: 2 }],
+    });
+
+    await exposures.freedomShell.activateTab(1);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_ACTIVATE,
+      args: [{ tabId: 1 }],
+    });
+
+    await exposures.freedomShell.navigateTab(1, 'https://example.org');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_NAVIGATE,
+      args: [{ tabId: 1, url: 'https://example.org' }],
+    });
+
+    await exposures.freedomShell.reloadTab(1);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_RELOAD,
+      args: [{ tabId: 1 }],
+    });
+
+    await exposures.freedomShell.goHome(1);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TABS_GO_HOME,
+      args: [{ tabId: 1 }],
     });
   });
 });

@@ -1,6 +1,7 @@
 const IPC = require('../shared/ipc-channels');
 const { version: appVersion } = require('../../package.json');
 const { SHELL_API_VERSION } = require('./chrome-package');
+const { createShellTabRegistry } = require('./shell-tabs');
 const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
 function makeSender(overrides = {}) {
@@ -149,6 +150,60 @@ describe('shell-api', () => {
     });
   });
 
+  test('handles authorized tab snapshot and command requests', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 101 });
+    const tabRegistry = createShellTabRegistry({ homeUrl: 'freedom://home' });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['tabs.read', 'tabs.write'] }),
+      { tabRegistry }
+    );
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'tabs.getSnapshot', args: [] })
+    ).resolves.toMatchObject({
+      activeTabId: 1,
+      tabs: [expect.objectContaining({ id: 1, url: 'freedom://home', isActive: true })],
+    });
+
+    const createResult = await mod.handleShellRequest(
+      { sender },
+      { method: 'tabs.create', args: [{ url: 'https://example.com' }] }
+    );
+    expect(createResult).toMatchObject({
+      ok: true,
+      command: 'tabs.create',
+      tabId: 2,
+      snapshot: {
+        activeTabId: 2,
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: 'tabs.navigate', args: [{ tabId: 2, url: 'https://example.org' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: 'tabs.navigate',
+      tabId: 2,
+      url: 'https://example.org',
+    });
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'tabs.close', args: [{ tabId: 2 }] })
+    ).resolves.toMatchObject({
+      ok: true,
+      command: 'tabs.close',
+      tabId: 2,
+      snapshot: {
+        activeTabId: 1,
+      },
+    });
+  });
+
   test('clones shell API handler results before returning them', async () => {
     const { mod } = loadShellApi();
     const value = {
@@ -222,6 +277,15 @@ describe('shell-api', () => {
         caller: {
           packageId: 'baby.freedom.chrome.fixture',
         },
+      },
+    });
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'tabs.create', args: [{ url: 'https://x.test' }] })
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: 'tabs.create',
+        requiredCapability: 'tabs.write',
       },
     });
   });

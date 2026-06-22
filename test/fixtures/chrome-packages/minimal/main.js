@@ -67,6 +67,49 @@
     }
   }
 
+  async function exerciseTabs() {
+    const shell = window.freedomShell || {};
+    for (const method of [
+      'getTabSnapshot',
+      'createTab',
+      'navigateTab',
+      'goHome',
+      'activateTab',
+      'closeTab',
+    ]) {
+      if (typeof shell[method] !== 'function') {
+        setText('tabs-status', `missing-${method}`);
+        return false;
+      }
+    }
+
+    try {
+      const before = await shell.getTabSnapshot();
+      const originalTabId = before.activeTabId;
+      const created = await shell.createTab({ url: 'https://example.org' });
+      const createdTabId = created.tabId;
+      const navigated = await shell.navigateTab(createdTabId, 'https://example.net/path');
+      const homed = await shell.goHome(createdTabId);
+      const activated = await shell.activateTab(originalTabId);
+      const closed = await shell.closeTab(createdTabId);
+      const result = { before, created, navigated, homed, activated, closed };
+      setJson('tabs-json', result);
+
+      const ok =
+        created.ok === true &&
+        navigated.ok === true &&
+        homed.ok === true &&
+        activated.ok === true &&
+        closed.ok === true &&
+        closed.snapshot?.activeTabId === originalTabId;
+      setText('tabs-status', ok ? 'ok' : 'error:command-result');
+      return ok;
+    } catch (error) {
+      setText('tabs-status', `error:${error?.message || error}`);
+      return false;
+    }
+  }
+
   async function signalReady() {
     if (!window.freedomShell || typeof window.freedomShell.markReady !== 'function') {
       document.body.dataset.ready = 'missing-mark-ready';
@@ -88,7 +131,8 @@
   (async () => {
     const infoReady = await loadShellInfo();
     const navigationReady = await resolveExample();
-    if (infoReady && navigationReady && presentBroadApis.length === 0) {
+    const tabsReady = await exerciseTabs();
+    if (infoReady && navigationReady && tabsReady && presentBroadApis.length === 0) {
       await signalReady();
     }
   })();
