@@ -137,6 +137,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'navigateTab',
         'reloadTab',
         'goHome',
+        'onTabCommandResult',
       ],
       hasElectronAPI: false,
       hasWallet: false,
@@ -207,7 +208,15 @@ test('local package chrome loads through freedomShell without broad preload APIs
           tabs: [expect.objectContaining({ id: 1, isActive: true })],
         },
       },
+      tabCommandEvents: expect.arrayContaining([
+        expect.objectContaining({ ok: true, command: 'tabs.create', tabId: 2 }),
+        expect.objectContaining({ ok: true, command: 'tabs.navigate', tabId: 2 }),
+        expect.objectContaining({ ok: true, command: 'tabs.goHome', tabId: 2 }),
+        expect.objectContaining({ ok: true, command: 'tabs.activate', tabId: 1 }),
+        expect.objectContaining({ ok: true, command: 'tabs.close', tabId: 2 }),
+      ]),
     });
+    expect(tabs.tabCommandEvents).toHaveLength(5);
   } finally {
     await launched.close();
   }

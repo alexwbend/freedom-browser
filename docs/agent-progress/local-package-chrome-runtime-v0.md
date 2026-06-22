@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: first shell-owned tab snapshot/command contract passed in `6e46964`.
+Current checkpoint: package-visible tab command result events passed locally; remote CI evidence is pending.
 
 Implemented in this phase so far:
 
@@ -207,6 +207,11 @@ Implemented in this phase so far:
 - exposed package-safe tab methods from `package-preload.js` through the existing `shell:request` bridge
 - updated the local fixture package to request tab capabilities and exercise create/navigate/home/activate/close before `markReady()`
 - updated runtime docs to describe the first tab contract as Phase 2 shell-owned API groundwork, not a bundled renderer tab migration
+- added a `shell:event` package event channel
+- added the `tabs.commandResult` event to the shared event capability registry
+- exposed `freedomShell.onTabCommandResult(callback)` from the package preload
+- shell API tab commands now emit serializable command-result events after successful command completion
+- updated the fixture package smoke to observe command-result events before `markReady()`
 
 Verification in this phase so far:
 
@@ -217,6 +222,11 @@ Verification in this phase so far:
 - Committed and pushed `6e46964` (`feat(shell): add package tab command contract`).
 - GitHub Actions run `27980705626`, job `test` (`82809731975`), passed for `6e46964`.
 - GitHub Actions run `27980705626`, job `e2e-chrome-runtime` (`82809732106`), passed for `6e46964`.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/shell-tabs.test.js src/main/package-preload.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed after command-result event changes: 5 suites, 33 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after command-result event changes: 7 tests.
+- `npm run lint` passed after command-result event changes.
+- `npm test` passed after command-result event changes: 109 suites passed, 5 skipped; 2057 tests passed, 17 skipped.
+- `git diff --check` passed after command-result event changes.
 
 ## Next Step
 

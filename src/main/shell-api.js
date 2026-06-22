@@ -6,13 +6,23 @@ const { getActiveChromePackage } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const {
+  SHELL_API_EVENTS,
   SHELL_API_METHODS,
   SHELL_API_VERSION,
+  getRequiredCapabilityForEvent,
   getRequiredCapabilityForMethod,
 } = require('../shared/shell-api-policy');
 
 const shellEvents = new EventEmitter();
 const packageCallers = new WeakMap();
+const TAB_COMMAND_METHODS = new Set([
+  SHELL_API_METHODS.TABS_CREATE,
+  SHELL_API_METHODS.TABS_CLOSE,
+  SHELL_API_METHODS.TABS_ACTIVATE,
+  SHELL_API_METHODS.TABS_NAVIGATE,
+  SHELL_API_METHODS.TABS_RELOAD,
+  SHELL_API_METHODS.TABS_GO_HOME,
+]);
 
 function createShellApiError(code, message, details = {}) {
   const error = new Error(message);
@@ -195,6 +205,18 @@ function assertMethodCapability(caller, method) {
   }
 }
 
+function emitShellEvent(event, caller, eventName, data) {
+  const requiredCapability = getRequiredCapabilityForEvent(eventName);
+  if (!requiredCapability || !caller.capabilities.has(requiredCapability)) {
+    return;
+  }
+
+  event?.sender?.send?.(IPC.SHELL_EVENT, {
+    event: eventName,
+    data: cloneShellApiValue(data),
+  });
+}
+
 async function handleShellRequest(event, payload = {}) {
   if (!payload || typeof payload !== 'object') {
     throw createShellApiError('SHELL_PAYLOAD_INVALID', 'Shell API payload must be an object');
@@ -214,7 +236,11 @@ async function handleShellRequest(event, payload = {}) {
   const caller = getPackageCaller(event);
   assertMethodCapability(caller, method);
 
-  return cloneShellApiValue(await METHODS[method].handler(payload.args, event, caller));
+  const result = cloneShellApiValue(await METHODS[method].handler(payload.args, event, caller));
+  if (TAB_COMMAND_METHODS.has(method)) {
+    emitShellEvent(event, caller, SHELL_API_EVENTS.TABS_COMMAND_RESULT, result);
+  }
+  return result;
 }
 
 function registerShellApiIpc(options = {}) {

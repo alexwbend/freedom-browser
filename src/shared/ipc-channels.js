@@ -96,6 +96,7 @@ module.exports = {
 
   // Browser chrome shell API
   SHELL_REQUEST: 'shell:request',
+  SHELL_EVENT: 'shell:event',
 
   // Favicons
   FAVICON_GET: 'favicon:get',

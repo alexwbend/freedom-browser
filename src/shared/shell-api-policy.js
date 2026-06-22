@@ -13,7 +13,9 @@ const SHELL_API_METHODS = Object.freeze({
   TABS_GO_HOME: 'tabs.goHome',
 });
 
-const SHELL_API_EVENTS = Object.freeze({});
+const SHELL_API_EVENTS = Object.freeze({
+  TABS_COMMAND_RESULT: 'tabs.commandResult',
+});
 
 const SHELL_API_CAPABILITIES = Object.freeze({
   SHELL_INFO: 'shell.info',
@@ -36,7 +38,9 @@ const SHELL_API_METHOD_CAPABILITIES = Object.freeze({
   [SHELL_API_METHODS.TABS_GO_HOME]: SHELL_API_CAPABILITIES.TABS_WRITE,
 });
 
-const SHELL_API_EVENT_CAPABILITIES = Object.freeze({});
+const SHELL_API_EVENT_CAPABILITIES = Object.freeze({
+  [SHELL_API_EVENTS.TABS_COMMAND_RESULT]: SHELL_API_CAPABILITIES.TABS_WRITE,
+});
 
 const KNOWN_SHELL_CAPABILITIES = Object.freeze(
   [

@@ -1,6 +1,7 @@
 const IPC = require('../shared/ipc-channels');
 const { version: appVersion } = require('../../package.json');
 const { SHELL_API_VERSION } = require('./chrome-package');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
@@ -8,6 +9,7 @@ function makeSender(overrides = {}) {
   return {
     id: 42,
     isDestroyed: jest.fn(() => false),
+    send: jest.fn(),
     ...overrides,
   };
 }
@@ -179,6 +181,14 @@ describe('shell-api', () => {
         activeTabId: 2,
       },
     });
+    expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: expect.objectContaining({
+        ok: true,
+        command: 'tabs.create',
+        tabId: 2,
+      }),
+    });
 
     await expect(
       mod.handleShellRequest(
@@ -191,6 +201,15 @@ describe('shell-api', () => {
       tabId: 2,
       url: 'https://example.org',
     });
+    expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: expect.objectContaining({
+        ok: true,
+        command: 'tabs.navigate',
+        tabId: 2,
+        url: 'https://example.org',
+      }),
+    });
 
     await expect(
       mod.handleShellRequest({ sender }, { method: 'tabs.close', args: [{ tabId: 2 }] })
@@ -201,6 +220,14 @@ describe('shell-api', () => {
       snapshot: {
         activeTabId: 1,
       },
+    });
+    expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: expect.objectContaining({
+        ok: true,
+        command: 'tabs.close',
+        tabId: 2,
+      }),
     });
   });
 

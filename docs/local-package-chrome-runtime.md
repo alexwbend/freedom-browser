@@ -95,6 +95,7 @@ Package selection is not persisted in v0.
 - `navigateTab(tabId, url)`
 - `reloadTab(tabId)`
 - `goHome(tabId)`
+- `onTabCommandResult(callback)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -117,6 +118,11 @@ The tab methods are the first Phase 2 shell-owned tab contract. They expose a
 serializable tab snapshot and validated tab command results for package chrome.
 This contract is intentionally main-owned and does not yet migrate bundled
 renderer tabs away from their current `<webview>` implementation.
+
+`onTabCommandResult(callback)` subscribes to package-visible
+`tabs.commandResult` events emitted after shell-owned tab commands complete. It
+returns a cleanup function. Like the tab command methods, the event requires the
+package to declare `tabs.write`.
 
 Every shell API request must come from a registered local package window and
 must be allowed by the package manifest's declared capabilities:

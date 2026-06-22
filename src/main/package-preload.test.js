@@ -1,5 +1,5 @@
 const IPC = require('../shared/ipc-channels');
-const { SHELL_API_METHODS } = require('../shared/shell-api-policy');
+const { SHELL_API_EVENTS, SHELL_API_METHODS } = require('../shared/shell-api-policy');
 const {
   createContextBridgeMock,
   createIpcRendererMock,
@@ -50,6 +50,7 @@ describe('package-preload', () => {
       'navigateTab',
       'reloadTab',
       'goHome',
+      'onTabCommandResult',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -64,7 +65,9 @@ describe('package-preload', () => {
     const { mod } = loadPackagePreload();
 
     expect(mod.SHELL_REQUEST).toBe(IPC.SHELL_REQUEST);
+    expect(mod.SHELL_EVENT).toBe(IPC.SHELL_EVENT);
     expect(mod.SHELL_API_METHODS).toEqual(SHELL_API_METHODS);
+    expect(mod.SHELL_API_EVENTS).toEqual(SHELL_API_EVENTS);
   });
 
   test('routes shell calls through the single shell request channel', async () => {
@@ -129,5 +132,40 @@ describe('package-preload', () => {
       method: SHELL_API_METHODS.TABS_GO_HOME,
       args: [{ tabId: 1 }],
     });
+  });
+
+  test('subscribes to package-visible tab command result events', () => {
+    const { exposures, ipcRenderer } = loadPackagePreload();
+    const callback = jest.fn();
+
+    const cleanup = exposures.freedomShell.onTabCommandResult(callback);
+    const [handler] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
+
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: {
+        ok: true,
+        command: SHELL_API_METHODS.TABS_CREATE,
+        tabId: 2,
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: 'unrelated.event',
+      data: {
+        ok: true,
+      },
+    });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    expect(callback).toHaveBeenCalledWith({
+      ok: true,
+      command: SHELL_API_METHODS.TABS_CREATE,
+      tabId: 2,
+    });
+
+    cleanup();
+
+    expect(ipcRenderer.removeListener).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, handler);
+    expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });
 });

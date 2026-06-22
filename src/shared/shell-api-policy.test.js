@@ -61,8 +61,12 @@ describe('shell-api-policy', () => {
       TABS_READ: 'tabs.read',
       TABS_WRITE: 'tabs.write',
     });
-    expect(SHELL_API_EVENTS).toEqual({});
-    expect(SHELL_API_EVENT_CAPABILITIES).toEqual({});
+    expect(SHELL_API_EVENTS).toEqual({
+      TABS_COMMAND_RESULT: 'tabs.commandResult',
+    });
+    expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
+      'tabs.commandResult': 'tabs.write',
+    });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'navigation.resolve',
       'shell.info',
