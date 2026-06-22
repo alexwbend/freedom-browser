@@ -446,8 +446,8 @@ Verification in this phase so far:
 
 ### Phase 6 Local Feed/Update Source
 
-Current checkpoint: deterministic local feed/update source is implemented and
-verified locally; commit, push, and GitHub target CI evidence remain next.
+Current checkpoint: deterministic local feed/update source is implemented,
+committed, pushed, and verified in GitHub target CI jobs.
 
 Implemented in this phase so far:
 
@@ -475,8 +475,11 @@ Verification in this phase so far:
 - `npm test` passed after feed/source changes: 112 suites passed, 5 skipped; 2099 tests passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after feed/source changes: 13 tests.
 - `git diff --check` passed after feed/source changes.
+- committed as `3ae5be0` (`feat(chrome): add local package feed updates`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27990426062`, job `test` (`82841420490`), passed for `3ae5be0`.
+- GitHub Actions run `27990426062`, job `e2e-chrome-runtime` (`82841420591`), passed for `3ae5be0`.
 
 ## Next Step
 
-- Commit and push the feed/source checkpoint, collect GitHub target CI evidence,
-  then move into final independent-update proof/hardening.
+- Move into final independent-update proof/hardening, then collect final local
+  and GitHub target CI evidence for the branch head.
