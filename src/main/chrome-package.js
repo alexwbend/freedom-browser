@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { version: appVersion } = require('../../package.json');
 const {
   SHELL_API_VERSION,
@@ -64,6 +65,24 @@ function readJsonFile(filePath) {
   }
 }
 
+function normalizePackageFilePath(relativePath) {
+  if (typeof relativePath !== 'string' || !relativePath.trim()) {
+    return null;
+  }
+  if (path.isAbsolute(relativePath)) {
+    return null;
+  }
+  const normalized = path.posix.normalize(relativePath.replace(/\\/g, '/'));
+  if (!normalized || normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
+    return null;
+  }
+  return normalized;
+}
+
+function hashFileSha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
 function isVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion = SHELL_API_VERSION) {
   return isShellApiVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion);
 }
@@ -126,8 +145,16 @@ function validateLocalChromePackage(packageDir, options = {}) {
     }
   }
 
-  if (path.isAbsolute(manifest.entry)) {
+  const rawEntry = manifest.entry.trim();
+  if (path.isAbsolute(rawEntry)) {
     return fail('ENTRY_NOT_RELATIVE', 'Chrome package entry must be a relative path', {
+      packageRoot,
+    });
+  }
+
+  const normalizedEntry = normalizePackageFilePath(rawEntry);
+  if (!normalizedEntry) {
+    return fail('ENTRY_OUTSIDE_PACKAGE', 'Chrome package entry cannot escape package directory', {
       packageRoot,
     });
   }
@@ -152,7 +179,7 @@ function validateLocalChromePackage(packageDir, options = {}) {
     });
   }
 
-  const entryCandidate = path.join(packageRoot, manifest.entry);
+  const entryCandidate = path.join(packageRoot, normalizedEntry);
   let entryPath;
   try {
     entryPath = fs.realpathSync(entryCandidate);
@@ -219,6 +246,86 @@ function validateLocalChromePackage(packageDir, options = {}) {
     );
   }
 
+  if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
+    return fail('PACKAGE_FILES_MISSING', 'Chrome package manifest requires a non-empty files array', {
+      packageRoot,
+    });
+  }
+
+  const files = [];
+  const filePaths = new Set();
+  for (const file of manifest.files) {
+    const relativePath = normalizePackageFilePath(file?.path);
+    if (!relativePath) {
+      return fail('PACKAGE_FILE_PATH_INVALID', 'Chrome package file paths must be relative', {
+        packageRoot,
+        path: file?.path,
+      });
+    }
+    if (filePaths.has(relativePath)) {
+      return fail('PACKAGE_FILE_DUPLICATE', 'Chrome package file paths must be unique', {
+        packageRoot,
+        path: relativePath,
+      });
+    }
+    if (typeof file?.sha256 !== 'string' || !/^[a-fA-F0-9]{64}$/.test(file.sha256)) {
+      return fail('PACKAGE_FILE_HASH_INVALID', 'Chrome package files require sha256 hashes', {
+        packageRoot,
+        path: relativePath,
+      });
+    }
+
+    const fileCandidate = path.join(packageRoot, relativePath);
+    let filePath;
+    try {
+      filePath = fs.realpathSync(fileCandidate);
+    } catch {
+      return fail('PACKAGE_FILE_MISSING', 'Chrome package file is missing', {
+        packageRoot,
+        path: relativePath,
+      });
+    }
+
+    if (filePath !== packageRoot && !filePath.startsWith(`${packageRoot}${path.sep}`)) {
+      return fail(
+        'PACKAGE_FILE_OUTSIDE_PACKAGE',
+        'Chrome package file cannot escape package directory',
+        {
+          packageRoot,
+          path: relativePath,
+        }
+      );
+    }
+    if (!fs.statSync(filePath).isFile()) {
+      return fail('PACKAGE_FILE_NOT_FILE', 'Chrome package file must be a file', {
+        packageRoot,
+        path: relativePath,
+      });
+    }
+
+    const expectedHash = file.sha256.toLowerCase();
+    const actualHash = hashFileSha256(filePath);
+    if (actualHash !== expectedHash) {
+      return fail('PACKAGE_FILE_HASH_MISMATCH', 'Chrome package file hash does not match manifest', {
+        packageRoot,
+        path: relativePath,
+      });
+    }
+
+    filePaths.add(relativePath);
+    files.push({
+      path: relativePath,
+      sha256: expectedHash,
+    });
+  }
+
+  if (!filePaths.has(normalizedEntry)) {
+    return fail('ENTRY_INTEGRITY_MISSING', 'Chrome package entry must be listed in files', {
+      packageRoot,
+      entry: normalizedEntry,
+    });
+  }
+
   const transitionalWebviews = guestContent.transitionalWebviews === true;
 
   return {
@@ -238,6 +345,7 @@ function validateLocalChromePackage(packageDir, options = {}) {
       name: manifest.name,
       version: manifest.version,
       capabilities,
+      files,
       shellCompatibility: {
         minShellApi: compatibility.minShellApi,
         maxShellApi: compatibility.maxShellApi,
@@ -278,7 +386,9 @@ module.exports = {
   SHELL_API_VERSION,
   getActiveChromePackage,
   getRequestedChromePackageDir,
+  hashFileSha256,
   isVersionCompatible,
+  normalizePackageFilePath,
   selectChromePackage,
   setActiveChromePackage,
   validateLocalChromePackage,

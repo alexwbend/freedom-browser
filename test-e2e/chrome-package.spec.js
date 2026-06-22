@@ -2,6 +2,7 @@ const { test, expect, _electron: electron } = require('@playwright/test');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 const repoRoot = path.resolve(__dirname, '..');
 const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packages', 'minimal');
@@ -10,6 +11,33 @@ const sampleBzzHash = 'a'.repeat(64);
 const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
 const sampleIpnsName = 'example.ipns';
 const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+
+function hashFileSha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function listPackageFiles(root) {
+  const files = [];
+  const visit = (relativeDir = '') => {
+    const absoluteDir = path.join(root, relativeDir);
+    for (const name of fs.readdirSync(absoluteDir).sort()) {
+      if (name === 'manifest.json') continue;
+      const relativePath = path.posix.join(relativeDir.replace(/\\/g, '/'), name);
+      const absolutePath = path.join(root, relativePath);
+      const stat = fs.statSync(absolutePath);
+      if (stat.isDirectory()) {
+        visit(relativePath);
+      } else if (stat.isFile()) {
+        files.push({
+          path: relativePath,
+          sha256: hashFileSha256(absolutePath),
+        });
+      }
+    }
+  };
+  visit();
+  return files;
+}
 
 async function launchFreedom(extraEnv = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
@@ -56,6 +84,7 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
       minShellApi: '0.1.0',
       maxShellApi: '0.1.x',
     },
+    ...(options.includeFiles === false ? {} : { files: listPackageFiles(root) }),
     ...manifestOverrides,
   };
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -82,6 +111,7 @@ function writeOfficialChromePackage(root) {
           minShellApi: '0.1.0',
           maxShellApi: '0.1.x',
         },
+        files: listPackageFiles(root),
         capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
         guestContent: {
           transitionalWebviews: true,
@@ -776,6 +806,15 @@ test.describe('local package fallback', () => {
       createPackageDir(parent) {
         const root = path.join(parent, 'missing-entry');
         writePackage(root, { entry: 'missing.html' }, { writeEntry: false });
+        return root;
+      },
+    },
+    {
+      name: 'tampered package file',
+      createPackageDir(parent) {
+        const root = path.join(parent, 'tampered-file');
+        writePackage(root);
+        fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><h1>tampered</h1>');
         return root;
       },
     },

@@ -9,5 +9,19 @@
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"]
+  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"],
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "8325471ea06c0c2064a1dbf76d20024e142a67edbc22d86bd3a13352ec5d7a65"
+    },
+    {
+      "path": "main.js",
+      "sha256": "10d80e4026726a5ae4298f56e213bfe58d5995b46287413b83158131af183aff"
+    },
+    {
+      "path": "styles.css",
+      "sha256": "6731574f5a18ec4ed8113900537a4a026fafd9a83700e458d2f99af08fe5c5f5"
+    }
+  ]
 }

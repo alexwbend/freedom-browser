@@ -64,7 +64,17 @@ The local package directory must contain `manifest.json`:
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"]
+  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"],
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "..."
+    },
+    {
+      "path": "main.js",
+      "sha256": "..."
+    }
+  ]
 }
 ```
 
@@ -81,6 +91,9 @@ Validation is intentionally local and conservative:
 - capabilities, when declared, must be known shell capabilities
 - `guestContent`, when declared, must be an object
 - `guestContent.transitionalWebviews`, when declared, must be a boolean
+- `files` must be a non-empty array of package-relative paths and SHA-256 hashes
+- every listed file must exist, stay inside the package root after realpath resolution, and match its manifest hash
+- the package entry must be listed in `files`
 
 Package selection is not persisted in v0.
 
@@ -239,6 +252,8 @@ Freedom falls back to bundled safe chrome when:
 - the manifest declares an incompatible shell API range
 - the entry path escapes the package root
 - the entry file is missing
+- required file-integrity metadata is missing or invalid
+- a listed package file is missing, outside the package root, or hash-mismatched
 - the package entry fails to load
 - the package does not signal readiness
 

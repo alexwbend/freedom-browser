@@ -390,6 +390,35 @@ Verification in this checkpoint:
 - GitHub Actions run `27987748615`, job `test` (`82833120461`), passed for `e1291b3`.
 - GitHub Actions run `27987748615`, job `e2e-chrome-runtime` (`82833120441`), passed for `e1291b3`.
 
+### Phase 5 Local Package Store, Integrity, And Rollback
+
+Current checkpoint: unpacked package manifest file-integrity verification is
+implemented locally; durable store/cache/update/rollback work remains next.
+
+Implemented in this phase so far:
+
+- local package manifests now require a non-empty `files` array with
+  package-relative paths and SHA-256 hashes
+- the package loader verifies every listed file exists, is a file, remains
+  inside the package root after realpath resolution, and matches its SHA-256
+  hash before activation
+- the package entry must be covered by the manifest `files` records
+- package metadata now carries a normalized file list internally without
+  exposing package filesystem paths through `getInfo()`
+- the checked-in minimal package fixture and generated official package smoke
+  manifests now include integrity records
+- fallback smoke now covers a tampered package entry file and recovers to
+  bundled chrome
+
+Verification in this phase so far:
+
+- `npm test -- src/main/chrome-package.test.js` passed after file-integrity changes: 1 suite, 17 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after file-integrity changes: 8 tests.
+- `npm run lint` passed after file-integrity changes.
+- `npm test` passed after file-integrity changes: 110 suites passed, 5 skipped; 2079 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after file-integrity changes: 9 tests.
+- `git diff --check` passed after file-integrity changes.
+
 ## Next Step
 
 - Move into local package store/cache, integrity, update, and rollback work

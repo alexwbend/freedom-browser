@@ -6,6 +6,7 @@ const {
   BUNDLED_CHROME_PACKAGE,
   SHELL_API_VERSION,
   getRequestedChromePackageDir,
+  hashFileSha256,
   selectChromePackage,
   validateLocalChromePackage,
 } = require('./chrome-package');
@@ -18,7 +19,30 @@ function makeTempDir() {
   return dir;
 }
 
-function writePackage(root, manifestOverrides = {}) {
+function listPackageFiles(root) {
+  const files = [];
+  const visit = (relativeDir = '') => {
+    const absoluteDir = path.join(root, relativeDir);
+    for (const name of fs.readdirSync(absoluteDir).sort()) {
+      if (name === 'manifest.json') continue;
+      const relativePath = path.posix.join(relativeDir.replace(/\\/g, '/'), name);
+      const absolutePath = path.join(root, relativePath);
+      const stat = fs.statSync(absolutePath);
+      if (stat.isDirectory()) {
+        visit(relativePath);
+      } else if (stat.isFile()) {
+        files.push({
+          path: relativePath,
+          sha256: hashFileSha256(absolutePath),
+        });
+      }
+    }
+  };
+  visit();
+  return files;
+}
+
+function writePackage(root, manifestOverrides = {}, options = {}) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><h1>fixture</h1>');
   const manifest = {
@@ -33,6 +57,7 @@ function writePackage(root, manifestOverrides = {}) {
       maxShellApi: '0.1.x',
     },
     capabilities: ['shell.info', 'navigation.resolve'],
+    ...(options.includeFiles === false ? {} : { files: listPackageFiles(root) }),
     ...manifestOverrides,
   };
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -85,6 +110,12 @@ describe('chrome-package', () => {
       webviewTag: false,
       transitionalWebviews: false,
     });
+    expect(result.chromePackage.files).toEqual([
+      {
+        path: 'index.html',
+        sha256: hashFileSha256(path.join(root, 'index.html')),
+      },
+    ]);
     expect(result.chromePackage.entryPath).toBe(path.join(fs.realpathSync(root), 'index.html'));
     expect(result.chromePackage.preloadPath.endsWith(path.join('src', 'main', 'package-preload.js'))).toBe(
       true
@@ -206,6 +237,89 @@ describe('chrome-package', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('ENTRY_MISSING');
+  });
+
+  test('requires manifest file integrity records', () => {
+    const root = makeTempDir();
+    writePackage(root, {}, { includeFiles: false });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('PACKAGE_FILES_MISSING');
+  });
+
+  test('rejects tampered package files', () => {
+    const root = makeTempDir();
+    writePackage(root);
+    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><h1>tampered</h1>');
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('PACKAGE_FILE_HASH_MISMATCH');
+    expect(result.error.path).toBe('index.html');
+  });
+
+  test('rejects missing files listed in package integrity records', () => {
+    const root = makeTempDir();
+    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><h1>fixture</h1>');
+    const missingHash = 'a'.repeat(64);
+    writePackage(root, {
+      files: [
+        {
+          path: 'index.html',
+          sha256: hashFileSha256(path.join(root, 'index.html')),
+        },
+        {
+          path: 'missing.js',
+          sha256: missingHash,
+        },
+      ],
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('PACKAGE_FILE_MISSING');
+    expect(result.error.path).toBe('missing.js');
+  });
+
+  test('requires the package entry to be covered by integrity records', () => {
+    const root = makeTempDir();
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'index.html'), '<!doctype html><h1>fixture</h1>');
+    fs.writeFileSync(path.join(root, 'other.html'), '<!doctype html><h1>other</h1>');
+    writePackage(root, {
+      files: [
+        {
+          path: 'other.html',
+          sha256: hashFileSha256(path.join(root, 'other.html')),
+        },
+      ],
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('ENTRY_INTEGRITY_MISSING');
+  });
+
+  test('rejects package integrity paths that escape the package directory', () => {
+    const root = makeTempDir();
+    writePackage(root, {
+      files: [
+        {
+          path: '../outside.html',
+          sha256: 'a'.repeat(64),
+        },
+      ],
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(false);
+    expect(result.error.code).toBe('PACKAGE_FILE_PATH_INVALID');
   });
 
   test('rejects package entries that escape the package directory', () => {
