@@ -2,6 +2,11 @@ const log = require('../logger');
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const {
+  BUNDLED_CHROME_PACKAGE,
+  selectChromePackage,
+  setActiveChromePackage,
+} = require('../chrome-package');
 
 let currentWindowTitle = 'Freedom';
 
@@ -24,8 +29,25 @@ function getIconPath() {
   return iconPath;
 }
 
-function createMainWindow(initialUrl = null) {
+function loadChromeEntry(window, chromePackage, initialUrl) {
+  if (chromePackage.kind === 'bundled' && initialUrl) {
+    return window.loadFile(chromePackage.entryPath, { query: { initialUrl } });
+  }
+
+  return window.loadFile(chromePackage.entryPath);
+}
+
+function createBundledFallbackPackage(fallback) {
+  return {
+    ...BUNDLED_CHROME_PACKAGE,
+    fallback,
+  };
+}
+
+function createMainWindow(initialUrl = null, options = {}) {
   const isMac = process.platform === 'darwin';
+  const chromePackage = options.chromePackage || selectChromePackage({ logger: log });
+  setActiveChromePackage(chromePackage);
 
   // Headless E2E: keep the window hidden so a local test run doesn't pop a
   // window or steal focus. The renderer still loads and is fully driveable via
@@ -50,24 +72,50 @@ function createMainWindow(initialUrl = null) {
       trafficLightPosition: { x: 14, y: 14 },
     }),
     webPreferences: {
-      preload: path.join(__dirname, '..', 'preload.js'),
+      preload: chromePackage.preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      webviewTag: true,
+      webviewTag: chromePackage.webviewTag === true,
       enableRemoteModule: false,
     },
   });
 
-  // Load index.html with optional initial URL as query parameter
-  const indexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
-  if (initialUrl) {
-    window.loadFile(indexPath, { query: { initialUrl } });
-  } else {
-    window.loadFile(indexPath);
-  }
-
   // Track this window
   mainWindows.add(window);
+
+  let recoveredFromPackageLoadFailure = false;
+  const recoverFromPackageLoadFailure = (details = {}) => {
+    if (chromePackage.kind !== 'local-package' || recoveredFromPackageLoadFailure) {
+      return null;
+    }
+    recoveredFromPackageLoadFailure = true;
+    const fallback = {
+      requestedDir: chromePackage.packageRoot,
+      error: {
+        code: 'ENTRY_LOAD_FAILED',
+        message: details.message || details.errorDescription || 'Chrome package entry failed to load',
+        url: details.url || details.validatedURL || '',
+      },
+    };
+    log.warn('[chrome-package] falling back to bundled chrome after load failure', fallback.error);
+    const replacement = createMainWindow(initialUrl, {
+      chromePackage: createBundledFallbackPackage(fallback),
+    });
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+    return replacement;
+  };
+
+  // Load bundled chrome with optional initial URL. Local package chrome gets
+  // only its manifest entry; persisted activation/launch parameters are out of
+  // scope for the dev-only v0 runtime.
+  const loadPromise = loadChromeEntry(window, chromePackage, initialUrl);
+  if (loadPromise && typeof loadPromise.catch === 'function') {
+    loadPromise.catch((error) => {
+      recoverFromPackageLoadFailure({ message: error?.message || String(error) });
+    });
+  }
 
   window.on('ready-to-show', () => {
     window.setTitle(currentWindowTitle);
@@ -90,6 +138,15 @@ function createMainWindow(initialUrl = null) {
 
   const wc = window.webContents;
   if (wc) {
+    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame === false) {
+        return;
+      }
+      recoverFromPackageLoadFailure({
+        message: `${errorCode}: ${errorDescription}`,
+        validatedURL,
+      });
+    });
     wc.on('render-process-gone', (_event, details) => {
       log.error('[render-process-gone]', details);
     });

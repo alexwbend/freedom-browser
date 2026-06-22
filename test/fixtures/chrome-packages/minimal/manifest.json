@@ -1,0 +1,13 @@
+{
+  "manifestVersion": 1,
+  "packageType": "browser-chrome",
+  "packageId": "baby.freedom.chrome.fixture",
+  "name": "Freedom Fixture Chrome",
+  "version": "0.0.1",
+  "entry": "index.html",
+  "shellCompatibility": {
+    "minShellApi": "0.1.0",
+    "maxShellApi": "0.1.x"
+  },
+  "capabilities": ["shell.info", "navigation.resolve"]
+}

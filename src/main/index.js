@@ -109,6 +109,7 @@ const { registerShutdownSignalHandlers } = require('./shutdown-signals');
 const unregisterShutdownSignalHandlers = registerShutdownSignalHandlers({ app, logger: log });
 const { BrowserWindow, protocol, session } = require('electron');
 const { registerBaseIpcHandlers } = require('./ipc-handlers');
+const { registerShellApiIpc } = require('./shell-api');
 const { installRequestRewriter } = require('./request-rewriter');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
@@ -215,6 +216,7 @@ async function bootstrap() {
     onSetTitle: setWindowTitle,
     onNewWindow: createMainWindow,
   });
+  registerShellApiIpc();
   registerSettingsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();

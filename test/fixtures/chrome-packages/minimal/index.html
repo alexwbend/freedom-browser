@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Freedom Fixture Chrome</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-test="package-root">
+    <main>
+      <h1 data-test="package-title">Freedom Fixture Chrome</h1>
+      <dl>
+        <div>
+          <dt>Shell info</dt>
+          <dd data-test="shell-info-status">pending</dd>
+        </div>
+        <div>
+          <dt>Broad APIs</dt>
+          <dd data-test="broad-api-status">pending</dd>
+        </div>
+        <div>
+          <dt>Navigation</dt>
+          <dd data-test="resolve-nav-status">pending</dd>
+        </div>
+      </dl>
+      <button type="button" data-test="resolve-nav-button">Resolve example.com</button>
+      <pre data-test="shell-info-json"></pre>
+      <pre data-test="resolve-nav-json"></pre>
+    </main>
+    <script src="./main.js"></script>
+  </body>
+</html>
