@@ -440,6 +440,9 @@ Verification in this phase so far:
 - `npm test` passed after store/cache/rollback changes: 111 suites passed, 5 skipped; 2091 tests passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after store/cache/rollback changes: 11 tests.
 - `git diff --check` passed after store/cache/rollback changes.
+- committed as `c57d41d` (`feat(chrome): add local package store rollback`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27989520572`, job `test` (`82838683408`), passed for `c57d41d`.
+- GitHub Actions run `27989520572`, job `e2e-chrome-runtime` (`82838683381`), passed for `c57d41d`.
 
 ## Next Step
 
