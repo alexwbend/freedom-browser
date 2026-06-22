@@ -32,6 +32,30 @@ describe('navigation-input', () => {
       targetUrl: 'freedom://settings',
       displayValue: 'freedom://settings',
     });
+    expect(resolveNavigationInput('FREEDOM://SETTINGS/PROFILES')).toEqual({
+      ok: true,
+      input: 'FREEDOM://SETTINGS/PROFILES',
+      kind: 'internal',
+      targetUrl: 'freedom://settings/profiles',
+      displayValue: 'freedom://settings/profiles',
+    });
+  });
+
+  test('rejects freedom URLs outside the shell allowlist', () => {
+    expect(resolveNavigationInput('freedom://wallet-seed')).toMatchObject({
+      ok: false,
+      input: 'freedom://wallet-seed',
+      error: {
+        code: 'FREEDOM_PAGE_NOT_ALLOWED',
+      },
+    });
+    expect(resolveNavigationInput('freedom://settings/profile/extra')).toMatchObject({
+      ok: false,
+      input: 'freedom://settings/profile/extra',
+      error: {
+        code: 'FREEDOM_URL_INVALID',
+      },
+    });
   });
 
   test('rejects empty and unresolved inputs with structured errors', () => {

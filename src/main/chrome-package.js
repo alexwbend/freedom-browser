@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { version: appVersion } = require('../../package.json');
+const { isKnownShellCapability } = require('../shared/shell-api-policy');
 
 const SHELL_API_VERSION = '0.1.0';
 
@@ -195,9 +196,30 @@ function validateLocalChromePackage(packageDir, options = {}) {
     return fail('ENTRY_NOT_FILE', 'Chrome package entry must be a file', { packageRoot });
   }
 
-  const capabilities = Array.isArray(manifest.capabilities)
-    ? manifest.capabilities.filter((capability) => typeof capability === 'string')
-    : [];
+  if (manifest.capabilities !== undefined && !Array.isArray(manifest.capabilities)) {
+    return fail('CAPABILITIES_INVALID', 'Chrome package capabilities must be an array', {
+      packageRoot,
+    });
+  }
+
+  const capabilities = [];
+  for (const capability of manifest.capabilities || []) {
+    if (typeof capability !== 'string' || !capability.trim()) {
+      return fail('CAPABILITY_INVALID', 'Chrome package capabilities must be non-empty strings', {
+        packageRoot,
+      });
+    }
+    const normalizedCapability = capability.trim();
+    if (!isKnownShellCapability(normalizedCapability)) {
+      return fail('CAPABILITY_UNKNOWN', 'Chrome package declared an unknown capability', {
+        packageRoot,
+        capability: normalizedCapability,
+      });
+    }
+    if (!capabilities.includes(normalizedCapability)) {
+      capabilities.push(normalizedCapability);
+    }
+  }
 
   return {
     ok: true,

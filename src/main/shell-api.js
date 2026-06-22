@@ -7,8 +7,17 @@ const {
   getActiveChromePackage,
 } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
+const { getRequiredCapabilityForMethod } = require('../shared/shell-api-policy');
 
 const shellEvents = new EventEmitter();
+const packageCallers = new WeakMap();
+
+function createShellApiError(code, message, details = {}) {
+  const error = new Error(message);
+  error.code = code;
+  error.details = details;
+  return error;
+}
 
 function getAppVersion() {
   if (app && typeof app.getVersion === 'function') {
@@ -57,6 +66,44 @@ function onPackageReady(listener) {
   return () => shellEvents.removeListener('package-ready', listener);
 }
 
+function registerPackageWebContents(sender, chromePackage = getActiveChromePackage()) {
+  if (!sender || typeof sender !== 'object') {
+    return () => {};
+  }
+
+  const caller = {
+    packageId: chromePackage.packageId,
+    packageType: chromePackage.packageType,
+    runtimeMode: chromePackage.runtimeMode,
+    capabilities: new Set(chromePackage.capabilities || []),
+  };
+  packageCallers.set(sender, caller);
+
+  return () => {
+    packageCallers.delete(sender);
+  };
+}
+
+function getPackageCaller(event) {
+  const sender = event?.sender || null;
+  if (!sender) {
+    throw createShellApiError('SHELL_SENDER_MISSING', 'Shell API request is missing a sender');
+  }
+  if (typeof sender.isDestroyed === 'function' && sender.isDestroyed()) {
+    throw createShellApiError('SHELL_SENDER_DESTROYED', 'Shell API sender is destroyed');
+  }
+
+  const caller = packageCallers.get(sender);
+  if (!caller) {
+    throw createShellApiError(
+      'SHELL_SENDER_UNAUTHORIZED',
+      'Shell API request came from an unauthorized sender'
+    );
+  }
+
+  return caller;
+}
+
 const METHODS = Object.freeze({
   getInfo: {
     handler: () => getInfo(),
@@ -69,15 +116,44 @@ const METHODS = Object.freeze({
   },
 });
 
-async function handleShellRequest(_event, payload = {}) {
-  const method = payload?.method;
-  const args = Array.isArray(payload?.args) ? payload.args : [];
+function assertMethodCapability(caller, method) {
+  const requiredCapability = getRequiredCapabilityForMethod(method);
+  if (!requiredCapability) {
+    throw createShellApiError('SHELL_METHOD_UNSUPPORTED', `Unsupported shell API method: ${method}`);
+  }
+  if (!caller.capabilities.has(requiredCapability)) {
+    throw createShellApiError(
+      'SHELL_CAPABILITY_DENIED',
+      `Shell API method requires capability: ${requiredCapability}`,
+      {
+        method,
+        requiredCapability,
+        packageId: caller.packageId,
+      }
+    );
+  }
+}
 
-  if (!Object.prototype.hasOwnProperty.call(METHODS, method)) {
-    throw new Error(`Unsupported shell API method: ${method || '(missing)'}`);
+async function handleShellRequest(event, payload = {}) {
+  if (!payload || typeof payload !== 'object') {
+    throw createShellApiError('SHELL_PAYLOAD_INVALID', 'Shell API payload must be an object');
   }
 
-  return METHODS[method].handler(args, _event);
+  const method = payload?.method;
+  if (typeof method !== 'string' || !method) {
+    throw createShellApiError('SHELL_METHOD_INVALID', 'Shell API method must be a string');
+  }
+  if (!Object.prototype.hasOwnProperty.call(METHODS, method)) {
+    throw createShellApiError('SHELL_METHOD_UNSUPPORTED', `Unsupported shell API method: ${method}`);
+  }
+  if (!Array.isArray(payload?.args)) {
+    throw createShellApiError('SHELL_ARGS_INVALID', 'Shell API args must be an array');
+  }
+
+  const caller = getPackageCaller(event);
+  assertMethodCapability(caller, method);
+
+  return METHODS[method].handler(payload.args, event);
 }
 
 function registerShellApiIpc(options = {}) {
@@ -86,10 +162,12 @@ function registerShellApiIpc(options = {}) {
 }
 
 module.exports = {
+  createShellApiError,
   describeChromePackage,
   getInfo,
   handleShellRequest,
   markReady,
   onPackageReady,
+  registerPackageWebContents,
   registerShellApiIpc,
 };

@@ -42,7 +42,10 @@ npm start -- --chrome-package="$PWD/test/fixtures/chrome-packages/minimal"
 ```
 
 Local package chrome uses `src/main/package-preload.js`, disables `<webview>`,
-and receives only `window.freedomShell`.
+and receives only `window.freedomShell`. The package window is created with
+hardened preferences: context isolation on, Node integration off, remote module
+off, web security on, insecure content disabled, experimental features off, and
+package-owned `<webview>` support disabled for v0.
 
 ## Manifest v0
 
@@ -74,6 +77,7 @@ Validation is intentionally local and conservative:
 - shell API compatibility must include `minShellApi` and `maxShellApi`
 - entry must be relative and resolve inside the package directory
 - entry must exist and be a file
+- capabilities, when declared, must be known shell capabilities
 
 Package selection is not persisted in v0.
 
@@ -100,6 +104,20 @@ bundled chrome window and destroys the failed package window. The default
 timeout is 5000 ms; tests can override it with
 `FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS`.
 
+Every shell API request must come from a registered local package window and
+must be allowed by the package manifest's declared capabilities:
+
+- `shell.info` allows `getInfo()`
+- `shell.ready` allows `markReady()`
+- `navigation.resolve` allows `resolveNavigationInput(input)`
+
+Requests from unknown or destroyed senders fail closed, and missing
+capabilities deny the method.
+
+`freedom://` resolution is allowlisted to the shared internal-page registry in
+`src/shared/internal-pages.json`. Unknown internal pages are rejected instead of
+being forwarded to package chrome.
+
 The package preload must not expose broad first-party APIs such as
 `electronAPI`, `wallet`, `identity`, `swarmProvider`, `swarmPermissions`, or
 `dappPermissions`.
@@ -123,7 +141,7 @@ Recovery does not depend on Swarm, IPFS, ENS, or live network access.
 Focused unit tests:
 
 ```bash
-npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js
+npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
 ```
 
 Bundled chrome smoke:

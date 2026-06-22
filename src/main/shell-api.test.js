@@ -3,6 +3,25 @@ const { version: appVersion } = require('../../package.json');
 const { SHELL_API_VERSION } = require('./chrome-package');
 const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
+function makeSender(overrides = {}) {
+  return {
+    id: 42,
+    isDestroyed: jest.fn(() => false),
+    ...overrides,
+  };
+}
+
+function makePackage(overrides = {}) {
+  return {
+    kind: 'local-package',
+    runtimeMode: 'local-package',
+    packageId: 'baby.freedom.chrome.fixture',
+    packageType: 'browser-chrome',
+    capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
+    ...overrides,
+  };
+}
+
 function loadShellApi(options = {}) {
   const context = loadMainModule(require.resolve('./shell-api'), {
     ipcMain: options.ipcMain,
@@ -59,24 +78,73 @@ describe('shell-api', () => {
 
   test('handles allowed shell requests only', async () => {
     const { mod } = loadShellApi();
+    const sender = makeSender();
+    mod.registerPackageWebContents(sender, makePackage());
 
     await expect(
-      mod.handleShellRequest({}, { method: 'resolveNavigationInput', args: ['example.com'] })
+      mod.handleShellRequest({ sender }, { method: 'resolveNavigationInput', args: ['example.com'] })
     ).resolves.toMatchObject({
       ok: true,
       kind: 'https',
       targetUrl: 'https://example.com',
     });
-    await expect(mod.handleShellRequest({}, { method: 'wallet.exportPrivateKey' })).rejects.toThrow(
-      'Unsupported shell API method'
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'wallet.exportPrivateKey', args: [] })
+    ).rejects.toMatchObject(
+      {
+        code: 'SHELL_METHOD_UNSUPPORTED',
+      }
     );
+  });
+
+  test('rejects shell requests from missing, destroyed, or unauthorized senders', async () => {
+    const { mod } = loadShellApi();
+    const destroyedSender = makeSender({ isDestroyed: jest.fn(() => true) });
+    const unauthorizedSender = makeSender({ id: 43 });
+
+    await expect(
+      mod.handleShellRequest({}, { method: 'getInfo', args: [] })
+    ).rejects.toMatchObject({ code: 'SHELL_SENDER_MISSING' });
+    await expect(
+      mod.handleShellRequest({ sender: destroyedSender }, { method: 'getInfo', args: [] })
+    ).rejects.toMatchObject({ code: 'SHELL_SENDER_DESTROYED' });
+    await expect(
+      mod.handleShellRequest({ sender: unauthorizedSender }, { method: 'getInfo', args: [] })
+    ).rejects.toMatchObject({ code: 'SHELL_SENDER_UNAUTHORIZED' });
+  });
+
+  test('rejects malformed payloads and missing capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender();
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(mod.handleShellRequest({ sender }, null)).rejects.toMatchObject({
+      code: 'SHELL_PAYLOAD_INVALID',
+    });
+    await expect(
+      mod.handleShellRequest({ sender }, { method: '', args: [] })
+    ).rejects.toMatchObject({ code: 'SHELL_METHOD_INVALID' });
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'getInfo', args: 'nope' })
+    ).rejects.toMatchObject({ code: 'SHELL_ARGS_INVALID' });
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'resolveNavigationInput', args: ['example.com'] })
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: 'resolveNavigationInput',
+        requiredCapability: 'navigation.resolve',
+        packageId: 'baby.freedom.chrome.fixture',
+      },
+    });
   });
 
   test('emits package readiness for the calling webContents', async () => {
     const { mod } = loadShellApi();
     const listener = jest.fn();
     const dispose = mod.onPackageReady(listener);
-    const sender = { id: 42 };
+    const sender = makeSender();
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.ready'] }));
 
     await expect(
       mod.handleShellRequest({ sender }, { method: 'markReady', args: [] })
@@ -91,12 +159,14 @@ describe('shell-api', () => {
   test('registers the shell request IPC handler', async () => {
     const ipcMain = createIpcMainMock();
     const { mod } = loadShellApi({ ipcMain });
+    const sender = makeSender();
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
 
     mod.registerShellApiIpc({ ipcMain });
 
     expect(ipcMain.handle).toHaveBeenCalledWith(IPC.SHELL_REQUEST, mod.handleShellRequest);
     await expect(
-      ipcMain.handlers.get(IPC.SHELL_REQUEST)({}, { method: 'getInfo', args: [] })
+      ipcMain.handlers.get(IPC.SHELL_REQUEST)({ sender }, { method: 'getInfo', args: [] })
     ).resolves.toMatchObject({
       shellApiVersion: SHELL_API_VERSION,
       runtimeMode: 'bundled',

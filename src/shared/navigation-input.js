@@ -1,3 +1,7 @@
+const internalPages = require('./internal-pages.json');
+
+const ALLOWED_FREEDOM_PAGES = Object.freeze(Object.keys(internalPages.routable || {}).sort());
+
 function looksLikeDomain(value) {
   if (typeof value !== 'string' || !value.includes('.')) {
     return false;
@@ -28,6 +32,40 @@ function normalizeHttpUrl(raw) {
   } catch {
     return null;
   }
+}
+
+function normalizeFreedomUrl(rawInput) {
+  const match = rawInput.match(/^freedom:\/\/([a-z0-9-]+)(?:\/([a-z0-9-]+))?\/?$/i);
+  if (!match) {
+    return {
+      ok: false,
+      error: {
+        code: 'FREEDOM_URL_INVALID',
+        message: 'freedom:// URLs must target a known internal page',
+      },
+    };
+  }
+
+  const pageName = match[1].toLowerCase();
+  const subPath = match[2]?.toLowerCase() || '';
+  if (!ALLOWED_FREEDOM_PAGES.includes(pageName)) {
+    return {
+      ok: false,
+      error: {
+        code: 'FREEDOM_PAGE_NOT_ALLOWED',
+        message: 'freedom:// page is not in the shell allowlist',
+        allowedPages: ALLOWED_FREEDOM_PAGES,
+      },
+    };
+  }
+
+  const targetUrl = `freedom://${pageName}${subPath ? `/${subPath}` : ''}`;
+  return {
+    ok: true,
+    kind: 'internal',
+    targetUrl,
+    displayValue: targetUrl,
+  };
 }
 
 function resolveNavigationInput(input) {
@@ -63,13 +101,21 @@ function resolveNavigationInput(input) {
     };
   }
 
-  if (/^freedom:\/\/[a-z0-9-]+/i.test(rawInput)) {
+  if (rawInput.toLowerCase().startsWith('freedom://')) {
+    const freedomUrl = normalizeFreedomUrl(rawInput);
+    if (!freedomUrl.ok) {
+      return {
+        ok: false,
+        input: rawInput,
+        error: freedomUrl.error,
+      };
+    }
     return {
       ok: true,
       input: rawInput,
-      kind: 'internal',
-      targetUrl: rawInput,
-      displayValue: rawInput,
+      kind: freedomUrl.kind,
+      targetUrl: freedomUrl.targetUrl,
+      displayValue: freedomUrl.displayValue,
     };
   }
 
@@ -84,5 +130,6 @@ function resolveNavigationInput(input) {
 }
 
 module.exports = {
+  ALLOWED_FREEDOM_PAGES,
   resolveNavigationInput,
 };

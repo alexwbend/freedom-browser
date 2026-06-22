@@ -94,6 +94,37 @@
 - `resolveNavigationInput()` is deliberately v0 and does not yet mirror the full renderer navigation stack for Swarm/IPFS/ENS/Radicle.
 - Readiness only covers package initialization. Semantic health after `markReady()` is not monitored yet.
 
+## Full Local Runtime Phase
+
+### Phase 0 Baseline And V0 Hardening
+
+Current checkpoint: Phase 0 hardening completed locally on top of `80ed49c`; checkpoint commit pending.
+
+Implemented in this phase:
+
+- added shared v0 shell API capability policy in `src/shared/shell-api-policy.js`
+- local package manifests now reject invalid or unknown capabilities
+- `shell:request` now requires a registered local package sender
+- shell API calls from missing, destroyed, or unauthorized senders fail closed
+- shell API methods now require manifest-declared capabilities:
+  - `shell.info` for `getInfo`
+  - `shell.ready` for `markReady`
+  - `navigation.resolve` for `resolveNavigationInput`
+- local package windows now use explicit hardened `BrowserWindow` preferences and keep package-owned `<webview>` disabled for v0
+- `freedom://` shell resolution now uses the shared internal-page allowlist instead of accepting arbitrary internal hosts
+- runtime docs now describe sender validation, capability enforcement, hardened package window preferences, and the `freedom://` allowlist
+
+Verification in this phase so far:
+
+- `npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js` passed before changes: 4 suites, 18 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed before changes: 7 tests.
+- `npm test -- src/main/chrome-package.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js src/main/package-preload.test.js` passed after changes: 5 suites, 25 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after changes: 7 tests.
+
+- `npm run lint` passed.
+- `npm test` passed: 107 suites passed, 5 skipped; 2042 tests passed, 17 skipped.
+- `git diff --check` passed.
+
 ## Next Step
 
-- Run final completion audit against `/root/codex/freedom-browser-goal.md`.
+- Finish Phase 0 verification, commit the hardening checkpoint, then continue to Phase 1 Shell API Foundation in `/root/codex/freedom-browser-goal2.md`.

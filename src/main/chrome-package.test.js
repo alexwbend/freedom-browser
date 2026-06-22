@@ -90,6 +90,18 @@ describe('chrome-package', () => {
     );
   });
 
+  test('normalizes and deduplicates known shell capabilities', () => {
+    const root = makeTempDir();
+    writePackage(root, {
+      capabilities: ['shell.info', 'navigation.resolve', 'shell.info'],
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(true);
+    expect(result.chromePackage.capabilities).toEqual(['shell.info', 'navigation.resolve']);
+  });
+
   test('falls back to bundled chrome with a diagnostic for a missing package', () => {
     const logger = { warn: jest.fn() };
     const selected = selectChromePackage({
@@ -129,6 +141,25 @@ describe('chrome-package', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error.code).toBe('SHELL_COMPATIBILITY_UNSUPPORTED');
+  });
+
+  test('rejects invalid or unknown shell capabilities', () => {
+    const invalidRoot = makeTempDir();
+    writePackage(invalidRoot, { capabilities: ['shell.info', ''] });
+
+    const invalidResult = validateLocalChromePackage(invalidRoot);
+
+    expect(invalidResult.ok).toBe(false);
+    expect(invalidResult.error.code).toBe('CAPABILITY_INVALID');
+
+    const unknownRoot = makeTempDir();
+    writePackage(unknownRoot, { capabilities: ['shell.info', 'wallet.export'] });
+
+    const unknownResult = validateLocalChromePackage(unknownRoot);
+
+    expect(unknownResult.ok).toBe(false);
+    expect(unknownResult.error.code).toBe('CAPABILITY_UNKNOWN');
+    expect(unknownResult.error.capability).toBe('wallet.export');
   });
 
   test('rejects missing package entry files', () => {

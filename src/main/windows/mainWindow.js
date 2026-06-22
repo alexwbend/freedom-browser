@@ -7,7 +7,7 @@ const {
   selectChromePackage,
   setActiveChromePackage,
 } = require('../chrome-package');
-const { onPackageReady } = require('../shell-api');
+const { onPackageReady, registerPackageWebContents } = require('../shell-api');
 
 let currentWindowTitle = 'Freedom';
 
@@ -53,6 +53,22 @@ function getPackageReadyTimeoutMs() {
   return 5000;
 }
 
+function getChromeWindowWebPreferences(chromePackage) {
+  const isLocalPackage = chromePackage.kind === 'local-package';
+  return {
+    preload: chromePackage.preloadPath,
+    contextIsolation: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webviewTag: isLocalPackage ? false : chromePackage.webviewTag === true,
+    enableRemoteModule: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false,
+  };
+}
+
 function createMainWindow(initialUrl = null, options = {}) {
   const isMac = process.platform === 'darwin';
   const chromePackage = options.chromePackage || selectChromePackage({ logger: log });
@@ -80,13 +96,7 @@ function createMainWindow(initialUrl = null, options = {}) {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 14, y: 14 },
     }),
-    webPreferences: {
-      preload: chromePackage.preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      webviewTag: chromePackage.webviewTag === true,
-      enableRemoteModule: false,
-    },
+    webPreferences: getChromeWindowWebPreferences(chromePackage),
   });
 
   // Track this window
@@ -94,12 +104,14 @@ function createMainWindow(initialUrl = null, options = {}) {
 
   let recoveredFromPackageLoadFailure = false;
   let cleanupPackageReadyWait = () => {};
+  let cleanupPackageCaller = () => {};
   const recoverFromPackageLoadFailure = (details = {}) => {
     if (chromePackage.kind !== 'local-package' || recoveredFromPackageLoadFailure) {
       return null;
     }
     recoveredFromPackageLoadFailure = true;
     cleanupPackageReadyWait();
+    cleanupPackageCaller();
     const fallback = {
       requestedDir: chromePackage.packageRoot,
       error: {
@@ -119,6 +131,8 @@ function createMainWindow(initialUrl = null, options = {}) {
   };
 
   if (chromePackage.kind === 'local-package') {
+    cleanupPackageCaller = registerPackageWebContents(window.webContents, chromePackage);
+
     const readyTimeout = setTimeout(() => {
       recoverFromPackageLoadFailure({
         code: 'PACKAGE_READY_TIMEOUT',
@@ -154,6 +168,7 @@ function createMainWindow(initialUrl = null, options = {}) {
 
   window.on('closed', () => {
     cleanupPackageReadyWait();
+    cleanupPackageCaller();
     mainWindows.delete(window);
   });
 
@@ -251,6 +266,7 @@ function getMainWindows() {
 
 module.exports = {
   createMainWindow,
+  getChromeWindowWebPreferences,
   focusOrCreateMainWindow,
   setWindowTitle,
   getWindowTitle,
