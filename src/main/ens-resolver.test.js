@@ -460,6 +460,27 @@ describe('ens-resolver', () => {
       expect(mockUrResolve.mock.calls.length).toBe(callsAfterCold);
     });
 
+    test('does not cache transient NO_CONTENTHASH errors', async () => {
+      mockUrResolve.mockRejectedValue(
+        new Error('response not found during CCIP fetch: 3dnsService:: CCIP_001')
+      );
+
+      const first = await resolveEnsContent('transient-negative.box');
+      const callsAfterFailure = mockUrResolve.mock.calls.length;
+
+      expect(first.type).toBe('not_found');
+      expect(first.reason).toBe('NO_CONTENTHASH');
+      expect(first.error).toContain('CCIP');
+
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const second = await resolveEnsContent('transient-negative.box');
+
+      expect(second.type).toBe('ok');
+      expect(second.uri).toBe(`ipfs://${IPFS_V0}`);
+      expect(mockUrResolve.mock.calls.length).toBeGreaterThan(callsAfterFailure);
+    });
+
     test('makes K UR calls per cold resolution (one per quorum leg)', async () => {
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
 
