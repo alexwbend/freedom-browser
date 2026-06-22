@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: first shell-owned tab snapshot/command contract completed locally; commit and GitHub target jobs pending.
+Current checkpoint: first shell-owned tab snapshot/command contract passed in `6e46964`.
 
 Implemented in this phase so far:
 
@@ -214,7 +214,10 @@ Verification in this phase so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after tab command changes: 7 tests.
 - `npm run lint` passed after tab command changes.
 - `npm test` passed after tab command changes: 109 suites passed, 5 skipped; 2056 tests passed, 17 skipped.
+- Committed and pushed `6e46964` (`feat(shell): add package tab command contract`).
+- GitHub Actions run `27980705626`, job `test` (`82809731975`), passed for `6e46964`.
+- GitHub Actions run `27980705626`, job `e2e-chrome-runtime` (`82809732106`), passed for `6e46964`.
 
 ## Next Step
 
-- Commit and push the Phase 2 tab command checkpoint, check GitHub `test` and `e2e-chrome-runtime`, then continue Phase 2 toward command completion events and executor bridging.
+- Continue Phase 2 toward command completion events and executor bridging while keeping bundled chrome unchanged.
