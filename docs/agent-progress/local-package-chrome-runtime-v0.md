@@ -23,6 +23,8 @@
 - `xvfb-run -a npm run test:e2e` passed: 20 Playwright harness tests.
 - Documentation checkpoint checks: `git diff --check` passed, `npm run lint` passed.
 - Attempted `git push -u origin goal/local-package-chrome-runtime-v0` with a CI workflow update included; GitHub rejected the push because the OAuth token lacks `workflow` scope.
+- `gh auth status` shows the local GitHub token has `repo` but not `workflow`.
+- Attempted to update `.github/workflows/ci.yml` through the GitHub connector on this branch; GitHub returned 403 `Resource not accessible by integration`.
 - `git push -u origin goal/local-package-chrome-runtime-v0` passed after removing workflow-file changes from the commit.
 - Latest push to `origin/goal/local-package-chrome-runtime-v0` succeeded; use `git log --oneline --decorate -5` for the current head.
 
@@ -31,7 +33,7 @@
 - Bundled chrome smoke: implemented in `test-e2e/chrome-smoke.spec.js`; passes under Xvfb locally.
 - Package-mode smoke: implemented in `test-e2e/chrome-package.spec.js`; passes under Xvfb locally.
 - Fallback smoke: implemented for missing package dir, malformed manifest, incompatible manifest, missing entry file, and package readiness timeout; passes under Xvfb locally.
-- GitHub/Xvfb smoke: not wired yet. Current `.github/workflows/ci.yml` runs unit coverage and focused E2E jobs, but not the bundled/package chrome smoke specs. Adding/updating workflow coverage is blocked by current push credentials lacking `workflow` scope.
+- GitHub/Xvfb smoke: not wired yet. Current `.github/workflows/ci.yml` runs unit coverage and focused E2E jobs, but not the bundled/package chrome smoke specs. Adding/updating workflow coverage is blocked by both the local token lacking `workflow` scope and the GitHub connector lacking workflow-file write permission.
 
 ## Decisions
 
@@ -88,3 +90,4 @@
 ## Next Step
 
 - Add GitHub Actions/Xvfb smoke coverage once a workflow-scoped credential or user-authored workflow change is available.
+- Needed CI job: Linux, `npm ci`, `npx playwright install-deps`, then `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`, with `test-results/` and `playwright-report/` uploaded on failure.
