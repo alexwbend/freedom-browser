@@ -5,11 +5,14 @@ const path = require('path');
 const {
   BUNDLED_CHROME_PACKAGE,
   SHELL_API_VERSION,
+  getRequestedChromePackageInstallDir,
   getRequestedChromePackageDir,
   hashFileSha256,
   selectChromePackage,
+  shouldUseChromePackageStore,
   validateLocalChromePackage,
 } = require('./chrome-package');
+const { getChromePackageStoreRoot } = require('./chrome-package-store');
 
 const tempDirs = [];
 
@@ -89,6 +92,27 @@ describe('chrome-package', () => {
         argv: ['electron', '.', '--chrome-package=/from/equals'],
       })
     ).toBe('/from/equals');
+  });
+
+  test('reads package install and cache selectors', () => {
+    expect(
+      getRequestedChromePackageInstallDir({
+        env: { FREEDOM_CHROME_PACKAGE_INSTALL_DIR: '/from/env' },
+        argv: ['electron', '.', '--chrome-package-install', '/from/argv'],
+      })
+    ).toBe('/from/argv');
+    expect(
+      getRequestedChromePackageInstallDir({
+        env: { FREEDOM_CHROME_PACKAGE_INSTALL_DIR: '/from/env' },
+        argv: ['electron', '.', '--chrome-package-install=/from/equals'],
+      })
+    ).toBe('/from/equals');
+    expect(shouldUseChromePackageStore({ env: { FREEDOM_CHROME_PACKAGE_CACHE: '1' }, argv: [] })).toBe(
+      true
+    );
+    expect(shouldUseChromePackageStore({ env: {}, argv: ['electron', '.', '--chrome-package-cache'] })).toBe(
+      true
+    );
   });
 
   test('validates a local package descriptor', () => {
@@ -182,6 +206,67 @@ describe('chrome-package', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       '[chrome-package] falling back to bundled chrome',
       expect.objectContaining({ code: 'PACKAGE_DIR_NOT_FOUND' })
+    );
+  });
+
+  test('installs and selects a cached package when install mode is requested', () => {
+    const root = makeTempDir();
+    const storeRoot = getChromePackageStoreRoot({ userDataDir: makeTempDir() });
+    writePackage(root);
+
+    const selected = selectChromePackage({
+      env: { FREEDOM_CHROME_PACKAGE_INSTALL_DIR: root },
+      argv: [],
+      storeRoot,
+    });
+
+    expect(selected).toMatchObject({
+      kind: 'local-package',
+      source: 'store',
+      packageId: 'baby.freedom.chrome.fixture',
+      version: '0.0.1',
+    });
+  });
+
+  test('selects cached package only when cache mode is requested', () => {
+    const root = makeTempDir();
+    const storeRoot = getChromePackageStoreRoot({ userDataDir: makeTempDir() });
+    writePackage(root);
+    expect(
+      selectChromePackage({
+        env: { FREEDOM_CHROME_PACKAGE_INSTALL_DIR: root },
+        argv: [],
+        storeRoot,
+      }).source
+    ).toBe('store');
+
+    expect(selectChromePackage({ env: {}, argv: [], storeRoot })).toBe(BUNDLED_CHROME_PACKAGE);
+    expect(
+      selectChromePackage({
+        env: { FREEDOM_CHROME_PACKAGE_CACHE: '1' },
+        argv: [],
+        storeRoot,
+      })
+    ).toMatchObject({
+      source: 'store',
+      packageId: 'baby.freedom.chrome.fixture',
+    });
+  });
+
+  test('falls back to bundled chrome when requested cache is unusable', () => {
+    const logger = { warn: jest.fn() };
+    const selected = selectChromePackage({
+      env: { FREEDOM_CHROME_PACKAGE_CACHE: '1' },
+      argv: [],
+      logger,
+      storeRoot: getChromePackageStoreRoot({ userDataDir: makeTempDir() }),
+    });
+
+    expect(selected.kind).toBe('bundled');
+    expect(selected.fallback.error.code).toBe('STORE_CURRENT_MISSING');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[chrome-package] falling back to bundled chrome',
+      expect.objectContaining({ code: 'STORE_CURRENT_MISSING' })
     );
   });
 

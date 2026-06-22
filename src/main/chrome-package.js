@@ -7,6 +7,10 @@ const {
   isKnownShellCapability,
   isShellApiVersionCompatible,
 } = require('../shared/shell-api-policy');
+const {
+  installChromePackageFromDirectory,
+  loadCurrentChromePackage,
+} = require('./chrome-package-store');
 
 const BUNDLED_CHROME_PACKAGE = Object.freeze({
   kind: 'bundled',
@@ -48,6 +52,33 @@ function parseChromePackageArg(argv = []) {
 
 function getRequestedChromePackageDir({ env = process.env, argv = process.argv } = {}) {
   return parseChromePackageArg(argv) || env.FREEDOM_CHROME_PACKAGE_DIR || '';
+}
+
+function getRequestedChromePackageInstallDir({ env = process.env, argv = process.argv } = {}) {
+  return parseChromePackageArgForName(argv, '--chrome-package-install') ||
+    env.FREEDOM_CHROME_PACKAGE_INSTALL_DIR ||
+    '';
+}
+
+function shouldUseChromePackageStore({ env = process.env, argv = process.argv } = {}) {
+  if (argv.includes('--chrome-package-cache')) {
+    return true;
+  }
+  return env.FREEDOM_CHROME_PACKAGE_CACHE === '1';
+}
+
+function parseChromePackageArgForName(argv = [], name) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const value = argv[index];
+    if (typeof value !== 'string') continue;
+    if (value.startsWith(`${name}=`)) {
+      return value.slice(`${name}=`.length);
+    }
+    if (value === name) {
+      return argv[index + 1] || '';
+    }
+  }
+  return '';
 }
 
 function readJsonFile(filePath) {
@@ -336,6 +367,7 @@ function validateLocalChromePackage(packageDir, options = {}) {
       source: 'local',
       packageRoot,
       manifestPath,
+      entry: normalizedEntry,
       entryPath,
       preloadPath: path.join(__dirname, 'package-preload.js'),
       webviewTag: transitionalWebviews,
@@ -357,6 +389,57 @@ function validateLocalChromePackage(packageDir, options = {}) {
 function selectChromePackage(options = {}) {
   const requestedDir = getRequestedChromePackageDir(options);
   if (!requestedDir) {
+    const requestedInstallDir = getRequestedChromePackageInstallDir(options);
+    if (requestedInstallDir) {
+      const installResult = installChromePackageFromDirectory(requestedInstallDir, {
+        allowDowngrade: options.allowDowngrade,
+        allowSameVersionUpdate: options.allowSameVersionUpdate,
+        shellApiVersion: options.shellApiVersion,
+        storeRoot: options.storeRoot,
+        validatePackage: validateLocalChromePackage,
+      });
+      if (installResult.ok) {
+        return installResult.chromePackage;
+      }
+
+      options.logger?.warn?.('[chrome-package] falling back to bundled chrome', {
+        code: installResult.error.code,
+        message: installResult.error.message,
+      });
+
+      return {
+        ...BUNDLED_CHROME_PACKAGE,
+        fallback: {
+          requestedDir: requestedInstallDir,
+          error: installResult.error,
+        },
+      };
+    }
+
+    if (shouldUseChromePackageStore(options)) {
+      const currentResult = loadCurrentChromePackage({
+        shellApiVersion: options.shellApiVersion,
+        storeRoot: options.storeRoot,
+        validatePackage: validateLocalChromePackage,
+      });
+      if (currentResult.ok) {
+        return currentResult.chromePackage;
+      }
+
+      options.logger?.warn?.('[chrome-package] falling back to bundled chrome', {
+        code: currentResult.error.code,
+        message: currentResult.error.message,
+      });
+
+      return {
+        ...BUNDLED_CHROME_PACKAGE,
+        fallback: {
+          requestedStore: options.storeRoot || '',
+          error: currentResult.error,
+        },
+      };
+    }
+
     return BUNDLED_CHROME_PACKAGE;
   }
 
@@ -385,11 +468,13 @@ module.exports = {
   BUNDLED_CHROME_PACKAGE,
   SHELL_API_VERSION,
   getActiveChromePackage,
+  getRequestedChromePackageInstallDir,
   getRequestedChromePackageDir,
   hashFileSha256,
   isVersionCompatible,
   normalizePackageFilePath,
   selectChromePackage,
   setActiveChromePackage,
+  shouldUseChromePackageStore,
   validateLocalChromePackage,
 };

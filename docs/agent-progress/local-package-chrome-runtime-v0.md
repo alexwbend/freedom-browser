@@ -392,8 +392,9 @@ Verification in this checkpoint:
 
 ### Phase 5 Local Package Store, Integrity, And Rollback
 
-Current checkpoint: unpacked package manifest file-integrity verification is
-implemented locally; durable store/cache/update/rollback work remains next.
+Current checkpoint: unpacked package manifest file-integrity verification and
+the durable local package store/cache/rollback path are implemented locally;
+local feed/update source work remains next.
 
 Implemented in this phase so far:
 
@@ -409,6 +410,18 @@ Implemented in this phase so far:
   manifests now include integrity records
 - fallback smoke now covers a tampered package entry file and recovers to
   bundled chrome
+- local package install mode now stages a verified unpacked package into
+  `<userData>/chrome-package-store/`, revalidates the staged copy, atomically
+  activates `current.json`, and records `previous.json` on update
+- cached package launch mode now validates store pointers, install metadata,
+  manifest hash, file hashes, shell compatibility, capabilities, and entry path
+  before activation
+- same-package downgrades and same-version changed-content replay are rejected
+  by default
+- cached package load/readiness failure now rolls back to the previous cached
+  package before falling back to bundled safe chrome
+- launched package smoke covers install-to-cache, offline cached launch, and
+  readiness-timeout rollback to the previous cached package
 
 Verification in this phase so far:
 
@@ -421,9 +434,15 @@ Verification in this phase so far:
 - committed as `657cb4e` (`feat(chrome): verify package file integrity`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
 - GitHub Actions run `27988568432`, job `test` (`82835714879`), passed for `657cb4e`.
 - GitHub Actions run `27988568432`, job `e2e-chrome-runtime` (`82835715063`), passed for `657cb4e`.
+- `npm test -- src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/windows/mainWindow.test.js` passed after store/cache/rollback changes: 3 suites, 34 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after store/cache/rollback changes: 10 tests.
+- `npm run lint` passed after store/cache/rollback changes.
+- `npm test` passed after store/cache/rollback changes: 111 suites passed, 5 skipped; 2091 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after store/cache/rollback changes: 11 tests.
+- `git diff --check` passed after store/cache/rollback changes.
 
 ## Next Step
 
-- Move into local package store/cache, integrity, update, and rollback work
-  while keeping wallet, identity, permissions, x402, and publish prompts as
-  trusted shell-owned surfaces.
+- Move into deterministic local feed/update source work while keeping wallet,
+  identity, permissions, x402, and publish prompts as trusted shell-owned
+  surfaces.

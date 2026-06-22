@@ -6,7 +6,12 @@ const {
   BUNDLED_CHROME_PACKAGE,
   selectChromePackage,
   setActiveChromePackage,
+  validateLocalChromePackage,
 } = require('../chrome-package');
+const {
+  getChromePackageStoreRoot,
+  rollbackChromePackageStore,
+} = require('../chrome-package-store');
 const { onPackageReady, registerPackageWebContents } = require('../shell-api');
 
 let currentWindowTitle = 'Freedom';
@@ -130,7 +135,14 @@ function registerPackageWebviewSecurity(window, chromePackage) {
 
 function createMainWindow(initialUrl = null, options = {}) {
   const isMac = process.platform === 'darwin';
-  const chromePackage = options.chromePackage || selectChromePackage({ logger: log });
+  const packageStoreRoot =
+    options.packageStoreRoot || getChromePackageStoreRoot({ userDataDir: app.getPath('userData') });
+  const chromePackage =
+    options.chromePackage ||
+    selectChromePackage({
+      logger: log,
+      storeRoot: packageStoreRoot,
+    });
   setActiveChromePackage(chromePackage);
 
   // Headless E2E: keep the window hidden so a local test run doesn't pop a
@@ -165,6 +177,40 @@ function createMainWindow(initialUrl = null, options = {}) {
   let cleanupPackageReadyWait = () => {};
   let cleanupPackageCaller = () => {};
   let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(window, chromePackage);
+  const tryPackageRollback = (details = {}) => {
+    if (
+      chromePackage.kind !== 'local-package' ||
+      chromePackage.source !== 'store' ||
+      options.packageRecoveryAttempted === true
+    ) {
+      return null;
+    }
+
+    const rollbackResult = rollbackChromePackageStore({
+      storeRoot: packageStoreRoot,
+      validatePackage: validateLocalChromePackage,
+    });
+    if (!rollbackResult.ok) {
+      log.warn('[chrome-package] package rollback unavailable', {
+        code: rollbackResult.error.code,
+        message: rollbackResult.error.message,
+      });
+      return null;
+    }
+
+    log.warn('[chrome-package] rolling back cached chrome package after package failure', {
+      failedPackageId: chromePackage.packageId,
+      failedVersion: chromePackage.version,
+      rollbackPackageId: rollbackResult.chromePackage.packageId,
+      rollbackVersion: rollbackResult.chromePackage.version,
+      reason: details.code || details.message || 'PACKAGE_FAILURE',
+    });
+    return createMainWindow(initialUrl, {
+      chromePackage: rollbackResult.chromePackage,
+      packageRecoveryAttempted: true,
+      packageStoreRoot,
+    });
+  };
   const recoverFromPackageLoadFailure = (details = {}) => {
     if (chromePackage.kind !== 'local-package' || recoveredFromPackageLoadFailure) {
       return null;
@@ -173,6 +219,14 @@ function createMainWindow(initialUrl = null, options = {}) {
     cleanupPackageReadyWait();
     cleanupPackageCaller();
     cleanupPackageWebviewSecurity();
+    const rollbackWindow = tryPackageRollback(details);
+    if (rollbackWindow) {
+      if (!window.isDestroyed()) {
+        window.destroy();
+      }
+      return rollbackWindow;
+    }
+
     const fallback = {
       requestedDir: chromePackage.packageRoot,
       error: {

@@ -39,8 +39,9 @@ function listPackageFiles(root) {
   return files;
 }
 
-async function launchFreedom(extraEnv = {}) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
+async function launchFreedom(extraEnv = {}, options = {}) {
+  const userDataDir =
+    options.userDataDir || fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
   const app = await electron.launch({
     args: ['.'],
     cwd: repoRoot,
@@ -63,7 +64,9 @@ async function launchFreedom(extraEnv = {}) {
       } catch {
         // Window may already have been closed by the spec.
       }
-      fs.rmSync(userDataDir, { recursive: true, force: true });
+      if (options.preserveUserData !== true) {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
     },
   };
 }
@@ -342,6 +345,58 @@ async function waitForBundledChromeWindow(app) {
   throw new Error('Bundled chrome fallback window did not appear');
 }
 
+async function waitForPackageChromeWindow(app, expected) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('[data-test="package-root"]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        const info = JSON.parse(
+          await candidate.locator('[data-test="shell-info-json"]').textContent()
+        );
+        if (
+          (!expected?.version || info.chromePackage?.version === expected.version) &&
+          (!expected?.source || info.chromePackage?.source === expected.source)
+        ) {
+          return candidate;
+        }
+      } catch {
+        // Keep polling; failing package windows may not expose fixture package selectors.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('[data-test="package-root"]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        const info = JSON.parse(
+          await nextWindow.locator('[data-test="shell-info-json"]').textContent()
+        );
+        if (
+          (!expected?.version || info.chromePackage?.version === expected.version) &&
+          (!expected?.source || info.chromePackage?.source === expected.source)
+        ) {
+          return nextWindow;
+        }
+      } catch {
+        // Keep polling until the replacement package window is ready.
+      }
+    }
+  }
+
+  throw new Error('Package chrome window did not appear');
+}
+
 test('local package chrome loads through freedomShell without broad preload APIs', async () => {
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
@@ -555,6 +610,125 @@ test('local package chrome loads through freedomShell without broad preload APIs
     expect(tabs.tabSnapshotEvents).toHaveLength(5);
   } finally {
     await launched.close();
+  }
+});
+
+test('local package chrome installs into cache and launches offline from cache', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-cache-e2e-'));
+  let launched = await launchFreedom(
+    {
+      FREEDOM_CHROME_PACKAGE_INSTALL_DIR: fixturePackageDir,
+    },
+    {
+      preserveUserData: true,
+      userDataDir,
+    }
+  );
+  try {
+    const page = await launched.app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    const installedInfo = JSON.parse(
+      await page.locator('[data-test="shell-info-json"]').textContent()
+    );
+    expect(installedInfo).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.0.1',
+        source: 'store',
+      },
+    });
+  } finally {
+    await launched.close();
+  }
+
+  launched = await launchFreedom(
+    {
+      FREEDOM_CHROME_PACKAGE_CACHE: '1',
+    },
+    {
+      userDataDir,
+    }
+  );
+  try {
+    const page = await launched.app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    const cachedInfo = JSON.parse(
+      await page.locator('[data-test="shell-info-json"]').textContent()
+    );
+    expect(cachedInfo).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.0.1',
+        source: 'store',
+      },
+    });
+  } finally {
+    await launched.close();
+  }
+});
+
+test('cached package readiness failure rolls back to previous cached package', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-rollback-e2e-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-bad-update-'));
+  const badUpdateDir = path.join(parent, 'bad-update');
+  writePackage(badUpdateDir, {
+    packageId: 'baby.freedom.chrome.fixture',
+    name: 'Bad Fixture Chrome',
+    version: '0.0.2',
+    capabilities: ['shell.info', 'shell.ready'],
+  });
+
+  let launched = await launchFreedom(
+    {
+      FREEDOM_CHROME_PACKAGE_INSTALL_DIR: fixturePackageDir,
+    },
+    {
+      preserveUserData: true,
+      userDataDir,
+    }
+  );
+  try {
+    const page = await launched.app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+  } finally {
+    await launched.close();
+  }
+
+  launched = await launchFreedom(
+    {
+      FREEDOM_CHROME_PACKAGE_INSTALL_DIR: badUpdateDir,
+      FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS: '250',
+    },
+    {
+      userDataDir,
+    }
+  );
+  try {
+    const page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.0.1',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    const info = JSON.parse(await page.locator('[data-test="shell-info-json"]').textContent());
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.0.1',
+        source: 'store',
+      },
+    });
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 });
 

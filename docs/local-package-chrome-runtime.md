@@ -1,11 +1,12 @@
 # Local Package Chrome Runtime v0
 
-Freedom Browser can run either the bundled browser chrome or an explicit local
-development chrome package.
+Freedom Browser can run the bundled browser chrome, an explicit local
+development chrome package, or an explicitly installed cached chrome package.
 
 This is a development/runtime canary for the future Swarm-delivered chrome
-roadmap. It is not a package installer, update channel, signing system, theme
-runtime, or public third-party chrome ABI.
+roadmap. The local package store described below is a deterministic
+local/offline cache for the full-runtime work, not a public package
+marketplace, signing system, theme runtime, or third-party chrome ABI.
 
 ## Runtime Modes
 
@@ -47,6 +48,38 @@ with hardened preferences: context isolation on, Node integration off, remote
 module off, web security on, insecure content disabled, experimental features
 off, and package-owned `<webview>` support disabled unless the manifest opts
 into the transitional guest-webview bridge described below.
+
+### Cached Package Chrome
+
+The shell can install a verified unpacked package into a local store under app
+`userData` and launch the cached copy:
+
+```bash
+FREEDOM_CHROME_PACKAGE_INSTALL_DIR="$PWD/test/fixtures/chrome-packages/minimal" npm start
+```
+
+The CLI flag is also supported:
+
+```bash
+npm start -- --chrome-package-install="$PWD/test/fixtures/chrome-packages/minimal"
+```
+
+An installed package can be launched later without the source directory:
+
+```bash
+FREEDOM_CHROME_PACKAGE_CACHE=1 npm start
+```
+
+The equivalent CLI switch is:
+
+```bash
+npm start -- --chrome-package-cache
+```
+
+Normal launch with no package flags still uses bundled safe chrome. Direct
+`FREEDOM_CHROME_PACKAGE_DIR` development packages are not persisted; only
+`FREEDOM_CHROME_PACKAGE_INSTALL_DIR` / `--chrome-package-install` promotes a
+package into the cache.
 
 ## Manifest v0
 
@@ -95,7 +128,8 @@ Validation is intentionally local and conservative:
 - every listed file must exist, stay inside the package root after realpath resolution, and match its manifest hash
 - the package entry must be listed in `files`
 
-Package selection is not persisted in v0.
+Cached installs copy only the manifest and files declared by `files` into the
+store. Unlisted package files are not part of the installed package.
 
 ## Transitional Guest Webviews
 
@@ -243,6 +277,47 @@ The package preload must not expose broad first-party APIs such as
 `electronAPI`, `wallet`, `identity`, `swarmProvider`, `swarmPermissions`, or
 `dappPermissions`.
 
+## Package Store
+
+The local store lives under:
+
+```text
+<userData>/chrome-package-store/
+```
+
+Its current layout is:
+
+```text
+chrome-package-store/
+  current.json
+  previous.json
+  staging/
+  packages/<package-id>/<version>/<content-digest>/
+    manifest.json
+    .freedom-package-install.json
+    ...
+```
+
+Installs are staged first, revalidated from the staging directory, renamed into
+`packages/`, and only then activated by atomically writing `current.json`.
+`previous.json` records the prior active package when an update activates a new
+package.
+
+The store records install metadata with the manifest hash, declared file
+hashes, content digest, package id, package type, and version. On cached launch,
+main validates the pointer, metadata, manifest hash, file hashes, shell API
+compatibility, capabilities, and entry path before activation.
+
+For the same package id:
+
+- lower versions are rejected unless an explicit recovery path allows downgrade
+- same-version changed content is rejected as replay unless explicitly allowed
+- missing, corrupt, or partially staged packages cannot become active
+
+Cached package metadata is internal. `freedomShell.getInfo()` reports package
+id, name, version, source, runtime mode, capabilities, and fallback diagnostics
+without exposing package filesystem paths.
+
 ## Recovery
 
 Freedom falls back to bundled safe chrome when:
@@ -254,8 +329,14 @@ Freedom falls back to bundled safe chrome when:
 - the entry file is missing
 - required file-integrity metadata is missing or invalid
 - a listed package file is missing, outside the package root, or hash-mismatched
+- the requested cached package is missing or corrupt
 - the package entry fails to load
 - the package does not signal readiness
+
+If a cached package fails to load or does not signal readiness, main first tries
+to roll back to `previous.json`. If no previous package is usable, or the
+rolled-back package also fails in that recovery attempt, Freedom falls back to
+bundled safe chrome.
 
 Recovery does not depend on Swarm, IPFS, ENS, or live network access.
 
@@ -264,7 +345,7 @@ Recovery does not depend on Swarm, IPFS, ENS, or live network access.
 Focused unit tests:
 
 ```bash
-npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
+npm test -- src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
 ```
 
 Bundled chrome smoke:
