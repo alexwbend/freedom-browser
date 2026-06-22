@@ -52,7 +52,36 @@ function describeChromePackage(chromePackage = getActiveChromePackage()) {
   };
 }
 
-function getInfo() {
+function createPackageCallerIdentity(sender, chromePackage = getActiveChromePackage()) {
+  return Object.freeze({
+    webContentsId: Number.isInteger(sender?.id) ? sender.id : null,
+    runtimeMode: chromePackage.runtimeMode,
+    source: chromePackage.source,
+    packageId: chromePackage.packageId,
+    packageType: chromePackage.packageType,
+    name: chromePackage.name,
+    version: chromePackage.version,
+    capabilities: Object.freeze([...(chromePackage.capabilities || [])]),
+  });
+}
+
+function describePackageCaller(identity) {
+  if (!identity) {
+    return null;
+  }
+
+  return {
+    runtimeMode: identity.runtimeMode,
+    source: identity.source,
+    packageId: identity.packageId,
+    packageType: identity.packageType,
+    name: identity.name,
+    version: identity.version,
+    capabilities: [...(identity.capabilities || [])],
+  };
+}
+
+function getInfo(callerIdentity = null) {
   const chromePackage = getActiveChromePackage();
   return {
     shellApiVersion: SHELL_API_VERSION,
@@ -60,6 +89,7 @@ function getInfo() {
     appVersion: getAppVersion(),
     platform: process.platform,
     chromePackage: describeChromePackage(chromePackage),
+    caller: describePackageCaller(callerIdentity),
   };
 }
 
@@ -80,11 +110,10 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
     return () => {};
   }
 
+  const identity = createPackageCallerIdentity(sender, chromePackage);
   const caller = {
-    packageId: chromePackage.packageId,
-    packageType: chromePackage.packageType,
-    runtimeMode: chromePackage.runtimeMode,
-    capabilities: new Set(chromePackage.capabilities || []),
+    identity,
+    capabilities: new Set(identity.capabilities || []),
   };
   packageCallers.set(sender, caller);
 
@@ -115,7 +144,7 @@ function getPackageCaller(event) {
 
 const METHODS = Object.freeze({
   [SHELL_API_METHODS.GET_INFO]: {
-    handler: () => getInfo(),
+    handler: (_args, _event, caller) => getInfo(caller.identity),
   },
   [SHELL_API_METHODS.MARK_READY]: {
     handler: (_args, event) => markReady(event),
@@ -137,7 +166,7 @@ function assertMethodCapability(caller, method) {
       {
         method,
         requiredCapability,
-        packageId: caller.packageId,
+        caller: describePackageCaller(caller.identity),
       }
     );
   }
@@ -162,7 +191,7 @@ async function handleShellRequest(event, payload = {}) {
   const caller = getPackageCaller(event);
   assertMethodCapability(caller, method);
 
-  return cloneShellApiValue(await METHODS[method].handler(payload.args, event));
+  return cloneShellApiValue(await METHODS[method].handler(payload.args, event, caller));
 }
 
 function registerShellApiIpc(options = {}) {
@@ -173,7 +202,9 @@ function registerShellApiIpc(options = {}) {
 module.exports = {
   createShellApiError,
   cloneShellApiValue,
+  createPackageCallerIdentity,
   describeChromePackage,
+  describePackageCaller,
   getInfo,
   handleShellRequest,
   markReady,

@@ -91,7 +91,9 @@ Package selection is not persisted in v0.
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
-and fallback state.
+fallback state, and caller package identity for shell requests. Caller identity
+is path-free and includes package id, package type, name, version, source,
+runtime mode, and declared capabilities.
 
 `resolveNavigationInput(input)` proves package code crosses the shell bridge for
 navigation parsing. The v0 resolver handles basic `http`, `https`, bare domain,

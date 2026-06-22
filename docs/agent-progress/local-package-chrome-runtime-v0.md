@@ -130,7 +130,7 @@ Verification in this phase so far:
 
 ### Phase 1 Shell API Foundation
 
-Current checkpoint: shell API compatibility/result-cloning slice committed locally on top of `db4d1bd`; remote push pending.
+Current checkpoint: caller identity slice completed locally on top of `2b374f1`; checkpoint commit pending.
 
 Implemented in this phase so far:
 
@@ -146,7 +146,11 @@ Implemented in this phase so far:
 - moved shell API version compatibility parsing/checking into the shared contract
 - shell API handler results are cloned through JSON serialization before returning to callers
 - shell API errors now use a stable `ShellApiError` name plus stable `code` and `details`
+- registered package callers now carry a path-free structured identity
+- `getInfo()` now reports caller package identity for shell requests
+- capability-denial errors include caller package identity instead of a loose package id
 - documented the preload parity rule in `docs/local-package-chrome-runtime.md`
+- documented `getInfo()` caller identity in `docs/local-package-chrome-runtime.md`
 
 Verification in this phase so far:
 
@@ -159,12 +163,19 @@ Verification in this phase so far:
 - `npm test` passed: 108 suites passed, 5 skipped; 2046 tests passed, 17 skipped.
 - Committed and pushed `db4d1bd` (`refactor(shell): centralize shell api contract`).
 - GitHub Actions run `27979153647`, job `test` (`82804536703`), passed for `db4d1bd`.
-- GitHub Actions run `27979153647`, job `e2e-chrome-runtime` (`82804536488`), was still in progress during dependency setup at the time of this checkpoint; re-check before relying on remote smoke evidence for `db4d1bd`.
+- GitHub Actions run `27979153647`, job `e2e-chrome-runtime` (`82804536488`), was later cancelled during dependency setup by the next push before the smoke command ran; do not rely on this run for `db4d1bd` remote smoke evidence.
 - `npm test -- src/shared/shell-api-policy.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed after version compatibility/result-cloning changes: 3 suites, 22 tests.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after version compatibility/result-cloning changes: 7 tests.
 - `npm run lint` passed after version compatibility/result-cloning changes.
 - `npm test` passed after version compatibility/result-cloning changes: 108 suites passed, 5 skipped; 2049 tests passed, 17 skipped.
+- Committed and pushed `2b374f1` (`refactor(shell): share shell api compatibility`).
+- GitHub Actions run `27979416529`, job `test` (`82805455199`), passed for `2b374f1`.
+- GitHub Actions run `27979416529`, job `e2e-chrome-runtime` (`82805455027`), passed for `2b374f1`.
+- `npm test -- src/main/shell-api.test.js` passed after caller identity changes: 1 suite, 10 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after caller identity changes: 7 tests.
+- `npm run lint` passed after caller identity changes.
+- `npm test` passed after caller identity changes: 108 suites passed, 5 skipped; 2051 tests passed, 17 skipped.
 
 ## Next Step
 
-- Push the Phase 1 compatibility/result-cloning checkpoint, check the new GitHub smoke run, and continue Phase 1 toward explicit caller identity hardening in `/root/codex/freedom-browser-goal2.md`.
+- Commit and push the Phase 1 caller identity checkpoint, check the new GitHub smoke run, then continue Phase 1 toward any remaining bridge/registry parity gaps in `/root/codex/freedom-browser-goal2.md`.

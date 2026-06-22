@@ -15,8 +15,11 @@ function makePackage(overrides = {}) {
   return {
     kind: 'local-package',
     runtimeMode: 'local-package',
+    source: 'local',
     packageId: 'baby.freedom.chrome.fixture',
     packageType: 'browser-chrome',
+    name: 'Fixture Chrome',
+    version: '0.0.1',
     capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
     ...overrides,
   };
@@ -72,8 +75,37 @@ describe('shell-api', () => {
         capabilities: ['shell.info'],
         fallback: null,
       },
+      caller: null,
     });
     expect(JSON.stringify(mod.getInfo())).not.toContain('/tmp/package');
+  });
+
+  test('creates path-free package caller identity', () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 77 });
+
+    const identity = mod.createPackageCallerIdentity(
+      sender,
+      makePackage({
+        packageRoot: '/tmp/package',
+        entryPath: '/tmp/package/index.html',
+        preloadPath: '/app/package-preload.js',
+      })
+    );
+
+    expect(identity).toEqual({
+      webContentsId: 77,
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.fixture',
+      packageType: 'browser-chrome',
+      name: 'Fixture Chrome',
+      version: '0.0.1',
+      capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
+    });
+    expect(Object.isFrozen(identity)).toBe(true);
+    expect(Object.isFrozen(identity.capabilities)).toBe(true);
+    expect(JSON.stringify(identity)).not.toContain('/tmp/package');
   });
 
   test('handles allowed shell requests only', async () => {
@@ -95,6 +127,26 @@ describe('shell-api', () => {
         code: 'SHELL_METHOD_UNSUPPORTED',
       }
     );
+  });
+
+  test('getInfo reports caller package identity for shell requests', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 99 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'getInfo', args: [] })
+    ).resolves.toMatchObject({
+      caller: {
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.fixture',
+        packageType: 'browser-chrome',
+        name: 'Fixture Chrome',
+        version: '0.0.1',
+        capabilities: ['shell.info'],
+      },
+    });
   });
 
   test('clones shell API handler results before returning them', async () => {
@@ -167,7 +219,9 @@ describe('shell-api', () => {
       details: {
         method: 'resolveNavigationInput',
         requiredCapability: 'navigation.resolve',
-        packageId: 'baby.freedom.chrome.fixture',
+        caller: {
+          packageId: 'baby.freedom.chrome.fixture',
+        },
       },
     });
   });
