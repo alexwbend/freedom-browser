@@ -116,6 +116,29 @@ function onPackageReady(listener) {
   return () => shellEvents.removeListener('package-ready', listener);
 }
 
+function getTestHarnessShellResolvers() {
+  if (process.env.FREEDOM_TEST_MODE !== '1') {
+    return null;
+  }
+  return globalThis.__FREEDOM_TEST_HARNESS__ || null;
+}
+
+function resolveEnsContentForShell(name) {
+  const harness = getTestHarnessShellResolvers();
+  if (harness?.resolveEnsContent) {
+    return harness.resolveEnsContent(name);
+  }
+  return require('./ens-resolver').resolveEnsContent(name);
+}
+
+function invalidateEnsContentForShell(name) {
+  const harness = getTestHarnessShellResolvers();
+  if (harness?.invalidateEnsContent) {
+    return harness.invalidateEnsContent(name);
+  }
+  return require('./ens-resolver').invalidateEnsContent(name);
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -163,6 +186,12 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT]: {
     handler: ([input]) => resolveNavigationInput(input),
+  },
+  [SHELL_API_METHODS.RESOLVE_ENS]: {
+    handler: ([name]) => resolveEnsContentForShell(name),
+  },
+  [SHELL_API_METHODS.INVALIDATE_ENS_CONTENT]: {
+    handler: ([name]) => invalidateEnsContentForShell(name),
   },
   [SHELL_API_METHODS.TABS_GET_SNAPSHOT]: {
     handler: (_args, _event, caller) => caller.tabRegistry.getSnapshot(),

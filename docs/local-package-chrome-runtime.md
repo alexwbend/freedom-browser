@@ -114,7 +114,8 @@ package-owned `<webview>` creation.
 The launched package smoke now builds a temporary official chrome package from
 `src/renderer` during the test run. The generated manifest opts into
 `guestContent.transitionalWebviews: true` and declares only the shell
-capabilities needed for startup readiness.
+capabilities needed for startup readiness and deterministic navigation
+coverage.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
@@ -134,12 +135,13 @@ The official package smoke currently proves:
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
 - direct `bzz://`, `ipfs://`, and `ipns://` address-bar navigation can load deterministic harness fixtures
+- ENS/contenthash navigation can resolve through the narrow shell API and load a deterministic `ipfs://name.eth/` harness fixture
 - `freedom://settings` resolves through the package renderer's internal-page fallback
 - `freedom://home` and home-button navigation return to the package home page
 
-ENS/contenthash trust behavior and Radicle routing still require additional
-official-package smoke coverage before the full local runtime goal can be
-called complete.
+ENS/contenthash transport mismatch/conflict behavior and Radicle routing still
+require additional official-package smoke coverage before the full local
+runtime goal can be called complete.
 
 ## Shell API v0
 
@@ -147,6 +149,8 @@ called complete.
 
 - `getInfo()`
 - `resolveNavigationInput(input)`
+- `resolveEns(name)`
+- `invalidateEnsContent(name)`
 - `markReady()`
 - `getTabSnapshot()`
 - `createTab(options)`
@@ -173,6 +177,12 @@ network availability checks or live ENS contenthash lookup in package preload
 code; the shared navigation helper includes a deterministic ENS contenthash
 decision helper for trusted shell/main integration tests.
 
+`resolveEns(name)` and `invalidateEnsContent(name)` expose the shell-owned ENS
+contenthash resolver to package chrome for real navigation. They do not expose
+wallet, identity, provider, or arbitrary IPC authority. In test mode these calls
+use the main-process harness fixtures so official package smoke coverage remains
+deterministic and does not depend on live Ethereum RPC availability.
+
 `markReady()` tells the shell that the package initialized. If a local package
 does not call `markReady()` within the readiness timeout, Freedom creates a new
 bundled chrome window and destroys the failed package window. The default
@@ -198,7 +208,7 @@ must be allowed by the package manifest's declared capabilities:
 
 - `shell.info` allows `getInfo()`
 - `shell.ready` allows `markReady()`
-- `navigation.resolve` allows `resolveNavigationInput(input)`
+- `navigation.resolve` allows `resolveNavigationInput(input)`, `resolveEns(name)`, and `invalidateEnsContent(name)`
 - `tabs.read` allows `getTabSnapshot()`
 - `tabs.write` allows tab command methods
 

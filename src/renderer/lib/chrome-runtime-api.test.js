@@ -32,6 +32,8 @@ describe('chrome-runtime-api', () => {
     const freedomShell = {
       getInfo: jest.fn().mockResolvedValue({ platform: 'freebsd' }),
       markReady: jest.fn().mockResolvedValue({ ok: true }),
+      resolveEns: jest.fn().mockResolvedValue({ type: 'not_found' }),
+      invalidateEnsContent: jest.fn().mockResolvedValue(true),
     };
     const mod = await loadModule({ freedomShell });
     const api = mod.getChromeRuntimeApi();
@@ -45,7 +47,10 @@ describe('chrome-runtime-api', () => {
     await expect(api.getBookmarks()).resolves.toEqual([]);
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
-    expect(api.resolveEns).toBeUndefined();
+    await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
+    await expect(api.invalidateEnsContent('vitalik.eth')).resolves.toBe(true);
+    expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
+    expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
     expect(global.window.electronAPI).toBeUndefined();
   });
 

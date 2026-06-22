@@ -43,6 +43,8 @@ describe('package-preload', () => {
       'getInfo',
       'markReady',
       'resolveNavigationInput',
+      'resolveEns',
+      'invalidateEnsContent',
       'getTabSnapshot',
       'createTab',
       'closeTab',
@@ -90,6 +92,18 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT,
       args: ['example.com'],
+    });
+
+    await exposures.freedomShell.resolveEns('vitalik.eth');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.RESOLVE_ENS,
+      args: ['vitalik.eth'],
+    });
+
+    await exposures.freedomShell.invalidateEnsContent('vitalik.eth');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.INVALIDATE_ENS_CONTENT,
+      args: ['vitalik.eth'],
     });
 
     await exposures.freedomShell.getTabSnapshot();

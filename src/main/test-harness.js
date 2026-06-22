@@ -163,16 +163,9 @@ function replaceHandler(channel, handler) {
 }
 
 function overrideEnsIpc() {
-  replaceHandler(IPC.ENS_RESOLVE, async (_event, payload = {}) => {
-    const name = (payload?.name || '').trim().toLowerCase();
-    if (!name) {
-      return { type: 'not_found', name: '', reason: 'EMPTY' };
-    }
-    if (ensFixtures.has(name)) {
-      return ensFixtures.get(name);
-    }
-    return { type: 'not_found', name, reason: 'NO_FIXTURE' };
-  });
+  replaceHandler(IPC.ENS_RESOLVE, async (_event, payload = {}) =>
+    resolveEnsContentFixture(payload?.name)
+  );
 
   replaceHandler(IPC.ENS_RESOLVE_ADDRESS, async (_event, payload = {}) => {
     const name = (payload?.name || '').trim().toLowerCase();
@@ -184,7 +177,32 @@ function overrideEnsIpc() {
     return { success: false, address, reason: 'TEST_MODE_NOT_IMPLEMENTED' };
   });
 
-  replaceHandler(IPC.ENS_INVALIDATE_CONTENT, async () => true);
+  replaceHandler(IPC.ENS_INVALIDATE_CONTENT, async (_event, payload = {}) =>
+    invalidateEnsContentFixture(payload?.name)
+  );
+}
+
+function normalizeEnsFixtureName(name) {
+  return String(name || '').trim().toLowerCase();
+}
+
+function resolveEnsContentFixture(name) {
+  const normalized = normalizeEnsFixtureName(name);
+  if (!normalized) {
+    return { type: 'not_found', name: '', reason: 'EMPTY' };
+  }
+  if (ensFixtures.has(normalized)) {
+    return ensFixtures.get(normalized);
+  }
+  return { type: 'not_found', name: normalized, reason: 'NO_FIXTURE' };
+}
+
+function invalidateEnsContentFixture(name) {
+  const normalized = normalizeEnsFixtureName(name);
+  if (!normalized) {
+    return false;
+  }
+  return ensFixtures.delete(normalized);
 }
 
 function overrideProbeIpc() {
@@ -352,8 +370,10 @@ function exposeGlobalShim() {
     },
     clearContentFixtures: () => contentFixtures.clear(),
     setEnsFixture: (name, result) => {
-      ensFixtures.set(String(name).trim().toLowerCase(), result);
+      ensFixtures.set(normalizeEnsFixtureName(name), result);
     },
+    resolveEnsContent: resolveEnsContentFixture,
+    invalidateEnsContent: invalidateEnsContentFixture,
     setProbeFixture: (hash, outcome) => {
       probeFixtures.set(hash, outcome ?? { ok: true });
     },

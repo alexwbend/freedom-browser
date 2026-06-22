@@ -87,8 +87,11 @@ const createPackageRuntimeApi = () =>
     addBookmark: asyncFalse,
     updateBookmark: asyncFalse,
     removeBookmark: asyncFalse,
+    resolveEns: (name) => getRuntimeWindow().freedomShell?.resolveEns?.(name),
     resolveEnsAddress: asyncNull,
     resolveEnsReverse: asyncNull,
+    invalidateEnsContent: (name) =>
+      getRuntimeWindow().freedomShell?.invalidateEnsContent?.(name),
     getHistory: asyncEmptyArray,
     addHistory: asyncFalse,
     removeHistory: asyncFalse,

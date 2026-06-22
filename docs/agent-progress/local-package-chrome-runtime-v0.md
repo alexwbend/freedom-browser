@@ -290,7 +290,8 @@ Verification in this phase:
 ### Phase 4 Official Chrome As Local Package
 
 Current checkpoint: official browser chrome package smoke passes locally with
-the real renderer copied into a temporary local package.
+the real renderer copied into a temporary local package, including deterministic
+ENS/contenthash success through the narrow shell API.
 
 Implemented in this phase so far:
 
@@ -318,12 +319,19 @@ Implemented in this phase so far:
 - official package smoke currently verifies initial tab/home render, main menu,
   node menu, reload, new tab, tab switch, tab close, bare-domain navigation,
   `http://`, `https://`, direct `bzz://`, direct `ipfs://`, direct `ipns://`,
-  `freedom://settings`, `freedom://home`, and home-button navigation
+  ENS/contenthash success loading `ipfs://name.eth/`, `freedom://settings`,
+  `freedom://home`, and home-button navigation
 - package-mode direct `bzz://<hash>` routing now works without a gateway prefix
   by loading the standard `bzz:` scheme directly when no Ant route prefix is
   available
-- ENS/contenthash trust behavior and Radicle routing remain explicit
-  official-package parity gaps
+- package chrome can now call `resolveEns(name)` and
+  `invalidateEnsContent(name)` through `window.freedomShell`, both gated by
+  `navigation.resolve`
+- package-mode ENS shell calls use the existing deterministic main-process
+  harness fixtures when `FREEDOM_TEST_MODE=1`, so official package smoke does
+  not hit live Ethereum RPC
+- ENS/contenthash transport mismatch/conflict behavior and Radicle routing
+  remain explicit official-package parity gaps
 
 Verification in this checkpoint:
 
@@ -354,11 +362,17 @@ Verification in this checkpoint:
 - Committed and pushed `5ce5c82` (`test(chrome): expand official package navigation smoke`).
 - GitHub Actions run `27985238244`, job `test` (`82825004446`), passed for `5ce5c82`.
 - GitHub Actions run `27985238244`, job `e2e-chrome-runtime` (`82825004695`), passed for `5ce5c82`.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed after ENS shell bridge changes: 4 suites, 26 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after official-package ENS smoke changes: 7 tests.
+- `npm run lint` passed after official-package ENS smoke changes.
+- `npm test` passed after official-package ENS smoke changes: 110 suites passed, 5 skipped; 2074 tests passed, 17 skipped.
+- `git diff --check` passed after official-package ENS smoke changes.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after official-package ENS smoke changes: 8 tests.
 
 ## Next Step
 
 - Continue Phase 4 official-package parity by adding deterministic
-  ENS/contenthash and Radicle smoke coverage, then move into local package
-  store/cache, integrity, update, and rollback work while keeping wallet,
-  identity, permissions, x402, and publish prompts as trusted shell-owned
-  surfaces.
+  ENS/contenthash mismatch/conflict behavior and Radicle smoke coverage, then
+  move into local package store/cache, integrity, update, and rollback work
+  while keeping wallet, identity, permissions, x402, and publish prompts as
+  trusted shell-owned surfaces.

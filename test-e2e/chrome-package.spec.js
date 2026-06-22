@@ -81,7 +81,7 @@ function writeOfficialChromePackage(root) {
           minShellApi: '0.1.0',
           maxShellApi: '0.1.x',
         },
-        capabilities: ['shell.info', 'shell.ready'],
+        capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
         guestContent: {
           transitionalWebviews: true,
         },
@@ -236,6 +236,12 @@ async function setContentFixture(app, url, fixture) {
   }, { url, fixture });
 }
 
+async function setEnsFixture(app, name, result) {
+  await app.evaluate(({ ipcMain: _ipcMain }, payload) => {
+    globalThis.__FREEDOM_TEST_HARNESS__.setEnsFixture(payload.name, payload.result);
+  }, { name, result });
+}
+
 async function expectBundledChromeLoaded(page) {
   await page.waitForLoadState('domcontentloaded');
   await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
@@ -310,6 +316,8 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'getInfo',
         'markReady',
         'resolveNavigationInput',
+        'resolveEns',
+        'invalidateEnsContent',
         'getTabSnapshot',
         'createTab',
         'closeTab',
@@ -589,6 +597,21 @@ test('official browser chrome can launch as a local package with transitional we
       body:
         '<!doctype html><title>ipns fixture</title><p data-test="package-dweb">ipns fixture</p>',
     });
+    await setEnsFixture(launched.app, 'vitalik.eth', {
+      type: 'ok',
+      name: 'vitalik.eth',
+      protocol: 'ipfs',
+      decoded: sampleIpfsCid,
+      uri: `ipfs://${sampleIpfsCid}`,
+      trust: {
+        level: 'verified',
+        status: 'ENS resolution verified',
+      },
+    });
+    await setContentFixture(launched.app, 'ipfs://vitalik.eth/', {
+      body:
+        '<!doctype html><title>ens fixture</title><p data-test="package-dweb">ens fixture</p>',
+    });
 
     await navigateAddress(page, `ipfs://${sampleIpfsCid}/`);
     await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ipfs fixture');
@@ -599,6 +622,13 @@ test('official browser chrome can launch as a local package with transitional we
     await navigateAddress(page, `bzz://${sampleBzzHash}/`);
     await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'bzz fixture');
 
+    const input = page.locator('[data-test="address-input"]');
+    await input.click();
+    await input.fill('vitalik.eth');
+    await input.press('Enter');
+    await expect(input).toHaveValue(/^ipfs:\/\/vitalik\.eth\/?$/);
+    await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'ens fixture');
+
     await navigateAddress(page, 'freedom://settings');
     await expect
       .poll(() => getActiveWebviewUrl(page), {
@@ -607,7 +637,7 @@ test('official browser chrome can launch as a local package with transitional we
       })
       .toContain('/pages/settings.html');
 
-    await navigateAddress(page, 'freedom://home');
+    await navigateAddress(page, 'freedom://home', '');
     await expectHomeReady(page);
 
     await page.locator('#home-btn').click();

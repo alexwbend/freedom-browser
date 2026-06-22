@@ -5,6 +5,11 @@ const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
+const mockResolveEnsContent = jest.fn();
+const mockInvalidateEnsContent = jest.fn();
+const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
+const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
+
 function makeSender(overrides = {}) {
   return {
     id: 42,
@@ -34,6 +39,13 @@ function loadShellApi(options = {}) {
     app: {
       getVersion: jest.fn(() => appVersion),
     },
+    extraMocks: {
+      [ENS_RESOLVER_MODULE]: () => ({
+        resolveEnsContent: mockResolveEnsContent,
+        invalidateEnsContent: mockInvalidateEnsContent,
+      }),
+      ...(options.extraMocks || {}),
+    },
   });
 
   return {
@@ -44,6 +56,14 @@ function loadShellApi(options = {}) {
 
 describe('shell-api', () => {
   afterEach(() => {
+    mockResolveEnsContent.mockReset();
+    mockInvalidateEnsContent.mockReset();
+    delete globalThis.__FREEDOM_TEST_HARNESS__;
+    if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
+      delete process.env.FREEDOM_TEST_MODE;
+    } else {
+      process.env.FREEDOM_TEST_MODE = ORIGINAL_FREEDOM_TEST_MODE;
+    }
     jest.restoreAllMocks();
   });
 
@@ -115,6 +135,13 @@ describe('shell-api', () => {
     const { mod } = loadShellApi();
     const sender = makeSender();
     mod.registerPackageWebContents(sender, makePackage());
+    mockResolveEnsContent.mockResolvedValue({
+      type: 'ok',
+      name: 'vitalik.eth',
+      protocol: 'ipfs',
+      uri: 'ipfs://fixture',
+    });
+    mockInvalidateEnsContent.mockReturnValue(true);
 
     await expect(
       mod.handleShellRequest({ sender }, { method: 'resolveNavigationInput', args: ['example.com'] })
@@ -124,12 +151,70 @@ describe('shell-api', () => {
       targetUrl: 'https://example.com',
     });
     await expect(
+      mod.handleShellRequest({ sender }, { method: 'navigation.resolveEns', args: ['vitalik.eth'] })
+    ).resolves.toMatchObject({
+      type: 'ok',
+      name: 'vitalik.eth',
+      protocol: 'ipfs',
+    });
+    expect(mockResolveEnsContent).toHaveBeenCalledWith('vitalik.eth');
+
+    await expect(
+      mod.handleShellRequest({
+        sender,
+      }, {
+        method: 'navigation.invalidateEnsContent',
+        args: ['vitalik.eth'],
+      })
+    ).resolves.toBe(true);
+    expect(mockInvalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
+
+    await expect(
       mod.handleShellRequest({ sender }, { method: 'wallet.exportPrivateKey', args: [] })
     ).rejects.toMatchObject(
       {
         code: 'SHELL_METHOD_UNSUPPORTED',
       }
     );
+  });
+
+  test('routes ENS shell requests through test harness fixtures in test mode', async () => {
+    process.env.FREEDOM_TEST_MODE = '1';
+    const harness = {
+      resolveEnsContent: jest.fn().mockReturnValue({
+        type: 'ok',
+        name: 'vitalik.eth',
+        protocol: 'ipfs',
+        uri: 'ipfs://fixture',
+      }),
+      invalidateEnsContent: jest.fn().mockReturnValue(true),
+    };
+    globalThis.__FREEDOM_TEST_HARNESS__ = harness;
+
+    const { mod } = loadShellApi();
+    const sender = makeSender();
+    mod.registerPackageWebContents(sender, makePackage());
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'navigation.resolveEns', args: ['vitalik.eth'] })
+    ).resolves.toMatchObject({
+      type: 'ok',
+      name: 'vitalik.eth',
+      protocol: 'ipfs',
+    });
+    await expect(
+      mod.handleShellRequest({
+        sender,
+      }, {
+        method: 'navigation.invalidateEnsContent',
+        args: ['vitalik.eth'],
+      })
+    ).resolves.toBe(true);
+
+    expect(harness.resolveEnsContent).toHaveBeenCalledWith('vitalik.eth');
+    expect(harness.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
+    expect(mockResolveEnsContent).not.toHaveBeenCalled();
+    expect(mockInvalidateEnsContent).not.toHaveBeenCalled();
   });
 
   test('getInfo reports caller package identity for shell requests', async () => {
