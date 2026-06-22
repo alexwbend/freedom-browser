@@ -4,8 +4,9 @@ import { getActiveTab, hideTabContextMenu } from './tabs.js';
 import { closeMenus } from './menus.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { normalizeLegacyEnsBookmarkUrl } from './url-utils.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // Bookmarks bar visibility state
 let bookmarksBarVisible = false; // User preference for non-home pages

@@ -7,6 +7,7 @@ import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl } from './page-urls.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 import {
   clearLinkStatus,
   clearHoverStatus,
@@ -14,7 +15,7 @@ import {
   setLinkStatusSide,
 } from './link-status.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // Callback for when context menu opens (to close other dropdowns like autocomplete)
 let onContextMenuOpening = null;

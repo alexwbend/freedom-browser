@@ -5,6 +5,7 @@ const path = require('path');
 
 const repoRoot = path.resolve(__dirname, '..');
 const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packages', 'minimal');
+const rendererSourceDir = path.join(repoRoot, 'src', 'renderer');
 
 async function launchFreedom(extraEnv = {}) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-e2e-'));
@@ -54,6 +55,145 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
     ...manifestOverrides,
   };
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
+}
+
+function writeOfficialChromePackage(root) {
+  fs.cpSync(rendererSourceDir, root, {
+    recursive: true,
+    filter(source) {
+      return !source.endsWith('.test.js');
+    },
+  });
+  fs.writeFileSync(
+    path.join(root, 'manifest.json'),
+    JSON.stringify(
+      {
+        manifestVersion: 1,
+        packageType: 'browser-chrome',
+        packageId: 'baby.freedom.chrome.official-local',
+        name: 'Freedom Official Local Chrome',
+        version: '0.0.1',
+        entry: 'index.html',
+        shellCompatibility: {
+          minShellApi: '0.1.0',
+          maxShellApi: '0.1.x',
+        },
+        capabilities: ['shell.info', 'shell.ready'],
+        guestContent: {
+          transitionalWebviews: true,
+        },
+      },
+      null,
+      2
+    )
+  );
+}
+
+function installRendererErrorCapture(page) {
+  const errors = [];
+  const record = (label, value) => {
+    const text = String(value || '');
+    if (/The WebView must be attached to the DOM and the dom-ready event emitted/i.test(text)) {
+      return;
+    }
+    if (/Electron Security Warning/i.test(text)) {
+      return;
+    }
+    errors.push(`${label}: ${text}`);
+  };
+
+  page.on('pageerror', (error) => {
+    record('pageerror', error?.message || error);
+  });
+
+  page.on('console', (message) => {
+    if (message.type() !== 'error') return;
+    record('console error', message.text());
+  });
+
+  return {
+    assertClean() {
+      expect(errors).toEqual([]);
+    },
+  };
+}
+
+async function getActiveWebviewHomeStatus(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return 'no-active-webview';
+    }
+
+    try {
+      return await webview.executeJavaScript(`
+        (async () => {
+          const loadImage = (url) => new Promise((resolve) => {
+            if (!url) {
+              resolve(false);
+              return;
+            }
+            const image = new Image();
+            let settled = false;
+            const finish = (value) => {
+              if (settled) return;
+              settled = true;
+              resolve(value);
+            };
+            image.onload = () => finish(image.naturalWidth > 0);
+            image.onerror = () => finish(false);
+            image.src = url;
+            if (image.complete) {
+              finish(image.naturalWidth > 0);
+            }
+            setTimeout(() => finish(false), 1000);
+          });
+
+          const backgroundImage = getComputedStyle(document.body, '::before').backgroundImage;
+          const match = backgroundImage.match(/url\\(["']?(.*?)["']?\\)/);
+          const backgroundUrl = match ? match[1] : '';
+          const backgroundLoaded = await loadImage(backgroundUrl);
+
+          if (!location.href.includes('/pages/home.html')) {
+            return 'unexpected-url:' + location.href;
+          }
+          if (!backgroundImage.includes('images/home.png')) {
+            return 'missing-background-css:' + backgroundImage;
+          }
+          if (!backgroundLoaded) {
+            return 'background-not-loaded:' + backgroundUrl;
+          }
+          if (!document.body.textContent.includes('The decentralized web is here')) {
+            return 'missing-home-copy';
+          }
+          return 'ready';
+        })()
+      `);
+    } catch (error) {
+      return `execute-js-failed:${error?.message || error}`;
+    }
+  });
+}
+
+async function getActiveWebviewUrl(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') return '';
+    try {
+      return await webview.executeJavaScript('location.href');
+    } catch {
+      return '';
+    }
+  });
+}
+
+async function expectHomeReady(page) {
+  await expect
+    .poll(() => getActiveWebviewHomeStatus(page), {
+      message: 'Waiting for package home page and background asset',
+      timeout: 10_000,
+    })
+    .toBe('ready');
 }
 
 async function expectBundledChromeLoaded(page) {
@@ -312,6 +452,88 @@ test('local package chrome loads through freedomShell without broad preload APIs
     expect(tabs.tabSnapshotEvents).toHaveLength(5);
   } finally {
     await launched.close();
+  }
+});
+
+test('official browser chrome can launch as a local package with transitional webviews', async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
+  const packageDir = path.join(parent, 'official');
+  writeOfficialChromePackage(packageDir);
+
+  const launched = await launchFreedom({
+    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+  });
+  try {
+    const page = await launched.app.firstWindow();
+    const rendererErrors = installRendererErrorCapture(page);
+
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
+    await expect(page.locator('body')).toHaveAttribute('data-package-ready', 'true');
+
+    const exposure = await page.evaluate(() => ({
+      hasFreedomShell: typeof window.freedomShell === 'object',
+      hasElectronAPI: 'electronAPI' in window,
+      hasInternalPages: 'internalPages' in window,
+      hasWallet: 'wallet' in window,
+      hasIdentity: 'identity' in window,
+      hasSwarmProvider: 'swarmProvider' in window,
+      hasSwarmPermissions: 'swarmPermissions' in window,
+      hasDappPermissions: 'dappPermissions' in window,
+    }));
+    expect(exposure).toEqual({
+      hasFreedomShell: true,
+      hasElectronAPI: false,
+      hasInternalPages: false,
+      hasWallet: false,
+      hasIdentity: false,
+      hasSwarmProvider: false,
+      hasSwarmPermissions: false,
+      hasDappPermissions: false,
+    });
+
+    await expect(page.locator('[data-test="address-input"]')).toBeVisible();
+    await expect(page.locator('[data-test="new-tab-btn"]')).toBeVisible();
+    await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
+    await expectHomeReady(page);
+
+    await page.locator('#menu-button').click();
+    await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
+    await page.locator('#menu-button').click();
+    await expect(page.locator('#menu-dropdown')).not.toHaveClass(/open/);
+
+    await page.locator('#bee-menu-button').click();
+    await expect(page.locator('#bee-menu-dropdown')).toHaveClass(/open/);
+    await page.locator('#bee-menu-button').click();
+    await expect(page.locator('#bee-menu-dropdown')).not.toHaveClass(/open/);
+
+    await page.locator('[data-test="new-tab-btn"]').click();
+    await expect(page.locator('[data-test="tab"]')).toHaveCount(2);
+    await expect(page.locator('[data-test="tab"][data-tab-id="2"]')).toHaveClass(/active/);
+    await page.locator('[data-test="tab"][data-tab-id="1"]').click();
+    await expect(page.locator('[data-test="tab"][data-tab-id="1"]')).toHaveClass(/active/);
+    await page.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
+    await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
+
+    const input = page.locator('[data-test="address-input"]');
+    await input.click();
+    await input.fill('freedom://settings');
+    await input.press('Enter');
+    await expect(input).toHaveValue('freedom://settings');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for freedom://settings to load in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/settings.html');
+
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
+
+    rendererErrors.assertClean();
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
   }
 });
 

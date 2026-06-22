@@ -1,7 +1,8 @@
 // Right-click edit menu for chrome <input> elements (address bar, etc.).
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 let contextMenu = null;
 let activeInput = null;

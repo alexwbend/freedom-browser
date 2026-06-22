@@ -54,12 +54,17 @@ import {
   initChromeInputContextMenu,
   hideChromeInputContextMenu,
 } from './lib/chrome-input-context-menu.js';
+import {
+  getChromeRuntimeApi,
+  isPackageChromeRuntime,
+  markPackageChromeReady,
+} from './lib/chrome-runtime-api.js';
 import { pushDebug } from './lib/debug.js';
 import { initOnboarding } from './lib/onboarding.js';
 import { initSidebar } from './lib/sidebar.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // Apply theme early to avoid flash
 initTheme();
@@ -661,16 +666,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   initBookmarks();
   initNavigation(); // Sets up event handler with tabs module
   initLinkStatus();
-  initTabs(); // Creates first tab and starts loading home page
+  await initTabs(); // Creates first tab and starts loading home page
   initAutocomplete(); // Address bar autocomplete
   initPageContextMenu(); // Page context menu for webviews
   initChromeInputContextMenu({ onOpening: onAnyMenuOpening }); // Address bar edit menu
-  initOnboarding();  // Identity onboarding wizard
-  initSidebar();     // Identity & wallet sidebar
-  initWalletUi();    // Wallet & identity display in sidebar
+  if (!isPackageChromeRuntime()) {
+    initOnboarding(); // Identity onboarding wizard
+    initSidebar(); // Identity & wallet sidebar
+    initWalletUi(); // Wallet & identity display in sidebar
+  }
   loadBookmarks();
   initExternalNodeCandidatesModal();
   initPlatformUI();
   initProfileIndicator();
   initUpdateNotifications();
+  markPackageChromeReady().catch((err) => {
+    pushDebug(`[package-runtime] markReady failed: ${err?.message || err}`);
+  });
 });

@@ -289,9 +289,10 @@ Verification in this phase:
 
 ### Phase 4 Official Chrome As Local Package
 
-Current checkpoint: transitional package guest-webview hardening is in progress.
+Current checkpoint: official browser chrome package smoke passes locally with
+the real renderer copied into a temporary local package.
 
-Implemented in this checkpoint:
+Implemented in this phase so far:
 
 - local package manifests can opt into the transitional webview bridge with
   `guestContent.transitionalWebviews: true`
@@ -302,6 +303,21 @@ Implemented in this checkpoint:
   applies the shell-owned guest preload plus hardened guest preferences
 - runtime docs now describe the transitional bridge, its security boundary, and
   the target shell-owned guest-view architecture
+- added a renderer-local chrome runtime adapter used only when the real
+  renderer is running as package chrome without `window.electronAPI`
+- bundled chrome still uses the broad trusted preload; package chrome gets safe
+  startup defaults/no-op handlers and calls `freedomShell.markReady()` through
+  the narrow shell API after initial tab creation
+- trusted wallet, identity, x402, publish, and permission surfaces are skipped
+  in package mode for this smoke and remain shell-owned/deferred work
+- added a renderer fallback for the internal page routing map so package chrome
+  can route `freedom://home` and `freedom://settings` without the broad preload
+- added an official package smoke that copies `src/renderer` into a temporary
+  local package, opts into transitional webviews, and proves the real browser
+  chrome starts without broad preload globals
+- official package smoke currently verifies initial tab/home render, main menu,
+  node menu, new tab, tab switch, tab close, `freedom://settings`, and home
+  navigation
 
 Verification in this checkpoint:
 
@@ -313,6 +329,13 @@ Verification in this checkpoint:
 - Committed and pushed `abd13e3` (`feat(shell): harden transitional package webviews`).
 - GitHub Actions run `27983268135`, job `test` (`82818444112`), passed for `abd13e3`.
 - GitHub Actions run `27983268135`, job `e2e-chrome-runtime` (`82818443921`), passed for `abd13e3`.
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js src/renderer/lib/settings-ui.test.js src/renderer/lib/chrome-input-context-menu.test.js src/main/chrome-package.test.js src/main/windows/mainWindow.test.js` passed after official-package adapter changes: 5 suites, 46 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after official-package smoke changes: 7 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after official-package smoke changes: 8 tests.
+- `npm run lint` passed after official-package smoke changes.
+- `npm test` passed after official-package smoke changes: 110 suites passed, 5 skipped; 2071 tests passed, 17 skipped.
+- `git diff --check` passed after official-package smoke changes.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed on the final diff for this checkpoint: 8 tests.
 
 ## Next Step
 

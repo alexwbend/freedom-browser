@@ -6,8 +6,9 @@ import { startRadicleInfoPolling, stopRadicleInfoPolling } from './radicle-ui.js
 import { hideTabContextMenu, getActiveWebview } from './tabs.js';
 import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // DOM elements (initialized in initMenus)
 let menuButton = null;

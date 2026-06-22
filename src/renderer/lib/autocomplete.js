@@ -8,8 +8,9 @@ import {
   generateSuggestions as generateAutocompleteSuggestions,
   getPlaceholderLetter,
 } from './autocomplete-utils.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // Cache for suggestions data
 let historyCache = [];

@@ -2,8 +2,9 @@
 // The settings form itself lives at freedom://settings.
 
 import { pushDebug } from './debug.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 let previous = { theme: 'system', antNodeMode: 'ultraLight', enableRadicleIntegration: false };
 

@@ -5,7 +5,16 @@
 
 import { isEnsHost } from './origin-utils.js';
 
-const ROUTABLE_PAGES = window.internalPages?.routable || {};
+const FALLBACK_ROUTABLE_PAGES = Object.freeze({
+  home: 'home.html',
+  history: 'history.html',
+  links: 'links.html',
+  payments: 'payments.html',
+  'protocol-test': 'protocol-test.html',
+  publish: 'publish.html',
+  settings: 'settings.html',
+});
+const ROUTABLE_PAGES = window.internalPages?.routable || FALLBACK_ROUTABLE_PAGES;
 
 // URLs for pages
 export const homeUrl = new URL('pages/home.html', window.location.href).toString();

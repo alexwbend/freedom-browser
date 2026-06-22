@@ -3,8 +3,9 @@ import { state } from './state.js';
 import { pushDebug } from './debug.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { deriveDisplayValue, applyEnsNamePreservation } from './url-utils.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 
 // DOM elements (initialized in initPageContextMenu)
 let pageContextMenu = null;

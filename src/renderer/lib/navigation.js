@@ -58,6 +58,7 @@ import { openSendFlow } from './wallet-ui.js';
 import { walletState } from './wallet/wallet-state.js';
 import { formatWeiToDecimal } from './wallet/send.js';
 import { startIpfsProgressStatus, stopIpfsProgressStatus } from './ipfs-progress-status.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
 // Helper to get active tab's navigation state (with fallback to empty object)
 const getNavState = () => getActiveTabState() || {};
@@ -137,7 +138,7 @@ const cancelPendingSwarmProbe = (navState) => {
   });
 };
 
-const electronAPI = window.electronAPI;
+const electronAPI = getChromeRuntimeApi();
 const RADICLE_DISABLED_MESSAGE =
   'Radicle integration is disabled. Enable it in Settings > Experimental';
 

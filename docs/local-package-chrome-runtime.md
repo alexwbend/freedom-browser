@@ -109,6 +109,31 @@ This is a transitional bridge for the local full-runtime work. The target
 architecture remains shell-owned guest contents instead of arbitrary
 package-owned `<webview>` creation.
 
+## Official Local Chrome Smoke
+
+The launched package smoke now builds a temporary official chrome package from
+`src/renderer` during the test run. The generated manifest opts into
+`guestContent.transitionalWebviews: true` and declares only the shell
+capabilities needed for startup readiness.
+
+In package mode, the renderer uses a local chrome runtime adapter instead of
+receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
+preload. Package chrome receives safe defaults and no-op handlers for startup
+only, calls `freedomShell.markReady()` after the initial tab is mounted, and
+does not receive broad globals such as `electronAPI`, `internalPages`, wallet,
+identity, provider, or permission surfaces. Wallet, identity, x402, publish,
+and permission prompts remain trusted shell-owned surfaces or deferred work.
+
+The official package smoke currently proves:
+
+- the real renderer chrome loads as local package chrome
+- package chrome receives `window.freedomShell` but not broad preload globals
+- the initial tab and home page render
+- the main menu and node menu open
+- new tab, tab switch, and tab close work
+- `freedom://settings` resolves through the package renderer's internal-page fallback
+- home navigation returns to the package home page
+
 ## Shell API v0
 
 `window.freedomShell` is exposed as a frozen object. Current methods:
@@ -219,6 +244,12 @@ Package-mode and fallback smoke:
 
 ```bash
 xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js
+```
+
+Bundled, fixture-package, official-package, and fallback smoke:
+
+```bash
+xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js
 ```
 
 Full local gate:
