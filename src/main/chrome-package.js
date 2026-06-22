@@ -11,6 +11,7 @@ const {
   installChromePackageFromDirectory,
   loadCurrentChromePackage,
 } = require('./chrome-package-store');
+const { installChromePackageFromLocalFeed } = require('./chrome-package-feed');
 
 const BUNDLED_CHROME_PACKAGE = Object.freeze({
   kind: 'bundled',
@@ -57,6 +58,12 @@ function getRequestedChromePackageDir({ env = process.env, argv = process.argv }
 function getRequestedChromePackageInstallDir({ env = process.env, argv = process.argv } = {}) {
   return parseChromePackageArgForName(argv, '--chrome-package-install') ||
     env.FREEDOM_CHROME_PACKAGE_INSTALL_DIR ||
+    '';
+}
+
+function getRequestedChromePackageFeedPath({ env = process.env, argv = process.argv } = {}) {
+  return parseChromePackageArgForName(argv, '--chrome-package-feed') ||
+    env.FREEDOM_CHROME_PACKAGE_FEED_FILE ||
     '';
 }
 
@@ -416,6 +423,46 @@ function selectChromePackage(options = {}) {
       };
     }
 
+    const requestedFeedPath = getRequestedChromePackageFeedPath(options);
+    if (requestedFeedPath) {
+      const feedResult = installChromePackageFromLocalFeed(requestedFeedPath, {
+        allowDowngrade: options.allowDowngrade,
+        allowSameVersionUpdate: options.allowSameVersionUpdate,
+        shellApiVersion: options.shellApiVersion,
+        storeRoot: options.storeRoot,
+        validatePackage: validateLocalChromePackage,
+      });
+      if (feedResult.ok) {
+        return feedResult.chromePackage;
+      }
+
+      const currentResult = loadCurrentChromePackage({
+        shellApiVersion: options.shellApiVersion,
+        storeRoot: options.storeRoot,
+        validatePackage: validateLocalChromePackage,
+      });
+      if (currentResult.ok) {
+        options.logger?.warn?.('[chrome-package] using cached chrome after feed failure', {
+          code: feedResult.error.code,
+          message: feedResult.error.message,
+        });
+        return currentResult.chromePackage;
+      }
+
+      options.logger?.warn?.('[chrome-package] falling back to bundled chrome', {
+        code: feedResult.error.code,
+        message: feedResult.error.message,
+      });
+
+      return {
+        ...BUNDLED_CHROME_PACKAGE,
+        fallback: {
+          requestedFeed: requestedFeedPath,
+          error: feedResult.error,
+        },
+      };
+    }
+
     if (shouldUseChromePackageStore(options)) {
       const currentResult = loadCurrentChromePackage({
         shellApiVersion: options.shellApiVersion,
@@ -468,6 +515,7 @@ module.exports = {
   BUNDLED_CHROME_PACKAGE,
   SHELL_API_VERSION,
   getActiveChromePackage,
+  getRequestedChromePackageFeedPath,
   getRequestedChromePackageInstallDir,
   getRequestedChromePackageDir,
   hashFileSha256,

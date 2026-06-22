@@ -5,6 +5,7 @@ const path = require('path');
 const {
   BUNDLED_CHROME_PACKAGE,
   SHELL_API_VERSION,
+  getRequestedChromePackageFeedPath,
   getRequestedChromePackageInstallDir,
   getRequestedChromePackageDir,
   hashFileSha256,
@@ -67,6 +68,33 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
   return manifest;
 }
 
+function writeFeed(feedPath, packageDirs) {
+  const feedRoot = path.dirname(feedPath);
+  fs.mkdirSync(feedRoot, { recursive: true });
+  const packages = packageDirs.map((packageDir) => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'manifest.json'), 'utf-8'));
+    return {
+      version: manifest.version,
+      source: {
+        type: 'directory',
+        path: path.relative(feedRoot, packageDir).replace(/\\/g, '/'),
+      },
+    };
+  });
+  fs.writeFileSync(
+    feedPath,
+    JSON.stringify(
+      {
+        feedVersion: 1,
+        packageId: 'baby.freedom.chrome.fixture',
+        packages,
+      },
+      null,
+      2
+    )
+  );
+}
+
 describe('chrome-package', () => {
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) {
@@ -113,6 +141,21 @@ describe('chrome-package', () => {
     expect(shouldUseChromePackageStore({ env: {}, argv: ['electron', '.', '--chrome-package-cache'] })).toBe(
       true
     );
+  });
+
+  test('reads package feed selectors', () => {
+    expect(
+      getRequestedChromePackageFeedPath({
+        env: { FREEDOM_CHROME_PACKAGE_FEED_FILE: '/from/env/feed.json' },
+        argv: ['electron', '.', '--chrome-package-feed', '/from/argv/feed.json'],
+      })
+    ).toBe('/from/argv/feed.json');
+    expect(
+      getRequestedChromePackageFeedPath({
+        env: { FREEDOM_CHROME_PACKAGE_FEED_FILE: '/from/env/feed.json' },
+        argv: ['electron', '.', '--chrome-package-feed=/from/equals/feed.json'],
+      })
+    ).toBe('/from/equals/feed.json');
   });
 
   test('validates a local package descriptor', () => {
@@ -251,6 +294,59 @@ describe('chrome-package', () => {
       source: 'store',
       packageId: 'baby.freedom.chrome.fixture',
     });
+  });
+
+  test('installs and selects a cached package when feed mode is requested', () => {
+    const parent = makeTempDir();
+    const packageDir = path.join(parent, 'v1');
+    const feedPath = path.join(parent, 'feed.json');
+    const storeRoot = getChromePackageStoreRoot({ userDataDir: makeTempDir() });
+    writePackage(packageDir, { version: '1.0.0' });
+    writeFeed(feedPath, [packageDir]);
+
+    const selected = selectChromePackage({
+      env: { FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath },
+      argv: [],
+      storeRoot,
+    });
+
+    expect(selected).toMatchObject({
+      kind: 'local-package',
+      source: 'store',
+      packageId: 'baby.freedom.chrome.fixture',
+      version: '1.0.0',
+    });
+  });
+
+  test('uses cached package when requested feed is unavailable', () => {
+    const logger = { warn: jest.fn() };
+    const root = makeTempDir();
+    const storeRoot = getChromePackageStoreRoot({ userDataDir: makeTempDir() });
+    writePackage(root);
+    expect(
+      selectChromePackage({
+        env: { FREEDOM_CHROME_PACKAGE_INSTALL_DIR: root },
+        argv: [],
+        storeRoot,
+      }).source
+    ).toBe('store');
+
+    const selected = selectChromePackage({
+      env: { FREEDOM_CHROME_PACKAGE_FEED_FILE: path.join(makeTempDir(), 'missing.json') },
+      argv: [],
+      logger,
+      storeRoot,
+    });
+
+    expect(selected).toMatchObject({
+      source: 'store',
+      packageId: 'baby.freedom.chrome.fixture',
+      version: '0.0.1',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[chrome-package] using cached chrome after feed failure',
+      expect.objectContaining({ code: 'FEED_FILE_MISSING' })
+    );
   });
 
   test('falls back to bundled chrome when requested cache is unusable', () => {

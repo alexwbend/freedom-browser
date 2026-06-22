@@ -93,6 +93,46 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
 
+function copyFixturePackage(root, manifestOverrides = {}) {
+  fs.cpSync(fixturePackageDir, root, { recursive: true });
+  const manifestPath = path.join(root, 'manifest.json');
+  const manifest = {
+    ...JSON.parse(fs.readFileSync(manifestPath, 'utf-8')),
+    ...manifestOverrides,
+  };
+  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  return manifest;
+}
+
+function writeLocalPackageFeed(feedPath, packageDirs, overrides = {}) {
+  const feedRoot = path.dirname(feedPath);
+  fs.mkdirSync(feedRoot, { recursive: true });
+  const packages = packageDirs.map((packageDir) => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, 'manifest.json'), 'utf-8'));
+    return {
+      version: manifest.version,
+      source: {
+        type: 'directory',
+        path: path.relative(feedRoot, packageDir).replace(/\\/g, '/'),
+      },
+    };
+  });
+  fs.writeFileSync(
+    feedPath,
+    JSON.stringify(
+      {
+        feedVersion: 1,
+        packageId: 'baby.freedom.chrome.fixture',
+        channel: 'test',
+        packages,
+        ...overrides,
+      },
+      null,
+      2
+    )
+  );
+}
+
 function writeOfficialChromePackage(root) {
   fs.cpSync(rendererSourceDir, root, {
     recursive: true,
@@ -254,6 +294,10 @@ async function expectActiveWebviewText(page, selector, expectedText) {
       timeout: 10_000,
     })
     .toBe(expectedText);
+}
+
+async function readShellInfo(page) {
+  return JSON.parse(await page.locator('[data-test="shell-info-json"]').textContent());
 }
 
 async function installRendererAlertCapture(page) {
@@ -728,6 +772,203 @@ test('cached package readiness failure rolls back to previous cached package', a
     });
   } finally {
     await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('local package feed installs, updates, and launches cached package when source is unavailable', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-e2e-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-source-'));
+  const feedPath = path.join(parent, 'feed.json');
+  const v1Dir = path.join(parent, 'v1');
+  const v2Dir = path.join(parent, 'v2');
+  let launched;
+  let appVersion;
+
+  try {
+    copyFixturePackage(v1Dir, { version: '0.1.0' });
+    writeLocalPackageFeed(feedPath, [v1Dir]);
+
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    let page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    let info = await readShellInfo(page);
+    appVersion = info.appVersion;
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.1.0',
+        source: 'store',
+      },
+    });
+    await launched.close();
+    launched = null;
+
+    copyFixturePackage(v2Dir, { version: '0.2.0' });
+    writeLocalPackageFeed(feedPath, [v1Dir, v2Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.2.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      appVersion,
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.2.0',
+        source: 'store',
+      },
+    });
+    await launched.close();
+    launched = null;
+
+    fs.rmSync(parent, { recursive: true, force: true });
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        userDataDir,
+      }
+    );
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.2.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      appVersion,
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.2.0',
+        source: 'store',
+      },
+    });
+  } finally {
+    if (launched) {
+      await launched.close();
+    }
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('local package feed keeps current cache for corrupt update and rolls back failed activation', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-rollback-e2e-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-package-feed-bad-update-'));
+  const feedPath = path.join(parent, 'feed.json');
+  const v1Dir = path.join(parent, 'v1');
+  const corruptV2Dir = path.join(parent, 'v2-corrupt');
+  const badV3Dir = path.join(parent, 'v3-no-ready');
+  let launched;
+
+  try {
+    copyFixturePackage(v1Dir, { version: '0.1.0' });
+    writeLocalPackageFeed(feedPath, [v1Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    let page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    await launched.close();
+    launched = null;
+
+    copyFixturePackage(corruptV2Dir, { version: '0.2.0' });
+    fs.writeFileSync(path.join(corruptV2Dir, 'index.html'), '<!doctype html><h1>tampered</h1>');
+    writeLocalPackageFeed(feedPath, [corruptV2Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    let info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.1.0',
+        source: 'store',
+      },
+    });
+    await launched.close();
+    launched = null;
+
+    writePackage(badV3Dir, {
+      packageId: 'baby.freedom.chrome.fixture',
+      name: 'Bad Feed Fixture Chrome',
+      version: '0.3.0',
+      capabilities: ['shell.info', 'shell.ready'],
+    });
+    writeLocalPackageFeed(feedPath, [badV3Dir]);
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_FEED_FILE: feedPath,
+        FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS: '250',
+      },
+      {
+        userDataDir,
+      }
+    );
+    page = await waitForPackageChromeWindow(launched.app, {
+      source: 'store',
+      version: '0.1.0',
+    });
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+        version: '0.1.0',
+        source: 'store',
+      },
+    });
+  } finally {
+    if (launched) {
+      await launched.close();
+    }
     fs.rmSync(parent, { recursive: true, force: true });
   }
 });

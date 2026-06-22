@@ -81,6 +81,61 @@ Normal launch with no package flags still uses bundled safe chrome. Direct
 `FREEDOM_CHROME_PACKAGE_INSTALL_DIR` / `--chrome-package-install` promotes a
 package into the cache.
 
+### Local Package Feed Chrome
+
+A deterministic local feed file can advertise unpacked package versions and use
+the same store activation path:
+
+```bash
+FREEDOM_CHROME_PACKAGE_FEED_FILE="$PWD/tmp/chrome-feed.json" npm start
+```
+
+The CLI flag is also supported:
+
+```bash
+npm start -- --chrome-package-feed="$PWD/tmp/chrome-feed.json"
+```
+
+Feed files are local JSON pointers. The current format is:
+
+```json
+{
+  "feedVersion": 1,
+  "packageId": "baby.freedom.chrome.fixture",
+  "channel": "stable",
+  "packages": [
+    {
+      "version": "0.1.0",
+      "source": {
+        "type": "directory",
+        "path": "./chrome-v1"
+      }
+    },
+    {
+      "version": "0.2.0",
+      "source": {
+        "type": "directory",
+        "path": "./chrome-v2"
+      }
+    }
+  ]
+}
+```
+
+Only `source.type: "directory"` is implemented for this phase. Relative source
+paths resolve from the feed file directory. Archives remain optional future
+work; the runtime does not add extraction dependencies.
+
+On launch, the shell validates feed entries, selects the newest valid package
+newer than the current cached package, installs it through the staged store
+path, and launches the cached copy. If the feed file is missing, unavailable,
+malformed, or advertises only corrupt/unusable packages, the shell launches the
+current cached package when one is valid. If neither feed nor cache is usable,
+bundled safe chrome is used.
+
+This feed path is the local stand-in for future Swarm delivery. It does not use
+live Swarm, Ant/Bee, IPFS, ENS, or Radicle network access.
+
 ## Manifest v0
 
 The local package directory must contain `manifest.json`:
@@ -330,6 +385,8 @@ Freedom falls back to bundled safe chrome when:
 - required file-integrity metadata is missing or invalid
 - a listed package file is missing, outside the package root, or hash-mismatched
 - the requested cached package is missing or corrupt
+- the requested feed is missing, malformed, unavailable, or has no installable package
+- an advertised feed package is corrupt or unavailable
 - the package entry fails to load
 - the package does not signal readiness
 
@@ -345,7 +402,7 @@ Recovery does not depend on Swarm, IPFS, ENS, or live network access.
 Focused unit tests:
 
 ```bash
-npm test -- src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
+npm test -- src/main/chrome-package.test.js src/main/chrome-package-feed.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
 ```
 
 Bundled chrome smoke:
@@ -354,7 +411,7 @@ Bundled chrome smoke:
 xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js
 ```
 
-Package-mode and fallback smoke:
+Package-mode, feed/update, rollback, and fallback smoke:
 
 ```bash
 xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js

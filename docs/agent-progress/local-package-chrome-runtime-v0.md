@@ -444,8 +444,39 @@ Verification in this phase so far:
 - GitHub Actions run `27989520572`, job `test` (`82838683408`), passed for `c57d41d`.
 - GitHub Actions run `27989520572`, job `e2e-chrome-runtime` (`82838683381`), passed for `c57d41d`.
 
+### Phase 6 Local Feed/Update Source
+
+Current checkpoint: deterministic local feed/update source is implemented and
+verified locally; commit, push, and GitHub target CI evidence remain next.
+
+Implemented in this phase so far:
+
+- added a versioned local feed/pointer format with `feedVersion: 1`,
+  `packageId`, `channel`, and directory-backed package entries
+- added `FREEDOM_CHROME_PACKAGE_FEED_FILE` and `--chrome-package-feed`
+  selectors
+- added a local feed adapter that validates feed entries, resolves relative
+  package directories from the feed file, rejects unsupported source types, and
+  installs the newest valid update through the existing staged package store
+- kept archives as explicit future work; no extraction dependency was added
+- feed launch falls back to the current cached package when the feed is missing,
+  unavailable, or advertises only corrupt/unusable updates
+- feed-installed updates still launch from the store and use the existing
+  readiness/load rollback path for failed activation
+- launched smoke now covers feed first install, feed update, missing feed/source
+  fallback to cache, corrupt advertised update fallback to cache, and failed
+  feed update readiness rollback to the previous cached package
+
+Verification in this phase so far:
+
+- `npm test -- src/main/chrome-package.test.js src/main/chrome-package-feed.test.js src/main/chrome-package-store.test.js` passed after feed/source changes: 3 suites, 37 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed after feed/source changes: 12 tests.
+- `npm run lint` passed after feed/source changes.
+- `npm test` passed after feed/source changes: 112 suites passed, 5 skipped; 2099 tests passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after feed/source changes: 13 tests.
+- `git diff --check` passed after feed/source changes.
+
 ## Next Step
 
-- Move into deterministic local feed/update source work while keeping wallet,
-  identity, permissions, x402, and publish prompts as trusted shell-owned
-  surfaces.
+- Commit and push the feed/source checkpoint, collect GitHub target CI evidence,
+  then move into final independent-update proof/hardening.
