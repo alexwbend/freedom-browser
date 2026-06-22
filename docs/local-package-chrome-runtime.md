@@ -41,11 +41,12 @@ The CLI flag is also supported and wins over the environment variable:
 npm start -- --chrome-package="$PWD/test/fixtures/chrome-packages/minimal"
 ```
 
-Local package chrome uses `src/main/package-preload.js`, disables `<webview>`,
-and receives only `window.freedomShell`. The package window is created with
-hardened preferences: context isolation on, Node integration off, remote module
-off, web security on, insecure content disabled, experimental features off, and
-package-owned `<webview>` support disabled for v0.
+Local package chrome uses `src/main/package-preload.js`, disables `<webview>` by
+default, and receives only `window.freedomShell`. The package window is created
+with hardened preferences: context isolation on, Node integration off, remote
+module off, web security on, insecure content disabled, experimental features
+off, and package-owned `<webview>` support disabled unless the manifest opts
+into the transitional guest-webview bridge described below.
 
 ## Manifest v0
 
@@ -78,8 +79,35 @@ Validation is intentionally local and conservative:
 - entry must be relative and resolve inside the package directory
 - entry must exist and be a file
 - capabilities, when declared, must be known shell capabilities
+- `guestContent`, when declared, must be an object
+- `guestContent.transitionalWebviews`, when declared, must be a boolean
 
 Package selection is not persisted in v0.
+
+## Transitional Guest Webviews
+
+The local full-runtime phase may need to run the current bundled renderer as a
+local package before the browser fully migrates to shell-owned guest views. To
+support that bridge, a manifest can opt into package-created `<webview>` tags:
+
+```json
+{
+  "guestContent": {
+    "transitionalWebviews": true
+  }
+}
+```
+
+This flag only enables the Electron `<webview>` tag in the local package chrome
+window. It does not let package code choose guest `webPreferences`, preload
+scripts, Node integration, web security, popups, or insecure content behavior.
+Main process code handles `will-attach-webview`, strips package-supplied guest
+preference attributes, and applies the shell-owned guest preload and hardened
+guest preferences unconditionally.
+
+This is a transitional bridge for the local full-runtime work. The target
+architecture remains shell-owned guest contents instead of arbitrary
+package-owned `<webview>` creation.
 
 ## Shell API v0
 

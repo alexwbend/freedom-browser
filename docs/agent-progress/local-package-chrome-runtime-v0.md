@@ -256,6 +256,64 @@ Verification in this phase so far:
 - GitHub Actions run `27982563535`, job `test` (`82816095622`), passed for `b106e02`.
 - GitHub Actions run `27982563535`, job `e2e-chrome-runtime` (`82816095384`), passed for `b106e02`.
 
+### Phase 3 Main-Owned Navigation Authority
+
+Current checkpoint: Phase 3 navigation authority gate passed locally and in
+GitHub target CI jobs in `b106e02`.
+
+Implemented in this phase:
+
+- expanded the shared shell navigation resolver into a deterministic protocol
+  parity matrix for `http`, `https`, bare domains, allowlisted
+  `freedom://home`, allowlisted `freedom://settings`, direct `bzz://`, direct
+  `ipfs://`, direct `ipns://`, ENS names, transport-aware ENS assertions, and
+  Radicle `rad:`/`rad://` inputs
+- added deterministic ENS contenthash decision handling for success,
+  asserted-transport mismatch, conflict, not-found, unavailable, and
+  unsupported transport outcomes
+- updated the local package fixture to resolve the matrix through
+  `window.freedomShell` before `markReady()`
+- updated package smoke coverage to assert the matrix output from the launched
+  Electron package runtime
+
+Verification in this phase:
+
+- `npm test -- src/shared/navigation-input.test.js src/main/shell-api.test.js src/main/chrome-package.test.js src/main/package-preload.test.js` passed: 4 suites, 35 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 7 tests.
+- `npm run lint` passed.
+- `npm test` passed: 109 suites passed, 5 skipped; 2062 tests passed, 17 skipped.
+- `git diff --check` passed.
+- Committed and pushed `b106e02` (`feat(shell): expand navigation protocol matrix`).
+- GitHub Actions run `27982563535`, job `test` (`82816095622`), passed for `b106e02`.
+- GitHub Actions run `27982563535`, job `e2e-chrome-runtime` (`82816095384`), passed for `b106e02`.
+
+### Phase 4 Official Chrome As Local Package
+
+Current checkpoint: transitional package guest-webview hardening is in progress.
+
+Implemented in this checkpoint:
+
+- local package manifests can opt into the transitional webview bridge with
+  `guestContent.transitionalWebviews: true`
+- local package windows still keep package-owned `<webview>` disabled by default
+- transitional package webviews use main-enforced `will-attach-webview`
+  hardening instead of package-controlled guest preferences
+- main strips package-supplied guest preload/webPreferences attributes and
+  applies the shell-owned guest preload plus hardened guest preferences
+- runtime docs now describe the transitional bridge, its security boundary, and
+  the target shell-owned guest-view architecture
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/chrome-package.test.js src/main/windows/mainWindow.test.js` passed: 2 suites, 17 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 7 tests.
+- `npm run lint` passed.
+- `npm test` passed: 109 suites passed, 5 skipped; 2067 tests passed, 17 skipped.
+- `git diff --check` passed.
+
 ## Next Step
 
-- Continue Phase 2 toward command completion events and executor bridging while keeping bundled chrome unchanged.
+- Complete Phase 4 transitional webview hardening, then run the official chrome
+  renderer as a local package smoke and bridge only the narrow API gaps required
+  for that smoke while keeping wallet, identity, permissions, x402, and publish
+  prompts as trusted shell-owned surfaces.

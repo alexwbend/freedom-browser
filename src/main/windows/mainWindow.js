@@ -53,6 +53,14 @@ function getPackageReadyTimeoutMs() {
   return 5000;
 }
 
+function getPackageGuestPreloadPath() {
+  return path.join(__dirname, '..', 'webview-preload.js');
+}
+
+function packageUsesTransitionalWebviews(chromePackage) {
+  return chromePackage.kind === 'local-package' && chromePackage.transitionalWebviews === true;
+}
+
 function getChromeWindowWebPreferences(chromePackage) {
   const isLocalPackage = chromePackage.kind === 'local-package';
   return {
@@ -61,12 +69,63 @@ function getChromeWindowWebPreferences(chromePackage) {
     nodeIntegration: false,
     nodeIntegrationInWorker: false,
     nodeIntegrationInSubFrames: false,
-    webviewTag: isLocalPackage ? false : chromePackage.webviewTag === true,
+    webviewTag: isLocalPackage
+      ? packageUsesTransitionalWebviews(chromePackage)
+      : chromePackage.webviewTag === true,
     enableRemoteModule: false,
     webSecurity: true,
     allowRunningInsecureContent: false,
     experimentalFeatures: false,
   };
+}
+
+function enforcePackageGuestWebPreferences(webPreferences = {}) {
+  Object.assign(webPreferences, {
+    preload: getPackageGuestPreloadPath(),
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    enableRemoteModule: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false,
+  });
+  return webPreferences;
+}
+
+function sanitizePackageGuestWebviewParams(params = {}) {
+  if (!params || typeof params !== 'object') {
+    return {};
+  }
+
+  delete params.preload;
+  delete params.preloadURL;
+  delete params.webpreferences;
+  delete params.webPreferences;
+  delete params.nodeintegration;
+  delete params.nodeIntegration;
+  delete params.nodeintegrationinsubframes;
+  delete params.nodeIntegrationInSubFrames;
+  delete params.disablewebsecurity;
+  delete params.disableWebSecurity;
+  delete params.allowpopups;
+  delete params.allowPopups;
+  return params;
+}
+
+function registerPackageWebviewSecurity(window, chromePackage) {
+  if (!packageUsesTransitionalWebviews(chromePackage)) {
+    return () => {};
+  }
+
+  const handler = (_event, webPreferences, params) => {
+    sanitizePackageGuestWebviewParams(params);
+    enforcePackageGuestWebPreferences(webPreferences);
+  };
+  window.webContents.on('will-attach-webview', handler);
+  return () => window.webContents.removeListener?.('will-attach-webview', handler);
 }
 
 function createMainWindow(initialUrl = null, options = {}) {
@@ -105,6 +164,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   let recoveredFromPackageLoadFailure = false;
   let cleanupPackageReadyWait = () => {};
   let cleanupPackageCaller = () => {};
+  let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(window, chromePackage);
   const recoverFromPackageLoadFailure = (details = {}) => {
     if (chromePackage.kind !== 'local-package' || recoveredFromPackageLoadFailure) {
       return null;
@@ -112,6 +172,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     recoveredFromPackageLoadFailure = true;
     cleanupPackageReadyWait();
     cleanupPackageCaller();
+    cleanupPackageWebviewSecurity();
     const fallback = {
       requestedDir: chromePackage.packageRoot,
       error: {
@@ -169,6 +230,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   window.on('closed', () => {
     cleanupPackageReadyWait();
     cleanupPackageCaller();
+    cleanupPackageWebviewSecurity();
     mainWindows.delete(window);
   });
 
@@ -266,6 +328,9 @@ function getMainWindows() {
 
 module.exports = {
   createMainWindow,
+  enforcePackageGuestWebPreferences,
+  getPackageGuestPreloadPath,
+  sanitizePackageGuestWebviewParams,
   getChromeWindowWebPreferences,
   focusOrCreateMainWindow,
   setWindowTitle,

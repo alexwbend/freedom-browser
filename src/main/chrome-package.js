@@ -196,6 +196,31 @@ function validateLocalChromePackage(packageDir, options = {}) {
     }
   }
 
+  if (
+    manifest.guestContent !== undefined &&
+    (!manifest.guestContent ||
+      typeof manifest.guestContent !== 'object' ||
+      Array.isArray(manifest.guestContent))
+  ) {
+    return fail('GUEST_CONTENT_INVALID', 'Chrome package guestContent must be an object', {
+      packageRoot,
+    });
+  }
+
+  const guestContent = manifest.guestContent || {};
+  if (
+    guestContent.transitionalWebviews !== undefined &&
+    typeof guestContent.transitionalWebviews !== 'boolean'
+  ) {
+    return fail(
+      'GUEST_CONTENT_WEBVIEWS_INVALID',
+      'Chrome package guestContent.transitionalWebviews must be a boolean',
+      { packageRoot }
+    );
+  }
+
+  const transitionalWebviews = guestContent.transitionalWebviews === true;
+
   return {
     ok: true,
     chromePackage: {
@@ -206,7 +231,8 @@ function validateLocalChromePackage(packageDir, options = {}) {
       manifestPath,
       entryPath,
       preloadPath: path.join(__dirname, 'package-preload.js'),
-      webviewTag: false,
+      webviewTag: transitionalWebviews,
+      transitionalWebviews,
       packageId: manifest.packageId,
       packageType: manifest.packageType,
       name: manifest.name,

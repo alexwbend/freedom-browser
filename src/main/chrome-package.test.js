@@ -83,11 +83,47 @@ describe('chrome-package', () => {
       version: '0.0.1',
       capabilities: ['shell.info', 'navigation.resolve'],
       webviewTag: false,
+      transitionalWebviews: false,
     });
     expect(result.chromePackage.entryPath).toBe(path.join(fs.realpathSync(root), 'index.html'));
     expect(result.chromePackage.preloadPath.endsWith(path.join('src', 'main', 'package-preload.js'))).toBe(
       true
     );
+  });
+
+  test('allows explicit transitional webview support in local package manifests', () => {
+    const root = makeTempDir();
+    writePackage(root, {
+      guestContent: {
+        transitionalWebviews: true,
+      },
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(true);
+    expect(result.chromePackage).toMatchObject({
+      webviewTag: true,
+      transitionalWebviews: true,
+    });
+  });
+
+  test('rejects malformed guest content policy', () => {
+    const invalidRoot = makeTempDir();
+    writePackage(invalidRoot, { guestContent: [] });
+
+    const invalidResult = validateLocalChromePackage(invalidRoot);
+
+    expect(invalidResult.ok).toBe(false);
+    expect(invalidResult.error.code).toBe('GUEST_CONTENT_INVALID');
+
+    const invalidFlagRoot = makeTempDir();
+    writePackage(invalidFlagRoot, { guestContent: { transitionalWebviews: 'yes' } });
+
+    const invalidFlagResult = validateLocalChromePackage(invalidFlagRoot);
+
+    expect(invalidFlagResult.ok).toBe(false);
+    expect(invalidFlagResult.error.code).toBe('GUEST_CONTENT_WEBVIEWS_INVALID');
   });
 
   test('normalizes and deduplicates known shell capabilities', () => {
