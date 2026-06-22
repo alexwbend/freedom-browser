@@ -130,7 +130,7 @@ Verification in this phase so far:
 
 ### Phase 1 Shell API Foundation
 
-Current checkpoint: event registry closure completed locally; GitHub smoke for this checkpoint pending.
+Current checkpoint: Phase 1 Shell API Foundation gate passed in `7c182ad`.
 
 Implemented in this phase so far:
 
@@ -183,8 +183,17 @@ Verification in this phase so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after event registry closure changes: 7 tests.
 - `npm run lint` passed after event registry closure changes.
 - `npm test` passed after event registry closure changes: 108 suites passed, 5 skipped; 2052 tests passed, 17 skipped.
-- Committed the event registry closure checkpoint (`refactor(shell): close shell event registry contract`); push and GitHub target jobs pending.
+- Committed and pushed `7c182ad` (`refactor(shell): close shell event registry contract`).
+- GitHub Actions run `27980019754`, job `test` (`82807466151`), passed for `7c182ad`.
+- GitHub Actions run `27980019754`, job `e2e-chrome-runtime` (`82807466123`), passed for `7c182ad`.
+
+Phase 1 gate evidence:
+
+- shared shell API constants, compatibility checks, method capability registry, event capability registry namespace, caller identity, structured errors, result cloning, and package preload parity are implemented and tested
+- sender validation, destroyed-sender denial, unauthorized-sender denial, malformed payload denial, unsupported method denial, and missing-capability denial have focused unit coverage
+- package fixture smoke still proves `window.freedomShell` is present, broad preload APIs are absent, `getInfo()`, `resolveNavigationInput()`, and `markReady()` work, and broken packages recover to bundled chrome
+- bundled chrome smoke still proves the safe chrome path starts, renders home, keeps menus/tabs/navigation interactive, and loads `freedom://settings`
 
 ## Next Step
 
-- Commit and push the Phase 1 event registry closure checkpoint, check the new GitHub smoke run, then record the Phase 1 gate and begin Phase 2 tab snapshot/command work in `/root/codex/freedom-browser-goal2.md`.
+- Begin Phase 2 by designing a main-owned tab snapshot/command contract around the current renderer-owned `tabs.js` behavior, keeping bundled chrome unchanged while package command coverage is added incrementally.
