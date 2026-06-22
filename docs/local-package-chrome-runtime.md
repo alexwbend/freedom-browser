@@ -114,6 +114,12 @@ must be allowed by the package manifest's declared capabilities:
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.
 
+The shell API version, method names, capability names, and method-capability
+registry live in `src/shared/shell-api-policy.js`. `package-preload.js` keeps a
+small local copy of the channel/method strings because Electron runtime
+preloads do not reliably support relative imports; unit tests enforce parity
+with the shared contract.
+
 `freedom://` resolution is allowlisted to the shared internal-page registry in
 `src/shared/internal-pages.json`. Unknown internal pages are rejected instead of
 being forwarded to package chrome.

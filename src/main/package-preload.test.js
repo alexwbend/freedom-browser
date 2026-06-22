@@ -1,4 +1,5 @@
 const IPC = require('../shared/ipc-channels');
+const { SHELL_API_METHODS } = require('../shared/shell-api-policy');
 const {
   createContextBridgeMock,
   createIpcRendererMock,
@@ -15,12 +16,13 @@ function loadPackagePreload(options = {}) {
     });
   const contextBridge = options.contextBridge || createContextBridgeMock();
 
-  loadMainModule(require.resolve('./package-preload'), {
+  const context = loadMainModule(require.resolve('./package-preload'), {
     ipcRenderer,
     contextBridge,
   });
 
   return {
+    mod: context.mod,
     contextBridge,
     exposures: contextBridge.exposedValues,
     ipcRenderer,
@@ -51,24 +53,31 @@ describe('package-preload', () => {
     expect(exposures.dappPermissions).toBeUndefined();
   });
 
+  test('keeps preload-local constants aligned with the shared shell contract', () => {
+    const { mod } = loadPackagePreload();
+
+    expect(mod.SHELL_REQUEST).toBe(IPC.SHELL_REQUEST);
+    expect(mod.SHELL_API_METHODS).toEqual(SHELL_API_METHODS);
+  });
+
   test('routes shell calls through the single shell request channel', async () => {
     const { exposures, ipcRenderer } = loadPackagePreload();
 
     await exposures.freedomShell.getInfo();
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
-      method: 'getInfo',
+      method: SHELL_API_METHODS.GET_INFO,
       args: [],
     });
 
     await exposures.freedomShell.markReady();
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
-      method: 'markReady',
+      method: SHELL_API_METHODS.MARK_READY,
       args: [],
     });
 
     await exposures.freedomShell.resolveNavigationInput('example.com');
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
-      method: 'resolveNavigationInput',
+      method: SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT,
       args: ['example.com'],
     });
   });

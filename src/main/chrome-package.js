@@ -1,9 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { version: appVersion } = require('../../package.json');
-const { isKnownShellCapability } = require('../shared/shell-api-policy');
-
-const SHELL_API_VERSION = '0.1.0';
+const { SHELL_API_VERSION, isKnownShellCapability } = require('../shared/shell-api-policy');
 
 const BUNDLED_CHROME_PACKAGE = Object.freeze({
   kind: 'bundled',

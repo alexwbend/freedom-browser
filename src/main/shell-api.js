@@ -2,12 +2,13 @@ const { EventEmitter } = require('events');
 const { app, ipcMain } = require('electron');
 const IPC = require('../shared/ipc-channels');
 const { version: packageVersion } = require('../../package.json');
-const {
-  SHELL_API_VERSION,
-  getActiveChromePackage,
-} = require('./chrome-package');
+const { getActiveChromePackage } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
-const { getRequiredCapabilityForMethod } = require('../shared/shell-api-policy');
+const {
+  SHELL_API_METHODS,
+  SHELL_API_VERSION,
+  getRequiredCapabilityForMethod,
+} = require('../shared/shell-api-policy');
 
 const shellEvents = new EventEmitter();
 const packageCallers = new WeakMap();
@@ -105,13 +106,13 @@ function getPackageCaller(event) {
 }
 
 const METHODS = Object.freeze({
-  getInfo: {
+  [SHELL_API_METHODS.GET_INFO]: {
     handler: () => getInfo(),
   },
-  markReady: {
+  [SHELL_API_METHODS.MARK_READY]: {
     handler: (_args, event) => markReady(event),
   },
-  resolveNavigationInput: {
+  [SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT]: {
     handler: ([input]) => resolveNavigationInput(input),
   },
 });

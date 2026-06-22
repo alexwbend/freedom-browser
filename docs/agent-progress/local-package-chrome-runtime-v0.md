@@ -98,7 +98,7 @@
 
 ### Phase 0 Baseline And V0 Hardening
 
-Current checkpoint: Phase 0 hardening completed locally on top of `80ed49c`; checkpoint commit pending.
+Current checkpoint: Phase 0 hardening completed in `56a3810`.
 
 Implemented in this phase:
 
@@ -124,7 +124,37 @@ Verification in this phase so far:
 - `npm run lint` passed.
 - `npm test` passed: 107 suites passed, 5 skipped; 2042 tests passed, 17 skipped.
 - `git diff --check` passed.
+- Pushed `56a3810` to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `27978855305`, job `e2e-chrome-runtime` (`82803490569`), passed for `56a3810`.
+- GitHub Actions run `27978855305`, job `test` (`82803490575`), passed for `56a3810`.
+
+### Phase 1 Shell API Foundation
+
+Current checkpoint: shared shell API contract slice completed locally on top of `56a3810`; checkpoint commit pending.
+
+Implemented in this phase so far:
+
+- expanded `src/shared/shell-api-policy.js` into the v0 shared shell API contract:
+  - shell API version
+  - method names
+  - capability names
+  - method-to-capability registry
+  - event-to-capability registry placeholder
+  - known capability list
+- moved `chrome-package.js` and `shell-api.js` to consume the shared contract version/registry
+- kept `package-preload.js` runtime-safe by avoiding relative imports and added parity tests against the shared contract
+- documented the preload parity rule in `docs/local-package-chrome-runtime.md`
+
+Verification in this phase so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed: 4 suites, 21 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` initially failed after direct relative imports were added to `package-preload.js`; the package preload did not expose `window.freedomShell`.
+- Fixed `package-preload.js` to keep local preload constants and enforce parity in unit tests.
+- `npm test -- src/main/package-preload.test.js src/shared/shell-api-policy.test.js` passed after the preload fix: 2 suites, 6 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the preload fix: 7 tests.
+- `npm run lint` passed.
+- `npm test` passed: 108 suites passed, 5 skipped; 2046 tests passed, 17 skipped.
 
 ## Next Step
 
-- Finish Phase 0 verification, commit the hardening checkpoint, then continue to Phase 1 Shell API Foundation in `/root/codex/freedom-browser-goal2.md`.
+- Commit the Phase 1 shared contract checkpoint, push it, and continue Phase 1 toward explicit caller identity/version compatibility hardening in `/root/codex/freedom-browser-goal2.md`.
