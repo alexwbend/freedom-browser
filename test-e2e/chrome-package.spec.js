@@ -171,6 +171,71 @@ test('local package chrome loads through freedomShell without broad preload APIs
       targetUrl: 'https://example.com',
     });
 
+    await expect(page.locator('[data-test="nav-matrix-status"]')).toHaveText('ok');
+    const navMatrix = JSON.parse(
+      await page.locator('[data-test="nav-matrix-json"]').textContent()
+    );
+    expect(navMatrix).toMatchObject({
+      http: {
+        ok: true,
+        kind: 'http',
+        targetUrl: 'http://example.com/path',
+      },
+      https: {
+        ok: true,
+        kind: 'https',
+        targetUrl: 'https://example.com/path',
+      },
+      bareDomain: {
+        ok: true,
+        kind: 'https',
+        targetUrl: 'https://example.com/path',
+      },
+      freedomHome: {
+        ok: true,
+        kind: 'internal',
+        targetUrl: 'freedom://home',
+      },
+      freedomSettings: {
+        ok: true,
+        kind: 'internal',
+        targetUrl: 'freedom://settings',
+      },
+      bzz: {
+        ok: true,
+        kind: 'swarm',
+        protocol: 'bzz',
+      },
+      ipfs: {
+        ok: true,
+        kind: 'ipfs',
+        protocol: 'ipfs',
+      },
+      ipns: {
+        ok: true,
+        kind: 'ipns',
+        protocol: 'ipns',
+      },
+      ensBare: {
+        ok: true,
+        kind: 'ens',
+        name: 'vitalik.eth',
+        targetUrl: 'ens://vitalik.eth/docs',
+      },
+      ensTransportAssertion: {
+        ok: true,
+        kind: 'ens',
+        name: 'meinhard.eth',
+        assertedTransport: 'bzz',
+        targetUrl: 'bzz://meinhard.eth/path',
+      },
+      radicle: {
+        ok: true,
+        kind: 'radicle',
+        protocol: 'rad',
+      },
+    });
+
     await expect(page.locator('[data-test="tabs-status"]')).toHaveText('ok');
     const tabs = JSON.parse(await page.locator('[data-test="tabs-json"]').textContent());
     expect(tabs).toMatchObject({

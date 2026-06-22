@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: shell-owned tab snapshot change events passed locally and in GitHub target CI jobs in `b3a8e2d`.
+Current checkpoint: deterministic shell navigation protocol matrix passed locally; remote CI evidence is pending.
 
 Implemented in this phase so far:
 
@@ -217,6 +217,10 @@ Implemented in this phase so far:
 - exposed `freedomShell.onTabSnapshotChanged(callback)` from the package preload
 - shell API tab commands now emit snapshot events only when the serializable tab snapshot actually changes
 - updated the fixture package smoke to prove a failed tab command emits a command result but no snapshot-change event
+- expanded the shared shell navigation resolver to classify the required deterministic protocol matrix:
+  `http`, `https`, bare domains, `freedom://home`, `freedom://settings`, direct `bzz://`, `ipfs://`, `ipns://`, ENS names, transport-aware ENS assertions, and Radicle `rad:`/`rad://` inputs
+- added deterministic ENS contenthash decision handling for success, asserted-transport mismatch, conflict, not-found, unavailable, and unsupported transport outcomes
+- updated the fixture package smoke to resolve the protocol matrix through `window.freedomShell`
 
 Verification in this phase so far:
 
@@ -243,6 +247,11 @@ Verification in this phase so far:
 - Committed and pushed `b3a8e2d` (`feat(shell): emit tab snapshot events`).
 - GitHub Actions run `27981756889`, job `test` (`82813430806`), passed for `b3a8e2d`.
 - GitHub Actions run `27981756889`, job `e2e-chrome-runtime` (`82813430975`), passed for `b3a8e2d`.
+- `npm test -- src/shared/navigation-input.test.js src/main/shell-api.test.js src/main/chrome-package.test.js src/main/package-preload.test.js` passed after deterministic navigation matrix changes: 4 suites, 35 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after deterministic navigation matrix changes: 7 tests.
+- `npm run lint` passed after deterministic navigation matrix changes.
+- `npm test` passed after deterministic navigation matrix changes: 109 suites passed, 5 skipped; 2062 tests passed, 17 skipped.
+- `git diff --check` passed after deterministic navigation matrix changes.
 
 ## Next Step
 

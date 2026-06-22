@@ -67,6 +67,58 @@
     }
   }
 
+  async function resolveNavigationMatrix() {
+    const shell = window.freedomShell || {};
+    if (typeof shell.resolveNavigationInput !== 'function') {
+      setText('nav-matrix-status', 'missing-resolver');
+      return false;
+    }
+
+    const swarmHash = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+    const ipfsCid = 'QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG';
+    const ipnsKey = 'k51qzi5uqu5dgkkr5wjh0m796f9u3tou74wn2q2u3shgh6yn52ce4hitig3if4';
+    const radicleId = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+    const cases = {
+      http: 'http://example.com/path',
+      https: 'https://example.com/path',
+      bareDomain: 'example.com/path',
+      freedomHome: 'freedom://home',
+      freedomSettings: 'freedom://settings',
+      bzz: `bzz://${swarmHash}/index.html`,
+      ipfs: `ipfs://${ipfsCid}/readme`,
+      ipns: `ipns://${ipnsKey}/docs`,
+      ensBare: 'vitalik.eth/docs',
+      ensTransportAssertion: 'bzz://meinhard.eth/path',
+      radicle: `rad:${radicleId}/tree/main`,
+    };
+
+    try {
+      const results = {};
+      for (const [name, input] of Object.entries(cases)) {
+        results[name] = await shell.resolveNavigationInput(input);
+      }
+      setJson('nav-matrix-json', results);
+
+      const ok =
+        results.http?.kind === 'http' &&
+        results.https?.kind === 'https' &&
+        results.bareDomain?.targetUrl === 'https://example.com/path' &&
+        results.freedomHome?.targetUrl === 'freedom://home' &&
+        results.freedomSettings?.targetUrl === 'freedom://settings' &&
+        results.bzz?.kind === 'swarm' &&
+        results.ipfs?.kind === 'ipfs' &&
+        results.ipns?.kind === 'ipns' &&
+        results.ensBare?.kind === 'ens' &&
+        results.ensTransportAssertion?.assertedTransport === 'bzz' &&
+        results.radicle?.kind === 'radicle';
+      setText('nav-matrix-status', ok ? 'ok' : 'error:matrix-result');
+      return ok;
+    } catch (error) {
+      setText('nav-matrix-status', `error:${error?.message || error}`);
+      return false;
+    }
+  }
+
   async function exerciseTabs() {
     const shell = window.freedomShell || {};
     for (const method of [
@@ -159,8 +211,9 @@
   (async () => {
     const infoReady = await loadShellInfo();
     const navigationReady = await resolveExample();
+    const matrixReady = await resolveNavigationMatrix();
     const tabsReady = await exerciseTabs();
-    if (infoReady && navigationReady && tabsReady && presentBroadApis.length === 0) {
+    if (infoReady && navigationReady && matrixReady && tabsReady && presentBroadApis.length === 0) {
       await signalReady();
     }
   })();

@@ -105,9 +105,13 @@ is path-free and includes package id, package type, name, version, source,
 runtime mode, and declared capabilities.
 
 `resolveNavigationInput(input)` proves package code crosses the shell bridge for
-navigation parsing. The v0 resolver handles basic `http`, `https`, bare domain,
-and `freedom://` inputs. It does not yet mirror the full bundled renderer
-navigation stack for Swarm, IPFS, ENS, or Radicle.
+navigation parsing. The resolver deterministically classifies `http`, `https`,
+bare domains, allowlisted `freedom://` pages, direct `bzz://`, `ipfs://`,
+`ipns://`, ENS names, transport-aware ENS assertions such as
+`bzz://name.eth`, and Radicle `rad:`/`rad://` inputs. It does not perform live
+network availability checks or live ENS contenthash lookup in package preload
+code; the shared navigation helper includes a deterministic ENS contenthash
+decision helper for trusted shell/main integration tests.
 
 `markReady()` tells the shell that the package initialized. If a local package
 does not call `markReady()` within the readiness timeout, Freedom creates a new
