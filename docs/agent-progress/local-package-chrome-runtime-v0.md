@@ -4,6 +4,7 @@
 
 - Branch: `goal/local-package-chrome-runtime-v0`
 - Starting commit: `7b39944`
+- Latest pushed commit: `914614b`
 - Current phase: WP0, bundled-chrome runtime smoke gate
 - Goal brief: `/root/codex/freedom-browser-goal.md`
 - Roadmap context: `/root/codex/swarm-chrome-roadmap.md`
@@ -16,6 +17,7 @@
 - `npm test` passed: 102 suites passed, 5 skipped; 2017 tests passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e` passed: 14 Playwright harness tests.
 - Attempted `git push -u origin goal/local-package-chrome-runtime-v0` with a CI workflow update included; GitHub rejected the push because the OAuth token lacks `workflow` scope.
+- `git push -u origin goal/local-package-chrome-runtime-v0` passed after removing workflow-file changes from the commit.
 
 ## Smoke Status
 
@@ -48,4 +50,4 @@
 
 ## Next Step
 
-- Amend the WP0 smoke gate commit without workflow changes, push the fixed task branch for continuity, then either get a workflow-scoped credential or ask the user to add the CI job before treating remote smoke verification as complete.
+- Either get a workflow-scoped credential or ask the user to add the CI job before treating remote smoke verification as complete. Then proceed to package-runtime groundwork only while preserving the bundled chrome smoke gate.
