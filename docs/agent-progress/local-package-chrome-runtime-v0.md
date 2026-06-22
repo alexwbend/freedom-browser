@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: shell-owned tab snapshot change events passed locally; remote CI evidence is pending.
+Current checkpoint: shell-owned tab snapshot change events passed locally and in GitHub target CI jobs in `b3a8e2d`.
 
 Implemented in this phase so far:
 
@@ -240,6 +240,9 @@ Verification in this phase so far:
 - `npm run lint` passed after snapshot-change event changes.
 - `npm test` passed after snapshot-change event changes: 109 suites passed, 5 skipped; 2058 tests passed, 17 skipped.
 - `git diff --check` passed after snapshot-change event changes.
+- Committed and pushed `b3a8e2d` (`feat(shell): emit tab snapshot events`).
+- GitHub Actions run `27981756889`, job `test` (`82813430806`), passed for `b3a8e2d`.
+- GitHub Actions run `27981756889`, job `e2e-chrome-runtime` (`82813430975`), passed for `b3a8e2d`.
 
 ## Next Step
 
