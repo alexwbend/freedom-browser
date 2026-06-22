@@ -310,6 +310,9 @@ Verification in this checkpoint:
 - `npm run lint` passed.
 - `npm test` passed: 109 suites passed, 5 skipped; 2067 tests passed, 17 skipped.
 - `git diff --check` passed.
+- Committed and pushed `abd13e3` (`feat(shell): harden transitional package webviews`).
+- GitHub Actions run `27983268135`, job `test` (`82818444112`), passed for `abd13e3`.
+- GitHub Actions run `27983268135`, job `e2e-chrome-runtime` (`82818443921`), passed for `abd13e3`.
 
 ## Next Step
 
