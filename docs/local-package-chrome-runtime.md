@@ -96,6 +96,7 @@ Package selection is not persisted in v0.
 - `reloadTab(tabId)`
 - `goHome(tabId)`
 - `onTabCommandResult(callback)`
+- `onTabSnapshotChanged(callback)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -123,6 +124,10 @@ renderer tabs away from their current `<webview>` implementation.
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
 package to declare `tabs.write`.
+
+`onTabSnapshotChanged(callback)` subscribes to `tabs.snapshotChanged` events
+emitted when a successful tab command changes the shell-owned serializable tab
+snapshot. It returns a cleanup function and requires `tabs.read`.
 
 Every shell API request must come from a registered local package window and
 must be allowed by the package manifest's declared capabilities:

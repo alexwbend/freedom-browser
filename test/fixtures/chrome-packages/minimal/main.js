@@ -77,6 +77,7 @@
       'activateTab',
       'closeTab',
       'onTabCommandResult',
+      'onTabSnapshotChanged',
     ]) {
       if (typeof shell[method] !== 'function') {
         setText('tabs-status', `missing-${method}`);
@@ -86,8 +87,12 @@
 
     try {
       const tabCommandEvents = [];
+      const tabSnapshotEvents = [];
       const disposeTabCommandResult = shell.onTabCommandResult((event) => {
         tabCommandEvents.push(event);
+      });
+      const disposeTabSnapshotChanged = shell.onTabSnapshotChanged((snapshot) => {
+        tabSnapshotEvents.push(snapshot);
       });
       const before = await shell.getTabSnapshot();
       const originalTabId = before.activeTabId;
@@ -96,17 +101,21 @@
       const navigated = await shell.navigateTab(createdTabId, 'https://example.net/path');
       const homed = await shell.goHome(createdTabId);
       const activated = await shell.activateTab(originalTabId);
+      const missingClose = await shell.closeTab(9999);
       const closed = await shell.closeTab(createdTabId);
       await new Promise((resolve) => setTimeout(resolve, 25));
       disposeTabCommandResult();
+      disposeTabSnapshotChanged();
       const result = {
         before,
         created,
         navigated,
         homed,
         activated,
+        missingClose,
         closed,
         tabCommandEvents,
+        tabSnapshotEvents,
       };
       setJson('tabs-json', result);
 
@@ -115,8 +124,11 @@
         navigated.ok === true &&
         homed.ok === true &&
         activated.ok === true &&
+        missingClose.ok === false &&
+        missingClose.snapshotChanged === false &&
         closed.ok === true &&
-        tabCommandEvents.length >= 5 &&
+        tabCommandEvents.length >= 6 &&
+        tabSnapshotEvents.length >= 5 &&
         closed.snapshot?.activeTabId === originalTabId;
       setText('tabs-status', ok ? 'ok' : 'error:command-result');
       return ok;

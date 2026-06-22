@@ -138,6 +138,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'reloadTab',
         'goHome',
         'onTabCommandResult',
+        'onTabSnapshotChanged',
       ],
       hasElectronAPI: false,
       hasWallet: false,
@@ -199,10 +200,20 @@ test('local package chrome loads through freedomShell without broad preload APIs
         command: 'tabs.activate',
         tabId: 1,
       },
+      missingClose: {
+        ok: false,
+        command: 'tabs.close',
+        snapshotChanged: false,
+        error: {
+          code: 'TAB_NOT_FOUND',
+          tabId: 9999,
+        },
+      },
       closed: {
         ok: true,
         command: 'tabs.close',
         tabId: 2,
+        snapshotChanged: true,
         snapshot: {
           activeTabId: 1,
           tabs: [expect.objectContaining({ id: 1, isActive: true })],
@@ -213,10 +224,27 @@ test('local package chrome loads through freedomShell without broad preload APIs
         expect.objectContaining({ ok: true, command: 'tabs.navigate', tabId: 2 }),
         expect.objectContaining({ ok: true, command: 'tabs.goHome', tabId: 2 }),
         expect.objectContaining({ ok: true, command: 'tabs.activate', tabId: 1 }),
+        expect.objectContaining({ ok: false, command: 'tabs.close', snapshotChanged: false }),
         expect.objectContaining({ ok: true, command: 'tabs.close', tabId: 2 }),
       ]),
+      tabSnapshotEvents: expect.arrayContaining([
+        expect.objectContaining({ activeTabId: 2 }),
+        expect.objectContaining({
+          tabs: expect.arrayContaining([
+            expect.objectContaining({ id: 2, url: 'https://example.net/path' }),
+          ]),
+        }),
+        expect.objectContaining({
+          tabs: expect.arrayContaining([
+            expect.objectContaining({ id: 2, url: 'freedom://home' }),
+          ]),
+        }),
+        expect.objectContaining({ activeTabId: 1 }),
+        expect.objectContaining({ tabs: [expect.objectContaining({ id: 1, isActive: true })] }),
+      ]),
     });
-    expect(tabs.tabCommandEvents).toHaveLength(5);
+    expect(tabs.tabCommandEvents).toHaveLength(6);
+    expect(tabs.tabSnapshotEvents).toHaveLength(5);
   } finally {
     await launched.close();
   }

@@ -239,6 +239,9 @@ async function handleShellRequest(event, payload = {}) {
   const result = cloneShellApiValue(await METHODS[method].handler(payload.args, event, caller));
   if (TAB_COMMAND_METHODS.has(method)) {
     emitShellEvent(event, caller, SHELL_API_EVENTS.TABS_COMMAND_RESULT, result);
+    if (result?.snapshotChanged === true && result.snapshot) {
+      emitShellEvent(event, caller, SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, result.snapshot);
+    }
   }
   return result;
 }

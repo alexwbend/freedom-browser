@@ -63,9 +63,11 @@ describe('shell-api-policy', () => {
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
+      TABS_SNAPSHOT_CHANGED: 'tabs.snapshotChanged',
     });
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
       'tabs.commandResult': 'tabs.write',
+      'tabs.snapshotChanged': 'tabs.read',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'navigation.resolve',

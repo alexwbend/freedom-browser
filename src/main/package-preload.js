@@ -20,6 +20,7 @@ const SHELL_API_METHODS = Object.freeze({
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
+  TABS_SNAPSHOT_CHANGED: 'tabs.snapshotChanged',
 });
 
 const invokeShell = (method, ...args) => ipcRenderer.invoke(SHELL_REQUEST, { method, args });
@@ -45,6 +46,8 @@ const freedomShell = Object.freeze({
   reloadTab: (tabId) => invokeShell(SHELL_API_METHODS.TABS_RELOAD, { tabId }),
   goHome: (tabId) => invokeShell(SHELL_API_METHODS.TABS_GO_HOME, { tabId }),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
+  onTabSnapshotChanged: (callback) =>
+    onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),
 });
 
 contextBridge.exposeInMainWorld('freedomShell', freedomShell);

@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: package-visible tab command result events passed locally and in GitHub target CI jobs in `47fb38e`.
+Current checkpoint: shell-owned tab snapshot change events passed locally; remote CI evidence is pending.
 
 Implemented in this phase so far:
 
@@ -210,8 +210,13 @@ Implemented in this phase so far:
 - added a `shell:event` package event channel
 - added the `tabs.commandResult` event to the shared event capability registry
 - exposed `freedomShell.onTabCommandResult(callback)` from the package preload
-- shell API tab commands now emit serializable command-result events after successful command completion
+- shell API tab commands now emit serializable command-result events after command completion
 - updated the fixture package smoke to observe command-result events before `markReady()`
+- tab command results now include `snapshotChanged`
+- added the `tabs.snapshotChanged` event to the shared event capability registry
+- exposed `freedomShell.onTabSnapshotChanged(callback)` from the package preload
+- shell API tab commands now emit snapshot events only when the serializable tab snapshot actually changes
+- updated the fixture package smoke to prove a failed tab command emits a command result but no snapshot-change event
 
 Verification in this phase so far:
 
@@ -230,6 +235,11 @@ Verification in this phase so far:
 - Committed and pushed `47fb38e` (`feat(shell): emit package tab command events`).
 - GitHub Actions run `27981261751`, job `test` (`82811643732`), passed for `47fb38e`.
 - GitHub Actions run `27981261751`, job `e2e-chrome-runtime` (`82811643557`), passed for `47fb38e`.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/shell-tabs.test.js src/main/package-preload.test.js src/main/chrome-package.test.js src/main/shell-api.test.js` passed after snapshot-change event changes: 5 suites, 34 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after snapshot-change event changes: 7 tests.
+- `npm run lint` passed after snapshot-change event changes.
+- `npm test` passed after snapshot-change event changes: 109 suites passed, 5 skipped; 2058 tests passed, 17 skipped.
+- `git diff --check` passed after snapshot-change event changes.
 
 ## Next Step
 

@@ -51,6 +51,7 @@ describe('package-preload', () => {
       'reloadTab',
       'goHome',
       'onTabCommandResult',
+      'onTabSnapshotChanged',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -134,12 +135,14 @@ describe('package-preload', () => {
     });
   });
 
-  test('subscribes to package-visible tab command result events', () => {
+  test('subscribes to package-visible tab events', () => {
     const { exposures, ipcRenderer } = loadPackagePreload();
-    const callback = jest.fn();
+    const commandCallback = jest.fn();
+    const snapshotCallback = jest.fn();
 
-    const cleanup = exposures.freedomShell.onTabCommandResult(callback);
-    const [handler] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
+    const cleanupCommand = exposures.freedomShell.onTabCommandResult(commandCallback);
+    const cleanupSnapshot = exposures.freedomShell.onTabSnapshotChanged(snapshotCallback);
+    const [commandHandler, snapshotHandler] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
 
     ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
@@ -150,22 +153,36 @@ describe('package-preload', () => {
       },
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED,
+      data: {
+        activeTabId: 2,
+        tabs: [{ id: 2 }],
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: 'unrelated.event',
       data: {
         ok: true,
       },
     });
 
-    expect(callback).toHaveBeenCalledTimes(1);
-    expect(callback).toHaveBeenCalledWith({
+    expect(commandCallback).toHaveBeenCalledTimes(1);
+    expect(commandCallback).toHaveBeenCalledWith({
       ok: true,
       command: SHELL_API_METHODS.TABS_CREATE,
       tabId: 2,
     });
+    expect(snapshotCallback).toHaveBeenCalledTimes(1);
+    expect(snapshotCallback).toHaveBeenCalledWith({
+      activeTabId: 2,
+      tabs: [{ id: 2 }],
+    });
 
-    cleanup();
+    cleanupCommand();
+    cleanupSnapshot();
 
-    expect(ipcRenderer.removeListener).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, handler);
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, commandHandler);
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, snapshotHandler);
     expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });
 });

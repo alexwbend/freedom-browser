@@ -182,6 +182,13 @@ describe('shell-api', () => {
       },
     });
     expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED,
+      data: expect.objectContaining({
+        activeTabId: 2,
+        tabs: expect.arrayContaining([expect.objectContaining({ id: 2 })]),
+      }),
+    });
+    expect(sender.send).toHaveBeenNthCalledWith(1, IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
       data: expect.objectContaining({
         ok: true,
@@ -190,6 +197,7 @@ describe('shell-api', () => {
       }),
     });
 
+    sender.send.mockClear();
     await expect(
       mod.handleShellRequest(
         { sender },
@@ -201,7 +209,7 @@ describe('shell-api', () => {
       tabId: 2,
       url: 'https://example.org',
     });
-    expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+    expect(sender.send).toHaveBeenNthCalledWith(1, IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
       data: expect.objectContaining({
         ok: true,
@@ -210,23 +218,90 @@ describe('shell-api', () => {
         url: 'https://example.org',
       }),
     });
+    expect(sender.send).toHaveBeenNthCalledWith(2, IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED,
+      data: expect.objectContaining({
+        tabs: expect.arrayContaining([
+          expect.objectContaining({ id: 2, url: 'https://example.org' }),
+        ]),
+      }),
+    });
 
+    sender.send.mockClear();
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'tabs.close', args: [{ tabId: 999 }] })
+    ).resolves.toMatchObject({
+      ok: false,
+      command: 'tabs.close',
+      snapshotChanged: false,
+      error: {
+        code: 'TAB_NOT_FOUND',
+      },
+    });
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: expect.objectContaining({
+        ok: false,
+        command: 'tabs.close',
+        snapshotChanged: false,
+      }),
+    });
+
+    sender.send.mockClear();
     await expect(
       mod.handleShellRequest({ sender }, { method: 'tabs.close', args: [{ tabId: 2 }] })
     ).resolves.toMatchObject({
       ok: true,
       command: 'tabs.close',
       tabId: 2,
+      snapshotChanged: true,
       snapshot: {
         activeTabId: 1,
       },
     });
-    expect(sender.send).toHaveBeenLastCalledWith(IPC.SHELL_EVENT, {
+    expect(sender.send).toHaveBeenNthCalledWith(1, IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
       data: expect.objectContaining({
         ok: true,
         command: 'tabs.close',
         tabId: 2,
+      }),
+    });
+    expect(sender.send).toHaveBeenNthCalledWith(2, IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED,
+      data: expect.objectContaining({
+        activeTabId: 1,
+        tabs: [expect.objectContaining({ id: 1 })],
+      }),
+    });
+  });
+
+  test('does not emit read-gated tab snapshot events to write-only callers', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 102 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['tabs.write'] }), {
+      tabRegistry: createShellTabRegistry({ homeUrl: 'freedom://home' }),
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: 'tabs.create', args: [{ url: 'https://example.com' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: 'tabs.create',
+      snapshotChanged: true,
+    });
+
+    expect(sender.send).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
+      data: expect.objectContaining({
+        ok: true,
+        command: 'tabs.create',
+        snapshotChanged: true,
       }),
     });
   });

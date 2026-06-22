@@ -113,14 +113,18 @@ class ShellTabRegistry {
 
   makeCommandResult(command, mutator) {
     const commandId = `tab-command-${++this.commandSequence}`;
+    const beforeVersion = this.snapshotVersion;
     const result = mutator();
+    const snapshot = this.getSnapshot();
+    const snapshotChanged = snapshot.version !== beforeVersion;
     if (!result.ok) {
       return {
         ok: false,
         commandId,
         command,
         error: result.error,
-        snapshot: this.getSnapshot(),
+        snapshotChanged,
+        snapshot,
       };
     }
     return {
@@ -128,7 +132,8 @@ class ShellTabRegistry {
       commandId,
       command,
       ...result.value,
-      snapshot: this.getSnapshot(),
+      snapshotChanged,
+      snapshot,
     };
   }
 

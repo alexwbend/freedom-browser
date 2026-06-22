@@ -30,6 +30,7 @@ describe('shell-tabs', () => {
       commandId: 'tab-command-1',
       command: 'tabs.create',
       tabId: 2,
+      snapshotChanged: true,
       snapshot: {
         activeTabId: 2,
       },
@@ -43,6 +44,7 @@ describe('shell-tabs', () => {
       command: 'tabs.navigate',
       tabId: 2,
       url: 'https://example.org/path',
+      snapshotChanged: true,
       snapshot: {
         tabs: expect.arrayContaining([
           expect.objectContaining({ id: 2, url: 'https://example.org/path' }),
@@ -70,6 +72,7 @@ describe('shell-tabs', () => {
       command: 'tabs.reload',
       tabId: 2,
       url: 'freedom://home',
+      snapshotChanged: false,
     });
     expect(registry.closeTab({ tabId: 2 })).toMatchObject({
       ok: true,
@@ -91,6 +94,7 @@ describe('shell-tabs', () => {
       error: {
         code: 'TAB_COMMAND_OPTIONS_INVALID',
       },
+      snapshotChanged: false,
       snapshot: initialSnapshot,
     });
     expect(registry.navigateTab({ tabId: 1, url: {} })).toMatchObject({
@@ -98,6 +102,7 @@ describe('shell-tabs', () => {
       error: {
         code: 'TAB_URL_INVALID',
       },
+      snapshotChanged: false,
       snapshot: initialSnapshot,
     });
     expect(registry.activateTab({ tabId: 99 })).toMatchObject({
@@ -106,6 +111,7 @@ describe('shell-tabs', () => {
         code: 'TAB_NOT_FOUND',
         tabId: 99,
       },
+      snapshotChanged: false,
       snapshot: initialSnapshot,
     });
     expect(registry.closeTab({ tabId: 1 })).toMatchObject({
@@ -113,6 +119,7 @@ describe('shell-tabs', () => {
       error: {
         code: 'TAB_CLOSE_LAST_UNSUPPORTED',
       },
+      snapshotChanged: false,
       snapshot: initialSnapshot,
     });
   });
