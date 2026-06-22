@@ -196,7 +196,7 @@ Phase 1 gate evidence:
 
 ### Phase 2 Main-Owned Tab Model And Commands
 
-Current checkpoint: deterministic shell navigation protocol matrix passed locally; remote CI evidence is pending.
+Current checkpoint: deterministic shell navigation protocol matrix passed locally and in GitHub target CI jobs in `b106e02`.
 
 Implemented in this phase so far:
 
@@ -252,6 +252,9 @@ Verification in this phase so far:
 - `npm run lint` passed after deterministic navigation matrix changes.
 - `npm test` passed after deterministic navigation matrix changes: 109 suites passed, 5 skipped; 2062 tests passed, 17 skipped.
 - `git diff --check` passed after deterministic navigation matrix changes.
+- Committed and pushed `b106e02` (`feat(shell): expand navigation protocol matrix`).
+- GitHub Actions run `27982563535`, job `test` (`82816095622`), passed for `b106e02`.
+- GitHub Actions run `27982563535`, job `e2e-chrome-runtime` (`82816095384`), passed for `b106e02`.
 
 ## Next Step
 
