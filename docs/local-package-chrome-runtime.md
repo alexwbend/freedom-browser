@@ -1,0 +1,151 @@
+# Local Package Chrome Runtime v0
+
+Freedom Browser can run either the bundled browser chrome or an explicit local
+development chrome package.
+
+This is a development/runtime canary for the future Swarm-delivered chrome
+roadmap. It is not a package installer, update channel, signing system, theme
+runtime, or public third-party chrome ABI.
+
+## Runtime Modes
+
+### Bundled Chrome
+
+Bundled chrome is the default and recovery path. Launching normally uses
+`src/renderer/index.html`, the existing broad trusted preload, and `<webview>`
+support:
+
+```bash
+npm start
+```
+
+The bundled path must keep working before and after any package-runtime change.
+Use the launched smoke test as the guard:
+
+```bash
+xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js
+```
+
+### Local Package Chrome
+
+Local package chrome is opt-in for one launch only. Use an absolute package
+directory path:
+
+```bash
+FREEDOM_CHROME_PACKAGE_DIR="$PWD/test/fixtures/chrome-packages/minimal" npm start
+```
+
+The CLI flag is also supported and wins over the environment variable:
+
+```bash
+npm start -- --chrome-package="$PWD/test/fixtures/chrome-packages/minimal"
+```
+
+Local package chrome uses `src/main/package-preload.js`, disables `<webview>`,
+and receives only `window.freedomShell`.
+
+## Manifest v0
+
+The local package directory must contain `manifest.json`:
+
+```json
+{
+  "manifestVersion": 1,
+  "packageType": "browser-chrome",
+  "packageId": "baby.freedom.chrome.fixture",
+  "name": "Freedom Fixture Chrome",
+  "version": "0.0.1",
+  "entry": "index.html",
+  "shellCompatibility": {
+    "minShellApi": "0.1.0",
+    "maxShellApi": "0.1.x"
+  },
+  "capabilities": ["shell.info", "shell.ready", "navigation.resolve"]
+}
+```
+
+Validation is intentionally local and conservative:
+
+- package path must be absolute
+- manifest must be valid JSON
+- `manifestVersion` must be `1`
+- `packageType` must be `browser-chrome`
+- package id, name, version, and entry are required strings
+- shell API compatibility must include `minShellApi` and `maxShellApi`
+- entry must be relative and resolve inside the package directory
+- entry must exist and be a file
+
+Package selection is not persisted in v0.
+
+## Shell API v0
+
+`window.freedomShell` is exposed as a frozen object. Current methods:
+
+- `getInfo()`
+- `resolveNavigationInput(input)`
+- `markReady()`
+
+`getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
+app version, platform, package id/name/version/source, declared capabilities,
+and fallback state.
+
+`resolveNavigationInput(input)` proves package code crosses the shell bridge for
+navigation parsing. The v0 resolver handles basic `http`, `https`, bare domain,
+and `freedom://` inputs. It does not yet mirror the full bundled renderer
+navigation stack for Swarm, IPFS, ENS, or Radicle.
+
+`markReady()` tells the shell that the package initialized. If a local package
+does not call `markReady()` within the readiness timeout, Freedom creates a new
+bundled chrome window and destroys the failed package window. The default
+timeout is 5000 ms; tests can override it with
+`FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS`.
+
+The package preload must not expose broad first-party APIs such as
+`electronAPI`, `wallet`, `identity`, `swarmProvider`, `swarmPermissions`, or
+`dappPermissions`.
+
+## Recovery
+
+Freedom falls back to bundled safe chrome when:
+
+- the package directory is missing
+- the manifest is missing or malformed
+- the manifest declares an incompatible shell API range
+- the entry path escapes the package root
+- the entry file is missing
+- the package entry fails to load
+- the package does not signal readiness
+
+Recovery does not depend on Swarm, IPFS, ENS, or live network access.
+
+## Verification
+
+Focused unit tests:
+
+```bash
+npm test -- src/main/chrome-package.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js
+```
+
+Bundled chrome smoke:
+
+```bash
+xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js
+```
+
+Package-mode and fallback smoke:
+
+```bash
+xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js
+```
+
+Full local gate:
+
+```bash
+npm run lint
+npm test
+xvfb-run -a npm run test:e2e
+```
+
+GitHub Actions does not yet run the bundled/package chrome smoke specs directly.
+Adding that Linux/Xvfb job requires a workflow-scoped credential or a
+user-authored workflow change.

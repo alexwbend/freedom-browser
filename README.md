@@ -417,6 +417,19 @@ npm start
 
 Edit `src/renderer/pages/home.html` to customize the welcome view shown on startup or when clicking Home.
 
+### Local Package Chrome Runtime
+
+Bundled chrome remains the default browser UI. For development, Freedom can also
+launch a local chrome package with the narrow `window.freedomShell` preload:
+
+```bash
+FREEDOM_CHROME_PACKAGE_DIR="$PWD/test/fixtures/chrome-packages/minimal" npm start
+```
+
+See [`docs/local-package-chrome-runtime.md`](docs/local-package-chrome-runtime.md)
+for the manifest shape, shell API v0, recovery behavior, and smoke-test
+commands.
+
 ---
 
 ## NPM Scripts
@@ -503,7 +516,7 @@ Two Playwright projects live under `test-e2e/`. The harness suite is run manuall
 
 | Suite | Command | Files | What it does |
 | --- | --- | --- | --- |
-| `harness` | `npm run test:e2e` | `test-e2e/*.spec.js` | Launches Electron with `FREEDOM_TEST_MODE=1`. The in-process harness in `src/main/test-harness.js` stubs Ant/IPFS startup, ENS resolution, the Swarm probe, and the `bzz:` / `ipfs:` / `ipns:` protocol handlers, so specs are fast (~15 s end-to-end), deterministic, and require no network or downloaded binaries. Covers address-bar normalisation, tabs, bookmarks, settings persistence, and the error-page flow. |
+| `harness` | `npm run test:e2e` | `test-e2e/*.spec.js` | Launches Electron with `FREEDOM_TEST_MODE=1`. The in-process harness in `src/main/test-harness.js` stubs Ant/IPFS startup, ENS resolution, the Swarm probe, and the `bzz:` / `ipfs:` / `ipns:` protocol handlers, so specs are fast, deterministic, and require no network or downloaded binaries. Covers address-bar normalisation, tabs, bookmarks, settings persistence, the error-page flow, bundled chrome startup, local package chrome, and package fallback. |
 | `live` | `npm run test:e2e:live` | `test-e2e/live/*.spec.js` | Launches Electron without the harness — actual Ant + native IPFS startup, live ENS resolution, real `bzz://` / `ipfs://` protocol handlers. The live smoke waits for Swarm peers and for native IPFS to report running, then navigates to `meinhard.eth` (Swarm) and `vitalik.eth` (IPFS). Requires `npm run ant:download` and `npm run ipfs:download` first; missing binaries/addons skip before Electron launches. |
 
 Both suites use a per-run temp `userData` directory (`FREEDOM_TEST_USER_DATA`) so they never touch your real settings, bookmarks, or history. Sequential runs only (`workers: 1`) — Electron + protocol-scheme registration and Ant port detection don't tolerate parallel app instances.
