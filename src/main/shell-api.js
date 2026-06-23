@@ -32,6 +32,7 @@ const SURFACE_MODE = 'shell-owned-placeholder';
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
 const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
 const MAX_CONTEXT_URL_LENGTH = 4096;
+const MAX_FAVICON_URL_LENGTH = 4096;
 const shellCommandHandlers = {
   onNewWindow: null,
   onCheckForUpdates: null,
@@ -351,11 +352,59 @@ function addHistoryForShell(entry) {
   return require('./history').addHistoryEntry({ url, title, protocol });
 }
 
+function removeHistoryForShell(payload = {}) {
+  const id = Number(payload?.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    return false;
+  }
+  return require('./history').removeHistoryEntry(id);
+}
+
+function clearHistoryForShell() {
+  return require('./history').clearHistory();
+}
+
 function getCachedFaviconForShell(url) {
   if (typeof url !== 'string' || !url.trim()) {
     return null;
   }
   return require('./favicons').getCachedFavicon(url.trim());
+}
+
+function normalizeFaviconUrl(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const url = value.trim();
+  if (!url || url.length > MAX_FAVICON_URL_LENGTH) {
+    return null;
+  }
+  return url;
+}
+
+function getFaviconForShell(url) {
+  const normalized = normalizeFaviconUrl(url);
+  if (!normalized) {
+    return null;
+  }
+  return require('./favicons').getFavicon(normalized);
+}
+
+function fetchFaviconForShell(url) {
+  const normalized = normalizeFaviconUrl(url);
+  if (!normalized || !/^https?:\/\//i.test(normalized)) {
+    return null;
+  }
+  return require('./favicons').fetchFavicon(normalized);
+}
+
+function fetchFaviconWithKeyForShell(payload = {}) {
+  const fetchUrl = normalizeFaviconUrl(payload?.fetchUrl);
+  const cacheKey = normalizeFaviconUrl(payload?.cacheKey);
+  if (!fetchUrl || !cacheKey || !/^https?:\/\//i.test(fetchUrl)) {
+    return null;
+  }
+  return require('./favicons').fetchFavicon(fetchUrl, cacheKey);
 }
 
 function serializeProfileForShell(profile, options = {}) {
@@ -1072,8 +1121,23 @@ const METHODS = Object.freeze({
   [SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD]: {
     handler: ([entry]) => addHistoryForShell(entry),
   },
+  [SHELL_API_METHODS.BROWSER_STATE_HISTORY_REMOVE]: {
+    handler: ([payload]) => removeHistoryForShell(payload),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_HISTORY_CLEAR]: {
+    handler: () => clearHistoryForShell(),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET]: {
+    handler: ([url]) => getFaviconForShell(url),
+  },
   [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED]: {
     handler: ([url]) => getCachedFaviconForShell(url),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH]: {
+    handler: ([url]) => fetchFaviconForShell(url),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH_WITH_KEY]: {
+    handler: ([payload]) => fetchFaviconWithKeyForShell(payload),
   },
   [SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE]: {
     handler: () => getActiveProfileForShell(),

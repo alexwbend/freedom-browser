@@ -1565,3 +1565,66 @@ Known remaining gaps after this checkpoint:
 - `readClipboardText()` remains intentionally unavailable to package chrome;
   visible paste behavior must continue to rely on browser-mediated paste paths
   rather than a package shell clipboard-read API
+
+### Chrome UI Checkpoint 5: History Management And Favicon Fetch
+
+Current checkpoint: package chrome no longer returns silent `false`/`null`
+defaults for the remaining visible history and favicon browser-state methods.
+History delete/clear now use narrow shell-owned history-write methods, and
+favicon fetch/cache writes use a separate `browserState.favicons.write`
+capability so cached reads stay distinct from shell-owned network/cache writes.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capability mappings:
+  - `browserState.history.remove` / `browserState.history.write`
+  - `browserState.history.clear` / `browserState.history.write`
+  - `browserState.favicons.get` / `browserState.favicons.write`
+  - `browserState.favicons.fetch` / `browserState.favicons.write`
+  - `browserState.favicons.fetchWithKey` / `browserState.favicons.write`
+- exposed matching package preload methods:
+  - `removeHistory(id)`
+  - `clearHistory()`
+  - `getFavicon(url)`
+  - `fetchFavicon(url)`
+  - `fetchFaviconWithKey(fetchUrl, cacheKey)`
+- added main-process handlers that normalize history IDs and favicon URLs before
+  delegating to the existing history and favicon stores
+- kept `getCachedFavicon(url)` on the read-only favicon capability while
+  network/cache-writing favicon methods require `browserState.favicons.write`
+- updated the package runtime adapter so `removeHistory`, `clearHistory`,
+  `getFavicon`, `fetchFavicon`, and `fetchFaviconWithKey` delegate to
+  `freedomShell` with safe fallbacks only when shell support is unavailable
+- granted the generated official local chrome package manifest
+  `browserState.favicons.write`
+- expanded official package smoke coverage so package mode proves history
+  remove/clear and favicon fetch/cache writes through `freedomShell`
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed:
+  4 suites, 49 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed because
+  `FREEDOM_TEST_MODE` routes Electron HTTP fetches through the harness HTTP
+  stub, so favicon bytes differ from the local server fixture. The smoke now
+  asserts the package contract: a data URL is returned and cached under the
+  package cache key.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm test` passed: 115 suites passed, 5 skipped; 2143 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- `readClipboardText()` remains intentionally unavailable to package chrome;
+  visible paste behavior must continue to rely on browser-mediated paste paths
+  rather than a package shell clipboard-read API
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed

@@ -51,7 +51,12 @@ describe('chrome-runtime-api', () => {
         title: 'History',
         url: 'https://history.example',
       }),
+      removeHistory: jest.fn().mockResolvedValue(true),
+      clearHistory: jest.fn().mockResolvedValue(1),
+      getFavicon: jest.fn().mockResolvedValue('data:image/png;base64,Z2V0'),
       getCachedFavicon: jest.fn().mockResolvedValue('data:image/png;base64,ZmF2'),
+      fetchFavicon: jest.fn().mockResolvedValue('data:image/png;base64,ZmV0Y2g'),
+      fetchFaviconWithKey: jest.fn().mockResolvedValue('data:image/png;base64,a2V5'),
       getActiveProfile: jest.fn().mockResolvedValue({
         id: 'test',
         displayName: 'Test',
@@ -124,9 +129,23 @@ describe('chrome-runtime-api', () => {
       title: 'History',
       url: 'https://history.example',
     });
+    await expect(api.removeHistory(7)).resolves.toBe(true);
+    await expect(api.clearHistory()).resolves.toBe(1);
+    await expect(api.getFavicon('https://history.example')).resolves.toBe(
+      'data:image/png;base64,Z2V0'
+    );
     await expect(api.getCachedFavicon('https://history.example')).resolves.toBe(
       'data:image/png;base64,ZmF2'
     );
+    await expect(api.fetchFavicon('https://history.example')).resolves.toBe(
+      'data:image/png;base64,ZmV0Y2g'
+    );
+    await expect(
+      api.fetchFaviconWithKey(
+        'https://gateway.example/ipfs/cid/index.html',
+        'ipfs://cid/index.html'
+      )
+    ).resolves.toBe('data:image/png;base64,a2V5');
     await expect(api.getActiveProfile()).resolves.toEqual({
       id: 'test',
       displayName: 'Test',
@@ -246,7 +265,15 @@ describe('chrome-runtime-api', () => {
       title: 'History',
       url: 'https://history.example',
     });
+    expect(freedomShell.removeHistory).toHaveBeenCalledWith(7);
+    expect(freedomShell.clearHistory).toHaveBeenCalledTimes(1);
+    expect(freedomShell.getFavicon).toHaveBeenCalledWith('https://history.example');
     expect(freedomShell.getCachedFavicon).toHaveBeenCalledWith('https://history.example');
+    expect(freedomShell.fetchFavicon).toHaveBeenCalledWith('https://history.example');
+    expect(freedomShell.fetchFaviconWithKey).toHaveBeenCalledWith(
+      'https://gateway.example/ipfs/cid/index.html',
+      'ipfs://cid/index.html'
+    );
     expect(freedomShell.getActiveProfile).toHaveBeenCalledTimes(1);
     expect(freedomShell.listProfiles).toHaveBeenCalledTimes(1);
     expect(freedomShell.onCloseMenusRequested).toHaveBeenCalledWith(callbacks.closeMenus);
@@ -289,7 +316,17 @@ describe('chrome-runtime-api', () => {
     );
     await expect(api.getHistory({ limit: 5 })).resolves.toEqual([]);
     await expect(api.addHistory({ url: 'https://history.example' })).resolves.toBe(false);
+    await expect(api.removeHistory(7)).resolves.toBe(false);
+    await expect(api.clearHistory()).resolves.toBe(false);
+    await expect(api.getFavicon('https://history.example')).resolves.toBeNull();
     await expect(api.getCachedFavicon('https://history.example')).resolves.toBeNull();
+    await expect(api.fetchFavicon('https://history.example')).resolves.toBeNull();
+    await expect(
+      api.fetchFaviconWithKey(
+        'https://gateway.example/ipfs/cid/index.html',
+        'ipfs://cid/index.html'
+      )
+    ).resolves.toBeNull();
     await expect(api.getActiveProfile()).resolves.toBeNull();
     await expect(api.listProfiles()).resolves.toEqual({
       success: false,

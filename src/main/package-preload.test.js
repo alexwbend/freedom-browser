@@ -60,7 +60,12 @@ describe('package-preload', () => {
       'removeBookmark',
       'getHistory',
       'addHistory',
+      'removeHistory',
+      'clearHistory',
+      'getFavicon',
       'getCachedFavicon',
+      'fetchFavicon',
+      'fetchFaviconWithKey',
       'getActiveProfile',
       'listProfiles',
       'getServiceRegistry',
@@ -270,10 +275,48 @@ describe('package-preload', () => {
       args: [{ url: 'https://history.example', title: 'History', protocol: 'https' }],
     });
 
+    await exposures.freedomShell.removeHistory(7);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_REMOVE,
+      args: [{ id: 7 }],
+    });
+
+    await exposures.freedomShell.clearHistory();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_CLEAR,
+      args: [],
+    });
+
+    await exposures.freedomShell.getFavicon('https://history.example');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET,
+      args: ['https://history.example'],
+    });
+
     await exposures.freedomShell.getCachedFavicon('https://history.example');
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED,
       args: ['https://history.example'],
+    });
+
+    await exposures.freedomShell.fetchFavicon('https://history.example');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH,
+      args: ['https://history.example'],
+    });
+
+    await exposures.freedomShell.fetchFaviconWithKey(
+      'https://gateway.example/ipfs/cid/index.html',
+      'ipfs://cid/index.html'
+    );
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH_WITH_KEY,
+      args: [
+        {
+          fetchUrl: 'https://gateway.example/ipfs/cid/index.html',
+          cacheKey: 'ipfs://cid/index.html',
+        },
+      ],
     });
 
     await exposures.freedomShell.getActiveProfile();

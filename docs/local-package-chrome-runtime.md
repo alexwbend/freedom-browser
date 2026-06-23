@@ -195,6 +195,7 @@ The local package directory must contain `manifest.json`:
     "browserState.history.read",
     "browserState.history.write",
     "browserState.favicons.read",
+    "browserState.favicons.write",
     "browserState.profiles.read",
     "services.read",
     "chrome.ui.commands",
@@ -356,7 +357,12 @@ running Radicle network.
 - `removeBookmark(target)`
 - `getHistory(options)`
 - `addHistory(entry)`
+- `removeHistory(id)`
+- `clearHistory()`
+- `getFavicon(url)`
 - `getCachedFavicon(url)`
+- `fetchFavicon(url)`
+- `fetchFaviconWithKey(fetchUrl, cacheKey)`
 - `getActiveProfile()`
 - `listProfiles()`
 - `getServiceRegistry()`
@@ -458,9 +464,12 @@ interstitial gating, and sidebar dimensions; service/node/provider-oriented
 settings in the same payload are ignored by main. The bookmark methods provide
 read/write access to the existing bookmark store so the official package
 bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
-`getHistory()` and `addHistory()` expose the existing history store to package
-autocomplete and navigation recording. `getCachedFavicon()` exposes cached icon
-data only; package chrome does not receive the network favicon fetch APIs.
+`getHistory()`, `addHistory()`, `removeHistory()`, and `clearHistory()` expose
+the existing history store to package autocomplete, navigation recording, and
+visible history-management controls. `getCachedFavicon()` exposes cached icon
+data, while `getFavicon()`, `fetchFavicon()`, and `fetchFaviconWithKey()` use a
+separate favicon-write capability because those calls may perform a
+shell-owned network favicon lookup and update the favicon cache.
 `getActiveProfile()` and `listProfiles()` expose display-only profile data for
 the profile indicator/menu. They do not expose profile roots, user data
 directories, node configuration, timestamps, catalog metadata, or profile
@@ -571,8 +580,11 @@ must be allowed by the package manifest's declared capabilities:
 - `browserState.bookmarks.read` allows `getBookmarks()`
 - `browserState.bookmarks.write` allows bookmark add/update/remove methods
 - `browserState.history.read` allows `getHistory(options)`
-- `browserState.history.write` allows `addHistory(entry)`
+- `browserState.history.write` allows `addHistory(entry)`,
+  `removeHistory(id)`, and `clearHistory()`
 - `browserState.favicons.read` allows `getCachedFavicon(url)`
+- `browserState.favicons.write` allows `getFavicon(url)`,
+  `fetchFavicon(url)`, and `fetchFaviconWithKey(fetchUrl, cacheKey)`
 - `browserState.profiles.read` allows `getActiveProfile()`,
   `listProfiles()`, and `onProfileUpdated(callback)`
 - `services.read` allows `getServiceRegistry()`, `getServiceStatus(service)`,

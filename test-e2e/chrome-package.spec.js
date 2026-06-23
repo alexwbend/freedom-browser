@@ -1,5 +1,6 @@
 const { test, expect, _electron: electron } = require('@playwright/test');
 const fs = require('fs');
+const http = require('http');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
@@ -13,6 +14,7 @@ const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
 const providerIpfsCid = `bafybeib${'b'.repeat(51)}`;
 const sampleIpnsName = 'example.ipns';
 const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+const faviconFixtureBytes = Buffer.from('package-favicon-fixture', 'utf8');
 
 function hashFileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -71,6 +73,35 @@ async function launchFreedom(extraEnv = {}, options = {}) {
       }
     },
   };
+}
+
+function startFaviconFixtureServer() {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      if (req.url === '/page') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end('<!doctype html><title>Favicon Fixture</title><link rel="icon" href="/icon.png">');
+        return;
+      }
+      if (req.url === '/icon.png') {
+        res.writeHead(200, { 'content-type': 'image/png' });
+        res.end(faviconFixtureBytes);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('not found');
+    });
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      resolve({
+        origin: `http://127.0.0.1:${port}`,
+        async close() {
+          await new Promise((closeResolve) => server.close(closeResolve));
+        },
+      });
+    });
+  });
 }
 
 function writePackage(root, manifestOverrides = {}, options = {}) {
@@ -168,6 +199,7 @@ function writeOfficialChromePackage(root) {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'browserState.favicons.write',
           'browserState.profiles.read',
           'services.read',
           'chrome.ui.commands',
@@ -632,7 +664,12 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'removeBookmark',
         'getHistory',
         'addHistory',
+        'removeHistory',
+        'clearHistory',
+        'getFavicon',
         'getCachedFavicon',
+        'fetchFavicon',
+        'fetchFaviconWithKey',
         'getActiveProfile',
         'listProfiles',
         'getServiceRegistry',
@@ -1312,6 +1349,7 @@ test('official browser chrome can launch as a local package with transitional we
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
   const packageDir = path.join(parent, 'official');
   writeOfficialChromePackage(packageDir);
+  const faviconServer = await startFaviconFixtureServer();
 
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: packageDir,
@@ -1473,6 +1511,56 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#radicle-nodes-section')).toBeHidden();
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).not.toHaveClass(/open/);
+
+    const browserState = await page.evaluate(
+      async ({ faviconPageUrl, faviconCacheKey }) => {
+        const removeUrl = 'https://package-history-remove.example/';
+        const clearUrl = 'https://package-history-clear.example/';
+        const addedForRemove = await window.freedomShell.addHistory({
+          url: removeUrl,
+          title: 'Package History Remove',
+          protocol: 'https',
+        });
+        const removeId =
+          addedForRemove?.id ||
+          (await window.freedomShell.getHistory({ query: removeUrl, limit: 1 }))[0]?.id;
+        const removed = await window.freedomShell.removeHistory(removeId);
+        const afterRemove = await window.freedomShell.getHistory({ query: removeUrl, limit: 5 });
+
+        await window.freedomShell.addHistory({
+          url: clearUrl,
+          title: 'Package History Clear',
+          protocol: 'https',
+        });
+        const clearCount = await window.freedomShell.clearHistory();
+        const afterClear = await window.freedomShell.getHistory({ query: clearUrl, limit: 5 });
+
+        const fetchedFavicon = await window.freedomShell.fetchFaviconWithKey(
+          faviconPageUrl,
+          faviconCacheKey
+        );
+        const cachedFavicon = await window.freedomShell.getCachedFavicon(faviconCacheKey);
+
+        return {
+          removed,
+          afterRemoveCount: afterRemove.length,
+          clearCount,
+          afterClearCount: afterClear.length,
+          fetchedFavicon,
+          cachedFavicon,
+        };
+      },
+      {
+        faviconPageUrl: `${faviconServer.origin}/page`,
+        faviconCacheKey: 'ipfs://package-favicon-fixture/index.html',
+      }
+    );
+    expect(browserState.removed).toBe(true);
+    expect(browserState.afterRemoveCount).toBe(0);
+    expect(browserState.clearCount).toBeGreaterThanOrEqual(1);
+    expect(browserState.afterClearCount).toBe(0);
+    expect(browserState.fetchedFavicon).toMatch(/^data:/);
+    expect(browserState.cachedFavicon).toBe(browserState.fetchedFavicon);
 
     const shellProfileState = await page.evaluate(async () => ({
       active: await window.freedomShell.getActiveProfile(),
@@ -1828,6 +1916,7 @@ test('official browser chrome can launch as a local package with transitional we
     rendererErrors.assertClean();
   } finally {
     await launched.close();
+    await faviconServer.close();
     fs.rmSync(parent, { recursive: true, force: true });
   }
 });

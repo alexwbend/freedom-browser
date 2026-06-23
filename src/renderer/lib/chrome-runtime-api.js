@@ -145,8 +145,8 @@ const createPackageRuntimeApi = () =>
       getRuntimeWindow().freedomShell?.invalidateEnsContent?.(name),
     getHistory: (options) => callFreedomShell('getHistory', [], options),
     addHistory: (entry) => callFreedomShell('addHistory', false, entry),
-    removeHistory: asyncFalse,
-    clearHistory: asyncFalse,
+    removeHistory: (id) => callFreedomShell('removeHistory', false, id),
+    clearHistory: () => callFreedomShell('clearHistory', false),
     x402GetDetails: asyncNull,
     x402Approve: asyncFalse,
     x402Reject: asyncFalse,
@@ -183,10 +183,11 @@ const createPackageRuntimeApi = () =>
         unavailableResult('IMAGE_COPY_UNAVAILABLE', 'Image copy is unavailable'),
         imageUrl
       ),
-    getFavicon: asyncNull,
+    getFavicon: (url) => callFreedomShell('getFavicon', null, url),
     getCachedFavicon: (url) => callFreedomShell('getCachedFavicon', null, url),
-    fetchFavicon: asyncNull,
-    fetchFaviconWithKey: asyncNull,
+    fetchFavicon: (url) => callFreedomShell('fetchFavicon', null, url),
+    fetchFaviconWithKey: (fetchUrl, cacheKey) =>
+      callFreedomShell('fetchFaviconWithKey', null, fetchUrl, cacheKey),
   });
 
 export const getChromeRuntimeApi = () => {

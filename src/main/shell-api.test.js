@@ -17,7 +17,11 @@ const mockGetAllHistory = jest.fn();
 const mockGetRecentHistory = jest.fn();
 const mockSearchHistory = jest.fn();
 const mockAddHistoryEntry = jest.fn();
+const mockRemoveHistoryEntry = jest.fn();
+const mockClearHistory = jest.fn();
+const mockGetFavicon = jest.fn();
 const mockGetCachedFavicon = jest.fn();
+const mockFetchFavicon = jest.fn();
 const mockGetActiveProfile = jest.fn();
 const mockListProfilesForActiveApp = jest.fn();
 const mockGetPackageVisibleRegistry = jest.fn();
@@ -93,9 +97,13 @@ function loadShellApi(options = {}) {
         getRecentHistory: mockGetRecentHistory,
         searchHistory: mockSearchHistory,
         addHistoryEntry: mockAddHistoryEntry,
+        removeHistoryEntry: mockRemoveHistoryEntry,
+        clearHistory: mockClearHistory,
       }),
       [FAVICONS_MODULE]: () => ({
+        getFavicon: mockGetFavicon,
         getCachedFavicon: mockGetCachedFavicon,
+        fetchFavicon: mockFetchFavicon,
       }),
       [PROFILE_RESOLVER_MODULE]: () => ({
         getActiveProfile: mockGetActiveProfile,
@@ -145,7 +153,11 @@ describe('shell-api', () => {
     mockGetRecentHistory.mockReset();
     mockSearchHistory.mockReset();
     mockAddHistoryEntry.mockReset();
+    mockRemoveHistoryEntry.mockReset();
+    mockClearHistory.mockReset();
+    mockGetFavicon.mockReset();
     mockGetCachedFavicon.mockReset();
+    mockFetchFavicon.mockReset();
     mockGetActiveProfile.mockReset();
     mockListProfilesForActiveApp.mockReset();
     mockGetPackageVisibleRegistry.mockReset();
@@ -686,6 +698,7 @@ describe('shell-api', () => {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'browserState.favicons.write',
           'browserState.profiles.read',
         ],
       })
@@ -711,7 +724,13 @@ describe('shell-api', () => {
       title: 'Added History',
       protocol: 'https',
     });
+    mockRemoveHistoryEntry.mockReturnValue(true);
+    mockClearHistory.mockReturnValue(2);
+    mockGetFavicon.mockResolvedValue('data:image/png;base64,Z2V0');
     mockGetCachedFavicon.mockReturnValue('data:image/png;base64,ZmF2');
+    mockFetchFavicon
+      .mockResolvedValueOnce('data:image/png;base64,ZmV0Y2g')
+      .mockResolvedValueOnce('data:image/png;base64,a2V5');
     mockGetActiveProfile.mockReturnValue({
       id: 'test',
       displayName: 'Test',
@@ -891,6 +910,30 @@ describe('shell-api', () => {
     await expect(
       mod.handleShellRequest(
         { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_REMOVE, args: [{ id: 7 }] }
+      )
+    ).resolves.toBe(true);
+    expect(mockRemoveHistoryEntry).toHaveBeenCalledWith(7);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_CLEAR, args: [] }
+      )
+    ).resolves.toBe(2);
+    expect(mockClearHistory).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET, args: [' https://favicon.example '] }
+      )
+    ).resolves.toBe('data:image/png;base64,Z2V0');
+    expect(mockGetFavicon).toHaveBeenCalledWith('https://favicon.example');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
         {
           method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED,
           args: [' https://favicon.example '],
@@ -898,6 +941,36 @@ describe('shell-api', () => {
       )
     ).resolves.toBe('data:image/png;base64,ZmF2');
     expect(mockGetCachedFavicon).toHaveBeenCalledWith('https://favicon.example');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH,
+          args: [' https://favicon.example/page '],
+        }
+      )
+    ).resolves.toBe('data:image/png;base64,ZmV0Y2g');
+    expect(mockFetchFavicon).toHaveBeenCalledWith('https://favicon.example/page');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH_WITH_KEY,
+          args: [
+            {
+              fetchUrl: ' https://gateway.example/ipfs/cid/index.html ',
+              cacheKey: ' ipfs://cid/index.html ',
+            },
+          ],
+        }
+      )
+    ).resolves.toBe('data:image/png;base64,a2V5');
+    expect(mockFetchFavicon).toHaveBeenLastCalledWith(
+      'https://gateway.example/ipfs/cid/index.html',
+      'ipfs://cid/index.html'
+    );
 
     const activeProfile = await mod.handleShellRequest(
       { sender },
@@ -1918,7 +1991,13 @@ describe('shell-api', () => {
     const sender = makeSender({ id: 105 });
     mod.registerPackageWebContents(
       sender,
-      makePackage({ capabilities: ['browserState.bookmarks.write', 'browserState.history.write'] })
+      makePackage({
+        capabilities: [
+          'browserState.bookmarks.write',
+          'browserState.history.write',
+          'browserState.favicons.write',
+        ],
+      })
     );
 
     await expect(
@@ -1945,10 +2024,40 @@ describe('shell-api', () => {
         { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD, args: [{}] }
       )
     ).resolves.toBeNull();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_REMOVE, args: [{ id: 'bad' }] }
+      )
+    ).resolves.toBe(false);
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET, args: [''] }
+      )
+    ).resolves.toBeNull();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH, args: ['file:///tmp/icon'] }
+      )
+    ).resolves.toBeNull();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_FETCH_WITH_KEY,
+          args: [{ fetchUrl: 'https://favicon.example', cacheKey: '' }],
+        }
+      )
+    ).resolves.toBeNull();
     expect(mockAddBookmark).not.toHaveBeenCalled();
     expect(mockUpdateBookmark).not.toHaveBeenCalled();
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
     expect(mockAddHistoryEntry).not.toHaveBeenCalled();
+    expect(mockRemoveHistoryEntry).not.toHaveBeenCalled();
+    expect(mockGetFavicon).not.toHaveBeenCalled();
+    expect(mockFetchFavicon).not.toHaveBeenCalled();
   });
 
   test('clones shell API handler results before returning them', async () => {
