@@ -294,6 +294,8 @@ The official package smoke currently proves:
 - package chrome receives `window.freedomShell` but not broad preload globals
 - the initial tab and home page render
 - default bookmarks render through the browser-state shell API
+- visible bookmark add, edit, and delete controls use the
+  browser-state shell API in package mode
 - package-safe settings writes persist through the browser-state shell API
   without allowing package chrome to mutate service/provider settings
 - the profile indicator/menu renders the active profile through a read-only

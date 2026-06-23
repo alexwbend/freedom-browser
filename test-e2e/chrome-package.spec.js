@@ -1434,6 +1434,106 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
 
+    const bookmarkUiCid = `bafybeib${'c'.repeat(51)}`;
+    const editedBookmarkUiCid = `bafybeib${'d'.repeat(51)}`;
+    const bookmarkUiUrl = `ipfs://${bookmarkUiCid}/`;
+    const editedBookmarkUiUrl = `ipfs://${editedBookmarkUiCid}/`;
+    const showBookmarkContextMenu = async (targetUrl) => {
+      await page.evaluate((bookmarkTarget) => {
+        const candidates = Array.from(
+          document.querySelectorAll('.bookmark, .bookmarks-overflow-item')
+        );
+        const bookmark = candidates.find((candidate) => candidate.dataset.hash === bookmarkTarget);
+        if (!bookmark) {
+          throw new Error(`Bookmark not rendered for ${bookmarkTarget}`);
+        }
+        const rect = bookmark.getBoundingClientRect();
+        bookmark.dispatchEvent(
+          new MouseEvent('contextmenu', {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + 4,
+            clientY: rect.top + 4,
+          })
+        );
+      }, targetUrl);
+      await expect(page.locator('.context-menu:not(.hidden) [data-action="edit"]')).toBeVisible();
+      await expect(page.locator('.context-menu:not(.hidden) [data-action="delete"]')).toBeVisible();
+    };
+    const submitBookmarkModal = async () => {
+      await page.locator('#add-bookmark-form').evaluate((form) => form.requestSubmit());
+    };
+
+    await setContentFixture(launched.app, bookmarkUiUrl, {
+      body:
+        '<!doctype html><title>Package Bookmark UI</title><p data-test="bookmark-ui-page">bookmark ui fixture</p>',
+    });
+    await navigateAddress(page, bookmarkUiUrl);
+    await expectActiveWebviewText(page, '[data-test="bookmark-ui-page"]', 'bookmark ui fixture');
+    await expect(page.locator('[data-test="add-bookmark-btn"]')).toBeVisible();
+    await page.locator('[data-test="add-bookmark-btn"]').click();
+    await expect(page.locator('#add-bookmark-modal')).toBeVisible();
+    await expect(page.locator('#bookmark-modal-title')).toHaveText('Add Bookmark');
+    await page.locator('#bookmark-label').fill('Package UI Bookmark');
+    await submitBookmarkModal();
+    await expect
+      .poll(() =>
+        page.evaluate((target) => {
+          return window.freedomShell
+            .getBookmarks()
+            .then((bookmarks) =>
+              bookmarks.some(
+                (bookmark) =>
+                  bookmark.target === target && bookmark.label === 'Package UI Bookmark'
+              )
+            );
+        }, bookmarkUiUrl)
+      )
+      .toBe(true);
+    await expect(page.locator('#add-bookmark-modal')).not.toBeVisible();
+
+    await showBookmarkContextMenu(bookmarkUiUrl);
+    await page.locator('.context-menu:not(.hidden) [data-action="edit"]').click();
+    await expect(page.locator('#add-bookmark-modal')).toBeVisible();
+    await expect(page.locator('#bookmark-modal-title')).toHaveText('Edit Bookmark');
+    await page.locator('#bookmark-label').fill('Package UI Bookmark Edited');
+    await page.locator('#bookmark-target').fill(editedBookmarkUiUrl);
+    await submitBookmarkModal();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ oldTarget, newTarget }) => {
+            return window.freedomShell.getBookmarks().then((bookmarks) => ({
+              hasOld: bookmarks.some((bookmark) => bookmark.target === oldTarget),
+              hasEdited: bookmarks.some(
+                (bookmark) =>
+                  bookmark.target === newTarget &&
+                  bookmark.label === 'Package UI Bookmark Edited'
+              ),
+            }));
+          },
+          { oldTarget: bookmarkUiUrl, newTarget: editedBookmarkUiUrl }
+        )
+      )
+      .toEqual({ hasOld: false, hasEdited: true });
+    await expect(page.locator('#add-bookmark-modal')).not.toBeVisible();
+
+    await showBookmarkContextMenu(editedBookmarkUiUrl);
+    await page.locator('.context-menu:not(.hidden) [data-action="delete"]').click();
+    await expect
+      .poll(() =>
+        page.evaluate((target) => {
+          return window.freedomShell
+            .getBookmarks()
+            .then((bookmarks) => bookmarks.some((bookmark) => bookmark.target === target));
+        }, editedBookmarkUiUrl)
+      )
+      .toBe(false);
+    await expect(page.locator('[data-test="add-bookmark-btn"]')).not.toHaveClass(/bookmarked/);
+
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
+
     const input = page.locator('[data-test="address-input"]');
     await input.click();
     await input.fill(firstDefaultBookmark.label);
