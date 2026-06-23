@@ -1413,6 +1413,12 @@ Verification in this checkpoint so far:
 - `npm run lint` passed.
 - `npm test` passed: 114 suites passed, 5 skipped; 2134 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- committed as `2874bd4` (`feat(chrome): add package profile display state`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28050614655`, job `test` (`83039937637`), passed for
+  `2874bd4`.
+- GitHub Actions run `28050614655`, job `e2e-chrome-runtime`
+  (`83039937551`), passed for `2874bd4`.
 
 Known remaining gaps after this checkpoint:
 
