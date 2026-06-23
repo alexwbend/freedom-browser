@@ -308,6 +308,7 @@ async function initProfileIndicator() {
   const createStatus = document.getElementById('profile-create-status');
   if (!indicator || !nameEl) return;
 
+  const packageMode = isPackageChromeRuntime();
   let activeProfile = null;
   let creatingProfile = false;
 
@@ -370,6 +371,7 @@ async function initProfileIndicator() {
 
   const profileMetaText = (profile, isCurrent) => {
     if (isCurrent) return 'Current profile';
+    if (packageMode) return 'Open from bundled profile UI';
     if (profile?.isUnregistered) return 'Needs registration';
     return 'Open in new window';
   };
@@ -395,13 +397,15 @@ async function initProfileIndicator() {
 
     for (const profile of rows) {
       const isCurrent = profile?.isActive === true || profile?.id === activeProfile?.id;
+      const disabledForPackageMode = packageMode && !isCurrent;
       const displayName = profile?.displayName || profile?.id || 'Unnamed profile';
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'profile-menu-item profile-menu-profile-item';
       button.setAttribute('role', 'menuitem');
-      button.disabled = isCurrent;
+      button.disabled = isCurrent || disabledForPackageMode;
       if (isCurrent) button.setAttribute('aria-current', 'true');
+      if (disabledForPackageMode) button.setAttribute('aria-disabled', 'true');
 
       const check = document.createElement('span');
       check.className = 'profile-menu-check';
@@ -421,7 +425,7 @@ async function initProfileIndicator() {
       text.append(label, meta);
       button.append(check, text);
 
-      if (!isCurrent) {
+      if (!isCurrent && !disabledForPackageMode) {
         button.addEventListener('click', async () => {
           button.disabled = true;
           setMenuStatus(`Opening ${displayName}...`, 'success');
@@ -459,6 +463,11 @@ async function initProfileIndicator() {
 
   closeProfileMenu = () => setMenuOpen(false);
 
+  if (packageMode && createBtn) {
+    createBtn.disabled = true;
+    createBtn.title = 'Profile creation is shell-owned in package mode';
+  }
+
   indicator.addEventListener('click', (event) => {
     event.stopPropagation();
     const shouldOpen = menu?.hidden !== false;
@@ -467,7 +476,13 @@ async function initProfileIndicator() {
     if (shouldOpen) refreshProfileList();
   });
 
-  createBtn?.addEventListener('click', openCreateModal);
+  createBtn?.addEventListener('click', () => {
+    if (packageMode) {
+      setMenuStatus('Profile creation is shell-owned in package mode', 'error');
+      return;
+    }
+    openCreateModal();
+  });
   manageBtn?.addEventListener('click', () => openProfilesSettings());
   createCancelBtn?.addEventListener('click', closeCreateModal);
   createCloseBtn?.addEventListener('click', closeCreateModal);
@@ -480,6 +495,10 @@ async function initProfileIndicator() {
   createForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (creatingProfile) return;
+    if (packageMode) {
+      setCreateStatus('Profile creation is shell-owned in package mode', 'error');
+      return;
+    }
 
     const displayName = createNameInput?.value.trim();
     if (!displayName) {

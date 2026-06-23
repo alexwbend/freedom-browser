@@ -195,6 +195,7 @@ The local package directory must contain `manifest.json`:
     "browserState.history.read",
     "browserState.history.write",
     "browserState.favicons.read",
+    "browserState.profiles.read",
     "chrome.ui.commands",
     "windows.control",
     "windows.open",
@@ -291,6 +292,9 @@ The official package smoke currently proves:
 - default bookmarks render through the browser-state shell API
 - package-safe settings writes persist through the browser-state shell API
   without allowing package chrome to mutate service/provider settings
+- the profile indicator/menu renders the active profile through a read-only
+  profile shell API, while profile creation and switching controls are disabled
+  in package mode
 - clicking a default bookmark navigates under the deterministic harness
 - autocomplete includes bookmark and recorded-history suggestions in package
   mode
@@ -339,6 +343,8 @@ running Radicle network.
 - `getHistory(options)`
 - `addHistory(entry)`
 - `getCachedFavicon(url)`
+- `getActiveProfile()`
+- `listProfiles()`
 - `getSurfaceState(surface)`
 - `openSurface(surface)`
 - `closeSurface(surface)`
@@ -384,6 +390,7 @@ running Radicle network.
 - `onMoveTabRightRequested(callback)`
 - `onReopenClosedTabRequested(callback)`
 - `onToggleBookmarkBarRequested(callback)`
+- `onProfileUpdated(callback)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -432,6 +439,13 @@ bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
 `getHistory()` and `addHistory()` expose the existing history store to package
 autocomplete and navigation recording. `getCachedFavicon()` exposes cached icon
 data only; package chrome does not receive the network favicon fetch APIs.
+`getActiveProfile()` and `listProfiles()` expose display-only profile data for
+the profile indicator/menu. They do not expose profile roots, user data
+directories, node configuration, timestamps, catalog metadata, or profile
+mutation authority. In non-catalog launches, `listProfiles()` returns an
+active-only list so package chrome can render the current profile without
+claiming profile switching support. Profile creation and profile switching
+remain shell-owned/bundled-only until a scoped trusted switching surface exists.
 These APIs return serializable data only and do not expose file paths or store
 internals.
 
@@ -495,6 +509,10 @@ the same `shell:event` channel, require `chrome.ui.commands`, and are delivered
 only to registered package windows. Bundled chrome keeps its legacy direct IPC
 path.
 
+`onProfileUpdated(callback)` delivers sanitized profile display changes over
+`shell:event` to package windows that declare `browserState.profiles.read`.
+Bundled chrome keeps the existing profile IPC path for trusted profile UI.
+
 Every shell API request must come from a registered local package window and
 must be allowed by the package manifest's declared capabilities:
 
@@ -511,6 +529,8 @@ must be allowed by the package manifest's declared capabilities:
 - `browserState.history.read` allows `getHistory(options)`
 - `browserState.history.write` allows `addHistory(entry)`
 - `browserState.favicons.read` allows `getCachedFavicon(url)`
+- `browserState.profiles.read` allows `getActiveProfile()`,
+  `listProfiles()`, and `onProfileUpdated(callback)`
 - `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
   `openSurface("wallet")`, `closeSurface("wallet")`, and
   `toggleSurface("wallet")`

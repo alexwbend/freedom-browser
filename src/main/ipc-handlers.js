@@ -9,7 +9,12 @@ const { loadSettings } = require('./settings-store');
 const { fetchBuffer, fetchToFile } = require('./http-fetch');
 const { success, failure, validateWebContentsId } = require('./ipc-contract');
 const IPC = require('../shared/ipc-channels');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { startProbe: startSwarmProbe, cancelProbe: cancelSwarmProbe } = require('./swarm/swarm-probe');
+const {
+  emitShellEventToPackageWebContents,
+  serializeProfileForShell,
+} = require('./shell-api');
 const {
   createProfileForActiveApp,
   deleteProfileForActiveApp,
@@ -152,9 +157,15 @@ function serializeActiveProfile() {
 function broadcastProfileUpdated(profile = serializeActiveProfile()) {
   if (!webContents?.getAllWebContents) return;
 
+  const shellProfile = serializeProfileForShell(profile, { isActive: true });
   for (const contents of webContents.getAllWebContents()) {
     try {
       contents.send(IPC.PROFILE_UPDATED, profile);
+      emitShellEventToPackageWebContents(
+        contents,
+        SHELL_API_EVENTS.BROWSER_STATE_PROFILE_UPDATED,
+        shellProfile
+      );
     } catch {
       // The target may have been destroyed between enumeration and send.
     }

@@ -52,6 +52,15 @@ describe('chrome-runtime-api', () => {
         url: 'https://history.example',
       }),
       getCachedFavicon: jest.fn().mockResolvedValue('data:image/png;base64,ZmF2'),
+      getActiveProfile: jest.fn().mockResolvedValue({
+        id: 'test',
+        displayName: 'Test',
+        isActive: true,
+      }),
+      listProfiles: jest.fn().mockResolvedValue({
+        success: true,
+        profiles: [{ id: 'test', displayName: 'Test', isActive: true }],
+      }),
       resolveEns: jest.fn().mockResolvedValue({ type: 'not_found' }),
       invalidateEnsContent: jest.fn().mockResolvedValue(true),
       setWindowTitle: jest.fn().mockResolvedValue({ ok: true }),
@@ -77,6 +86,7 @@ describe('chrome-runtime-api', () => {
       onNextTabRequested: jest.fn(() => 'cleanup-next-tab'),
       onPrevTabRequested: jest.fn(() => 'cleanup-prev-tab'),
       onToggleBookmarkBarRequested: jest.fn(() => 'cleanup-toggle-bookmark-bar'),
+      onProfileUpdated: jest.fn(() => 'cleanup-profile-updated'),
     };
     const mod = await loadModule({ freedomShell });
     const api = mod.getChromeRuntimeApi();
@@ -114,6 +124,23 @@ describe('chrome-runtime-api', () => {
     await expect(api.getCachedFavicon('https://history.example')).resolves.toBe(
       'data:image/png;base64,ZmF2'
     );
+    await expect(api.getActiveProfile()).resolves.toEqual({
+      id: 'test',
+      displayName: 'Test',
+      isActive: true,
+    });
+    await expect(api.listProfiles()).resolves.toEqual({
+      success: true,
+      profiles: [{ id: 'test', displayName: 'Test', isActive: true }],
+    });
+    await expect(api.createProfile({ displayName: 'Work' })).resolves.toMatchObject({
+      success: false,
+      error: { code: 'PROFILE_PACKAGE_MUTATION_UNAVAILABLE' },
+    });
+    await expect(api.openProfile('work')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'PROFILE_PACKAGE_MUTATION_UNAVAILABLE' },
+    });
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
@@ -144,6 +171,7 @@ describe('chrome-runtime-api', () => {
       nextTab: jest.fn(),
       prevTab: jest.fn(),
       toggleBookmarkBar: jest.fn(),
+      profileUpdated: jest.fn(),
     };
     expect(api.onCloseMenus(callbacks.closeMenus)).toBe('cleanup-close-menus');
     expect(api.onFocusAddressBar(callbacks.focusAddressBar)).toBe(
@@ -159,6 +187,7 @@ describe('chrome-runtime-api', () => {
     expect(api.onToggleBookmarkBar(callbacks.toggleBookmarkBar)).toBe(
       'cleanup-toggle-bookmark-bar'
     );
+    expect(api.onProfileUpdated(callbacks.profileUpdated)).toBe('cleanup-profile-updated');
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.setWindowTitle).toHaveBeenCalledWith('Loaded Title');
@@ -194,6 +223,8 @@ describe('chrome-runtime-api', () => {
       url: 'https://history.example',
     });
     expect(freedomShell.getCachedFavicon).toHaveBeenCalledWith('https://history.example');
+    expect(freedomShell.getActiveProfile).toHaveBeenCalledTimes(1);
+    expect(freedomShell.listProfiles).toHaveBeenCalledTimes(1);
     expect(freedomShell.onCloseMenusRequested).toHaveBeenCalledWith(callbacks.closeMenus);
     expect(freedomShell.onFocusAddressBarRequested).toHaveBeenCalledWith(
       callbacks.focusAddressBar
@@ -212,6 +243,7 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.onToggleBookmarkBarRequested).toHaveBeenCalledWith(
       callbacks.toggleBookmarkBar
     );
+    expect(freedomShell.onProfileUpdated).toHaveBeenCalledWith(callbacks.profileUpdated);
     expect(global.window.electronAPI).toBeUndefined();
   });
 
@@ -234,6 +266,15 @@ describe('chrome-runtime-api', () => {
     await expect(api.getHistory({ limit: 5 })).resolves.toEqual([]);
     await expect(api.addHistory({ url: 'https://history.example' })).resolves.toBe(false);
     await expect(api.getCachedFavicon('https://history.example')).resolves.toBeNull();
+    await expect(api.getActiveProfile()).resolves.toBeNull();
+    await expect(api.listProfiles()).resolves.toEqual({
+      success: false,
+      profiles: [],
+      error: {
+        code: 'PROFILE_READ_UNAVAILABLE',
+        message: 'Profile list unavailable',
+      },
+    });
   });
 
   test('marks package chrome ready through freedomShell', async () => {

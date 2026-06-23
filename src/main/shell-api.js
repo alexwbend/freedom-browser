@@ -354,6 +354,59 @@ function getCachedFaviconForShell(url) {
   return require('./favicons').getCachedFavicon(url.trim());
 }
 
+function serializeProfileForShell(profile, options = {}) {
+  if (!profile || typeof profile !== 'object') {
+    return null;
+  }
+
+  const id = typeof profile.id === 'string' ? profile.id : '';
+  const displayName = typeof profile.displayName === 'string' ? profile.displayName : '';
+  if (!id && !displayName) {
+    return null;
+  }
+
+  const serialized = {};
+  if (id) serialized.id = id;
+  if (displayName) serialized.displayName = displayName;
+  if (typeof profile.source === 'string') serialized.source = profile.source;
+  serialized.isDev = profile.isDev === true;
+  if (profile.isActive === true || options.isActive === true) {
+    serialized.isActive = true;
+  }
+  if (profile.isUnregistered === true) {
+    serialized.isUnregistered = true;
+  }
+  return serialized;
+}
+
+function getActiveProfileForShell() {
+  const { getActiveProfile } = require('./profile-resolver');
+  return serializeProfileForShell(getActiveProfile(), { isActive: true });
+}
+
+function listProfilesForShell() {
+  const { listProfilesForActiveApp } = require('./profile-resolver');
+  const activeProfile = getActiveProfileForShell();
+  const profiles = listProfilesForActiveApp();
+  if (!profiles) {
+    return {
+      success: true,
+      profiles: activeProfile ? [activeProfile] : [],
+    };
+  }
+
+  return {
+    success: true,
+    profiles: profiles
+      .map((profile) =>
+        serializeProfileForShell(profile, {
+          isActive: profile?.isActive === true || profile?.id === activeProfile?.id,
+        })
+      )
+      .filter(Boolean),
+  };
+}
+
 function getSurfaceName(payload) {
   if (typeof payload === 'string') {
     return payload.trim();
@@ -829,6 +882,12 @@ const METHODS = Object.freeze({
   [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED]: {
     handler: ([url]) => getCachedFaviconForShell(url),
   },
+  [SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE]: {
+    handler: () => getActiveProfileForShell(),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST]: {
+    handler: () => listProfilesForShell(),
+  },
   [SHELL_API_METHODS.SURFACES_GET_STATE]: {
     handler: ([payload], _event, caller) => describeSurfaceState(caller, getSurfaceName(payload)),
   },
@@ -994,4 +1053,5 @@ module.exports = {
   onPackageReady,
   registerPackageWebContents,
   registerShellApiIpc,
+  serializeProfileForShell,
 };

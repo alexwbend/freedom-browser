@@ -18,12 +18,15 @@ const mockGetRecentHistory = jest.fn();
 const mockSearchHistory = jest.fn();
 const mockAddHistoryEntry = jest.fn();
 const mockGetCachedFavicon = jest.fn();
+const mockGetActiveProfile = jest.fn();
+const mockListProfilesForActiveApp = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
 const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
 const HISTORY_MODULE = require.resolve('./history');
 const FAVICONS_MODULE = require.resolve('./favicons');
+const PROFILE_RESOLVER_MODULE = require.resolve('./profile-resolver');
 
 function makeSender(overrides = {}) {
   return {
@@ -79,6 +82,10 @@ function loadShellApi(options = {}) {
       [FAVICONS_MODULE]: () => ({
         getCachedFavicon: mockGetCachedFavicon,
       }),
+      [PROFILE_RESOLVER_MODULE]: () => ({
+        getActiveProfile: mockGetActiveProfile,
+        listProfilesForActiveApp: mockListProfilesForActiveApp,
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -104,6 +111,8 @@ describe('shell-api', () => {
     mockSearchHistory.mockReset();
     mockAddHistoryEntry.mockReset();
     mockGetCachedFavicon.mockReset();
+    mockGetActiveProfile.mockReset();
+    mockListProfilesForActiveApp.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -632,6 +641,7 @@ describe('shell-api', () => {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'browserState.profiles.read',
         ],
       })
     );
@@ -657,6 +667,38 @@ describe('shell-api', () => {
       protocol: 'https',
     });
     mockGetCachedFavicon.mockReturnValue('data:image/png;base64,ZmF2');
+    mockGetActiveProfile.mockReturnValue({
+      id: 'test',
+      displayName: 'Test',
+      source: 'test-user-data',
+      isDev: true,
+      appRoot: '/tmp/private-app-root',
+      userDataDir: '/tmp/private-user-data',
+      metadata: {
+        slot: 1,
+        nodes: {
+          bee: { mode: 'managed' },
+        },
+      },
+    });
+    mockListProfilesForActiveApp.mockReturnValue([
+      {
+        id: 'test',
+        displayName: 'Test',
+        isActive: true,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        nodes: {
+          bee: { mode: 'managed' },
+        },
+      },
+      {
+        id: 'work',
+        displayName: 'Work',
+        isActive: false,
+        isUnregistered: true,
+        lastOpenedAt: '2026-01-02T00:00:00.000Z',
+      },
+    ]);
 
     const settingsResult = await mod.handleShellRequest(
       { sender },
@@ -812,6 +854,46 @@ describe('shell-api', () => {
     ).resolves.toBe('data:image/png;base64,ZmF2');
     expect(mockGetCachedFavicon).toHaveBeenCalledWith('https://favicon.example');
 
+    const activeProfile = await mod.handleShellRequest(
+      { sender },
+      { method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE, args: [] }
+    );
+    expect(activeProfile).toEqual({
+      id: 'test',
+      displayName: 'Test',
+      source: 'test-user-data',
+      isDev: true,
+      isActive: true,
+    });
+    expect(JSON.stringify(activeProfile)).not.toContain('/tmp/private');
+    expect(activeProfile).not.toHaveProperty('metadata');
+    expect(activeProfile).not.toHaveProperty('nodes');
+
+    const profileList = await mod.handleShellRequest(
+      { sender },
+      { method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST, args: [] }
+    );
+    expect(profileList).toEqual({
+      success: true,
+      profiles: [
+        {
+          id: 'test',
+          displayName: 'Test',
+          isDev: false,
+          isActive: true,
+        },
+        {
+          id: 'work',
+          displayName: 'Work',
+          isDev: false,
+          isUnregistered: true,
+        },
+      ],
+    });
+    expect(JSON.stringify(profileList)).not.toContain('createdAt');
+    expect(JSON.stringify(profileList)).not.toContain('lastOpenedAt');
+    expect(JSON.stringify(profileList)).not.toContain('nodes');
+
     settings.theme = 'mutated';
     expect(settingsResult.theme).toBe('system');
   });
@@ -859,6 +941,53 @@ describe('shell-api', () => {
         method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET,
         requiredCapability: 'browserState.history.read',
       },
+    });
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE,
+        requiredCapability: 'browserState.profiles.read',
+      },
+    });
+  });
+
+  test('returns an active-only profile list outside profile catalog launches', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 105 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['browserState.profiles.read'] })
+    );
+    mockGetActiveProfile.mockReturnValue({
+      id: 'test',
+      displayName: 'Test',
+      source: 'test-user-data',
+      isDev: true,
+      userDataDir: '/tmp/private-test-user-data',
+    });
+    mockListProfilesForActiveApp.mockReturnValue(null);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST, args: [] }
+      )
+    ).resolves.toEqual({
+      success: true,
+      profiles: [
+        {
+          id: 'test',
+          displayName: 'Test',
+          source: 'test-user-data',
+          isDev: true,
+          isActive: true,
+        },
+      ],
     });
   });
 

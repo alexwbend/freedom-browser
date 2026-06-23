@@ -5,6 +5,13 @@ const asyncNull = async () => null;
 const asyncFalse = async () => false;
 const asyncEmptyArray = async () => [];
 const asyncSuccess = async () => ({ success: true });
+const asyncProfileMutationUnavailable = async () => ({
+  success: false,
+  error: {
+    code: 'PROFILE_PACKAGE_MUTATION_UNAVAILABLE',
+    message: 'Profile creation and switching are shell-owned in package mode',
+  },
+});
 
 const DEFAULT_SETTINGS = Object.freeze({
   theme: 'system',
@@ -67,13 +74,21 @@ const createPackageRuntimeApi = () =>
       const info = await getPackageInfo();
       return info?.platform || 'linux';
     },
-    getActiveProfile: asyncNull,
-    listProfiles: asyncEmptyArray,
-    createProfile: asyncNull,
-    openProfile: asyncFalse,
+    getActiveProfile: () => callFreedomShell('getActiveProfile', null),
+    listProfiles: () =>
+      callFreedomShell('listProfiles', {
+        success: false,
+        profiles: [],
+        error: {
+          code: 'PROFILE_READ_UNAVAILABLE',
+          message: 'Profile list unavailable',
+        },
+      }),
+    createProfile: asyncProfileMutationUnavailable,
+    openProfile: asyncProfileMutationUnavailable,
     resolveExternalNodeCandidates: noop,
     onExternalNodeCandidates: () => noopDisposer,
-    onProfileUpdated: () => noopDisposer,
+    onProfileUpdated: (callback) => subscribeFreedomShell('onProfileUpdated', callback),
     onCloseMenus: (callback) => subscribeFreedomShell('onCloseMenusRequested', callback),
     onOpenPublishSetup: () => noopDisposer,
     onUpdateNotification: () => noopDisposer,

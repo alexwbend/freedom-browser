@@ -39,6 +39,8 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_GET: 'browserState.history.get',
       BROWSER_STATE_HISTORY_ADD: 'browserState.history.add',
       BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
+      BROWSER_STATE_PROFILES_GET_ACTIVE: 'browserState.profiles.getActive',
+      BROWSER_STATE_PROFILES_LIST: 'browserState.profiles.list',
       SURFACES_GET_STATE: 'surfaces.getState',
       SURFACES_OPEN: 'surfaces.open',
       SURFACES_CLOSE: 'surfaces.close',
@@ -84,6 +86,8 @@ describe('shell-api-policy', () => {
       'browserState.history.get': 'browserState.history.read',
       'browserState.history.add': 'browserState.history.write',
       'browserState.favicons.getCached': 'browserState.favicons.read',
+      'browserState.profiles.getActive': 'browserState.profiles.read',
+      'browserState.profiles.list': 'browserState.profiles.read',
       'surfaces.getState': 'surfaces.wallet.control',
       'surfaces.open': 'surfaces.wallet.control',
       'surfaces.close': 'surfaces.wallet.control',
@@ -125,6 +129,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_READ: 'browserState.history.read',
       BROWSER_STATE_HISTORY_WRITE: 'browserState.history.write',
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
+      BROWSER_STATE_PROFILES_READ: 'browserState.profiles.read',
       SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
       TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
       APP_ABOUT: 'app.about',
@@ -154,6 +159,7 @@ describe('shell-api-policy', () => {
       CHROME_MOVE_TAB_RIGHT_REQUESTED: 'chrome.commands.moveTabRight',
       CHROME_REOPEN_CLOSED_TAB_REQUESTED: 'chrome.commands.reopenClosedTab',
       CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED: 'chrome.commands.toggleBookmarkBar',
+      BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
     });
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
       'tabs.commandResult': 'tabs.write',
@@ -176,6 +182,7 @@ describe('shell-api-policy', () => {
       'chrome.commands.moveTabRight': 'chrome.ui.commands',
       'chrome.commands.reopenClosedTab': 'chrome.ui.commands',
       'chrome.commands.toggleBookmarkBar': 'chrome.ui.commands',
+      'browserState.profiles.updated': 'browserState.profiles.read',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'app.about',
@@ -185,6 +192,7 @@ describe('shell-api-policy', () => {
       'browserState.favicons.read',
       'browserState.history.read',
       'browserState.history.write',
+      'browserState.profiles.read',
       'browserState.settings.read',
       'browserState.settings.write',
       'chrome.ui.commands',

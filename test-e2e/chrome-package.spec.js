@@ -168,6 +168,7 @@ function writeOfficialChromePackage(root) {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'browserState.profiles.read',
           'chrome.ui.commands',
           'windows.control',
           'windows.open',
@@ -593,6 +594,8 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'getHistory',
         'addHistory',
         'getCachedFavicon',
+        'getActiveProfile',
+        'listProfiles',
         'getSurfaceState',
         'openSurface',
         'closeSurface',
@@ -631,6 +634,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'onMoveTabRightRequested',
         'onReopenClosedTabRequested',
         'onToggleBookmarkBarRequested',
+        'onProfileUpdated',
       ],
       hasElectronAPI: false,
       hasWallet: false,
@@ -1380,13 +1384,47 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).not.toHaveClass(/open/);
 
+    const shellProfileState = await page.evaluate(async () => ({
+      active: await window.freedomShell.getActiveProfile(),
+      list: await window.freedomShell.listProfiles(),
+    }));
+    expect(shellProfileState).toEqual({
+      active: {
+        id: 'test',
+        displayName: 'Test',
+        source: 'test-user-data',
+        isDev: true,
+        isActive: true,
+      },
+      list: {
+        success: true,
+        profiles: [
+          {
+            id: 'test',
+            displayName: 'Test',
+            source: 'test-user-data',
+            isDev: true,
+            isActive: true,
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(shellProfileState)).not.toContain('userDataDir');
+    expect(JSON.stringify(shellProfileState)).not.toContain('appRoot');
+    expect(JSON.stringify(shellProfileState)).not.toContain('nodes');
+
     const profileIndicator = page.locator('#profile-indicator');
-    if (await profileIndicator.isVisible()) {
-      await profileIndicator.click();
-      await expect(page.locator('#profile-menu')).toBeVisible();
-      await profileIndicator.click();
-      await expect(page.locator('#profile-menu')).toBeHidden();
-    }
+    await expect(profileIndicator).toBeVisible();
+    await expect(page.locator('#profile-indicator-name')).toHaveText('Test');
+    await profileIndicator.click();
+    await expect(page.locator('#profile-menu')).toBeVisible();
+    await expect(page.locator('#profile-menu-name')).toHaveText('Test');
+    await expect(page.locator('#profile-create-btn')).toBeDisabled();
+    await expect(page.locator('.profile-menu-profile-item')).toHaveCount(1);
+    await expect(page.locator('.profile-menu-profile-item').first()).toContainText('Test');
+    await expect(page.locator('.profile-menu-profile-item').first()).toBeDisabled();
+    await profileIndicator.click();
+    await expect(page.locator('#profile-menu')).toBeHidden();
 
     await page.locator('[data-test="new-tab-btn"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(2);

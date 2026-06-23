@@ -1363,3 +1363,62 @@ Known remaining gaps after this checkpoint:
   context actions, direct context-menu open-in-new-window smoke, and some
   history/favicon management methods still need final audit disposition before
   completion
+
+### Browser-State Checkpoint 4: Profile Display Read API
+
+Current checkpoint: package chrome no longer uses null/empty/no-op profile
+adapter methods for the visible profile indicator/menu. Profile display data is
+available through a narrow browser-state shell API, while profile creation and
+switching remain shell-owned and unavailable to package chrome.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capability:
+  - `browserState.profiles.getActive` / `browserState.profiles.read`
+  - `browserState.profiles.list` / `browserState.profiles.read`
+- added the `browserState.profiles.updated` shell event, also gated by
+  `browserState.profiles.read`
+- exposed package preload methods:
+  - `getActiveProfile()`
+  - `listProfiles()`
+  - `onProfileUpdated(callback)`
+- changed `src/renderer/lib/chrome-runtime-api.js` so package profile display
+  reads delegate to `freedomShell`
+- changed package `createProfile()` and `openProfile()` adapter methods to
+  return structured unavailable results instead of silent `null`/`false`
+  defaults
+- kept profile creation/switching out of package chrome authority; visible
+  package-mode profile creation and non-current profile switching controls are
+  disabled until a scoped shell-owned switching surface exists
+- added a package-facing profile serializer that omits profile roots, user data
+  directories, node configuration, timestamps, catalog metadata, and launch
+  details
+- bridged bundled profile-update broadcasts into sanitized package shell events
+  for registered package callers with `browserState.profiles.read`
+- granted the generated official local chrome package manifest
+  `browserState.profiles.read`
+- expanded official package smoke coverage so package mode must render the
+  active `Test` profile, open the profile menu, show an active-only profile
+  list in test-user-data mode, keep profile creation disabled, and prove the
+  shell profile payload does not expose private fields
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/ipc-handlers.test.js` passed: 5 suites, 60 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 114 suites passed, 5 skipped; 2134 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only; a future package
+  request path needs a scoped trusted switching/launch contract before it can
+  be exposed
+- service/node status commands, clipboard/image context actions, direct
+  context-menu open-in-new-window smoke, and some history/favicon management
+  methods still need final audit disposition before completion

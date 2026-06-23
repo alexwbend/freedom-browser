@@ -61,6 +61,8 @@ describe('package-preload', () => {
       'getHistory',
       'addHistory',
       'getCachedFavicon',
+      'getActiveProfile',
+      'listProfiles',
       'getSurfaceState',
       'openSurface',
       'closeSurface',
@@ -99,6 +101,7 @@ describe('package-preload', () => {
       'onMoveTabRightRequested',
       'onReopenClosedTabRequested',
       'onToggleBookmarkBarRequested',
+      'onProfileUpdated',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -265,6 +268,18 @@ describe('package-preload', () => {
       args: ['https://history.example'],
     });
 
+    await exposures.freedomShell.getActiveProfile();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE,
+      args: [],
+    });
+
+    await exposures.freedomShell.listProfiles();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST,
+      args: [],
+    });
+
     await exposures.freedomShell.getSurfaceState('wallet');
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.SURFACES_GET_STATE,
@@ -395,6 +410,7 @@ describe('package-preload', () => {
     const newTabWithUrlCallback = jest.fn();
     const focusAddressBarCallback = jest.fn();
     const toggleBookmarkBarCallback = jest.fn();
+    const profileUpdatedCallback = jest.fn();
 
     const cleanupCommand = exposures.freedomShell.onTabCommandResult(commandCallback);
     const cleanupSnapshot = exposures.freedomShell.onTabSnapshotChanged(snapshotCallback);
@@ -405,6 +421,7 @@ describe('package-preload', () => {
       exposures.freedomShell.onFocusAddressBarRequested(focusAddressBarCallback);
     const cleanupToggleBookmarkBar =
       exposures.freedomShell.onToggleBookmarkBarRequested(toggleBookmarkBarCallback);
+    const cleanupProfileUpdated = exposures.freedomShell.onProfileUpdated(profileUpdatedCallback);
     const [
       commandHandler,
       snapshotHandler,
@@ -412,6 +429,7 @@ describe('package-preload', () => {
       newTabWithUrlHandler,
       focusAddressBarHandler,
       toggleBookmarkBarHandler,
+      profileUpdatedHandler,
     ] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
 
     ipcRenderer.emit(IPC.SHELL_EVENT, {
@@ -449,6 +467,14 @@ describe('package-preload', () => {
       data: {},
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.BROWSER_STATE_PROFILE_UPDATED,
+      data: {
+        id: 'test',
+        displayName: 'Test',
+        isActive: true,
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: 'unrelated.event',
       data: {
         ok: true,
@@ -470,6 +496,11 @@ describe('package-preload', () => {
     expect(newTabWithUrlCallback).toHaveBeenCalledWith('freedom://history', 'history');
     expect(focusAddressBarCallback).toHaveBeenCalledTimes(1);
     expect(toggleBookmarkBarCallback).toHaveBeenCalledTimes(1);
+    expect(profileUpdatedCallback).toHaveBeenCalledWith({
+      id: 'test',
+      displayName: 'Test',
+      isActive: true,
+    });
 
     cleanupCommand();
     cleanupSnapshot();
@@ -477,6 +508,7 @@ describe('package-preload', () => {
     cleanupNewTabWithUrl();
     cleanupFocusAddressBar();
     cleanupToggleBookmarkBar();
+    cleanupProfileUpdated();
 
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, commandHandler);
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, snapshotHandler);
@@ -489,6 +521,10 @@ describe('package-preload', () => {
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,
       toggleBookmarkBarHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      profileUpdatedHandler
     );
     expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });
