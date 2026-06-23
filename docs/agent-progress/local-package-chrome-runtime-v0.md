@@ -1225,8 +1225,12 @@ Verification in this checkpoint:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` initially failed because the fixture smoke's explicit `freedomShell` key list did not include the new `saveSettings` method; the expected narrow API surface list was updated.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the fixture smoke expectation update: 14 tests.
 - `npm test` passed: 114 suites passed, 5 skipped; 2129 passed, 17 skipped.
-- GitHub target CI verification for this settings-write checkpoint is pending
-  until the checkpoint is committed and pushed.
+- committed as `e795018` (`feat(chrome): add package-safe settings writes`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28046465870`, job `test` (`83025718688`), passed for
+  `e795018`.
+- GitHub Actions run `28046465870`, job `e2e-chrome-runtime`
+  (`83025718878`), passed for `e795018`.
 
 Known remaining gaps after this checkpoint:
 
