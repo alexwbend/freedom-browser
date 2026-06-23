@@ -123,9 +123,26 @@ describe('shell-api', () => {
       name: 'Fixture Chrome',
       version: '0.0.1',
       capabilities: ['shell.info'],
+      fallback: {
+        requestedDir: '/tmp/requested-package',
+        error: {
+          code: 'PACKAGE_FILE_HASH_MISMATCH',
+          message: "Chrome package file hash mismatch at '/tmp/package/index.html'",
+          packageRoot: '/tmp/package',
+          path: 'index.html',
+          cause: {
+            code: 'STORE_PACKAGE_INVALID',
+            message: "Cached package failed validation at '/tmp/store/current.json'",
+            installPath: 'packages/pkg/1.0.0/digest',
+            packageRoot: '/tmp/store/packages/pkg/1.0.0/digest',
+          },
+        },
+      },
     });
 
-    expect(mod.getInfo()).toEqual({
+    const info = mod.getInfo();
+
+    expect(info).toEqual({
       shellApiVersion: SHELL_API_VERSION,
       runtimeMode: 'local-package',
       appVersion,
@@ -138,11 +155,24 @@ describe('shell-api', () => {
         name: 'Fixture Chrome',
         version: '0.0.1',
         capabilities: ['shell.info'],
-        fallback: null,
+        fallback: {
+          error: {
+            code: 'PACKAGE_FILE_HASH_MISMATCH',
+            message: "Chrome package file hash mismatch at '[redacted-path]'",
+            path: 'index.html',
+            cause: {
+              code: 'STORE_PACKAGE_INVALID',
+              message: "Cached package failed validation at '[redacted-path]'",
+            },
+          },
+        },
       },
       caller: null,
     });
-    expect(JSON.stringify(mod.getInfo())).not.toContain('/tmp/package');
+    expect(info.chromePackage.fallback.error).not.toHaveProperty('packageRoot');
+    expect(info.chromePackage.fallback.error.cause).not.toHaveProperty('installPath');
+    expect(JSON.stringify(info)).not.toContain('/tmp/package');
+    expect(JSON.stringify(info)).not.toContain('/tmp/store');
   });
 
   test('creates path-free package caller identity', () => {
@@ -260,23 +290,123 @@ describe('shell-api', () => {
   });
 
   test('getInfo reports caller package identity for shell requests', async () => {
-    const { mod } = loadShellApi();
+    const { mod, chromePackage } = loadShellApi();
     const sender = makeSender({ id: 99 });
-    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+    chromePackage.setActiveChromePackage(makePackage({
+      packageId: 'baby.freedom.chrome.global',
+      name: 'Global Chrome',
+      version: '9.9.9',
+      capabilities: ['shell.info'],
+    }));
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({
+        packageId: 'baby.freedom.chrome.caller',
+        name: 'Caller Chrome',
+        version: '1.2.3',
+        capabilities: ['shell.info'],
+      })
+    );
 
     await expect(
       mod.handleShellRequest({ sender }, { method: 'getInfo', args: [] })
     ).resolves.toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.caller',
+        packageType: 'browser-chrome',
+        name: 'Caller Chrome',
+        version: '1.2.3',
+        capabilities: ['shell.info'],
+        fallback: null,
+      },
       caller: {
         runtimeMode: 'local-package',
         source: 'local',
-        packageId: 'baby.freedom.chrome.fixture',
+        packageId: 'baby.freedom.chrome.caller',
         packageType: 'browser-chrome',
-        name: 'Fixture Chrome',
-        version: '0.0.1',
+        name: 'Caller Chrome',
+        version: '1.2.3',
         capabilities: ['shell.info'],
       },
     });
+  });
+
+  test('getInfo keeps package diagnostics scoped to each registered sender', async () => {
+    const { mod, chromePackage } = loadShellApi();
+    const firstSender = makeSender({ id: 201 });
+    const secondSender = makeSender({ id: 202 });
+    chromePackage.setActiveChromePackage(makePackage({
+      packageId: 'baby.freedom.chrome.global',
+      name: 'Global Chrome',
+      version: '9.9.9',
+      capabilities: ['shell.info'],
+    }));
+    mod.registerPackageWebContents(
+      firstSender,
+      makePackage({
+        source: 'store',
+        packageId: 'baby.freedom.chrome.first',
+        name: 'First Chrome',
+        version: '1.0.0',
+        capabilities: ['shell.info'],
+        packageRoot: '/tmp/first-package',
+      })
+    );
+    mod.registerPackageWebContents(
+      secondSender,
+      makePackage({
+        packageId: 'baby.freedom.chrome.second',
+        name: 'Second Chrome',
+        version: '2.0.0',
+        capabilities: ['shell.info'],
+        packageRoot: '/tmp/second-package',
+      })
+    );
+
+    await expect(
+      mod.handleShellRequest({ sender: firstSender }, { method: 'getInfo', args: [] })
+    ).resolves.toMatchObject({
+      chromePackage: {
+        source: 'store',
+        packageId: 'baby.freedom.chrome.first',
+        name: 'First Chrome',
+        version: '1.0.0',
+      },
+      caller: {
+        source: 'store',
+        packageId: 'baby.freedom.chrome.first',
+      },
+    });
+    await expect(
+      mod.handleShellRequest({ sender: secondSender }, { method: 'getInfo', args: [] })
+    ).resolves.toMatchObject({
+      chromePackage: {
+        source: 'local',
+        packageId: 'baby.freedom.chrome.second',
+        name: 'Second Chrome',
+        version: '2.0.0',
+      },
+      caller: {
+        source: 'local',
+        packageId: 'baby.freedom.chrome.second',
+      },
+    });
+
+    const firstInfo = await mod.handleShellRequest(
+      { sender: firstSender },
+      { method: 'getInfo', args: [] }
+    );
+    const secondInfo = await mod.handleShellRequest(
+      { sender: secondSender },
+      { method: 'getInfo', args: [] }
+    );
+    expect(JSON.stringify(firstInfo)).not.toContain('baby.freedom.chrome.global');
+    expect(JSON.stringify(secondInfo)).not.toContain('baby.freedom.chrome.global');
+    expect(JSON.stringify(firstInfo)).not.toContain('/tmp/first-package');
+    expect(JSON.stringify(secondInfo)).not.toContain('/tmp/second-package');
   });
 
   test('handles authorized tab snapshot and command requests', async () => {
@@ -957,7 +1087,10 @@ describe('shell-api', () => {
       ipcMain.handlers.get(IPC.SHELL_REQUEST)({ sender }, { method: 'getInfo', args: [] })
     ).resolves.toMatchObject({
       shellApiVersion: SHELL_API_VERSION,
-      runtimeMode: 'bundled',
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.fixture',
+      },
     });
   });
 });

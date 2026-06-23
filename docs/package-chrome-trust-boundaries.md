@@ -162,3 +162,17 @@ The active package protocol handler:
 This is still a local/offline package-origin model. It does not add Swarm
 download, package signatures, marketplace install UI, or community package
 provenance.
+
+## Runtime Diagnostics Status
+
+Package-visible diagnostics are treated as shell API output, not raw internal
+main-process state. `freedomShell.getInfo()` derives its public package
+descriptor from the registered sender identity for package callers instead of
+the global active package. This keeps multiple package or recovery windows from
+observing another caller's package id, source, version, capabilities, or
+runtime mode through the top-level `chromePackage` field.
+
+Fallback diagnostics exposed through `getInfo()` keep stable error codes and
+safe relative package paths, but strip or redact filesystem roots, requested
+package/feed/store paths, install paths, entry/preload paths, and nested
+validation causes that would otherwise leak local package-store details.

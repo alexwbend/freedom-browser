@@ -338,9 +338,13 @@ running Radicle network.
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
-fallback state, and caller package identity for shell requests. Caller identity
-is path-free and includes package id, package type, name, version, source,
-runtime mode, and declared capabilities.
+fallback state, and caller package identity for shell requests. For package
+callers, the top-level `runtimeMode` and `chromePackage` fields are derived
+from the registered sender identity instead of global active-package state, so
+multiple package or recovery windows cannot observe another caller's package
+descriptor. Caller identity and public fallback diagnostics are path-free and
+include package id, package type, name, version, source, runtime mode, and
+declared capabilities.
 
 `resolveNavigationInput(input)` proves package code crosses the shell bridge for
 navigation parsing. The resolver deterministically classifies `http`, `https`,
@@ -493,7 +497,10 @@ For the same package id:
 
 Cached package metadata is internal. `freedomShell.getInfo()` reports package
 id, name, version, source, runtime mode, capabilities, and fallback diagnostics
-without exposing package filesystem paths.
+without exposing package filesystem paths. Public fallback diagnostics keep
+stable error codes and safe relative package paths where useful, but strip or
+redact internal package roots, store paths, install paths, and preload/entry
+file paths.
 
 Cached package rendering uses the `freedom-chrome://active/` scheme instead of
 raw file URLs. The active scheme maps requests back to the validated package

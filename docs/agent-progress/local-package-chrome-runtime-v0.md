@@ -975,3 +975,46 @@ Known remaining gaps after this checkpoint:
 - package signatures/provenance and Swarm package delivery remain out of scope
 - broad final package UX parity and multi-window diagnostics still need the
   later hardening/final-gate work
+
+### Runtime Diagnostics Checkpoint 1: Sender-Scoped Package Info
+
+Current checkpoint: package-visible `freedomShell.getInfo()` diagnostics are
+now sender-scoped where package identity is public, and fallback error details
+are sanitized before crossing the shell API boundary.
+
+Implemented in this checkpoint:
+
+- changed shell-request `getInfo()` responses to derive the top-level
+  `runtimeMode` and `chromePackage` descriptor from the registered package
+  caller identity instead of global active package state
+- preserved direct internal `getInfo()` diagnostics without a caller as an
+  active-package snapshot
+- kept caller/package descriptors path-free and added fallback diagnostic
+  sanitization for nested validation errors
+- stripped or redacted public diagnostic fields that can reveal package roots,
+  requested package/feed/store paths, install paths, entry/preload paths, file
+  URLs, or absolute filesystem paths
+- added unit coverage for:
+  - fallback diagnostics with nested path-bearing validation causes
+  - a registered package caller whose global active package differs from its
+    sender identity
+  - two registered package senders seeing their own package metadata without
+    seeing the global active package or another sender's path details
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/shell-api.test.js` passed: 1 suite, 21 tests.
+- `npm test -- src/main/shell-api.test.js src/main/package-preload.test.js src/shared/shell-api-policy.test.js src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/chrome-package-protocol.test.js` passed: 6 suites, 69 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 114 suites passed, 5 skipped; 2123 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- GitHub target CI is pending for the checkpoint commit.
+
+Known remaining gaps after this checkpoint:
+
+- this hardens diagnostics only; the final UX parity gate and any remaining
+  no-op package adapter dispositions still need later checkpoint work

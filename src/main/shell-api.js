@@ -27,6 +27,23 @@ const TAB_COMMAND_METHODS = new Set([
 const SUPPORTED_SURFACES = new Set(['wallet']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODE = 'shell-owned-placeholder';
+const SENSITIVE_DIAGNOSTIC_KEYS = new Set([
+  'entrypath',
+  'filepath',
+  'installpath',
+  'manifestpath',
+  'packageroot',
+  'preloadpath',
+  'realpath',
+  'requesteddir',
+  'requestedfeed',
+  'requestedstore',
+  'root',
+  'sourcepath',
+  'stagingpath',
+  'storepath',
+  'storeroot',
+]);
 
 function createShellApiError(code, message, details = {}) {
   const error = new Error(message);
@@ -50,6 +67,56 @@ function getAppVersion() {
   return packageVersion;
 }
 
+function isSensitiveDiagnosticKey(key) {
+  if (typeof key !== 'string') {
+    return false;
+  }
+  return SENSITIVE_DIAGNOSTIC_KEYS.has(key.toLowerCase());
+}
+
+function redactDiagnosticString(value) {
+  return value
+    .replace(/file:\/\/\/[^\s'"]+/g, 'file://[redacted-path]')
+    .replace(/[A-Za-z]:\\(?:[^\\\s'"]+\\?)+/g, '[redacted-path]')
+    .replace(/(^|[\s'"])(\/(?:[^/\s'"]+\/)*[^/\s'"]+)/g, '$1[redacted-path]');
+}
+
+function sanitizeDiagnosticValue(value, key = '') {
+  if (isSensitiveDiagnosticKey(key)) {
+    return undefined;
+  }
+  if (value === null || value === undefined) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeDiagnosticValue(item))
+      .filter((item) => item !== undefined);
+  }
+  if (value instanceof Error) {
+    return sanitizeDiagnosticValue({
+      name: value.name,
+      message: value.message,
+      code: value.code,
+      details: value.details,
+    });
+  }
+  if (typeof value === 'object') {
+    const result = {};
+    for (const [childKey, childValue] of Object.entries(value)) {
+      const sanitized = sanitizeDiagnosticValue(childValue, childKey);
+      if (sanitized !== undefined) {
+        result[childKey] = sanitized;
+      }
+    }
+    return result;
+  }
+  if (typeof value === 'string') {
+    return redactDiagnosticString(value);
+  }
+  return value;
+}
+
 function describeChromePackage(chromePackage = getActiveChromePackage()) {
   return {
     runtimeMode: chromePackage.runtimeMode,
@@ -61,7 +128,7 @@ function describeChromePackage(chromePackage = getActiveChromePackage()) {
     capabilities: [...(chromePackage.capabilities || [])],
     fallback: chromePackage.fallback
       ? {
-          error: chromePackage.fallback.error,
+          error: sanitizeDiagnosticValue(chromePackage.fallback.error),
         }
       : null,
   };
@@ -96,14 +163,27 @@ function describePackageCaller(identity) {
   };
 }
 
+function describeCallerChromePackage(identity) {
+  const caller = describePackageCaller(identity);
+  if (!caller) {
+    return null;
+  }
+  return {
+    ...caller,
+    fallback: null,
+  };
+}
+
 function getInfo(callerIdentity = null) {
-  const chromePackage = getActiveChromePackage();
+  const chromePackage = callerIdentity
+    ? describeCallerChromePackage(callerIdentity)
+    : describeChromePackage(getActiveChromePackage());
   return {
     shellApiVersion: SHELL_API_VERSION,
     runtimeMode: chromePackage.runtimeMode,
     appVersion: getAppVersion(),
     platform: process.platform,
-    chromePackage: describeChromePackage(chromePackage),
+    chromePackage,
     caller: describePackageCaller(callerIdentity),
   };
 }
