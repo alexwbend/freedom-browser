@@ -1478,6 +1478,12 @@ Verification in this checkpoint so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
 - `git diff --check` passed.
+- committed as `cf3c27c` (`feat(chrome): add package context menu actions`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28052341352`, job `test` (`83045922543`), passed for
+  `cf3c27c`.
+- GitHub Actions run `28052341352`, job `e2e-chrome-runtime`
+  (`83045922391`), passed for `cf3c27c`.
 
 Known remaining gaps after this checkpoint:
 
