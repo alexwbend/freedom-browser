@@ -962,6 +962,12 @@ Verification in this checkpoint:
 - `npm test` passed: 114 suites passed, 5 skipped; 2122 passed, 17 skipped.
 - `git diff --check` passed.
 - `xvfb-run -a npm run test:e2e` passed: 27 tests.
+- committed as `06f9e51` (`feat(chrome): serve cached packages from active
+  scheme`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28040355328`, job `test` (`83004738595`), passed for
+  `06f9e51`.
+- GitHub Actions run `28040355328`, job `e2e-chrome-runtime`
+  (`83004738562`), passed for `06f9e51`.
 
 Known remaining gaps after this checkpoint:
 
