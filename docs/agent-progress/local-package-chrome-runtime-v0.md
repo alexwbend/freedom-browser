@@ -1952,3 +1952,60 @@ Known remaining gaps after this checkpoint:
   publish/feed, and seed/private-key export flows remain unavailable to
   package chrome pending real shell-owned trusted surfaces; these are not
   user-approved completion deferrals
+
+### Chrome UI Checkpoint 12: x402 Prompt Boundary
+
+Current checkpoint: package-hosted guest content no longer relies on package
+chrome to receive raw `x402:*` approval, result, balance, cap-consumed, or
+vault-unlock events. Those events remain bundled trusted-renderer UI for now.
+When the host is registered package chrome and x402 needs approval or vault
+unlock UI, main passes the original 402 through instead of waiting on package
+chrome to render a payment prompt it is not allowed to own.
+
+Implemented in this checkpoint:
+
+- changed the x402 interceptor's host-event dispatch to detect registered
+  package hosts with `isPackageWebContents(hostWebContents)`
+- kept raw x402 host events deliverable to bundled trusted chrome
+- refused raw `x402:*` host-event delivery to package chrome with a structured
+  internal dispatch reason
+- changed non-cap-covered package-hosted approval-card detections to clear the
+  tab-keyed pending payment and pass the 402 through immediately instead of
+  creating a pending approval that package chrome cannot settle
+- changed package-hosted cap-covered locked-vault subresource flows to pass
+  the 402 through immediately instead of creating a pending unlock wait that
+  package chrome cannot settle
+- changed package-hosted main-frame auto-pay locked-vault flows to drop the
+  unlock-resume token when the shell-owned unlock UI is unavailable
+- kept auto-pay flows that do not require UI on the existing main-owned path
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js` passed:
+  1 suite, 103 tests.
+- `npm test -- src/main/x402/intercept.test.js src/main/x402/ipc.test.js` passed:
+  2 suites, 152 tests.
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js` passed:
+  1 suite, 5 tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2152 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `fd20a1e` (`fix(chrome): keep x402 prompts out of package chrome`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28061261460`, job `test` (`83075732946`), passed for
+  `fd20a1e`.
+- GitHub Actions run `28061261460`, job `e2e-chrome-runtime`
+  (`83075732954`), passed for `fd20a1e`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
