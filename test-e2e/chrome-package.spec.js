@@ -509,6 +509,10 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'getHistory',
         'addHistory',
         'getCachedFavicon',
+        'getSurfaceState',
+        'openSurface',
+        'closeSurface',
+        'toggleSurface',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -682,6 +686,41 @@ test('local package chrome loads through freedomShell without broad preload APIs
     });
     expect(tabs.tabCommandEvents).toHaveLength(6);
     expect(tabs.tabSnapshotEvents).toHaveLength(5);
+
+    await expect(page.locator('[data-test="surfaces-status"]')).toHaveText('ok');
+    const surfaces = JSON.parse(await page.locator('[data-test="surfaces-json"]').textContent());
+    expect(surfaces).toMatchObject({
+      initial: {
+        ok: true,
+        surface: 'wallet',
+        open: false,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+        trusted: true,
+      },
+      opened: {
+        ok: true,
+        surface: 'wallet',
+        open: true,
+      },
+      toggled: {
+        ok: true,
+        surface: 'wallet',
+        open: false,
+      },
+      closed: {
+        ok: true,
+        surface: 'wallet',
+        open: false,
+      },
+      unsupported: {
+        ok: false,
+        surface: 'identity',
+        error: {
+          code: 'SURFACE_UNSUPPORTED',
+        },
+      },
+    });
   } finally {
     await launched.close();
   }

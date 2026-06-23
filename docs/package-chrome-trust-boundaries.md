@@ -38,7 +38,7 @@ Current audited branch: `goal/local-package-chrome-runtime-v0` at
 | Profiles/profile menu | profile indicator/menu | broad preload profile IPC and profile resolver | adapter returns null/empty/no-op | `browser-state-api` for display, trusted/shell for switching | switching can relaunch shell/profile | display current profile safely; profile creation/switching remains bundled-only or shell-owned until scoped | `browserState.profiles.read`, later `profiles.switch` | smoke for visible profile menu behavior | proposed deferral unless visible controls require it |
 | Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls should call narrow window methods or be hidden in test environment | `window.control` or narrower | unit coverage for method/capability plus smoke for visible controls | required if visible controls are active in package smoke |
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke currently opens node menu; live node status is not fully asserted | `browser-state-api` or `services.*` read API | shell owns node lifecycle | expose read-only service status needed by visible node menu; start/stop remains shell-owned and scoped | `services.read`, later narrower write caps | package smoke for node menu behavior and no silent controls | required for visible tested controls, live-node details may be deferred |
-| Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skips sidebar/wallet init; button remains visible but has no handler | `surface-control-api` | wallet surface is shell-owned | button must call shell-owned surface control, be hidden, or be explicitly disabled with smoke coverage | `surfaces.wallet.toggle` or equivalent | official package smoke proving functional, hidden, or disabled behavior | required for completion |
+| Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skips sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button must call shell-owned surface control, be hidden, or be explicitly disabled with smoke coverage | `surfaces.wallet.control` | official package smoke proving hidden behavior until the real trusted surface migrates; fixture smoke proving placeholder surface control | shell-owned placeholder API implemented; real wallet surface still pending trusted prompt migration |
 | Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | low-risk bypass implemented; full wallet UX still pending trusted prompt migration |
 | Transaction send/sign | website/dApp or wallet UI | wallet UI and wallet IPC under broad preload | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned transaction/signing prompt | final approval rendered by shell-owned trusted surface; package chrome can only request surface/open state | none for package provider; surface caps only | trusted broker doc/tests before migration | proposed deferral for full migration |
 | Typed-data sign | website/dApp | wallet/dApp signing UI under bundled renderer | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned signing prompt | same as transaction sign | none for package provider; surface caps only | trusted broker doc/tests before migration | proposed deferral for full migration |
@@ -104,3 +104,18 @@ progress ledger records the audit. Surface-control and provider-flow work must
 wait until the browser-state checkpoint has green unit tests and package smoke.
 Trusted prompt broker work must wait until a provider-flow bypass test proves
 guest content talks to main without package chrome in the path.
+
+## Surface-Control Status
+
+The first `surface-control-api` slice implements `surfaces.wallet.control` for
+`getSurfaceState`, `openSurface`, `closeSurface`, and `toggleSurface` through
+the sender-checked `window.freedomShell` bridge. The result is a caller-scoped
+shell-owned placeholder state for `wallet` only. Unsupported surfaces return a
+structured `SURFACE_UNSUPPORTED` result, and callers without the capability are
+denied by the shell API policy.
+
+This checkpoint intentionally does not migrate wallet, identity, provider,
+signing, vault, x402, or Swarm approval UI into package mode. The official
+package chrome still hides the wallet/sidebar affordance until a real
+shell-owned trusted wallet surface exists, while the fixture package smoke
+exercises the placeholder surface-control path.

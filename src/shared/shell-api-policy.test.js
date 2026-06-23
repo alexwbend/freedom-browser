@@ -38,6 +38,10 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_GET: 'browserState.history.get',
       BROWSER_STATE_HISTORY_ADD: 'browserState.history.add',
       BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
+      SURFACES_GET_STATE: 'surfaces.getState',
+      SURFACES_OPEN: 'surfaces.open',
+      SURFACES_CLOSE: 'surfaces.close',
+      SURFACES_TOGGLE: 'surfaces.toggle',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -64,6 +68,10 @@ describe('shell-api-policy', () => {
       'browserState.history.get': 'browserState.history.read',
       'browserState.history.add': 'browserState.history.write',
       'browserState.favicons.getCached': 'browserState.favicons.read',
+      'surfaces.getState': 'surfaces.wallet.control',
+      'surfaces.open': 'surfaces.wallet.control',
+      'surfaces.close': 'surfaces.wallet.control',
+      'surfaces.toggle': 'surfaces.wallet.control',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -86,6 +94,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_READ: 'browserState.history.read',
       BROWSER_STATE_HISTORY_WRITE: 'browserState.history.write',
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
+      SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -105,6 +114,7 @@ describe('shell-api-policy', () => {
       'navigation.resolve',
       'shell.info',
       'shell.ready',
+      'surfaces.wallet.control',
       'tabs.read',
       'tabs.write',
     ]);

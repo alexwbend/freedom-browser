@@ -9,15 +9,22 @@
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"],
+  "capabilities": [
+    "shell.info",
+    "shell.ready",
+    "navigation.resolve",
+    "tabs.read",
+    "tabs.write",
+    "surfaces.wallet.control"
+  ],
   "files": [
     {
       "path": "index.html",
-      "sha256": "8325471ea06c0c2064a1dbf76d20024e142a67edbc22d86bd3a13352ec5d7a65"
+      "sha256": "1ebc863944a42fc1d9f3eca6a78f8a73d7f30a52837adb59976e2b3605399b42"
     },
     {
       "path": "main.js",
-      "sha256": "10d80e4026726a5ae4298f56e213bfe58d5995b46287413b83158131af183aff"
+      "sha256": "fdfed7f26de04251b201f7852b1543acb732da51d13063e666b1a1f076896a7e"
     },
     {
       "path": "styles.css",

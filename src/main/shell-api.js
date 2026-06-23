@@ -23,6 +23,9 @@ const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_RELOAD,
   SHELL_API_METHODS.TABS_GO_HOME,
 ]);
+const SUPPORTED_SURFACES = new Set(['wallet']);
+const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
+const SURFACE_MODE = 'shell-owned-placeholder';
 
 function createShellApiError(code, message, details = {}) {
   const error = new Error(message);
@@ -227,6 +230,62 @@ function getCachedFaviconForShell(url) {
   return require('./favicons').getCachedFavicon(url.trim());
 }
 
+function getSurfaceName(payload) {
+  if (typeof payload === 'string') {
+    return payload.trim();
+  }
+  if (payload && typeof payload === 'object' && typeof payload.surface === 'string') {
+    return payload.surface.trim();
+  }
+  return '';
+}
+
+function describeSurfaceState(caller, surface) {
+  if (!SUPPORTED_SURFACES.has(surface)) {
+    return {
+      ok: false,
+      surface,
+      owner: 'shell',
+      mode: SURFACE_MODE,
+      trusted: true,
+      error: {
+        code: 'SURFACE_UNSUPPORTED',
+        message: 'Unsupported shell surface',
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    surface,
+    open: caller.surfaces.get(surface) === true,
+    owner: 'shell',
+    mode: SURFACE_MODE,
+    trusted: true,
+    capabilities: [...SURFACE_CAPABILITIES],
+  };
+}
+
+function setSurfaceOpen(caller, payload, open) {
+  const surface = getSurfaceName(payload);
+  if (!SUPPORTED_SURFACES.has(surface)) {
+    return describeSurfaceState(caller, surface);
+  }
+
+  caller.surfaces.set(surface, open);
+  return describeSurfaceState(caller, surface);
+}
+
+function toggleSurfaceOpen(caller, payload) {
+  const surface = getSurfaceName(payload);
+  if (!SUPPORTED_SURFACES.has(surface)) {
+    return describeSurfaceState(caller, surface);
+  }
+
+  caller.surfaces.set(surface, caller.surfaces.get(surface) !== true);
+  return describeSurfaceState(caller, surface);
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -237,6 +296,7 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
     identity,
     capabilities: new Set(identity.capabilities || []),
     tabRegistry: options.tabRegistry || createShellTabRegistry(),
+    surfaces: options.surfaces || new Map([['wallet', false]]),
   };
   packageCallers.set(sender, caller);
 
@@ -325,6 +385,18 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED]: {
     handler: ([url]) => getCachedFaviconForShell(url),
+  },
+  [SHELL_API_METHODS.SURFACES_GET_STATE]: {
+    handler: ([payload], _event, caller) => describeSurfaceState(caller, getSurfaceName(payload)),
+  },
+  [SHELL_API_METHODS.SURFACES_OPEN]: {
+    handler: ([payload], _event, caller) => setSurfaceOpen(caller, payload, true),
+  },
+  [SHELL_API_METHODS.SURFACES_CLOSE]: {
+    handler: ([payload], _event, caller) => setSurfaceOpen(caller, payload, false),
+  },
+  [SHELL_API_METHODS.SURFACES_TOGGLE]: {
+    handler: ([payload], _event, caller) => toggleSurfaceOpen(caller, payload),
   },
 });
 

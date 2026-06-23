@@ -60,6 +60,10 @@ describe('package-preload', () => {
       'getHistory',
       'addHistory',
       'getCachedFavicon',
+      'getSurfaceState',
+      'openSurface',
+      'closeSurface',
+      'toggleSurface',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -220,6 +224,30 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED,
       args: ['https://history.example'],
+    });
+
+    await exposures.freedomShell.getSurfaceState('wallet');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SURFACES_GET_STATE,
+      args: [{ surface: 'wallet' }],
+    });
+
+    await exposures.freedomShell.openSurface('wallet');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SURFACES_OPEN,
+      args: [{ surface: 'wallet' }],
+    });
+
+    await exposures.freedomShell.closeSurface('wallet');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SURFACES_CLOSE,
+      args: [{ surface: 'wallet' }],
+    });
+
+    await exposures.freedomShell.toggleSurface('wallet');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SURFACES_TOGGLE,
+      args: [{ surface: 'wallet' }],
     });
   });
 

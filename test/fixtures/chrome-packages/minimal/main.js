@@ -190,6 +190,51 @@
     }
   }
 
+  async function exerciseSurfaces() {
+    const shell = window.freedomShell || {};
+    for (const method of ['getSurfaceState', 'openSurface', 'closeSurface', 'toggleSurface']) {
+      if (typeof shell[method] !== 'function') {
+        setText('surfaces-status', `missing-${method}`);
+        return false;
+      }
+    }
+
+    try {
+      const initial = await shell.getSurfaceState('wallet');
+      const opened = await shell.openSurface('wallet');
+      const toggled = await shell.toggleSurface('wallet');
+      const closed = await shell.closeSurface('wallet');
+      const unsupported = await shell.openSurface('identity');
+      const result = {
+        initial,
+        opened,
+        toggled,
+        closed,
+        unsupported,
+      };
+      setJson('surfaces-json', result);
+
+      const ok =
+        initial.ok === true &&
+        initial.open === false &&
+        initial.owner === 'shell' &&
+        initial.mode === 'shell-owned-placeholder' &&
+        opened.ok === true &&
+        opened.open === true &&
+        toggled.ok === true &&
+        toggled.open === false &&
+        closed.ok === true &&
+        closed.open === false &&
+        unsupported.ok === false &&
+        unsupported.error?.code === 'SURFACE_UNSUPPORTED';
+      setText('surfaces-status', ok ? 'ok' : 'error:surface-result');
+      return ok;
+    } catch (error) {
+      setText('surfaces-status', `error:${error?.message || error}`);
+      return false;
+    }
+  }
+
   async function signalReady() {
     if (!window.freedomShell || typeof window.freedomShell.markReady !== 'function') {
       document.body.dataset.ready = 'missing-mark-ready';
@@ -213,7 +258,15 @@
     const navigationReady = await resolveExample();
     const matrixReady = await resolveNavigationMatrix();
     const tabsReady = await exerciseTabs();
-    if (infoReady && navigationReady && matrixReady && tabsReady && presentBroadApis.length === 0) {
+    const surfacesReady = await exerciseSurfaces();
+    if (
+      infoReady &&
+      navigationReady &&
+      matrixReady &&
+      tabsReady &&
+      surfacesReady &&
+      presentBroadApis.length === 0
+    ) {
       await signalReady();
     }
   })();

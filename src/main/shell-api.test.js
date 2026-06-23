@@ -621,6 +621,114 @@ describe('shell-api', () => {
     });
   });
 
+  test('handles capability-gated shell-owned surface requests per caller', async () => {
+    const { mod } = loadShellApi();
+    const firstSender = makeSender({ id: 106 });
+    const secondSender = makeSender({ id: 107 });
+    const packageWithSurfaceControl = makePackage({
+      capabilities: ['surfaces.wallet.control'],
+    });
+    mod.registerPackageWebContents(firstSender, packageWithSurfaceControl);
+    mod.registerPackageWebContents(secondSender, packageWithSurfaceControl);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: firstSender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: [{ surface: 'wallet' }] }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+      trusted: true,
+      capabilities: ['open', 'close', 'toggle'],
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: firstSender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'wallet' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: secondSender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: ['wallet'] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: firstSender },
+        { method: SHELL_API_METHODS.SURFACES_TOGGLE, args: [{ surface: 'wallet' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: firstSender },
+        { method: SHELL_API_METHODS.SURFACES_CLOSE, args: [{ surface: 'wallet' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender: firstSender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'identity' }] }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      surface: 'identity',
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+      trusted: true,
+      error: {
+        code: 'SURFACE_UNSUPPORTED',
+        message: 'Unsupported shell surface',
+      },
+    });
+  });
+
+  test('rejects shell-owned surface requests without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 108 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_TOGGLE, args: [{ surface: 'wallet' }] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SURFACES_TOGGLE,
+        requiredCapability: 'surfaces.wallet.control',
+      },
+    });
+  });
+
   test('returns false for malformed browser state write payloads', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 105 });

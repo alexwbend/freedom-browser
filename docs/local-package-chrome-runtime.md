@@ -304,6 +304,10 @@ running Radicle network.
 - `getHistory(options)`
 - `addHistory(entry)`
 - `getCachedFavicon(url)`
+- `getSurfaceState(surface)`
+- `openSurface(surface)`
+- `closeSurface(surface)`
+- `toggleSurface(surface)`
 - `getTabSnapshot()`
 - `createTab(options)`
 - `closeTab(tabId)`
@@ -357,6 +361,17 @@ data only; package chrome does not receive the network favicon fetch APIs.
 These APIs return serializable data only and do not expose file paths or store
 internals.
 
+The surface-control methods expose a narrow shell-owned request path for
+trusted surfaces. The current implemented surface is `wallet`, backed by
+caller-scoped placeholder state with `owner: "shell"` and
+`mode: "shell-owned-placeholder"`. Package chrome can read, open, close, or
+toggle that placeholder state only when it declares `surfaces.wallet.control`.
+This does not expose wallet, identity, provider, signing, or vault APIs, and it
+does not mean the real wallet center has been migrated. The official package
+smoke still keeps the wallet/sidebar affordance hidden until a real
+shell-owned trusted surface is available, while the fixture package smoke
+exercises the placeholder control path.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -380,6 +395,9 @@ must be allowed by the package manifest's declared capabilities:
 - `browserState.history.read` allows `getHistory(options)`
 - `browserState.history.write` allows `addHistory(entry)`
 - `browserState.favicons.read` allows `getCachedFavicon(url)`
+- `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
+  `openSurface("wallet")`, `closeSurface("wallet")`, and
+  `toggleSurface("wallet")`
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

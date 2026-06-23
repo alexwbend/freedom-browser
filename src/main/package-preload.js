@@ -27,6 +27,10 @@ const SHELL_API_METHODS = Object.freeze({
   BROWSER_STATE_HISTORY_GET: 'browserState.history.get',
   BROWSER_STATE_HISTORY_ADD: 'browserState.history.add',
   BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
+  SURFACES_GET_STATE: 'surfaces.getState',
+  SURFACES_OPEN: 'surfaces.open',
+  SURFACES_CLOSE: 'surfaces.close',
+  SURFACES_TOGGLE: 'surfaces.toggle',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -71,6 +75,10 @@ const freedomShell = Object.freeze({
   addHistory: (entry) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD, entry),
   getCachedFavicon: (url) =>
     invokeShell(SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED, url),
+  getSurfaceState: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_GET_STATE, { surface }),
+  openSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_OPEN, { surface }),
+  closeSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_CLOSE, { surface }),
+  toggleSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_TOGGLE, { surface }),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

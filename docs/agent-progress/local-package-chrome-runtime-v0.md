@@ -798,6 +798,12 @@ Verification in this checkpoint:
 - `npm test` passed: 112 suites passed, 5 skipped; 2106 tests passed, 17
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- committed as `5b8463a` (`feat(chrome): prove package provider bypass`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28037300921`, job `test` (`82993987395`), passed for
+  `5b8463a`.
+- GitHub Actions run `28037300921`, job `e2e-chrome-runtime`
+  (`82993987683`), passed for `5b8463a`.
 
 Known remaining gaps after this checkpoint:
 
@@ -806,4 +812,53 @@ Known remaining gaps after this checkpoint:
   design before they can bypass package chrome safely
 - package mode still needs surface-control or intentional hidden/disabled
   coverage for more visible controls such as profile/window/menu affordances
+- `freedom-chrome://active/` package serving remains unimplemented
+
+### Surface-Control Checkpoint 1: Wallet Placeholder Control
+
+Current checkpoint: package chrome has a narrow shell-owned surface-control API
+for the wallet surface, backed by caller-scoped placeholder state. The real
+wallet/identity/signing surface has not been migrated and remains outside
+package chrome.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capability:
+  - `surfaces.getState`
+  - `surfaces.open`
+  - `surfaces.close`
+  - `surfaces.toggle`
+  - `surfaces.wallet.control`
+- exposed those methods through `window.freedomShell` as
+  `getSurfaceState`, `openSurface`, `closeSurface`, and `toggleSurface`
+- implemented caller-scoped wallet placeholder state in main with
+  `owner: "shell"` and `mode: "shell-owned-placeholder"`
+- unsupported surfaces return a structured `SURFACE_UNSUPPORTED` result
+- callers without `surfaces.wallet.control` are denied by the shell API policy
+- the local fixture package declares `surfaces.wallet.control` and exercises the
+  placeholder surface path before marking itself ready
+- official package chrome still hides the wallet/sidebar affordance until the
+  real trusted wallet surface is implemented
+- kept package chrome without wallet, identity, provider, permission, Node, or
+  Electron globals
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js` passed: 3 suites, 27 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2108 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- the API is a shell-owned placeholder only; real wallet center, wallet
+  connect, signing, vault unlock, x402, and Swarm approval surfaces still need
+  the trusted prompt broker foundation before package chrome can expose those
+  flows safely
 - `freedom-chrome://active/` package serving remains unimplemented
