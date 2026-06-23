@@ -2009,3 +2009,58 @@ Known remaining gaps after this checkpoint:
   vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
+
+### Chrome UI Checkpoint 13: Swarm Publish Page Boundary
+
+Current checkpoint: package-hosted `freedom://publish` no longer exposes the
+internal path-based Swarm publish controls as active UI. Bundled trusted chrome
+can still use the existing internal page and IPC, but package-hosted internal
+pages receive structured `SWARM_PUBLISH_UNAVAILABLE` and the direct publish
+page disables Publish File, Publish Folder, and Publish Text with a visible
+warning.
+
+Implemented in this checkpoint:
+
+- added `src/main/package-hosted-internal-page.js` as a small main-process
+  helper for detecting internal pages whose `hostWebContents` is a registered
+  package chrome window
+- changed Swarm publish IPC handlers to deny package-hosted internal pages
+  before accepting text publishes, raw filesystem paths, file/folder picker
+  requests, or upload-status polling
+- changed the publish page's stamp-read and publish-history IPC paths to
+  return the same structured package-mode unavailable result when hosted by
+  package chrome
+- changed `freedom://publish` to surface `SWARM_PUBLISH_UNAVAILABLE` as a
+  warning and disable visible publish actions instead of showing clickable
+  controls that cannot own final publish authority
+- expanded official package smoke to navigate to `freedom://publish` and prove
+  the disabled package-mode state
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/package-hosted-internal-page.test.js src/main/swarm/publish-service.test.js src/main/swarm/stamp-service.test.js src/main/swarm/publish-history.test.js` passed:
+  4 suites, 59 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2158 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `afdf090` (`fix(chrome): disable package swarm publish page`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28062258334`, job `test` (`83078913988`), passed for
+  `afdf090`.
+- GitHub Actions run `28062258334`, job `e2e-chrome-runtime`
+  (`83078913980`), passed for `afdf090`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
