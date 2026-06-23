@@ -1895,3 +1895,60 @@ Known remaining gaps after this checkpoint:
   publish/feed, and seed/private-key export flows remain unavailable to
   package chrome pending real shell-owned trusted surfaces; these are not
   user-approved completion deferrals
+
+### Chrome UI Checkpoint 11: Publish Setup Boundary
+
+Current checkpoint: package-hosted internal pages no longer forward the
+wallet/sidebar publish-setup deep link into package chrome as a dead legacy
+renderer event. Bundled chrome still receives the existing
+`sidebar:open-publish-setup` event, but package hosts get a structured
+`PUBLISH_SETUP_UNAVAILABLE` result and the visible
+`freedom://settings/startup` action disables itself with that message.
+
+Implemented in this checkpoint:
+
+- changed the `sidebar:open-publish-setup` main IPC handler to distinguish
+  registered package hosts with `isPackageWebContents(hostWebContents)`
+- preserved the bundled trusted renderer path by returning success after
+  sending the existing legacy sidebar event to non-package hosts
+- returned structured `PUBLISH_SETUP_HOST_MISSING` when the request does not
+  come from a hosted internal page
+- returned structured `PUBLISH_SETUP_UNAVAILABLE` for package-hosted internal
+  pages instead of sending a legacy event that package chrome cannot handle
+- changed `freedom://settings/startup` so the visible publish setup action
+  surfaces that unavailable result and disables itself instead of swallowing
+  the failed request
+- expanded the official package smoke to navigate to
+  `freedom://settings/startup`, assert the visible setup action, click it, and
+  verify the intentional package-mode disabled state
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/ipc-handlers.test.js` passed:
+  1 suite, 17 tests.
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js src/main/webview-preload.test.js` passed:
+  2 suites, 22 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2150 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `7db07ca` (`fix(chrome): disable package publish setup path`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28060610603`, job `test` (`83073637573`), passed for
+  `7db07ca`.
+- GitHub Actions run `28060610603`, job `e2e-chrome-runtime`
+  (`83073637726`), passed for `7db07ca`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- raw x402, transaction signing, typed-data signing, identity, vault, Swarm
+  publish/feed, and seed/private-key export flows remain unavailable to
+  package chrome pending real shell-owned trusted surfaces; these are not
+  user-approved completion deferrals
