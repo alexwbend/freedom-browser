@@ -295,7 +295,8 @@ The official package smoke currently proves:
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
 - the main menu and node menu open
-- the main menu fullscreen control toggles the shell-owned BrowserWindow state
+- the main menu fullscreen control reaches the shell-owned BrowserWindow
+  `setFullScreen(true/false)` command path
 - the main menu New Window control opens another package chrome BrowserWindow
   through a shell-owned command path
 - new tab, tab switch, and tab close work
@@ -424,7 +425,8 @@ calling package window only. They let visible chrome affordances set the window
 title, close/minimize the owner window, toggle maximize, and toggle fullscreen
 without giving package chrome Electron primitives or access to other windows.
 The current official package smoke exercises the visible fullscreen menu
-control through this path.
+control by recording the owner BrowserWindow `setFullScreen(true/false)` calls
+through this path.
 
 The window-open and app-command methods expose narrow shell-owned menu command
 requests. `newWindow()` and `openUrlInNewWindow(url)` ask main to create a new

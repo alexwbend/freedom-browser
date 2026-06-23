@@ -132,7 +132,8 @@ cannot target arbitrary windows.
 This checkpoint exists to remove visible chrome/menu silent no-ops. It does not
 expose Electron, BrowserWindow objects, native menus, or app updater APIs to
 package chrome. The official package smoke exercises the visible fullscreen
-menu action through this shell-owned path.
+menu action by recording the owner BrowserWindow `setFullScreen(true/false)`
+calls through this shell-owned path.
 
 ## System Menu Command Status
 

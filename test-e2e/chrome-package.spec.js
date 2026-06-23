@@ -379,6 +379,35 @@ async function expectBundledChromeLoaded(page) {
   await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
 }
 
+async function installMainWindowFullScreenRecorder(app) {
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+    if (!window || window.__freedomTestFullScreenRecorderInstalled) {
+      return;
+    }
+
+    const originalIsFullScreen = window.isFullScreen.bind(window);
+    const originalSetFullScreen = window.setFullScreen.bind(window);
+    window.__freedomTestFullScreenRecorderInstalled = true;
+    window.__freedomTestFullScreen = originalIsFullScreen();
+    window.__freedomTestFullScreenCalls = [];
+    window.isFullScreen = () => window.__freedomTestFullScreen;
+    window.setFullScreen = (value) => {
+      const nextValue = Boolean(value);
+      window.__freedomTestFullScreen = nextValue;
+      window.__freedomTestFullScreenCalls.push(nextValue);
+      return originalSetFullScreen(nextValue);
+    };
+  });
+}
+
+async function getMainWindowFullScreenCalls(app) {
+  return app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
+    return [...(window?.__freedomTestFullScreenCalls || [])];
+  });
+}
+
 async function waitForBundledChromeWindow(app) {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
@@ -1232,19 +1261,13 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#menu-button').click();
     await expect(page.locator('#menu-dropdown')).not.toHaveClass(/open/);
 
-    const isMainWindowFullScreen = () =>
-      launched.app.evaluate(({ BrowserWindow }) => {
-        const window = BrowserWindow.getAllWindows().find(
-          (candidate) => !candidate.isDestroyed()
-        );
-        return Boolean(window?.isFullScreen());
-      });
+    await installMainWindowFullScreenRecorder(launched.app);
     await page.locator('#menu-button').click();
     await page.locator('#fullscreen-btn').click();
-    await expect.poll(isMainWindowFullScreen).toBe(true);
+    await expect.poll(() => getMainWindowFullScreenCalls(launched.app)).toEqual([true]);
     await page.locator('#menu-button').click();
     await page.locator('#fullscreen-btn').click();
-    await expect.poll(isMainWindowFullScreen).toBe(false);
+    await expect.poll(() => getMainWindowFullScreenCalls(launched.app)).toEqual([true, false]);
 
     const countBrowserWindows = () =>
       launched.app.evaluate(({ BrowserWindow }) => {

@@ -1051,7 +1051,8 @@ Implemented in this checkpoint:
 - added capability-denial and unavailable-owner-window unit coverage
 - granted the official local package smoke manifest `windows.control`
 - expanded official package smoke to click the visible fullscreen menu control
-  and verify the shell-owned BrowserWindow fullscreen state toggles on and off
+  and verify the owner BrowserWindow receives shell-owned
+  `setFullScreen(true/false)` calls
 - updated `docs/local-package-chrome-runtime.md` and
   `docs/package-chrome-trust-boundaries.md`
 
@@ -1128,8 +1129,21 @@ Verification in this checkpoint:
 - `npm run lint` passed.
 - `npm test` passed: 114 suites passed, 5 skipped; 2129 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
-- GitHub target CI verification is pending until this checkpoint is committed
-  and pushed.
+- committed as `c09cd3f` (`feat(shell): add package system menu commands`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28043800391`, job `test` (`83016588894`), passed for
+  `c09cd3f`.
+- GitHub Actions run `28043800391`, job `e2e-chrome-runtime`
+  (`83016588988`), failed for `c09cd3f` because the official package smoke
+  asserted `BrowserWindow.isFullScreen()` flipped under the Ubuntu/Xvfb CI
+  window manager after a visible Fullscreen menu click. The shell command path
+  was made deterministic by recording owner-window `setFullScreen(true/false)`
+  calls instead of relying on platform fullscreen state reporting.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the CI fix: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the CI fix: 14 tests.
+- `npm run lint` passed after the CI fix.
+- GitHub target CI verification for the corrected branch head is pending until
+  the CI fix commit is pushed.
 
 Known remaining gaps after this checkpoint:
 
