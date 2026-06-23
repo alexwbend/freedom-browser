@@ -70,6 +70,11 @@ describe('package-preload', () => {
       'minimizeWindow',
       'maximizeWindow',
       'toggleFullscreen',
+      'newWindow',
+      'openUrlInNewWindow',
+      'showAbout',
+      'checkForUpdates',
+      'restartAndInstallUpdate',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -292,6 +297,36 @@ describe('package-preload', () => {
     await exposures.freedomShell.toggleFullscreen();
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN,
+      args: [],
+    });
+
+    await exposures.freedomShell.newWindow();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_NEW,
+      args: [],
+    });
+
+    await exposures.freedomShell.openUrlInNewWindow('https://example.com');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_OPEN_URL,
+      args: ['https://example.com'],
+    });
+
+    await exposures.freedomShell.showAbout();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.APP_SHOW_ABOUT,
+      args: [],
+    });
+
+    await exposures.freedomShell.checkForUpdates();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
+      args: [],
+    });
+
+    await exposures.freedomShell.restartAndInstallUpdate();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
       args: [],
     });
   });

@@ -5,8 +5,9 @@ Swarm delivery. It is the guardrail for moving the current bundled renderer
 toward a package runtime without turning package chrome back into a trusted
 renderer.
 
-Current audited branch: `goal/local-package-chrome-runtime-v0` at
-`f267f0f5de55ace6cb8ec2d31af5c425bb926974`.
+Current audited branch: `goal/local-package-chrome-runtime-v0`, through the
+Pre-Swarm hardening checkpoints recorded in
+`docs/agent-progress/local-package-chrome-runtime-v0.md`.
 
 ## Authority Categories
 
@@ -66,9 +67,9 @@ by this document.
 | `setBzzBase`, `clearBzzBase`, `setRadBase`, `clearRadBase` | return `{ success: true }` without shell work | service status/settings can misrepresent node base changes | replace with service/settings shell APIs if visible controls depend on them, or hide/disable related controls with smoke coverage |
 | `setWindowTitle` | no-op | window title may be stale | implemented through `freedomShell.setWindowTitle()` and `windows.control` |
 | `closeWindow`, `minimizeWindow`, `maximizeWindow`, `toggleFullscreen` | no-op | title bar/menu controls can become clickable silent no-ops | implemented through owner-window `freedomShell` methods and `windows.control`; visible fullscreen menu action has package smoke coverage |
-| `newWindow`, `openUrlInNewWindow` | no-op | menu/context controls can silently fail | implement scoped shell methods or hide/disable visible controls |
-| `showAbout` | no-op | menu item can silently fail | implement shell-owned about surface or hide/disable |
-| `checkForUpdates`, `restartAndInstallUpdate` | no-op | update UI can mislead | shell-owned update surface/API or explicit bundled-only behavior |
+| `newWindow`, `openUrlInNewWindow` | no-op | menu/context controls can silently fail | implemented through `freedomShell.newWindow()` / `openUrlInNewWindow(url)` and `windows.open`; visible New Window menu action has package smoke coverage, while direct context-menu open-URL smoke remains pending if needed for final parity |
+| `showAbout` | no-op | menu item can silently fail | implemented through shell-owned `freedomShell.showAbout()` and `app.about`; native About-panel observation is unit-covered, not clicked in launched smoke to avoid modal test interference |
+| `checkForUpdates`, `restartAndInstallUpdate` | no-op | update UI can mislead | implemented as shell-owned updater action requests through `app.updates`; updater policy, dialogs, ownership locks, and install behavior remain in main |
 | `getPlatform` | delegates through `freedomShell.getInfo()` | low risk | keep delegated and covered by package adapter/preload tests |
 | `getActiveProfile`, `listProfiles`, `createProfile`, `openProfile` | null/empty/false | profile menu may render incomplete or inert | expose safe profile display read; profile mutation/switching is proposed deferred unless visible controls require it |
 | `resolveExternalNodeCandidates`, `onExternalNodeCandidates` | no-op | external-node prompt can disappear | shell-owned service prompt or bundled-only/hidden behavior |
@@ -129,9 +130,23 @@ Each command resolves the BrowserWindow from the calling package sender and
 cannot target arbitrary windows.
 
 This checkpoint exists to remove visible chrome/menu silent no-ops. It does not
-expose Electron, BrowserWindow objects, native menus, app updater APIs, or new
-window creation to package chrome. The official package smoke exercises the
-visible fullscreen menu action through this shell-owned path.
+expose Electron, BrowserWindow objects, native menus, or app updater APIs to
+package chrome. The official package smoke exercises the visible fullscreen
+menu action through this shell-owned path.
+
+## System Menu Command Status
+
+The first app/system command slice implements `windows.open`, `app.about`, and
+`app.updates` for package chrome menu actions. `newWindow()` and
+`openUrlInNewWindow(url)` request the existing shell-owned window factory;
+`showAbout()` requests the Electron About panel; `checkForUpdates()` and
+`restartAndInstallUpdate()` request the existing shell updater actions.
+
+These commands return only serializable request results. They do not expose
+`BrowserWindow`, native menus, `autoUpdater`, dialogs, profile locks, install
+state, or Electron primitives to package chrome. The official package smoke
+exercises the visible New Window menu item by opening a second package chrome
+window and closing it again.
 
 ## Trusted Prompt Broker Status
 

@@ -194,7 +194,10 @@ The local package directory must contain `manifest.json`:
     "browserState.history.read",
     "browserState.history.write",
     "browserState.favicons.read",
-    "windows.control"
+    "windows.control",
+    "windows.open",
+    "app.about",
+    "app.updates"
   ],
   "files": [
     {
@@ -293,6 +296,8 @@ The official package smoke currently proves:
   is backed by a shell-owned surface path
 - the main menu and node menu open
 - the main menu fullscreen control toggles the shell-owned BrowserWindow state
+- the main menu New Window control opens another package chrome BrowserWindow
+  through a shell-owned command path
 - new tab, tab switch, and tab close work
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
@@ -340,6 +345,11 @@ running Radicle network.
 - `minimizeWindow()`
 - `maximizeWindow()`
 - `toggleFullscreen()`
+- `newWindow()`
+- `openUrlInNewWindow(url)`
+- `showAbout()`
+- `checkForUpdates()`
+- `restartAndInstallUpdate()`
 - `onTabCommandResult(callback)`
 - `onTabSnapshotChanged(callback)`
 
@@ -416,6 +426,15 @@ without giving package chrome Electron primitives or access to other windows.
 The current official package smoke exercises the visible fullscreen menu
 control through this path.
 
+The window-open and app-command methods expose narrow shell-owned menu command
+requests. `newWindow()` and `openUrlInNewWindow(url)` ask main to create a new
+browser window through the same shell-owned window factory used by bundled
+chrome; package chrome never receives `BrowserWindow` objects or Electron
+primitives. `showAbout()` asks Electron to open the native About panel.
+`checkForUpdates()` and `restartAndInstallUpdate()` ask the shell updater to
+run its existing policy-owned actions; package chrome receives only a
+serializable request result and does not receive auto-updater authority.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -447,6 +466,11 @@ must be allowed by the package manifest's declared capabilities:
 - `windows.control` allows `setWindowTitle(title)`, `closeWindow()`,
   `minimizeWindow()`, `maximizeWindow()`, and `toggleFullscreen()` for the
   calling package window
+- `windows.open` allows `newWindow()` and `openUrlInNewWindow(url)` requests
+  through the shell-owned window factory
+- `app.about` allows `showAbout()` to request the shell-owned About panel
+- `app.updates` allows `checkForUpdates()` and
+  `restartAndInstallUpdate()` to request shell-owned updater actions
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

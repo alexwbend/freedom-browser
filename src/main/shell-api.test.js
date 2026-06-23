@@ -52,6 +52,7 @@ function loadShellApi(options = {}) {
     ipcMain: options.ipcMain,
     app: {
       getVersion: jest.fn(() => appVersion),
+      showAboutPanel: jest.fn(),
     },
     extraMocks: {
       [ENS_RESOLVER_MODULE]: () => ({
@@ -1044,6 +1045,138 @@ describe('shell-api', () => {
       command: SHELL_API_METHODS.WINDOWS_CLOSE,
     });
     expect(ownerWindow.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('handles capability-gated shell-owned system menu commands', async () => {
+    const onNewWindow = jest.fn();
+    const onCheckForUpdates = jest.fn();
+    const onRestartAndInstallUpdate = jest.fn();
+    const { app, mod } = loadShellApi();
+    const sender = makeSender({ id: 114 });
+    mod.configureShellCommandHandlers({
+      onNewWindow,
+      onCheckForUpdates,
+      onRestartAndInstallUpdate,
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['windows.open', 'app.about', 'app.updates'] })
+    );
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: SHELL_API_METHODS.WINDOWS_NEW, args: [] })
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_NEW,
+      owner: 'shell',
+      targetUrl: null,
+    });
+    expect(onNewWindow).toHaveBeenCalledWith(null);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_OPEN_URL, args: [' https://example.com/path '] }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_OPEN_URL,
+      owner: 'shell',
+      targetUrl: 'https://example.com/path',
+    });
+    expect(onNewWindow).toHaveBeenLastCalledWith('https://example.com/path');
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: SHELL_API_METHODS.APP_SHOW_ABOUT, args: [] })
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.APP_SHOW_ABOUT,
+      owner: 'shell',
+    });
+    expect(app.showAboutPanel).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES, args: [] }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
+      owner: 'shell',
+    });
+    expect(onCheckForUpdates).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE, args: [] }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
+      owner: 'shell',
+    });
+    expect(onRestartAndInstallUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns structured errors for unavailable or invalid system menu commands', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 115 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['windows.open'] }));
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: SHELL_API_METHODS.WINDOWS_NEW, args: [] })
+    ).resolves.toEqual({
+      ok: false,
+      command: SHELL_API_METHODS.WINDOWS_NEW,
+      owner: 'shell',
+      error: {
+        code: 'SHELL_COMMAND_UNAVAILABLE',
+        message: 'New window command is unavailable',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: SHELL_API_METHODS.WINDOWS_OPEN_URL, args: [''] })
+    ).resolves.toEqual({
+      ok: false,
+      command: SHELL_API_METHODS.WINDOWS_OPEN_URL,
+      owner: 'shell',
+      error: {
+        code: 'WINDOW_TARGET_URL_INVALID',
+        message: 'Window target URL is invalid',
+      },
+    });
+  });
+
+  test('rejects system menu commands without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 116 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: SHELL_API_METHODS.WINDOWS_NEW, args: [] })
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.WINDOWS_NEW,
+        requiredCapability: 'windows.open',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
+        requiredCapability: 'app.updates',
+      },
+    });
   });
 
   test('rejects window control requests without declared capabilities', async () => {

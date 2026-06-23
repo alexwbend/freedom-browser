@@ -168,6 +168,9 @@ function writeOfficialChromePackage(root) {
           'browserState.history.write',
           'browserState.favicons.read',
           'windows.control',
+          'windows.open',
+          'app.about',
+          'app.updates',
         ],
         guestContent: {
           transitionalWebviews: true,
@@ -520,6 +523,11 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'minimizeWindow',
         'maximizeWindow',
         'toggleFullscreen',
+        'newWindow',
+        'openUrlInNewWindow',
+        'showAbout',
+        'checkForUpdates',
+        'restartAndInstallUpdate',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -1237,6 +1245,22 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#menu-button').click();
     await page.locator('#fullscreen-btn').click();
     await expect.poll(isMainWindowFullScreen).toBe(false);
+
+    const countBrowserWindows = () =>
+      launched.app.evaluate(({ BrowserWindow }) => {
+        return BrowserWindow.getAllWindows().filter((candidate) => !candidate.isDestroyed()).length;
+      });
+    const windowCountBeforeNewWindow = await countBrowserWindows();
+    const newWindowPromise = launched.app.waitForEvent('window');
+    await page.locator('#menu-button').click();
+    await page.locator('#new-window-menu-btn').click();
+    const newPackageWindow = await newWindowPromise;
+    await newPackageWindow.waitForLoadState('domcontentloaded');
+    await newPackageWindow.waitForSelector('[data-test="address-input"]', { state: 'visible' });
+    await expect(newPackageWindow.locator('body')).toHaveAttribute('data-package-ready', 'true');
+    await expect.poll(countBrowserWindows).toBe(windowCountBeforeNewWindow + 1);
+    await newPackageWindow.close();
+    await expect.poll(countBrowserWindows).toBe(windowCountBeforeNewWindow);
 
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).toHaveClass(/open/);

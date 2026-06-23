@@ -43,6 +43,11 @@ describe('shell-api-policy', () => {
       SURFACES_CLOSE: 'surfaces.close',
       SURFACES_TOGGLE: 'surfaces.toggle',
       TRUSTED_PROMPTS_REQUEST_TEST: 'trustedPrompts.requestTest',
+      APP_SHOW_ABOUT: 'app.showAbout',
+      APP_CHECK_FOR_UPDATES: 'app.checkForUpdates',
+      APP_RESTART_AND_INSTALL_UPDATE: 'app.restartAndInstallUpdate',
+      WINDOWS_NEW: 'windows.new',
+      WINDOWS_OPEN_URL: 'windows.openUrl',
       WINDOWS_SET_TITLE: 'windows.setTitle',
       WINDOWS_CLOSE: 'windows.close',
       WINDOWS_MINIMIZE: 'windows.minimize',
@@ -79,6 +84,11 @@ describe('shell-api-policy', () => {
       'surfaces.close': 'surfaces.wallet.control',
       'surfaces.toggle': 'surfaces.wallet.control',
       'trustedPrompts.requestTest': 'trustedPrompts.test',
+      'app.showAbout': 'app.about',
+      'app.checkForUpdates': 'app.updates',
+      'app.restartAndInstallUpdate': 'app.updates',
+      'windows.new': 'windows.open',
+      'windows.openUrl': 'windows.open',
       'windows.setTitle': 'windows.control',
       'windows.close': 'windows.control',
       'windows.minimize': 'windows.control',
@@ -108,6 +118,9 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
       SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
       TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
+      APP_ABOUT: 'app.about',
+      APP_UPDATES: 'app.updates',
+      WINDOWS_OPEN: 'windows.open',
       WINDOWS_CONTROL: 'windows.control',
     });
     expect(SHELL_API_EVENTS).toEqual({
@@ -119,6 +132,8 @@ describe('shell-api-policy', () => {
       'tabs.snapshotChanged': 'tabs.read',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
+      'app.about',
+      'app.updates',
       'browserState.bookmarks.read',
       'browserState.bookmarks.write',
       'browserState.favicons.read',
@@ -133,6 +148,7 @@ describe('shell-api-policy', () => {
       'tabs.write',
       'trustedPrompts.test',
       'windows.control',
+      'windows.open',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
   });

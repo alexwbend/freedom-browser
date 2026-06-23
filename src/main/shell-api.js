@@ -27,6 +27,12 @@ const TAB_COMMAND_METHODS = new Set([
 const SUPPORTED_SURFACES = new Set(['wallet']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODE = 'shell-owned-placeholder';
+const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
+const shellCommandHandlers = {
+  onNewWindow: null,
+  onCheckForUpdates: null,
+  onRestartAndInstallUpdate: null,
+};
 const SENSITIVE_DIAGNOSTIC_KEYS = new Set([
   'entrypath',
   'filepath',
@@ -461,6 +467,158 @@ function toggleFullscreenWindowForShell(_args, event) {
   });
 }
 
+function configureShellCommandHandlers(options = {}) {
+  shellCommandHandlers.onNewWindow =
+    typeof options.onNewWindow === 'function' ? options.onNewWindow : null;
+  shellCommandHandlers.onCheckForUpdates =
+    typeof options.onCheckForUpdates === 'function' ? options.onCheckForUpdates : null;
+  shellCommandHandlers.onRestartAndInstallUpdate =
+    typeof options.onRestartAndInstallUpdate === 'function'
+      ? options.onRestartAndInstallUpdate
+      : null;
+}
+
+function shellCommandUnavailable(command, message = 'Shell command is unavailable') {
+  return {
+    ok: false,
+    command,
+    owner: 'shell',
+    error: {
+      code: 'SHELL_COMMAND_UNAVAILABLE',
+      message,
+    },
+  };
+}
+
+function shellCommandFailed(command, message = 'Shell command failed') {
+  return {
+    ok: false,
+    command,
+    owner: 'shell',
+    error: {
+      code: 'SHELL_COMMAND_FAILED',
+      message,
+    },
+  };
+}
+
+function normalizeNewWindowTargetUrl(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const targetUrl = value.trim();
+  if (!targetUrl) {
+    return null;
+  }
+  if (targetUrl.length > MAX_WINDOW_TARGET_URL_LENGTH) {
+    return {
+      error: {
+        code: 'WINDOW_TARGET_URL_TOO_LONG',
+        message: 'Window target URL is too long',
+      },
+    };
+  }
+  return { targetUrl };
+}
+
+function openShellWindow(command, targetUrl = null) {
+  if (typeof shellCommandHandlers.onNewWindow !== 'function') {
+    return shellCommandUnavailable(command, 'New window command is unavailable');
+  }
+
+  try {
+    shellCommandHandlers.onNewWindow(targetUrl);
+    return {
+      ok: true,
+      command,
+      owner: 'shell',
+      targetUrl,
+    };
+  } catch {
+    return shellCommandFailed(command, 'New window command failed');
+  }
+}
+
+function openNewWindowForShell() {
+  return openShellWindow(SHELL_API_METHODS.WINDOWS_NEW, null);
+}
+
+function openUrlInNewWindowForShell([url]) {
+  const normalized = normalizeNewWindowTargetUrl(url);
+  if (!normalized || normalized.error) {
+    return {
+      ok: false,
+      command: SHELL_API_METHODS.WINDOWS_OPEN_URL,
+      owner: 'shell',
+      error: normalized?.error || {
+        code: 'WINDOW_TARGET_URL_INVALID',
+        message: 'Window target URL is invalid',
+      },
+    };
+  }
+  return openShellWindow(SHELL_API_METHODS.WINDOWS_OPEN_URL, normalized.targetUrl);
+}
+
+function showAboutForShell() {
+  if (!app || typeof app.showAboutPanel !== 'function') {
+    return shellCommandUnavailable(SHELL_API_METHODS.APP_SHOW_ABOUT, 'About panel is unavailable');
+  }
+
+  try {
+    app.showAboutPanel();
+    return {
+      ok: true,
+      command: SHELL_API_METHODS.APP_SHOW_ABOUT,
+      owner: 'shell',
+    };
+  } catch {
+    return shellCommandFailed(SHELL_API_METHODS.APP_SHOW_ABOUT, 'About panel failed to open');
+  }
+}
+
+function checkForUpdatesForShell() {
+  if (typeof shellCommandHandlers.onCheckForUpdates !== 'function') {
+    return shellCommandUnavailable(
+      SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
+      'Update check command is unavailable'
+    );
+  }
+
+  try {
+    shellCommandHandlers.onCheckForUpdates();
+    return {
+      ok: true,
+      command: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
+      owner: 'shell',
+    };
+  } catch {
+    return shellCommandFailed(SHELL_API_METHODS.APP_CHECK_FOR_UPDATES, 'Update check failed');
+  }
+}
+
+function restartAndInstallUpdateForShell() {
+  if (typeof shellCommandHandlers.onRestartAndInstallUpdate !== 'function') {
+    return shellCommandUnavailable(
+      SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
+      'Update install command is unavailable'
+    );
+  }
+
+  try {
+    shellCommandHandlers.onRestartAndInstallUpdate();
+    return {
+      ok: true,
+      command: SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
+      owner: 'shell',
+    };
+  } catch {
+    return shellCommandFailed(
+      SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
+      'Update install failed'
+    );
+  }
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -576,6 +734,21 @@ const METHODS = Object.freeze({
   [SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST]: {
     handler: ([payload], _event, caller) => requestTestTrustedPromptForShell(payload, caller),
   },
+  [SHELL_API_METHODS.APP_SHOW_ABOUT]: {
+    handler: showAboutForShell,
+  },
+  [SHELL_API_METHODS.APP_CHECK_FOR_UPDATES]: {
+    handler: checkForUpdatesForShell,
+  },
+  [SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE]: {
+    handler: restartAndInstallUpdateForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_NEW]: {
+    handler: openNewWindowForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_OPEN_URL]: {
+    handler: openUrlInNewWindowForShell,
+  },
   [SHELL_API_METHODS.WINDOWS_SET_TITLE]: {
     handler: setWindowTitleForShell,
   },
@@ -653,11 +826,13 @@ async function handleShellRequest(event, payload = {}) {
 }
 
 function registerShellApiIpc(options = {}) {
+  configureShellCommandHandlers(options);
   const targetIpcMain = options.ipcMain || ipcMain;
   targetIpcMain.handle(IPC.SHELL_REQUEST, handleShellRequest);
 }
 
 module.exports = {
+  configureShellCommandHandlers,
   createShellApiError,
   cloneShellApiValue,
   createPackageCallerIdentity,

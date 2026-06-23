@@ -180,7 +180,7 @@ const {
   getMainWindows,
 } = require('./windows/mainWindow');
 focusCurrentProfileWindow = focusOrCreateMainWindow;
-const { initUpdater } = require('./updater');
+const { initUpdater, checkForUpdates, installUpdate } = require('./updater');
 const { setupApplicationMenu, updateTabMenuItems } = require('./menu');
 const { registerWebContentsHandlers } = require('./webcontents-setup');
 const { installTestHarness } = require('./test-harness');
@@ -228,7 +228,11 @@ async function bootstrap() {
     onSetTitle: setWindowTitle,
     onNewWindow: createMainWindow,
   });
-  registerShellApiIpc();
+  registerShellApiIpc({
+    onNewWindow: createMainWindow,
+    onCheckForUpdates: checkForUpdates,
+    onRestartAndInstallUpdate: installUpdate,
+  });
   registerSettingsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();

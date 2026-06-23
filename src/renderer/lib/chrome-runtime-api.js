@@ -50,11 +50,11 @@ const createPackageRuntimeApi = () =>
     minimizeWindow: () => callFreedomShell('minimizeWindow', null),
     maximizeWindow: () => callFreedomShell('maximizeWindow', null),
     toggleFullscreen: () => callFreedomShell('toggleFullscreen', null),
-    newWindow: noop,
-    openUrlInNewWindow: noop,
-    showAbout: noop,
-    checkForUpdates: noop,
-    restartAndInstallUpdate: noop,
+    newWindow: () => callFreedomShell('newWindow', null),
+    openUrlInNewWindow: (url) => callFreedomShell('openUrlInNewWindow', null, url),
+    showAbout: () => callFreedomShell('showAbout', null),
+    checkForUpdates: () => callFreedomShell('checkForUpdates', null),
+    restartAndInstallUpdate: () => callFreedomShell('restartAndInstallUpdate', null),
     getPlatform: async () => {
       const info = await getPackageInfo();
       return info?.platform || 'linux';

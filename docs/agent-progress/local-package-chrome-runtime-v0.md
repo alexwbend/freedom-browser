@@ -1078,3 +1078,68 @@ Known remaining gaps after this checkpoint:
   and covered in package-mode smoke
 - profile mutation/switching, settings writes, and some history/favicon
   management methods still need final audit disposition before completion
+
+### System Menu Command Checkpoint 1: New Window, About, And Updater Requests
+
+Current checkpoint: package chrome no longer uses silent no-op adapter methods
+for the visible New Window, About, Check for Updates, and Restart/Install
+Update command paths. New Window has launched package smoke coverage; About and
+updater commands are unit-covered shell-owned request paths to avoid native
+dialog/update side effects in smoke.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capabilities:
+  - `windows.new` / `windows.open`
+  - `windows.openUrl` / `windows.open`
+  - `app.showAbout` / `app.about`
+  - `app.checkForUpdates` / `app.updates`
+  - `app.restartAndInstallUpdate` / `app.updates`
+- exposed matching package preload methods on `window.freedomShell`:
+  - `newWindow()`
+  - `openUrlInNewWindow(url)`
+  - `showAbout()`
+  - `checkForUpdates()`
+  - `restartAndInstallUpdate()`
+- changed `src/renderer/lib/chrome-runtime-api.js` package adapter methods for
+  those commands to delegate to `freedomShell` instead of no-op shims
+- wired `registerShellApiIpc()` to injected shell-owned callbacks from
+  `src/main/index.js`:
+  - `createMainWindow` for new-window requests
+  - existing updater `checkForUpdates` and `installUpdate` actions for app
+    update requests
+- kept updater policy, native dialogs, updater ownership locks, install state,
+  and all Electron primitives in main; package chrome receives only
+  serializable request results
+- granted the official local package smoke manifest `windows.open`,
+  `app.about`, and `app.updates`
+- expanded official package smoke to click the visible New Window menu control,
+  verify a second package chrome BrowserWindow becomes ready, and close it
+  again
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed: 4 suites, 41 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 114 suites passed, 5 skipped; 2129 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- GitHub target CI verification is pending until this checkpoint is committed
+  and pushed.
+
+Known remaining gaps after this checkpoint:
+
+- native About-panel and updater UX are not clicked in package smoke; the
+  shell-owned request paths have unit coverage and remain candidates for
+  stronger native-dialog/update harness evidence in the final parity gate
+- `openUrlInNewWindow(url)` is implemented as a shell-owned request path, but
+  direct package context-menu smoke remains pending if final audit treats that
+  context menu as a visible completion-critical control
+- profile mutation/switching, settings writes, bookmark-bar menu toggles,
+  native menu event bridges, devtools/focus shortcuts, service/node status
+  commands, clipboard/image context actions, and some history/favicon
+  management methods still need final audit disposition before completion

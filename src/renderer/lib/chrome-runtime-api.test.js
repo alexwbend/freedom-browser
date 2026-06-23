@@ -58,6 +58,11 @@ describe('chrome-runtime-api', () => {
       minimizeWindow: jest.fn().mockResolvedValue({ ok: true }),
       maximizeWindow: jest.fn().mockResolvedValue({ ok: true }),
       toggleFullscreen: jest.fn().mockResolvedValue({ ok: true }),
+      newWindow: jest.fn().mockResolvedValue({ ok: true }),
+      openUrlInNewWindow: jest.fn().mockResolvedValue({ ok: true }),
+      showAbout: jest.fn().mockResolvedValue({ ok: true }),
+      checkForUpdates: jest.fn().mockResolvedValue({ ok: true }),
+      restartAndInstallUpdate: jest.fn().mockResolvedValue({ ok: true }),
     };
     const mod = await loadModule({ freedomShell });
     const api = mod.getChromeRuntimeApi();
@@ -103,6 +108,11 @@ describe('chrome-runtime-api', () => {
     await expect(api.minimizeWindow()).resolves.toEqual({ ok: true });
     await expect(api.maximizeWindow()).resolves.toEqual({ ok: true });
     await expect(api.toggleFullscreen()).resolves.toEqual({ ok: true });
+    await expect(api.newWindow()).resolves.toEqual({ ok: true });
+    await expect(api.openUrlInNewWindow('https://example.com')).resolves.toEqual({ ok: true });
+    await expect(api.showAbout()).resolves.toEqual({ ok: true });
+    await expect(api.checkForUpdates()).resolves.toEqual({ ok: true });
+    await expect(api.restartAndInstallUpdate()).resolves.toEqual({ ok: true });
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.setWindowTitle).toHaveBeenCalledWith('Loaded Title');
@@ -110,6 +120,11 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.minimizeWindow).toHaveBeenCalledTimes(1);
     expect(freedomShell.maximizeWindow).toHaveBeenCalledTimes(1);
     expect(freedomShell.toggleFullscreen).toHaveBeenCalledTimes(1);
+    expect(freedomShell.newWindow).toHaveBeenCalledTimes(1);
+    expect(freedomShell.openUrlInNewWindow).toHaveBeenCalledWith('https://example.com');
+    expect(freedomShell.showAbout).toHaveBeenCalledTimes(1);
+    expect(freedomShell.checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(freedomShell.restartAndInstallUpdate).toHaveBeenCalledTimes(1);
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',
       target: 'https://added.example',
