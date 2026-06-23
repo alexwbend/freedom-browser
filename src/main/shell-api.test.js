@@ -20,6 +20,8 @@ const mockAddHistoryEntry = jest.fn();
 const mockGetCachedFavicon = jest.fn();
 const mockGetActiveProfile = jest.fn();
 const mockListProfilesForActiveApp = jest.fn();
+const mockFetchBuffer = jest.fn();
+const mockFetchToFile = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
@@ -27,6 +29,7 @@ const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
 const HISTORY_MODULE = require.resolve('./history');
 const FAVICONS_MODULE = require.resolve('./favicons');
 const PROFILE_RESOLVER_MODULE = require.resolve('./profile-resolver');
+const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
 
 function makeSender(overrides = {}) {
   return {
@@ -86,6 +89,10 @@ function loadShellApi(options = {}) {
         getActiveProfile: mockGetActiveProfile,
         listProfilesForActiveApp: mockListProfilesForActiveApp,
       }),
+      [HTTP_FETCH_MODULE]: () => ({
+        fetchBuffer: mockFetchBuffer,
+        fetchToFile: mockFetchToFile,
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -113,6 +120,8 @@ describe('shell-api', () => {
     mockGetCachedFavicon.mockReset();
     mockGetActiveProfile.mockReset();
     mockListProfilesForActiveApp.mockReset();
+    mockFetchBuffer.mockReset();
+    mockFetchToFile.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -1359,12 +1368,157 @@ describe('shell-api', () => {
     expect(onRestartAndInstallUpdate).toHaveBeenCalledTimes(1);
   });
 
+  test('handles capability-gated page context menu clipboard and image actions', async () => {
+    const ownerWindow = { id: 1 };
+    const { clipboard, dialog, mod, nativeImage } = loadShellApi();
+    const sender = makeSender({
+      id: 116,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['clipboard.write', 'downloads.saveImage'] })
+    );
+    mockFetchBuffer.mockResolvedValue(Buffer.from('image-bytes'));
+    mockFetchToFile.mockResolvedValue(undefined);
+    dialog.showSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: '/tmp/private-logo.png',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.CLIPBOARD_COPY_TEXT, args: ['copied text'] }
+      )
+    ).resolves.toEqual({ success: true });
+    expect(clipboard.writeText).toHaveBeenCalledWith('copied text');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL,
+          args: ['https://example.com/assets/logo.png'],
+        }
+      )
+    ).resolves.toEqual({ success: true });
+    expect(mockFetchBuffer).toHaveBeenCalledWith('https://example.com/assets/logo.png');
+    expect(nativeImage.createFromBuffer).toHaveBeenCalledWith(Buffer.from('image-bytes'));
+    expect(clipboard.writeImage).toHaveBeenCalled();
+
+    const saveResult = await mod.handleShellRequest(
+      { sender },
+      {
+        method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE,
+        args: ['https://example.com/assets/logo.png'],
+      }
+    );
+    expect(saveResult).toEqual({ success: true });
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(
+      ownerWindow,
+      expect.objectContaining({
+        defaultPath: 'logo.png',
+      })
+    );
+    expect(mockFetchToFile).toHaveBeenCalledWith(
+      'https://example.com/assets/logo.png',
+      '/tmp/private-logo.png'
+    );
+    expect(saveResult).not.toHaveProperty('filePath');
+
+    dialog.showSaveDialog.mockResolvedValueOnce({ canceled: true });
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE,
+          args: ['https://example.com/assets/logo.png'],
+        }
+      )
+    ).resolves.toEqual({ success: false, canceled: true });
+  });
+
+  test('returns structured errors for invalid page context menu actions', async () => {
+    const { mod, nativeImage } = loadShellApi();
+    const sender = makeSender({ id: 1161 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['clipboard.write', 'downloads.saveImage'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.CLIPBOARD_COPY_TEXT, args: [''] }
+      )
+    ).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'CLIPBOARD_TEXT_MISSING',
+        message: 'No text provided',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE, args: [''] }
+      )
+    ).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'URL_MISSING',
+        message: 'Missing URL',
+      },
+    });
+
+    nativeImage.createFromBuffer.mockReturnValueOnce({ isEmpty: () => true });
+    mockFetchBuffer.mockResolvedValue(Buffer.from('not-an-image'));
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL,
+          args: ['https://example.com/empty.png'],
+        }
+      )
+    ).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'IMAGE_DECODE_FAILED',
+        message: 'Failed to create image from data',
+      },
+    });
+
+    mockFetchBuffer.mockRejectedValueOnce(new Error('download failed'));
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL,
+          args: ['https://example.com/error.png'],
+        }
+      )
+    ).resolves.toEqual({
+      success: false,
+      error: {
+        code: 'IMAGE_COPY_FAILED',
+        message: 'download failed',
+      },
+    });
+  });
+
   test('handles capability-gated package chrome UI menu state commands', async () => {
     const onUpdateTabMenuState = jest.fn(() => true);
     const onSetBookmarkBarToggleEnabled = jest.fn(() => true);
     const onSetBookmarkBarChecked = jest.fn(() => true);
     const { mod } = loadShellApi();
-    const sender = makeSender({ id: 117 });
+    const ownerWindow = { id: 1170 };
+    const sender = makeSender({
+      id: 117,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
     mod.configureShellCommandHandlers({
       onUpdateTabMenuState,
       onSetBookmarkBarToggleEnabled,
@@ -1388,11 +1542,14 @@ describe('shell-api', () => {
       command: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
       owner: 'shell',
     });
-    expect(onUpdateTabMenuState).toHaveBeenCalledWith({
-      tabCount: 2,
-      activeIndex: 1,
-      hasClosedTabs: true,
-    });
+    expect(onUpdateTabMenuState).toHaveBeenCalledWith(
+      {
+        tabCount: 2,
+        activeIndex: 1,
+        hasClosedTabs: true,
+      },
+      ownerWindow
+    );
 
     await expect(
       mod.handleShellRequest(
@@ -1407,7 +1564,7 @@ describe('shell-api', () => {
       command: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
       owner: 'shell',
     });
-    expect(onSetBookmarkBarToggleEnabled).toHaveBeenCalledWith(false);
+    expect(onSetBookmarkBarToggleEnabled).toHaveBeenCalledWith(false, ownerWindow);
 
     await expect(
       mod.handleShellRequest(
@@ -1419,7 +1576,7 @@ describe('shell-api', () => {
       command: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
       owner: 'shell',
     });
-    expect(onSetBookmarkBarChecked).toHaveBeenCalledWith(true);
+    expect(onSetBookmarkBarChecked).toHaveBeenCalledWith(true, ownerWindow);
   });
 
   test('returns structured errors for unavailable or invalid system menu commands', async () => {
@@ -1517,6 +1674,32 @@ describe('shell-api', () => {
       details: {
         method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
         requiredCapability: 'chrome.ui.commands',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.CLIPBOARD_COPY_TEXT, args: ['blocked'] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.CLIPBOARD_COPY_TEXT,
+        requiredCapability: 'clipboard.write',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE, args: ['https://example.com/a.png'] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE,
+        requiredCapability: 'downloads.saveImage',
       },
     });
   });

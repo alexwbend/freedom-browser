@@ -48,6 +48,9 @@ const SHELL_API_METHODS = Object.freeze({
   CHROME_UI_UPDATE_TAB_MENU_STATE: 'chrome.ui.updateTabMenuState',
   CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED: 'chrome.ui.setBookmarkBarToggleEnabled',
   CHROME_UI_SET_BOOKMARK_BAR_CHECKED: 'chrome.ui.setBookmarkBarChecked',
+  CLIPBOARD_COPY_TEXT: 'clipboard.copyText',
+  CLIPBOARD_COPY_IMAGE_FROM_URL: 'clipboard.copyImageFromUrl',
+  DOWNLOADS_SAVE_IMAGE: 'downloads.saveImage',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -140,6 +143,10 @@ const freedomShell = Object.freeze({
     invokeShell(SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED, enabled),
   setBookmarkBarChecked: (checked) =>
     invokeShell(SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED, checked),
+  copyText: (text) => invokeShell(SHELL_API_METHODS.CLIPBOARD_COPY_TEXT, text),
+  copyImageFromUrl: (imageUrl) =>
+    invokeShell(SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL, imageUrl),
+  saveImage: (imageUrl) => invokeShell(SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE, imageUrl),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

@@ -1,8 +1,9 @@
 const { EventEmitter } = require('events');
-const { app, ipcMain } = require('electron');
+const { app, clipboard, dialog, ipcMain, nativeImage } = require('electron');
 const IPC = require('../shared/ipc-channels');
 const { version: packageVersion } = require('../../package.json');
 const { getActiveChromePackage } = require('./chrome-package');
+const log = require('./logger');
 const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
@@ -27,7 +28,9 @@ const TAB_COMMAND_METHODS = new Set([
 const SUPPORTED_SURFACES = new Set(['wallet']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODE = 'shell-owned-placeholder';
+const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
 const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
+const MAX_CONTEXT_URL_LENGTH = 4096;
 const shellCommandHandlers = {
   onNewWindow: null,
   onCheckForUpdates: null,
@@ -621,13 +624,22 @@ function normalizeTabMenuState(state) {
   };
 }
 
-function runChromeUiMenuStateCommand(command, handler, payload) {
+function getOwnerWindowForShellEvent(event) {
+  try {
+    return event?.sender?.getOwnerBrowserWindow?.() || null;
+  } catch {
+    return null;
+  }
+}
+
+function runChromeUiMenuStateCommand(command, handler, payload, event) {
   if (typeof handler !== 'function') {
     return shellCommandUnavailable(command, 'Chrome UI menu state command is unavailable');
   }
 
   try {
-    const applied = handler(payload);
+    const ownerWindow = getOwnerWindowForShellEvent(event);
+    const applied = ownerWindow ? handler(payload, ownerWindow) : handler(payload);
     return {
       ok: applied !== false,
       command,
@@ -638,28 +650,149 @@ function runChromeUiMenuStateCommand(command, handler, payload) {
   }
 }
 
-function updateTabMenuStateForShell([state]) {
+function updateTabMenuStateForShell([state], event) {
   return runChromeUiMenuStateCommand(
     SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
     shellCommandHandlers.onUpdateTabMenuState,
-    normalizeTabMenuState(state)
+    normalizeTabMenuState(state),
+    event
   );
 }
 
-function setBookmarkBarToggleEnabledForShell([enabled]) {
+function setBookmarkBarToggleEnabledForShell([enabled], event) {
   return runChromeUiMenuStateCommand(
     SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
     shellCommandHandlers.onSetBookmarkBarToggleEnabled,
-    Boolean(enabled)
+    Boolean(enabled),
+    event
   );
 }
 
-function setBookmarkBarCheckedForShell([checked]) {
+function setBookmarkBarCheckedForShell([checked], event) {
   return runChromeUiMenuStateCommand(
     SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
     shellCommandHandlers.onSetBookmarkBarChecked,
-    Boolean(checked)
+    Boolean(checked),
+    event
   );
+}
+
+function shellActionResultError(code, message) {
+  return {
+    success: false,
+    error: {
+      code,
+      message,
+    },
+  };
+}
+
+function normalizeShellContextUrl(value) {
+  const url = typeof value === 'string' ? value.trim() : '';
+  if (!url) {
+    return { error: shellActionResultError('URL_MISSING', 'Missing URL') };
+  }
+  if (url.length > MAX_CONTEXT_URL_LENGTH) {
+    return { error: shellActionResultError('URL_TOO_LONG', 'URL is too long') };
+  }
+  return { url };
+}
+
+function defaultImageFileName(imageUrl) {
+  try {
+    const url = new URL(imageUrl);
+    const lastSegment = url.pathname.split('/').pop();
+    if (lastSegment) {
+      return lastSegment;
+    }
+  } catch {
+    // Use the generic fallback below.
+  }
+  return 'image';
+}
+
+function copyTextForShell([text]) {
+  if (typeof text !== 'string' || !text) {
+    return shellActionResultError('CLIPBOARD_TEXT_MISSING', 'No text provided');
+  }
+  if (text.length > MAX_CLIPBOARD_TEXT_LENGTH) {
+    return shellActionResultError('CLIPBOARD_TEXT_TOO_LONG', 'Clipboard text is too long');
+  }
+  if (!clipboard || typeof clipboard.writeText !== 'function') {
+    return shellActionResultError('CLIPBOARD_UNAVAILABLE', 'Clipboard is unavailable');
+  }
+
+  try {
+    clipboard.writeText(text);
+    return { success: true };
+  } catch {
+    return shellActionResultError('CLIPBOARD_WRITE_FAILED', 'Clipboard write failed');
+  }
+}
+
+async function copyImageFromUrlForShell([imageUrl]) {
+  const normalized = normalizeShellContextUrl(imageUrl);
+  if (normalized.error) {
+    return normalized.error;
+  }
+  if (!clipboard || typeof clipboard.writeImage !== 'function') {
+    return shellActionResultError('CLIPBOARD_UNAVAILABLE', 'Clipboard is unavailable');
+  }
+  if (!nativeImage || typeof nativeImage.createFromBuffer !== 'function') {
+    return shellActionResultError('IMAGE_CLIPBOARD_UNAVAILABLE', 'Image clipboard is unavailable');
+  }
+
+  try {
+    const { fetchBuffer } = require('./http-fetch');
+    const imageData = await fetchBuffer(normalized.url);
+    const image = nativeImage.createFromBuffer(imageData);
+    if (!image || image.isEmpty?.()) {
+      return shellActionResultError('IMAGE_DECODE_FAILED', 'Failed to create image from data');
+    }
+    clipboard.writeImage(image);
+    return { success: true };
+  } catch (error) {
+    log.error('[shell-api] Failed to copy image:', error);
+    return shellActionResultError(
+      'IMAGE_COPY_FAILED',
+      error?.message || 'Failed to copy image'
+    );
+  }
+}
+
+async function saveImageForShell([imageUrl], event) {
+  const normalized = normalizeShellContextUrl(imageUrl);
+  if (normalized.error) {
+    return normalized.error;
+  }
+  if (!dialog || typeof dialog.showSaveDialog !== 'function') {
+    return shellActionResultError('SAVE_DIALOG_UNAVAILABLE', 'Save dialog is unavailable');
+  }
+
+  try {
+    const window = event?.sender?.getOwnerBrowserWindow?.() || null;
+    const result = await dialog.showSaveDialog(window, {
+      defaultPath: defaultImageFileName(normalized.url),
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+
+    if (result?.canceled || !result?.filePath) {
+      return { success: false, canceled: true };
+    }
+
+    const { fetchToFile } = require('./http-fetch');
+    await fetchToFile(normalized.url, result.filePath);
+    return { success: true };
+  } catch (error) {
+    log.error('[shell-api] Failed to save image:', error);
+    return shellActionResultError(
+      'IMAGE_SAVE_FAILED',
+      error?.message || 'Failed to save image'
+    );
+  }
 }
 
 function normalizeNewWindowTargetUrl(value) {
@@ -941,6 +1074,15 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED]: {
     handler: setBookmarkBarCheckedForShell,
+  },
+  [SHELL_API_METHODS.CLIPBOARD_COPY_TEXT]: {
+    handler: copyTextForShell,
+  },
+  [SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL]: {
+    handler: copyImageFromUrlForShell,
+  },
+  [SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE]: {
+    handler: saveImageForShell,
   },
 });
 

@@ -10,14 +10,20 @@ const {
   installUpdate,
 } = require('./updater');
 
+const windowMenuState = new WeakMap();
+
+function getLiveMainWindows() {
+  return getMainWindows().filter((win) => !win?.isDestroyed?.());
+}
+
 // Helper to get the best target window for tab operations
 // Only returns main browser windows we created (not DevTools or other system windows)
 function getTargetWindow() {
   const focused = BrowserWindow.getFocusedWindow();
-  if (focused && isMainBrowserWindow(focused)) {
+  if (focused && isMainBrowserWindow(focused) && !focused.isDestroyed?.()) {
     return focused;
   }
-  const mainWindows = getMainWindows();
+  const mainWindows = getLiveMainWindows();
   return mainWindows[0] || null;
 }
 
@@ -476,7 +482,7 @@ function setupApplicationMenu() {
   updateTabMenuItems();
 }
 
-function applyTabMenuState(state = {}) {
+function applyTabMenuStateToApplicationMenu(state = {}) {
   const menu = Menu.getApplicationMenu();
   if (!menu) return false;
 
@@ -499,6 +505,72 @@ function applyTabMenuState(state = {}) {
   return true;
 }
 
+function shouldApplyWindowMenuState(window) {
+  if (!window || window.isDestroyed?.()) {
+    return false;
+  }
+  const focused = BrowserWindow.getFocusedWindow();
+  if (focused && isMainBrowserWindow(focused) && !focused.isDestroyed?.()) {
+    return focused === window;
+  }
+  return window.isFocused?.() === true;
+}
+
+function getOrCreateWindowMenuState(window) {
+  if (!window || window.isDestroyed?.()) {
+    return null;
+  }
+  const existing = windowMenuState.get(window) || {};
+  windowMenuState.set(window, existing);
+  return existing;
+}
+
+function applyWindowMenuState(window) {
+  if (!window || window.isDestroyed?.()) {
+    return false;
+  }
+  const state = windowMenuState.get(window);
+  if (!state) {
+    return false;
+  }
+  let applied = false;
+  if (state.tabMenuState) {
+    applied = applyTabMenuStateToApplicationMenu(state.tabMenuState) || applied;
+  }
+  if (state.bookmarkBarToggleEnabled !== undefined) {
+    applied =
+      setBookmarkBarToggleEnabledOnApplicationMenu(state.bookmarkBarToggleEnabled) || applied;
+  }
+  if (state.bookmarkBarChecked !== undefined) {
+    applied = setBookmarkBarCheckedOnApplicationMenu(state.bookmarkBarChecked) || applied;
+  }
+  return applied;
+}
+
+function applyFocusedWindowMenuState() {
+  const focused = getTargetWindow();
+  if (focused) {
+    return applyWindowMenuState(focused);
+  }
+  updateTabMenuItems();
+  return false;
+}
+
+function applyTabMenuState(state = {}, ownerWindow = null) {
+  if (!ownerWindow) {
+    return applyTabMenuStateToApplicationMenu(state);
+  }
+  const windowState = getOrCreateWindowMenuState(ownerWindow);
+  if (!windowState) {
+    return false;
+  }
+  windowState.tabMenuState = { ...state };
+  if (!shouldApplyWindowMenuState(ownerWindow)) {
+    return true;
+  }
+  return applyTabMenuStateToApplicationMenu(windowState.tabMenuState);
+}
+
 function getBookmarkBarToggleMenuItem() {
   if (toggleBookmarkBarMenuItem) {
     return toggleBookmarkBarMenuItem;
@@ -506,7 +578,7 @@ function getBookmarkBarToggleMenuItem() {
   return Menu.getApplicationMenu()?.getMenuItemById('toggle-bookmark-bar') || null;
 }
 
-function setBookmarkBarToggleEnabled(enabled) {
+function setBookmarkBarToggleEnabledOnApplicationMenu(enabled) {
   const item = getBookmarkBarToggleMenuItem();
   if (!item) {
     return false;
@@ -515,7 +587,22 @@ function setBookmarkBarToggleEnabled(enabled) {
   return true;
 }
 
-function setBookmarkBarChecked(checked) {
+function setBookmarkBarToggleEnabled(enabled, ownerWindow = null) {
+  if (!ownerWindow) {
+    return setBookmarkBarToggleEnabledOnApplicationMenu(enabled);
+  }
+  const windowState = getOrCreateWindowMenuState(ownerWindow);
+  if (!windowState) {
+    return false;
+  }
+  windowState.bookmarkBarToggleEnabled = Boolean(enabled);
+  if (!shouldApplyWindowMenuState(ownerWindow)) {
+    return true;
+  }
+  return setBookmarkBarToggleEnabledOnApplicationMenu(windowState.bookmarkBarToggleEnabled);
+}
+
+function setBookmarkBarCheckedOnApplicationMenu(checked) {
   const item = getBookmarkBarToggleMenuItem();
   if (!item) {
     return false;
@@ -524,25 +611,45 @@ function setBookmarkBarChecked(checked) {
   return true;
 }
 
+function setBookmarkBarChecked(checked, ownerWindow = null) {
+  if (!ownerWindow) {
+    return setBookmarkBarCheckedOnApplicationMenu(checked);
+  }
+  const windowState = getOrCreateWindowMenuState(ownerWindow);
+  if (!windowState) {
+    return false;
+  }
+  windowState.bookmarkBarChecked = Boolean(checked);
+  if (!shouldApplyWindowMenuState(ownerWindow)) {
+    return true;
+  }
+  return setBookmarkBarCheckedOnApplicationMenu(windowState.bookmarkBarChecked);
+}
+
 // Receive tab state updates from the bundled renderer and apply to menu items immediately
-ipcMain.on('menu:update-tab-state', (_event, state) => {
-  applyTabMenuState(state);
+ipcMain.on('menu:update-tab-state', (event, state) => {
+  applyTabMenuState(state, event?.sender?.getOwnerBrowserWindow?.() || null);
 });
 
 // Track fullscreen state changes from any window to update menu label
 app.on('browser-window-created', (_event, win) => {
   win.on('enter-full-screen', () => updateFullscreenMenuItem(true));
   win.on('leave-full-screen', () => updateFullscreenMenuItem(false));
+  win.on('focus', () => applyWindowMenuState(win));
+  win.on('closed', () => {
+    windowMenuState.delete(win);
+    applyFocusedWindowMenuState();
+  });
 });
 
 // Allow renderer to enable/disable the bookmark bar toggle menu item
-ipcMain.on('menu:set-bookmark-bar-toggle-enabled', (_event, enabled) => {
-  setBookmarkBarToggleEnabled(enabled);
+ipcMain.on('menu:set-bookmark-bar-toggle-enabled', (event, enabled) => {
+  setBookmarkBarToggleEnabled(enabled, event?.sender?.getOwnerBrowserWindow?.() || null);
 });
 
 // Allow renderer to update the bookmark bar checked state
-ipcMain.on('menu:set-bookmark-bar-checked', (_event, checked) => {
-  setBookmarkBarChecked(checked);
+ipcMain.on('menu:set-bookmark-bar-checked', (event, checked) => {
+  setBookmarkBarChecked(checked, event?.sender?.getOwnerBrowserWindow?.() || null);
 });
 
 function updateFullscreenMenuItem(newIsFullScreen) {

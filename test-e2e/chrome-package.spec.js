@@ -170,6 +170,8 @@ function writeOfficialChromePackage(root) {
           'browserState.favicons.read',
           'browserState.profiles.read',
           'chrome.ui.commands',
+          'clipboard.write',
+          'downloads.saveImage',
           'windows.control',
           'windows.open',
           'app.about',
@@ -295,6 +297,27 @@ async function getActiveWebviewText(page, selector) {
       return null;
     }
   }, selector);
+}
+
+async function showActiveWebviewContextMenu(page, context) {
+  await page.evaluate((payload) => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview) {
+      throw new Error('No active webview');
+    }
+    const event = new Event('ipc-message');
+    Object.defineProperty(event, 'channel', { value: 'context-menu' });
+    Object.defineProperty(event, 'args', {
+      value: [
+        {
+          x: 8,
+          y: 8,
+          ...payload,
+        },
+      ],
+    });
+    webview.dispatchEvent(event);
+  }, context);
 }
 
 async function expectHomeReady(page) {
@@ -426,6 +449,16 @@ async function getApplicationMenuItemStates(app, itemIds) {
       })
     );
   }, itemIds);
+}
+
+async function clearClipboardText(app) {
+  await app.evaluate(({ clipboard }) => {
+    clipboard.writeText('');
+  });
+}
+
+async function getClipboardText(app) {
+  return app.evaluate(({ clipboard }) => clipboard.readText());
 }
 
 async function installMainWindowFullScreenRecorder(app) {
@@ -614,6 +647,9 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'updateTabMenuState',
         'setBookmarkBarToggleEnabled',
         'setBookmarkBarChecked',
+        'copyText',
+        'copyImageFromUrl',
+        'saveImage',
         'onTabCommandResult',
         'onTabSnapshotChanged',
         'onCloseMenusRequested',
@@ -1477,6 +1513,51 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="harness-http-stub-url"]',
       'https://example.com/'
     );
+    await clearClipboardText(launched.app);
+    await showActiveWebviewContextMenu(page, {
+      pageUrl: 'https://example.com/',
+      linkUrl: 'https://example.com/context-link',
+    });
+    await expect(page.locator('#page-context-menu')).toBeVisible();
+    await page.locator('#page-context-menu [data-action="copy-link"]').click();
+    await expect
+      .poll(() => getClipboardText(launched.app))
+      .toBe('https://example.com/context-link');
+    await expect(page.locator('#page-context-menu')).toBeHidden();
+
+    await clearClipboardText(launched.app);
+    await showActiveWebviewContextMenu(page, {
+      pageUrl: 'https://example.com/',
+      imageSrc: 'https://example.com/context-image.png',
+    });
+    await expect(page.locator('#page-context-menu')).toBeVisible();
+    await page.locator('#page-context-menu [data-action="copy-image-address"]').click();
+    await expect
+      .poll(() => getClipboardText(launched.app))
+      .toBe('https://example.com/context-image.png');
+    await expect(page.locator('#page-context-menu')).toBeHidden();
+
+    const contextWindowCountBefore = await countBrowserWindows();
+    const contextWindowPromise = launched.app.waitForEvent('window');
+    await showActiveWebviewContextMenu(page, {
+      pageUrl: 'https://example.com/',
+      linkUrl: 'https://example.com/context-window',
+    });
+    await expect(page.locator('#page-context-menu')).toBeVisible();
+    await page.locator('#page-context-menu [data-action="open-link-new-window"]').click();
+    const contextPackageWindow = await contextWindowPromise;
+    await contextPackageWindow.waitForLoadState('domcontentloaded');
+    await contextPackageWindow.waitForSelector('[data-test="address-input"]', {
+      state: 'visible',
+    });
+    await expect(contextPackageWindow.locator('body')).toHaveAttribute(
+      'data-package-ready',
+      'true'
+    );
+    await expect.poll(countBrowserWindows).toBe(contextWindowCountBefore + 1);
+    await contextPackageWindow.close();
+    await expect.poll(countBrowserWindows).toBe(contextWindowCountBefore);
+
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeHidden();
     await expect
       .poll(() => getApplicationMenuItemStates(launched.app, ['toggle-bookmark-bar']))

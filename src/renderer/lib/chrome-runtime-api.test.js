@@ -76,6 +76,9 @@ describe('chrome-runtime-api', () => {
       updateTabMenuState: jest.fn().mockResolvedValue({ ok: true }),
       setBookmarkBarToggleEnabled: jest.fn().mockResolvedValue({ ok: true }),
       setBookmarkBarChecked: jest.fn().mockResolvedValue({ ok: true }),
+      copyText: jest.fn().mockResolvedValue({ success: true }),
+      copyImageFromUrl: jest.fn().mockResolvedValue({ success: true }),
+      saveImage: jest.fn().mockResolvedValue({ success: true }),
       onCloseMenusRequested: jest.fn(() => 'cleanup-close-menus'),
       onFocusAddressBarRequested: jest.fn(() => 'cleanup-focus-address-bar'),
       onToggleDevToolsRequested: jest.fn(() => 'cleanup-toggle-devtools'),
@@ -160,6 +163,16 @@ describe('chrome-runtime-api', () => {
     ).resolves.toEqual({ ok: true });
     await expect(api.setBookmarkBarToggleEnabled(false)).resolves.toEqual({ ok: true });
     await expect(api.setBookmarkBarChecked(true)).resolves.toEqual({ ok: true });
+    await expect(api.copyText('https://example.com/copied')).resolves.toEqual({
+      success: true,
+    });
+    await expect(api.copyImageFromUrl('https://example.com/image.png')).resolves.toEqual({
+      success: true,
+    });
+    await expect(api.saveImage('https://example.com/image.png')).resolves.toEqual({
+      success: true,
+    });
+    await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
     const callbacks = {
       closeMenus: jest.fn(),
       focusAddressBar: jest.fn(),
@@ -207,6 +220,9 @@ describe('chrome-runtime-api', () => {
     });
     expect(freedomShell.setBookmarkBarToggleEnabled).toHaveBeenCalledWith(false);
     expect(freedomShell.setBookmarkBarChecked).toHaveBeenCalledWith(true);
+    expect(freedomShell.copyText).toHaveBeenCalledWith('https://example.com/copied');
+    expect(freedomShell.copyImageFromUrl).toHaveBeenCalledWith('https://example.com/image.png');
+    expect(freedomShell.saveImage).toHaveBeenCalledWith('https://example.com/image.png');
     expect(freedomShell.saveSettings).toHaveBeenCalledWith({ showBookmarkBar: false });
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',
@@ -275,6 +291,19 @@ describe('chrome-runtime-api', () => {
         message: 'Profile list unavailable',
       },
     });
+    await expect(api.copyText('https://example.com/copied')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'CLIPBOARD_WRITE_UNAVAILABLE' },
+    });
+    await expect(api.copyImageFromUrl('https://example.com/image.png')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'IMAGE_COPY_UNAVAILABLE' },
+    });
+    await expect(api.saveImage('https://example.com/image.png')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'IMAGE_SAVE_UNAVAILABLE' },
+    });
+    await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
   });
 
   test('marks package chrome ready through freedomShell', async () => {

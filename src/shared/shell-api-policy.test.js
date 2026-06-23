@@ -59,6 +59,9 @@ describe('shell-api-policy', () => {
       CHROME_UI_UPDATE_TAB_MENU_STATE: 'chrome.ui.updateTabMenuState',
       CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED: 'chrome.ui.setBookmarkBarToggleEnabled',
       CHROME_UI_SET_BOOKMARK_BAR_CHECKED: 'chrome.ui.setBookmarkBarChecked',
+      CLIPBOARD_COPY_TEXT: 'clipboard.copyText',
+      CLIPBOARD_COPY_IMAGE_FROM_URL: 'clipboard.copyImageFromUrl',
+      DOWNLOADS_SAVE_IMAGE: 'downloads.saveImage',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -106,6 +109,9 @@ describe('shell-api-policy', () => {
       'chrome.ui.updateTabMenuState': 'chrome.ui.commands',
       'chrome.ui.setBookmarkBarToggleEnabled': 'chrome.ui.commands',
       'chrome.ui.setBookmarkBarChecked': 'chrome.ui.commands',
+      'clipboard.copyText': 'clipboard.write',
+      'clipboard.copyImageFromUrl': 'clipboard.write',
+      'downloads.saveImage': 'downloads.saveImage',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -137,6 +143,8 @@ describe('shell-api-policy', () => {
       WINDOWS_OPEN: 'windows.open',
       WINDOWS_CONTROL: 'windows.control',
       CHROME_UI_COMMANDS: 'chrome.ui.commands',
+      CLIPBOARD_WRITE: 'clipboard.write',
+      DOWNLOADS_SAVE_IMAGE: 'downloads.saveImage',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -196,6 +204,8 @@ describe('shell-api-policy', () => {
       'browserState.settings.read',
       'browserState.settings.write',
       'chrome.ui.commands',
+      'clipboard.write',
+      'downloads.saveImage',
       'navigation.resolve',
       'shell.info',
       'shell.ready',

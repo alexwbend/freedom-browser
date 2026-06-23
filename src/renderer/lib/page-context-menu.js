@@ -225,7 +225,7 @@ const handleAction = async (action) => {
         pushDebug(`Saving image: ${currentContext.imageSrc}`);
         const result = await electronAPI?.saveImage?.(currentContext.imageSrc);
         if (result?.success) {
-          pushDebug(`Image saved to: ${result.filePath}`);
+          pushDebug(result.filePath ? `Image saved to: ${result.filePath}` : 'Image saved');
         } else if (result?.error) {
           console.error('Failed to save image:', result.error);
         }

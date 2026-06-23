@@ -81,6 +81,9 @@ describe('package-preload', () => {
       'updateTabMenuState',
       'setBookmarkBarToggleEnabled',
       'setBookmarkBarChecked',
+      'copyText',
+      'copyImageFromUrl',
+      'saveImage',
       'onTabCommandResult',
       'onTabSnapshotChanged',
       'onCloseMenusRequested',
@@ -399,6 +402,24 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
       args: [true],
+    });
+
+    await exposures.freedomShell.copyText('https://example.com/copied');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.CLIPBOARD_COPY_TEXT,
+      args: ['https://example.com/copied'],
+    });
+
+    await exposures.freedomShell.copyImageFromUrl('https://example.com/image.png');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.CLIPBOARD_COPY_IMAGE_FROM_URL,
+      args: ['https://example.com/image.png'],
+    });
+
+    await exposures.freedomShell.saveImage('https://example.com/image.png');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.DOWNLOADS_SAVE_IMAGE,
+      args: ['https://example.com/image.png'],
     });
   });
 

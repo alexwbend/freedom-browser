@@ -1425,6 +1425,64 @@ Known remaining gaps after this checkpoint:
 - profile creation/switching remains shell-owned/bundled-only; a future package
   request path needs a scoped trusted switching/launch contract before it can
   be exposed
-- service/node status commands, clipboard/image context actions, direct
-  context-menu open-in-new-window smoke, and some history/favicon management
-  methods still need final audit disposition before completion
+- service/node status commands and some history/favicon management methods
+  still need final audit disposition before completion
+
+### Chrome UI Checkpoint 3: Page Context Menu Clipboard And Window Actions
+
+Current checkpoint: package chrome no longer uses false/failure adapter shims for
+the visible page context-menu copy/save image actions. Link/image address copy
+uses a write-only clipboard shell API, image copy/save use narrow main-owned
+image fetch/save paths, and direct page context-menu Open Link in New Window is
+covered by official package smoke.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capabilities:
+  - `clipboard.copyText` / `clipboard.write`
+  - `clipboard.copyImageFromUrl` / `clipboard.write`
+  - `downloads.saveImage` / `downloads.saveImage`
+- exposed package preload methods:
+  - `copyText(text)`
+  - `copyImageFromUrl(imageUrl)`
+  - `saveImage(imageUrl)`
+- changed `src/renderer/lib/chrome-runtime-api.js` package adapter methods for
+  `copyText`, `copyImageFromUrl`, and `saveImage` to delegate to
+  `freedomShell` instead of returning false
+- kept `readClipboardText()` unavailable in package mode; package chrome gets
+  no clipboard read capability
+- kept image download and clipboard image decode in main through the existing
+  HTTP(S)-only fetch helper
+- changed package `saveImage()` results so the selected filesystem path is not
+  returned to package chrome
+- granted the generated official local chrome package manifest `clipboard.write`
+  and `downloads.saveImage`
+- expanded official package smoke coverage for direct page context-menu Copy
+  Link Address, Copy Image Address, and Open Link in New Window actions
+- fixed the native menu-state bridge to cache package-reported tab/bookmark-bar
+  state by owning BrowserWindow and restore the focused window's state when a
+  context-created package window closes
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/renderer/lib/page-context-menu.test.js src/main/ipc-handlers.test.js src/main/menu.test.js` passed: 7 suites, 75 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed because the direct context-menu Open Link in New Window smoke exposed a real multi-window native menu-state bug: the child package window could leave the global bookmark-bar menu item disabled after it closed. The menu-state bridge was changed to track state by owner BrowserWindow.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` then failed because a test-only clipboard monkey patch did not observe Electron clipboard writes. The smoke was corrected to assert the main-process clipboard text directly through Playwright, without adding any package clipboard read API.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after those fixes: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 114 suites passed, 5 skipped; 2137 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- service/node status commands and some history/favicon management methods
+  still need final audit disposition before completion
+- `readClipboardText()` remains intentionally unavailable to package chrome;
+  visible paste behavior must continue to rely on browser-mediated paste paths
+  rather than a package shell clipboard-read API

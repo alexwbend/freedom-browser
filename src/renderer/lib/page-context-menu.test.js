@@ -433,6 +433,13 @@ describe('page-context-menu', () => {
     expect(pushDebug).toHaveBeenCalledWith('Image saved to: /tmp/image.png');
 
     electronAPI.saveImage.mockResolvedValueOnce({
+      success: true,
+    });
+    mod.showPageContextMenu(20, 30, { imageSrc: 'https://example.com/image.png' });
+    await triggerMenuAction(pageContextMenu, 'save-image');
+    expect(pushDebug).toHaveBeenCalledWith('Image saved');
+
+    electronAPI.saveImage.mockResolvedValueOnce({
       error: 'disk full',
     });
     mod.showPageContextMenu(20, 30, { imageSrc: 'https://example.com/image.png' });

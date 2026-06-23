@@ -1,14 +1,26 @@
 const { loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
-function loadMenuModule(platform) {
+function loadMenuModule(platform, options = {}) {
   let capturedTemplate = null;
   const menuInstance = {
     on: jest.fn(),
     getMenuItemById: jest.fn(),
   };
+  const getMainWindows =
+    typeof options.getMainWindows === 'function'
+      ? options.getMainWindows
+      : () => options.mainWindows || [];
+  const getFocusedWindow =
+    typeof options.getFocusedWindow === 'function'
+      ? options.getFocusedWindow
+      : () => options.focusedWindow || null;
 
-  const { mod } = loadMainModule(require.resolve('./menu'), {
+  const { app, mod } = loadMainModule(require.resolve('./menu'), {
     electronOverrides: {
+      BrowserWindow: {
+        getAllWindows: jest.fn(() => options.allWindows || getMainWindows()),
+        getFocusedWindow: jest.fn(() => getFocusedWindow()),
+      },
       Menu: {
         buildFromTemplate: jest.fn((template) => {
           capturedTemplate = template;
@@ -21,7 +33,7 @@ function loadMenuModule(platform) {
     extraMocks: {
       [require.resolve('./windows/mainWindow')]: () => ({
         isMainBrowserWindow: () => true,
-        getMainWindows: () => [],
+        getMainWindows,
         createMainWindow: jest.fn(),
       }),
       [require.resolve('./updater')]: () => ({
@@ -42,7 +54,7 @@ function loadMenuModule(platform) {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   }
 
-  return { capturedTemplate, menuInstance, mod };
+  return { app, capturedTemplate, menuInstance, mod };
 }
 
 function findTopLabel(template, label) {
@@ -149,5 +161,83 @@ describe('menu', () => {
 
     expect(mod.setBookmarkBarChecked(true)).toBe(true);
     expect(items.get('toggle-bookmark-bar').checked).toBe(true);
+  });
+
+  test('keeps package chrome menu state scoped to the focused browser window', () => {
+    let focusedWindow = null;
+    const createWindow = (id) => {
+      const handlers = new Map();
+      const window = {
+        id,
+        isDestroyed: jest.fn(() => false),
+        isFocused: jest.fn(() => focusedWindow === window),
+        on: jest.fn((event, handler) => {
+          handlers.set(event, handler);
+        }),
+        emit(event) {
+          handlers.get(event)?.();
+        },
+      };
+      return window;
+    };
+    const firstWindow = createWindow(1);
+    const secondWindow = createWindow(2);
+    focusedWindow = firstWindow;
+
+    const { app, menuInstance, mod } = loadMenuModule('linux', {
+      allWindows: [firstWindow, secondWindow],
+      getFocusedWindow: () => focusedWindow,
+      getMainWindows: () => [firstWindow, secondWindow],
+    });
+    const items = new Map(
+      [
+        'reload',
+        'next-tab',
+        'prev-tab',
+        'move-tab-right',
+        'move-tab-left',
+        'reopen-closed-tab',
+        'toggle-devtools',
+        'toggle-bookmark-bar',
+      ].map((id) => [id, { id, enabled: true, checked: false }])
+    );
+    menuInstance.getMenuItemById.mockImplementation((id) => items.get(id) || null);
+
+    app.emit('browser-window-created', {}, firstWindow);
+    app.emit('browser-window-created', {}, secondWindow);
+
+    expect(mod.setBookmarkBarToggleEnabled(true, firstWindow)).toBe(true);
+    expect(mod.setBookmarkBarChecked(true, firstWindow)).toBe(true);
+    expect(mod.applyTabMenuState({ tabCount: 2, activeIndex: 1 }, firstWindow)).toBe(true);
+    expect(items.get('toggle-bookmark-bar')).toMatchObject({
+      enabled: true,
+      checked: true,
+    });
+    expect(items.get('move-tab-left').enabled).toBe(true);
+
+    expect(mod.setBookmarkBarToggleEnabled(false, secondWindow)).toBe(true);
+    expect(mod.setBookmarkBarChecked(false, secondWindow)).toBe(true);
+    expect(mod.applyTabMenuState({ tabCount: 1, activeIndex: 0 }, secondWindow)).toBe(true);
+    expect(items.get('toggle-bookmark-bar')).toMatchObject({
+      enabled: true,
+      checked: true,
+    });
+    expect(items.get('move-tab-left').enabled).toBe(true);
+
+    focusedWindow = secondWindow;
+    secondWindow.emit('focus');
+    expect(items.get('toggle-bookmark-bar')).toMatchObject({
+      enabled: false,
+      checked: false,
+    });
+    expect(items.get('move-tab-left').enabled).toBe(false);
+
+    focusedWindow = firstWindow;
+    secondWindow.emit('closed');
+    expect(items.get('toggle-bookmark-bar')).toMatchObject({
+      enabled: true,
+      checked: true,
+    });
+    expect(items.get('move-tab-left').enabled).toBe(true);
   });
 });

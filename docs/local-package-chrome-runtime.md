@@ -197,6 +197,8 @@ The local package directory must contain `manifest.json`:
     "browserState.favicons.read",
     "browserState.profiles.read",
     "chrome.ui.commands",
+    "clipboard.write",
+    "downloads.saveImage",
     "windows.control",
     "windows.open",
     "app.about",
@@ -312,6 +314,12 @@ The official package smoke currently proves:
   capability-gated `chrome.ui.commands` event bridge
 - package chrome reports tab-menu enabled state and bookmark-bar checked/enabled
   state to the native application menu through capability-gated shell requests
+- package context-menu Copy Link Address and Copy Image Address write through a
+  narrow shell-owned clipboard API without exposing clipboard reads to package
+  chrome
+- package context-menu Open Link in New Window opens another package chrome
+  BrowserWindow through a shell-owned command path, and native menu state is
+  restored for the original package window after the child window closes
 - new tab, tab switch, and tab close work
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
@@ -370,6 +378,9 @@ running Radicle network.
 - `updateTabMenuState(state)`
 - `setBookmarkBarToggleEnabled(enabled)`
 - `setBookmarkBarChecked(checked)`
+- `copyText(text)`
+- `copyImageFromUrl(imageUrl)`
+- `saveImage(imageUrl)`
 - `onTabCommandResult(callback)`
 - `onTabSnapshotChanged(callback)`
 - `onCloseMenusRequested(callback)`
@@ -489,8 +500,19 @@ serializable request result and does not receive auto-updater authority.
 `setBookmarkBarChecked(checked)` let package chrome report ordinary browser UI
 state to the shell-owned native application menu. The shell normalizes the tab
 state payload, applies it through menu-owned handlers registered by main, and
-returns only serializable success/error results. Package chrome does not receive
-Electron `Menu` objects, native menu item references, or arbitrary IPC.
+returns only serializable success/error results. Package menu state is cached by
+owning BrowserWindow and applied only for the focused browser window, so a
+secondary package window cannot leave the native menu reflecting stale state
+after it closes. Package chrome does not receive Electron `Menu` objects,
+native menu item references, or arbitrary IPC.
+
+`copyText(text)` and `copyImageFromUrl(imageUrl)` provide write-only
+shell-owned clipboard operations for visible page context-menu actions.
+`saveImage(imageUrl)` opens the shell-owned save dialog and downloads the image
+through main. These APIs are intentionally narrow: package chrome cannot read
+clipboard contents, cannot receive the chosen filesystem path from
+`saveImage()`, and image fetch/save uses the existing main-process HTTP(S)-only
+fetch helper.
 
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
@@ -547,6 +569,10 @@ must be allowed by the package manifest's declared capabilities:
 - `chrome.ui.commands` allows package chrome to receive shell-originated
   browser UI command events over `shell:event` and report native tab/bookmark
   bar menu state through the sender-checked shell request bridge
+- `clipboard.write` allows `copyText(text)` and `copyImageFromUrl(imageUrl)`
+  write-only clipboard requests
+- `downloads.saveImage` allows `saveImage(imageUrl)` to request a shell-owned
+  image save dialog and download without returning the selected file path
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

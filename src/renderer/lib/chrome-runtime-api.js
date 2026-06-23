@@ -12,6 +12,10 @@ const asyncProfileMutationUnavailable = async () => ({
     message: 'Profile creation and switching are shell-owned in package mode',
   },
 });
+const unavailableResult = (code, message) => ({
+  success: false,
+  error: { code, message },
+});
 
 const DEFAULT_SETTINGS = Object.freeze({
   theme: 'system',
@@ -156,10 +160,25 @@ const createPackageRuntimeApi = () =>
     onX402CapConsumed: () => noopDisposer,
     onX402BalancesUpdated: () => noopDisposer,
     getWebviewPreloadPath: asyncNull,
-    saveImage: asyncFalse,
-    copyText: asyncFalse,
+    saveImage: (imageUrl) =>
+      callFreedomShell(
+        'saveImage',
+        unavailableResult('IMAGE_SAVE_UNAVAILABLE', 'Image save is unavailable'),
+        imageUrl
+      ),
+    copyText: (text) =>
+      callFreedomShell(
+        'copyText',
+        unavailableResult('CLIPBOARD_WRITE_UNAVAILABLE', 'Clipboard write is unavailable'),
+        text
+      ),
     readClipboardText: async () => ({ success: false, text: '' }),
-    copyImageFromUrl: asyncFalse,
+    copyImageFromUrl: (imageUrl) =>
+      callFreedomShell(
+        'copyImageFromUrl',
+        unavailableResult('IMAGE_COPY_UNAVAILABLE', 'Image copy is unavailable'),
+        imageUrl
+      ),
     getFavicon: asyncNull,
     getCachedFavicon: (url) => callFreedomShell('getCachedFavicon', null, url),
     fetchFavicon: asyncNull,
