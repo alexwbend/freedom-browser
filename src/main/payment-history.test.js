@@ -17,6 +17,7 @@ function loadPaymentHistoryModule(options = {}) {
         warn: jest.fn(),
         error: jest.fn(),
       }),
+      ...(options.extraMocks || {}),
     },
   });
 }
@@ -547,6 +548,39 @@ expect(mod.KINDS).toMatchObject({ X402: 'x402', WALLET_SEND: 'wallet-send', DAPP
       const result = await ipcMain.invoke('payments:clear');
       expect(result).toEqual({ success: true, removed: 2 });
       expect(mod.getCount({})).toBe(0);
+    });
+
+    test('package-hosted internal pages cannot read or clear payment history', async () => {
+      const isPackageWebContents = jest.fn(() => true);
+      if (mod?.closeDb) mod.closeDb();
+      ({ mod, ipcMain } = loadPaymentHistoryModule({
+        userDataDir,
+        extraMocks: {
+          [require.resolve('./shell-api')]: () => ({ isPackageWebContents }),
+        },
+      }));
+      mod.registerPaymentHistoryIpc();
+      mod.append({ kind: 'x402', chainId: 1, amount: '1', status: 'settled' });
+
+      const event = { sender: { hostWebContents: { id: 42 } } };
+      for (const channel of [
+        'payments:get-recent',
+        'payments:get-by-id',
+        'payments:get-count',
+        'payments:clear',
+      ]) {
+        const result = await ipcMain.handlers.get(channel)(event, channel === 'payments:get-by-id' ? 1 : {});
+        expect(result).toEqual({
+          success: false,
+          error: {
+            code: 'PAYMENTS_UNAVAILABLE',
+            message: 'Payment history is shell-owned and unavailable in package mode',
+          },
+        });
+      }
+
+      expect(isPackageWebContents).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mod.getCount({})).toBe(1);
     });
   });
 });

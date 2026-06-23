@@ -399,6 +399,35 @@ async function getActiveWebviewPublishPageState(page) {
   });
 }
 
+async function getActiveWebviewPaymentsPageState(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return { exists: false };
+    }
+    try {
+      return await webview.executeJavaScript(`
+        (() => {
+          const byId = (id) => document.getElementById(id);
+          return {
+            exists: true,
+            url: location.href,
+            unavailable: document.body.dataset.paymentHistoryUnavailable || '',
+            stats: byId('stats')?.textContent || '',
+            message: byId('results')?.textContent || '',
+            searchDisabled: byId('search-input')?.disabled ?? null,
+            kindDisabled: byId('kind-select')?.disabled ?? null,
+            chainDisabled: byId('chain-select')?.disabled ?? null,
+            clearDisabled: byId('clear-btn')?.disabled ?? null,
+          };
+        })()
+      `);
+    } catch (error) {
+      return { exists: false, error: error?.message || String(error) };
+    }
+  });
+}
+
 async function clickActiveWebviewPublishSetup(page) {
   await page.evaluate(async () => {
     const webview = document.querySelector('webview:not(.hidden)');
@@ -2252,6 +2281,31 @@ test('official browser chrome can launch as a local package with transitional we
         textInputHidden: true,
         historyClearDisabled: true,
       });
+
+    await navigateAddress(page, 'freedom://payments');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for freedom://payments to load in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/payments.html');
+    await expect
+      .poll(() => getActiveWebviewPaymentsPageState(page), {
+        message: 'Waiting for package payments page unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        unavailable: 'true',
+        stats: 'Payment history unavailable',
+        searchDisabled: true,
+        kindDisabled: true,
+        chainDisabled: true,
+        clearDisabled: true,
+      });
+    expect((await getActiveWebviewPaymentsPageState(page)).message).toContain(
+      'Payment history is shell-owned and unavailable in package mode'
+    );
 
     await navigateAddress(page, 'freedom://home', '');
     await expectHomeReady(page);

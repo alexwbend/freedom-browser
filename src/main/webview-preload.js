@@ -223,7 +223,7 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   removeHistory: guardInternal('removeHistory', (id) => ipcRenderer.invoke('history:remove', id)),
   clearHistory: guardInternal('clearHistory', () => ipcRenderer.invoke('history:clear')),
 
-  // Unified payment history (read-only — producers record in main directly).
+  // Unified payment history. Producers record in main directly.
   getPayments: guardInternal('getPayments', (filters) => ipcRenderer.invoke('payments:get-recent', filters)),
   getPaymentsCount: guardInternal('getPaymentsCount', (filters) => ipcRenderer.invoke('payments:get-count', filters)),
   clearPayments: guardInternal('clearPayments', () => ipcRenderer.invoke('payments:clear')),

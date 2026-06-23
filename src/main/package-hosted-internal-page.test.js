@@ -5,8 +5,10 @@ jest.mock('./shell-api', () => ({
 }));
 
 const {
+  PAYMENTS_UNAVAILABLE,
   SWARM_PUBLISH_UNAVAILABLE,
   isPackageHostedInternalPage,
+  packageHostedPaymentsUnavailable,
   packageHostedSwarmPublishUnavailable,
 } = require('./package-hosted-internal-page');
 
@@ -38,6 +40,13 @@ describe('package-hosted-internal-page', () => {
     expect(packageHostedSwarmPublishUnavailable()).toEqual({
       success: false,
       error: SWARM_PUBLISH_UNAVAILABLE,
+    });
+  });
+
+  test('returns a structured payments unavailable result', () => {
+    expect(packageHostedPaymentsUnavailable()).toEqual({
+      success: false,
+      error: PAYMENTS_UNAVAILABLE,
     });
   });
 });

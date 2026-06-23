@@ -19,6 +19,10 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 const IPC = require('../shared/ipc-channels');
 const { broadcastToAllWebContents } = require('./lib/broadcast-to-all-webcontents');
+const {
+  isPackageHostedInternalPage,
+  packageHostedPaymentsUnavailable,
+} = require('./package-hosted-internal-page');
 
 const SCHEMA_VERSION = 1;
 const DB_FILE = 'payment-history.sqlite';
@@ -501,7 +505,10 @@ async function repollPending(getStatusFn) {
 // === IPC =================================================================
 
 function registerPaymentHistoryIpc() {
-  ipcMain.handle(IPC.PAYMENTS_GET_RECENT, (_event, filters) => {
+  ipcMain.handle(IPC.PAYMENTS_GET_RECENT, (event, filters) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedPaymentsUnavailable();
+    }
     try {
       return { success: true, payments: getRecent(filters) };
     } catch (err) {
@@ -510,7 +517,10 @@ function registerPaymentHistoryIpc() {
     }
   });
 
-  ipcMain.handle(IPC.PAYMENTS_GET_BY_ID, (_event, id) => {
+  ipcMain.handle(IPC.PAYMENTS_GET_BY_ID, (event, id) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedPaymentsUnavailable();
+    }
     if (!Number.isInteger(id)) {
       return { success: false, error: 'id must be an integer' };
     }
@@ -522,7 +532,10 @@ function registerPaymentHistoryIpc() {
     }
   });
 
-  ipcMain.handle(IPC.PAYMENTS_GET_COUNT, (_event, filters) => {
+  ipcMain.handle(IPC.PAYMENTS_GET_COUNT, (event, filters) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedPaymentsUnavailable();
+    }
     try {
       return { success: true, count: getCount(filters) };
     } catch (err) {
@@ -531,7 +544,10 @@ function registerPaymentHistoryIpc() {
     }
   });
 
-  ipcMain.handle(IPC.PAYMENTS_CLEAR, () => {
+  ipcMain.handle(IPC.PAYMENTS_CLEAR, (event) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedPaymentsUnavailable();
+    }
     try {
       return { success: true, removed: clear() };
     } catch (err) {

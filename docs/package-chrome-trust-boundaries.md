@@ -51,6 +51,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow and `freedom://publish` internal page | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | package-hosted publish/setup entry points are visibly unavailable until a shell-owned publish prompt exists | surface or trusted prompt cap | broker doc/tests plus official package smoke for disabled `freedom://publish` controls | package-hosted direct publish page disabled with `SWARM_PUBLISH_UNAVAILABLE`; full publish UX remains proposed deferral pending a real shell-owned prompt |
 | Swarm feed update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests | proposed deferral for full UX |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events are no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | no silent no-op smoke if visible | raw x402 host events are not delivered to package chrome; package-hosted approval/unlock UI unavailability passes the 402 through safely, while full UX remains proposed deferral pending a real shell-owned prompt |
+| Payment history page | user in chrome/internal page | `freedom://payments` reads unified payment history through internal page `freedomAPI` and can clear the store | package-hosted internal page could read and clear payment history through the transitional webview bridge | `trusted-surface` for sensitive payment history UI | bundled trusted chrome until a shell-owned payment history surface exists | package-hosted page is visibly unavailable; main rejects payment-history read/count/by-id/clear IPC with `PAYMENTS_UNAVAILABLE` | none for package chrome | IPC unit coverage plus official package smoke for disabled `freedom://payments` state | implemented |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
 | Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works, privileged package-hosted requests safe-fail | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented; package-hosted Ethereum and Swarm privileged methods fail before package chrome can broker them |
 
@@ -265,6 +266,20 @@ a shell-owned trusted prompt/surface migration: package chrome may eventually
 request the surface, but it must not receive raw publish paths, stamp
 management authority, feed signing authority, or final approval rendering
 authority.
+
+## Payment History Page Status
+
+The direct `freedom://payments` internal page is intentionally unavailable when
+it is hosted inside package chrome. The page still exists as bundled trusted UI,
+but its internal payment-history reads cover x402 micropayments, wallet sends,
+and dApp-routed sends, and the page exposes a clear-history mutation. Main
+returns structured `PAYMENTS_UNAVAILABLE` for package-hosted payment
+read/count/by-id/clear IPC before touching the store. The page surfaces that
+result and disables search, filters, and Clear all in official package smoke.
+
+This does not implement the final shell-owned payment history surface or x402
+approval UX. Package chrome must not receive raw payment history IPC or final
+payment/vault approval rendering authority.
 
 ## Package Origin Status
 

@@ -301,6 +301,9 @@ The official package smoke currently proves:
 - `freedom://settings/startup` and `freedom://publish` expose intentional
   package-mode unavailable states for shell-owned Swarm publish flows instead
   of leaving visible publish controls clickable
+- `freedom://payments` exposes an intentional package-mode unavailable state
+  instead of letting package-hosted internal pages read or clear payment,
+  wallet-send, dApp-send, or x402 history
 - the profile indicator/menu renders the active profile through a read-only
   profile shell API, while profile creation and switching controls are disabled
   in package mode
@@ -557,6 +560,14 @@ before a real shell-owned x402 prompt exists, main passes the original 402
 through instead of waiting for package chrome to render an approval card. This
 keeps package mode from silently hanging while preserving the boundary that
 final payment approval and vault unlock must move to a shell-owned prompt.
+
+The direct `freedom://payments` internal page is also unavailable when hosted
+by package chrome. Its internal page preload can normally read unified payment
+history covering x402 micropayments, wallet sends, and dApp-routed sends, and
+the page includes a clear-history mutation. Main rejects package-hosted
+payment-history IPC with structured `PAYMENTS_UNAVAILABLE`; the page surfaces
+that result and disables search, filters, and Clear all. Bundled trusted chrome
+keeps the existing payment-history page.
 
 The window-control methods expose a narrow shell-owned command path for the
 calling package window only. They let visible chrome affordances set the window

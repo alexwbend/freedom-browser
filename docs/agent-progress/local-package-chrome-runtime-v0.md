@@ -2010,6 +2010,51 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 14: Payment History Page Boundary
+
+Current checkpoint: package-hosted `freedom://payments` no longer exposes
+unified payment history through the transitional internal-page webview bridge.
+Bundled trusted chrome can still use the existing payments page and IPC, but
+package-hosted internal pages receive structured `PAYMENTS_UNAVAILABLE` before
+main reads or clears the payment-history store. The page surfaces that result
+and disables search, filters, and Clear all in official package smoke.
+
+Implemented in this checkpoint:
+
+- added a structured `PAYMENTS_UNAVAILABLE` package-hosted internal-page result
+- changed payment-history IPC handlers to deny package-hosted internal pages
+  for read/count/by-id/clear requests before touching the store
+- changed `freedom://payments` to show a deterministic package-mode
+  unavailable state and disable visible controls
+- expanded official package smoke to navigate to `freedom://payments` and
+  verify the disabled unavailable state
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/package-hosted-internal-page.test.js src/main/payment-history.test.js src/renderer/pages/payments.test.js` passed:
+  3 suites, 44 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2174 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- commit and GitHub Actions verification are pending for this checkpoint.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, payment-history trusted surface, Swarm
+  publish/feed, and seed/private-key export prompt surfaces still need
+  shell-owned UI before they can be called complete in package mode; these are
+  not user-approved completion deferrals
+
 ### Provider-Flow Checkpoint 4: Ethereum Privileged Package Safe-Fail
 
 Current checkpoint: package-hosted guest Ethereum provider requests no longer

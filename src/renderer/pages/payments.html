@@ -119,6 +119,12 @@
         border-color: #f85149;
         color: #f85149;
       }
+      .btn:disabled,
+      .search-input:disabled,
+      .filter-select:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
+      }
 
       /* Table */
       .table-wrap {
@@ -404,6 +410,7 @@
       let payments = [];          // current server-filtered page
       let chainsById = new Map(); // chainId → { name, shortName, blockExplorer }
       let tokensByKey = new Map();// `chainId:address` → { symbol, decimals }
+      let paymentsUnavailable = false;
 
       // Single source of truth for the three kind values: the renderer label,
       // the CSS class, and the "this row didn't carry an origin" fallback.
@@ -447,6 +454,41 @@
         const div = document.createElement('div');
         div.textContent = text == null ? '' : String(text);
         return div.innerHTML;
+      }
+
+      function resultErrorCode(result) {
+        return typeof result?.error === 'object' ? result.error.code : undefined;
+      }
+
+      function resultErrorMessage(result) {
+        if (typeof result?.error === 'object') return result.error.message || result.error.code;
+        return result?.error || 'unknown error';
+      }
+
+      function setControlsDisabled(disabled) {
+        searchInput.disabled = disabled;
+        kindSelect.disabled = disabled;
+        chainSelect.disabled = disabled;
+        clearBtn.disabled = disabled;
+      }
+
+      function showPaymentsUnavailable(message) {
+        paymentsUnavailable = true;
+        payments = [];
+        if (document.body?.dataset) {
+          document.body.dataset.paymentHistoryUnavailable = 'true';
+        }
+        setControlsDisabled(true);
+        statsEl.textContent = 'Payment history unavailable';
+        resultsEl.innerHTML = `
+          <div class="empty-state">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <circle cx="12" cy="12" r="2"></circle>
+            </svg>
+            <p>${escapeHtml(message)}</p>
+          </div>
+        `;
       }
 
       function formatWhen(createdAt) {
@@ -526,6 +568,8 @@
       }
 
       function render() {
+        if (paymentsUnavailable) return;
+
         const filtered = applyClientFilters(payments);
 
         statsEl.textContent =
@@ -602,9 +646,18 @@
         const chainId = chainSelect.value ? Number(chainSelect.value) : undefined;
         const result = await window.freedomAPI.getPayments({ kind, chainId, limit: PAGE_LIMIT });
         if (!result?.success) {
-          resultsEl.innerHTML = `<div class="empty-state"><p>Failed to load: ${escapeHtml(result?.error || 'unknown error')}</p></div>`;
+          if (resultErrorCode(result) === 'PAYMENTS_UNAVAILABLE') {
+            showPaymentsUnavailable(resultErrorMessage(result));
+            return;
+          }
+          resultsEl.innerHTML = `<div class="empty-state"><p>Failed to load: ${escapeHtml(resultErrorMessage(result))}</p></div>`;
           return;
         }
+        paymentsUnavailable = false;
+        if (document.body?.dataset) {
+          delete document.body.dataset.paymentHistoryUnavailable;
+        }
+        setControlsDisabled(false);
         payments = result.payments || [];
         render();
       }
@@ -615,6 +668,7 @@
       kindSelect.addEventListener('change', loadPayments);
       chainSelect.addEventListener('change', loadPayments);
       clearBtn.addEventListener('click', async () => {
+        if (paymentsUnavailable) return;
         if (!confirm('Clear all payment history? This cannot be undone.')) return;
         const result = await window.freedomAPI.clearPayments();
         if (result?.success) {

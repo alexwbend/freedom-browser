@@ -115,6 +115,7 @@ async function runPaymentsPage(options = {}) {
   const context = {
     window: { freedomAPI },
     document: {
+      body: { dataset: {} },
       getElementById: jest.fn((id) => elements[id] || null),
       createElement: jest.fn(() => new FakeElement()),
     },
@@ -209,5 +210,32 @@ describe('payments internal page', () => {
       chainId: undefined,
       limit: 500,
     });
+  });
+
+  test('shows an unavailable state when payment history is shell-owned', async () => {
+    const ctx = await runPaymentsPage({
+      payments: [],
+    });
+    ctx.freedomAPI.getPayments.mockResolvedValueOnce({
+      success: false,
+      error: {
+        code: 'PAYMENTS_UNAVAILABLE',
+        message: 'Payment history is shell-owned and unavailable in package mode',
+      },
+    });
+
+    await ctx.elements['kind-select'].fire('change');
+    await flushPromises();
+
+    expect(ctx.document.body.dataset.paymentHistoryUnavailable).toBe('true');
+    expect(ctx.elements.stats.textContent).toBe('Payment history unavailable');
+    expect(ctx.elements.results.innerHTML).toContain(
+      'Payment history is shell-owned and unavailable in package mode'
+    );
+    expect(ctx.elements['clear-btn'].disabled).toBe(true);
+
+    await ctx.elements['clear-btn'].fire('click');
+    expect(ctx.confirm).not.toHaveBeenCalled();
+    expect(ctx.freedomAPI.clearPayments).not.toHaveBeenCalled();
   });
 });
