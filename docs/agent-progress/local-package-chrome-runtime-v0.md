@@ -1839,3 +1839,59 @@ Known remaining gaps after this checkpoint:
   publish/feed, and seed/private-key export flows remain unavailable to
   package chrome pending real shell-owned trusted surfaces; these are not
   user-approved completion deferrals
+
+### Chrome UI Checkpoint 10: External Node Prompt Boundary
+
+Current checkpoint: package windows no longer receive the legacy renderer IPC
+prompt for default-port external node candidates. That prompt can mutate
+profile node configuration, so package chrome should not own it. In package
+mode main now falls back to the shell-owned native dialog path, and accidental
+package adapter calls return a structured unavailable result.
+
+Implemented in this checkpoint:
+
+- added `isPackageWebContents(sender)` to the shell API registry so main code
+  can distinguish registered package chrome senders from bundled trusted
+  renderer senders
+- changed `presentExternalCandidatesInWindow()` to return `null` for package
+  windows instead of sending `profile:external-candidates` over legacy renderer
+  IPC and waiting indefinitely for a package listener that does not exist
+- preserved the existing native dialog fallback in
+  `promptForDefaultExternalCandidates()` as the shell-owned package-mode
+  prompt path
+- changed the package renderer adapter's
+  `resolveExternalNodeCandidates()` fallback from a silent no-op to structured
+  `EXTERNAL_NODE_PROMPT_UNAVAILABLE`
+- kept service/node lifecycle and profile node-configuration mutation authority
+  out of `window.freedomShell`
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/profile-external-candidates.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed:
+  3 suites, 50 tests.
+- `npm run lint` initially reported an unused `noop` helper after the adapter
+  no-op was replaced; the dead helper was removed.
+- `npm run lint` passed after the cleanup.
+- `npm test` passed: 115 suites passed, 5 skipped; 2148 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `6944053` (`fix(chrome): keep external node prompt shell-owned`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28059639874`, job `test` (`83070532460`), passed for
+  `6944053`.
+- GitHub Actions run `28059639874`, job `e2e-chrome-runtime`
+  (`83070532524`), passed for `6944053`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- publish setup entry points still need a shell-owned, hidden, or intentionally
+  disabled package-mode disposition if they are visible in package mode
+- raw x402, transaction signing, typed-data signing, identity, vault, Swarm
+  publish/feed, and seed/private-key export flows remain unavailable to
+  package chrome pending real shell-owned trusted surfaces; these are not
+  user-approved completion deferrals
