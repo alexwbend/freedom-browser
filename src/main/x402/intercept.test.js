@@ -26,6 +26,11 @@ jest.mock('../payment-history', () => ({
   },
 }));
 
+const mockIsPackageWebContents = jest.fn(() => false);
+jest.mock('../shell-api', () => ({
+  isPackageWebContents: (...args) => mockIsPackageWebContents(...args),
+}));
+
 // Auto-pay branch dispatches signAndQueueRetry via a lazy require —
 // mock it so detector tests don't drag the whole sign flow in.
 const mockSignAndQueueRetry = jest.fn();
@@ -93,6 +98,7 @@ beforeEach(() => {
   mockSignAndQueueRetry.mockReset().mockResolvedValue(undefined);
   mockGetPermission.mockReset().mockReturnValue(null);
   mockTryConsume.mockReset().mockReturnValue(true);
+  mockIsPackageWebContents.mockReset().mockReturnValue(false);
 });
 
 // Canonical Base USDC PaymentRequired (V2). `resource` is an object per
@@ -361,6 +367,24 @@ describe('detectPaymentRequiredHandler', () => {
     expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(1);
   });
 
+  test('package-hosted cap-covered locked-vault subresource passes the 402 through without waiting for package UI', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPermission.mockReturnValueOnce({
+      capAmount: '20000',
+      spentAmount: '0',
+      createdAt: 1,
+      expiresAt: 9999999999,
+    });
+    mockSignAndQueueRetry.mockReset().mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE));
+
+    const result = await detectPaymentRequiredHandler(detail({ resourceType: 'xhr' }));
+
+    expect(result).toBeNull();
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingUnlockWait(7)).toBe(false);
+    expect(consumePendingUnlockResume(7)).toBeNull();
+  });
+
   test('subresource cap-covered locked-vault: if the second sign also fails locked, fires unlock-needed again and re-arms the wait', async () => {
     mockGetPermission.mockReturnValueOnce({
       capAmount: '20000', spentAmount: '0',
@@ -625,6 +649,17 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
       resourceType: 'xhr',
     }));
     abortPendingApproval('req-1001', new Error('test cleanup'));
+  });
+
+  test('package-hosted approval UI is unavailable, so subresource 402 passes through without pending approval', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+
+    const result = await detectPaymentRequiredHandler(detail());
+
+    expect(result).toBeNull();
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingApproval('req-1001')).toBe(false);
+    expect(getDetectedPayment(7)).toBeNull();
   });
 
   test('on approve: signs with MANUAL authorization, returns 307, and fires approval-result success event', async () => {

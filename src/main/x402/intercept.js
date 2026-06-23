@@ -40,6 +40,7 @@ const { parsePaymentRequired } = require('@x402/core/schemas');
 const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const paymentHistory = require('../payment-history');
 const { KINDS: PAYMENT_KINDS, STATUSES: PAYMENT_STATUSES } = paymentHistory;
+const { isPackageWebContents } = require('../shell-api');
 const { findCoveringPermission } = require('./payment-utils');
 const { tryConsume } = require('./permissions');
 const { isVaultLockedError } = require('../wallet/vault-errors');
@@ -646,9 +647,16 @@ function sendToHost(webviewWebContentsId, channel, payload) {
   const host = wc?.hostWebContents;
   if (!host) {
     log.warn(`[x402] no host webContents for ${webviewWebContentsId}; ${channel} dropped`);
-    return;
+    return { delivered: false, reason: 'missing-host' };
+  }
+  if (isPackageWebContents(host)) {
+    log.warn(
+      `[x402] package host for webContents ${webviewWebContentsId}; ${channel} requires shell-owned UI`
+    );
+    return { delivered: false, reason: 'package-host' };
   }
   host.send(channel, payload);
+  return { delivered: true };
 }
 
 // === Dispatcher handlers =================================================
@@ -659,7 +667,7 @@ function sendToHost(webviewWebContentsId, channel, payload) {
 // mainFrame setImmediate path (detector closure is gone, resume token is
 // stashed instead).
 function notifyVaultUnlockNeeded(webContentsId, url) {
-  sendToHost(webContentsId, 'x402:unlock-needed', {
+  return sendToHost(webContentsId, 'x402:unlock-needed', {
     webContentsId,
     origin: originKeyForUrl(url) ?? url,
   });
@@ -672,7 +680,15 @@ function notifyVaultUnlockNeeded(webContentsId, url) {
 // instead. See `setPendingUnlockResume` / `X402_RESUME_UNLOCK`.
 function requestVaultUnlockForAutoPay(webContentsId, detection, url) {
   setPendingUnlockResume(webContentsId, { detection, authorizedBy: AUTHORIZED_BY.CAP });
-  notifyVaultUnlockNeeded(webContentsId, url);
+  const dispatch = notifyVaultUnlockNeeded(webContentsId, url);
+  if (dispatch.reason === 'package-host') {
+    consumePendingUnlockResume(webContentsId);
+    log.warn(
+      `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
+    );
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -831,7 +847,13 @@ async function detectPaymentRequiredHandler(details) {
             return null;
           }
           log.info(`[x402:auto-pay] vault locked — holding subresource open, requesting unlock for ${sanitizeUrlForLog(url)}`);
-          notifyVaultUnlockNeeded(id, url);
+          const dispatch = notifyVaultUnlockNeeded(id, url);
+          if (dispatch.reason === 'package-host') {
+            log.warn(
+              `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
+            );
+            return null;
+          }
           try {
             await setPendingUnlockWait(id);
           } catch (waitErr) {
@@ -894,13 +916,20 @@ async function detectPaymentRequiredHandler(details) {
   // Event payload includes `resourceType` so the renderer can pick the
   // right teardown IPC (subresource → x402:reject; mainFrame → x402:cancel
   // which also goBacks the webview).
-  sendToHost(details.webContentsId, 'x402:approval-needed', {
+  const approvalDispatch = sendToHost(details.webContentsId, 'x402:approval-needed', {
     webContentsId: details.webContentsId,
     detectionId,
     url: details.url,
     requirements,
     resourceType: details.resourceType,
   });
+  if (approvalDispatch.reason === 'package-host') {
+    clearDetectedPayment(details.webContentsId);
+    log.warn(
+      `[x402:approval] approval UI unavailable (${approvalDispatch.reason}); passing 402 through`
+    );
+    return null;
+  }
 
   // Predicate kept inline rather than a shared helper because there are
   // only two callers (here and dapp-x402.js#reject). If a third appears,

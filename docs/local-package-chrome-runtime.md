@@ -527,6 +527,15 @@ supplying final origin/security truth. The method requires
 expose wallet, identity, x402, Swarm, vault, or signing APIs. It is not a
 production prompt capability and is not declared by the official package smoke.
 
+Raw x402 approval and vault-unlock events remain bundled-trusted-renderer UI,
+not package chrome APIs. The x402 interceptor refuses to deliver `x402:*`
+host-renderer events to registered package windows. If a package-hosted guest
+hits a non-cap-covered x402 paywall, or an auto-pay flow needs vault unlock
+before a real shell-owned x402 prompt exists, main passes the original 402
+through instead of waiting for package chrome to render an approval card. This
+keeps package mode from silently hanging while preserving the boundary that
+final payment approval and vault unlock must move to a shell-owned prompt.
+
 The window-control methods expose a narrow shell-owned command path for the
 calling package window only. They let visible chrome affordances set the window
 title, close/minimize the owner window, toggle maximize, and toggle fullscreen
