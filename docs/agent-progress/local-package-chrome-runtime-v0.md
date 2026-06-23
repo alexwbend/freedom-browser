@@ -1171,8 +1171,13 @@ Verification in this checkpoint:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the deterministic menu-click fix: 1 test.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the deterministic menu-click fix: 14 tests.
 - `npm run lint` passed after the deterministic menu-click fix.
-- GitHub target CI verification for the deterministic menu-click fix is
-  pending until the next fix commit is pushed.
+- committed the deterministic menu-click fix as `9d17b6f` (`test(chrome):
+  trigger package menu commands deterministically`) and pushed to
+  `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28045446520`, job `test` (`83022203819`), passed for
+  `9d17b6f`.
+- GitHub Actions run `28045446520`, job `e2e-chrome-runtime`
+  (`83022204011`), passed for `9d17b6f`.
 
 Known remaining gaps after this checkpoint:
 
