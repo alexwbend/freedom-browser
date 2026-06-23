@@ -312,6 +312,9 @@ The official package smoke currently proves:
 - guest content receives the page-facing Swarm provider in package mode and a
   low-risk `swarm_getCapabilities` request bypasses package chrome through main
   with a deterministic `not-connected` result under the harness
+- higher-risk Swarm provider requests from package-hosted guests fail directly
+  through main with a structured `trusted_prompt_unavailable` error instead of
+  being brokered by package chrome
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
 - the main menu opens, and the node menu opens with sanitized service status
@@ -683,9 +686,13 @@ package-mode proofs route guest
 `swarm.getCapabilities()` from the webview preload directly to main over
 read-only provider channels. The Swarm path only accepts
 `swarm_getCapabilities`; publish, feed, signing, and access-request methods do
-not use this bypass. Higher-risk provider methods remain on the legacy bundled
-path until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. The broker foundation currently exists as the test-only
+not use this bypass. When a package-hosted guest calls a higher-risk Swarm
+method before the shell-owned prompt migration exists, the guest preload asks
+main for its host context and receives a structured
+`trusted_prompt_unavailable` provider error without sending the request through
+package chrome. Bundled chrome still uses the legacy renderer prompt path for
+those methods until the trusted prompt/surface broker migration gives them
+shell-owned approval UI. The broker foundation currently exists as the test-only
 `requestTestTrustedPrompt()` path; real wallet connect, signing, x402, Swarm
 publish, and vault unlock flows still need main-derived request context and
 shell-owned prompt UI before they can move through the broker.

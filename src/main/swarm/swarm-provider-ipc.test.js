@@ -23,6 +23,11 @@ jest.mock('../service-registry', () => ({
   getAntApiUrl: mockGetBeeApiUrl,
 }));
 
+const mockIsPackageWebContents = jest.fn();
+jest.mock('../shell-api', () => ({
+  isPackageWebContents: mockIsPackageWebContents,
+}));
+
 const mockPublishData = jest.fn();
 const mockPublishFilesFromContent = jest.fn();
 const mockGetUploadStatus = jest.fn();
@@ -105,6 +110,7 @@ global.fetch = jest.fn();
 const {
   registerSwarmProviderIpc,
   handleReadonlyProviderRequest,
+  handleProviderHostContext,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,
@@ -163,6 +169,29 @@ describe('swarm-provider-ipc', () => {
 
   test('registers swarm:provider-readonly-request handler', () => {
     expect(ipcHandlers['swarm:provider-readonly-request']).toBeDefined();
+  });
+
+  test('registers swarm:provider-host-context handler', () => {
+    expect(ipcHandlers['swarm:provider-host-context']).toBeDefined();
+  });
+
+  describe('provider host context handler', () => {
+    test('reports package-hosted guest webviews from the main-owned host sender', () => {
+      const hostWebContents = { id: 20 };
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      expect(handleProviderHostContext({ sender: { hostWebContents } })).toEqual({
+        packageHosted: true,
+      });
+      expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
+    });
+
+    test('reports false when a provider request has no package host', () => {
+      expect(handleProviderHostContext({ sender: {} })).toEqual({
+        packageHosted: false,
+      });
+      expect(mockIsPackageWebContents).not.toHaveBeenCalled();
+    });
   });
 
   describe('readonly provider handler', () => {

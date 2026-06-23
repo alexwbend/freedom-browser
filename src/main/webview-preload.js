@@ -9,6 +9,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const DAPP_PROVIDER_READONLY_REQUEST = 'dapp:provider-readonly-request';
 const SWARM_PROVIDER_READONLY_REQUEST = 'swarm:provider-readonly-request';
+const SWARM_PROVIDER_HOST_CONTEXT = 'swarm:provider-host-context';
 
 // The webview preload runs in a sandbox — require() is restricted to a small
 // whitelist (electron, events, timers, url), so we cannot read provider
@@ -702,6 +703,14 @@ const sendSwarmResponseToPage = (id, result, error) => {
     error,
   }, window.location.origin);
 };
+const buildPackageSwarmUnavailableError = (method) => ({
+  code: 4200,
+  message: `Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: ${method}`,
+  data: { reason: 'trusted_prompt_unavailable' },
+});
+const forwardSwarmRequestToHost = (id, method, params) => {
+  ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
+};
 
 // Bridge postMessage from page to IPC (Swarm)
 window.addEventListener('message', (event) => {
@@ -725,7 +734,22 @@ window.addEventListener('message', (event) => {
       return;
     }
 
-    ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
+    ipcRenderer
+      .invoke(SWARM_PROVIDER_HOST_CONTEXT)
+      .then(({ packageHosted = false } = {}) => {
+        if (packageHosted) {
+          sendSwarmResponseToPage(id, null, buildPackageSwarmUnavailableError(method));
+          return;
+        }
+
+        forwardSwarmRequestToHost(id, method, params);
+      })
+      .catch((error) => {
+        sendSwarmResponseToPage(id, null, {
+          code: -32603,
+          message: error?.message || 'Swarm provider host context unavailable',
+        });
+      });
   }
 });
 

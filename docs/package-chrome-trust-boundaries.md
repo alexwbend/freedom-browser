@@ -47,7 +47,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Vault unlock | user or privileged flow | bundled wallet/identity UI and identity IPC | unavailable to package chrome | `trusted-surface` | shell-owned vault prompt | shell-owned prompt broker derives context and returns structured outcome | trusted prompt request cap, not identity raw API | broker unit/integration test | broker foundation required; full UX proposed deferral |
 | Seed/private-key export | user in wallet settings | bundled wallet settings uses identity/wallet IPC | unavailable to package chrome | `trusted-surface` | shell-owned export prompt | must remain shell-owned; never package-rendered | none for package chrome | negative API exposure tests | proposed deferral for full UX |
 | dApp permissions | website provider flow and permissions UI | renderer/provider and permission stores | package lacks dApp permission globals | `provider-path`, `trusted-surface` for grants | shell-owned permission prompt | main derives committed origin and permission key; package can display read-only summaries later | no package provider caps | provider bypass smoke and permission broker tests | provider safety required |
-| Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, and direct low-risk capabilities request | low-risk `swarm_getCapabilities` bypass implemented; full prompt migration later |
+| Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, direct low-risk capabilities request, and structured package-mode failure for privileged methods | low-risk `swarm_getCapabilities` bypass implemented; higher-risk package-hosted methods fail through main with `trusted_prompt_unavailable`; full prompt migration later |
 | Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow and `freedom://publish` internal page | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | package-hosted publish/setup entry points are visibly unavailable until a shell-owned publish prompt exists | surface or trusted prompt cap | broker doc/tests plus official package smoke for disabled `freedom://publish` controls | package-hosted direct publish page disabled with `SWARM_PUBLISH_UNAVAILABLE`; full publish UX remains proposed deferral pending a real shell-owned prompt |
 | Swarm feed update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests | proposed deferral for full UX |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events are no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | no silent no-op smoke if visible | raw x402 host events are not delivered to package chrome; package-hosted approval/unlock UI unavailability passes the 402 through safely, while full UX remains proposed deferral pending a real shell-owned prompt |
@@ -217,12 +217,18 @@ low-risk `swarm_getCapabilities` method bypasses package chrome and goes from
 the guest preload directly to main over `swarm:provider-readonly-request`.
 That read-only channel accepts only `swarm_getCapabilities`, returns structured
 provider results to the page, and rejects publish/feed/signing methods.
+Higher-risk Swarm provider requests from package-hosted guest content ask main
+for their host context before any host-renderer forwarding. If main derives
+that the guest is hosted by package chrome, the preload returns a structured
+`trusted_prompt_unavailable` provider error to the page and does not send the
+request through package chrome. Bundled trusted chrome keeps the legacy
+renderer prompt path for those methods until the prompt migration is complete.
 
 This checkpoint does not expose `window.swarmProvider`,
 `window.swarmPermissions`, raw Swarm IPC, publish authority, feed-signing
 authority, or final Swarm approval UI to package chrome. Higher-risk Swarm
-provider methods still require the trusted prompt/surface migration before
-they can be completed safely in package mode.
+provider methods still require the trusted prompt/surface migration before they
+can succeed in package mode.
 
 ## Swarm Publish Page Status
 

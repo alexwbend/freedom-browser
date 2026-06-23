@@ -12,6 +12,10 @@
  * - swarm:provider-readonly-request
  *   Handles permission-free methods that guest preloads can send directly to
  *   main without package chrome mediation.
+ * - swarm:provider-host-context
+ *   Tells guest preloads whether their host is registered package chrome so
+ *   higher-risk methods can fail safely instead of routing through package
+ *   chrome.
  *
  * Trust model for origin:
  *   The main process trusts the origin string from the renderer because:
@@ -400,6 +404,22 @@ function getReadonlyRequestOrigin(event, payload = {}) {
   }
 
   return typeof payload.origin === 'string' ? payload.origin : '';
+}
+
+function handleProviderHostContext(event) {
+  return {
+    packageHosted: isPackageHostedProviderRequest(event),
+  };
+}
+
+function isPackageHostedProviderRequest(event) {
+  const hostWebContents = event?.sender?.hostWebContents;
+  if (!hostWebContents) {
+    return false;
+  }
+
+  const { isPackageWebContents } = require('../shell-api');
+  return isPackageWebContents(hostWebContents) === true;
 }
 
 function handleRequestAccess(origin) {
@@ -1514,6 +1534,7 @@ function registerSwarmProviderIpc() {
     return executeSwarmMethod(method, params, origin);
   });
   ipcMain.handle(IPC.SWARM_PROVIDER_READONLY_REQUEST, handleReadonlyProviderRequest);
+  ipcMain.handle(IPC.SWARM_PROVIDER_HOST_CONTEXT, handleProviderHostContext);
 
   log.info('[SwarmProvider] IPC handler registered');
 }
@@ -1522,6 +1543,7 @@ module.exports = {
   registerSwarmProviderIpc,
   executeSwarmMethod,
   handleReadonlyProviderRequest,
+  handleProviderHostContext,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,

@@ -1963,6 +1963,7 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="provider-chain">pending</p>
         <p data-test="swarm-provider-present">pending</p>
         <p data-test="swarm-provider-capabilities">pending</p>
+        <p data-test="swarm-provider-publish">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
@@ -2017,6 +2018,15 @@ test('official browser chrome can launch as a local package with transitional we
                     'error:' + (error.message || error)
                   );
                 }
+                try {
+                  await swarm.publishData({ data: 'hello', contentType: 'text/plain' });
+                  setText('[data-test="swarm-provider-publish"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-publish"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
               }
             };
             if (window.ethereum) {
@@ -2040,6 +2050,11 @@ test('official browser chrome can launch as a local package with transitional we
       page,
       '[data-test="swarm-provider-capabilities"]',
       'not-connected'
+    );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-publish"]',
+      'error:4200:trusted_prompt_unavailable'
     );
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
