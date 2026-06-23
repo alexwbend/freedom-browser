@@ -1551,6 +1551,12 @@ Verification in this checkpoint:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
 - `git diff --check` passed.
+- committed as `6be1c99` (`feat(chrome): add package service status reads`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28054327404`, job `test` (`83052735971`), passed for
+  `6be1c99`.
+- GitHub Actions run `28054327404`, job `e2e-chrome-runtime`
+  (`83052735272`), passed for `6be1c99`.
 
 Known remaining gaps after this checkpoint:
 
