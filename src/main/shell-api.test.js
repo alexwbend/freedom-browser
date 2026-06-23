@@ -1,14 +1,21 @@
 const IPC = require('../shared/ipc-channels');
 const { version: appVersion } = require('../../package.json');
 const { SHELL_API_VERSION } = require('./chrome-package');
-const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
+const { SHELL_API_EVENTS, SHELL_API_METHODS } = require('../shared/shell-api-policy');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
 const mockResolveEnsContent = jest.fn();
 const mockInvalidateEnsContent = jest.fn();
+const mockLoadSettings = jest.fn();
+const mockLoadBookmarks = jest.fn();
+const mockAddBookmark = jest.fn();
+const mockUpdateBookmark = jest.fn();
+const mockRemoveBookmark = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
+const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
+const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
 
 function makeSender(overrides = {}) {
   return {
@@ -44,6 +51,15 @@ function loadShellApi(options = {}) {
         resolveEnsContent: mockResolveEnsContent,
         invalidateEnsContent: mockInvalidateEnsContent,
       }),
+      [SETTINGS_STORE_MODULE]: () => ({
+        loadSettings: mockLoadSettings,
+      }),
+      [BOOKMARKS_STORE_MODULE]: () => ({
+        loadBookmarks: mockLoadBookmarks,
+        addBookmark: mockAddBookmark,
+        updateBookmark: mockUpdateBookmark,
+        removeBookmark: mockRemoveBookmark,
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -58,6 +74,11 @@ describe('shell-api', () => {
   afterEach(() => {
     mockResolveEnsContent.mockReset();
     mockInvalidateEnsContent.mockReset();
+    mockLoadSettings.mockReset();
+    mockLoadBookmarks.mockReset();
+    mockAddBookmark.mockReset();
+    mockUpdateBookmark.mockReset();
+    mockRemoveBookmark.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -389,6 +410,143 @@ describe('shell-api', () => {
         snapshotChanged: true,
       }),
     });
+  });
+
+  test('handles capability-gated browser state requests', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 103 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({
+        capabilities: [
+          'browserState.settings.read',
+          'browserState.bookmarks.read',
+          'browserState.bookmarks.write',
+        ],
+      })
+    );
+    const settings = {
+      theme: 'system',
+      showBookmarkBar: true,
+      enableIdentityWallet: true,
+    };
+    mockLoadSettings.mockReturnValue(settings);
+    mockLoadBookmarks.mockReturnValue([{ label: 'Example', target: 'https://example.com' }]);
+    mockAddBookmark.mockReturnValue(true);
+    mockUpdateBookmark.mockReturnValue(true);
+    mockRemoveBookmark.mockReturnValue(true);
+
+    const settingsResult = await mod.handleShellRequest(
+      { sender },
+      { method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET, args: [] }
+    );
+    expect(settingsResult).toEqual({
+      theme: 'system',
+      showBookmarkBar: true,
+      enableIdentityWallet: true,
+    });
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET, args: [] }
+      )
+    ).resolves.toEqual([{ label: 'Example', target: 'https://example.com' }]);
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD,
+          args: [{ label: ' Added ', target: ' https://added.example ' }],
+        }
+      )
+    ).resolves.toBe(true);
+    expect(mockAddBookmark).toHaveBeenCalledWith({
+      label: 'Added',
+      target: 'https://added.example',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_UPDATE,
+          args: [
+            {
+              originalTarget: ' https://example.com ',
+              bookmark: { label: 'Updated', target: 'https://updated.example' },
+            },
+          ],
+        }
+      )
+    ).resolves.toBe(true);
+    expect(mockUpdateBookmark).toHaveBeenCalledWith('https://example.com', {
+      label: 'Updated',
+      target: 'https://updated.example',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE,
+          args: [{ target: ' https://updated.example ' }],
+        }
+      )
+    ).resolves.toBe(true);
+    expect(mockRemoveBookmark).toHaveBeenCalledWith('https://updated.example');
+
+    settings.theme = 'mutated';
+    expect(settingsResult.theme).toBe('system');
+  });
+
+  test('rejects browser state requests without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 104 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET,
+        requiredCapability: 'browserState.bookmarks.read',
+      },
+    });
+  });
+
+  test('returns false for malformed browser state write payloads', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 105 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['browserState.bookmarks.write'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD, args: [{}] }
+      )
+    ).resolves.toBe(false);
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_UPDATE, args: [{}] }
+      )
+    ).resolves.toBe(false);
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE, args: [{}] }
+      )
+    ).resolves.toBe(false);
+    expect(mockAddBookmark).not.toHaveBeenCalled();
+    expect(mockUpdateBookmark).not.toHaveBeenCalled();
+    expect(mockRemoveBookmark).not.toHaveBeenCalled();
   });
 
   test('clones shell API handler results before returning them', async () => {

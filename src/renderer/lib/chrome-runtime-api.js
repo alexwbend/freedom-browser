@@ -31,6 +31,14 @@ const getPackageInfo = async () => {
   return packageInfoPromise;
 };
 
+const callFreedomShell = (methodName, fallbackValue, ...args) => {
+  const method = getRuntimeWindow().freedomShell?.[methodName];
+  if (typeof method !== 'function') {
+    return Promise.resolve(fallbackValue);
+  }
+  return method(...args);
+};
+
 const createPackageRuntimeApi = () =>
   Object.freeze({
     setBzzBase: asyncSuccess,
@@ -81,12 +89,13 @@ const createPackageRuntimeApi = () =>
     updateTabMenuState: noop,
     setBookmarkBarToggleEnabled: noop,
     setBookmarkBarChecked: noop,
-    getSettings: async () => ({ ...DEFAULT_SETTINGS }),
+    getSettings: () => callFreedomShell('getSettings', { ...DEFAULT_SETTINGS }),
     saveSettings: asyncFalse,
-    getBookmarks: asyncEmptyArray,
-    addBookmark: asyncFalse,
-    updateBookmark: asyncFalse,
-    removeBookmark: asyncFalse,
+    getBookmarks: () => callFreedomShell('getBookmarks', []),
+    addBookmark: (bookmark) => callFreedomShell('addBookmark', false, bookmark),
+    updateBookmark: (originalTarget, bookmark) =>
+      callFreedomShell('updateBookmark', false, originalTarget, bookmark),
+    removeBookmark: (target) => callFreedomShell('removeBookmark', false, target),
     resolveEns: (name) => getRuntimeWindow().freedomShell?.resolveEns?.(name),
     resolveEnsAddress: asyncNull,
     resolveEnsReverse: asyncNull,

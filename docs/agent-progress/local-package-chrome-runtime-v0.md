@@ -594,3 +594,123 @@ Completion criteria mapping:
 
 Completion report is ready to provide from the final session state after the
 last progress-ledger commit and branch-head CI check.
+
+## Pre-Swarm Package Chrome Hardening
+
+Goal brief: `/root/codex/freedom-browser-goal3.md`.
+
+Starting branch state:
+
+- required branch: `goal/local-package-chrome-runtime-v0`
+- starting commit: `f267f0f5de55ace6cb8ec2d31af5c425bb926974`
+  (`docs(progress): record final package runtime audit`)
+- upstream: `origin/goal/local-package-chrome-runtime-v0`
+- `git fetch origin` completed with no branch update
+- `git status --short --branch` reported a clean worktree aligned with
+  `origin/goal/local-package-chrome-runtime-v0`
+
+Required context read on 2026-06-23:
+
+- `/root/codex/freedom-browser-goal3.md`
+- `docs/agent-progress/local-package-chrome-runtime-v0.md`
+- `docs/local-package-chrome-runtime.md`
+- `/root/codex/swarm-chrome-roadmap.md`
+
+Current phase: Phase 0 baseline/manual-finding reproduction and Phase 1 trust
+boundary inventory preparation.
+
+Initial findings carried into this goal:
+
+- official package mode currently uses the narrow `window.freedomShell` package
+  preload and intentionally lacks broad globals such as `electronAPI`, wallet,
+  identity, provider, and permission APIs
+- `src/renderer/lib/chrome-runtime-api.js` still contains package-mode no-op
+  shims for browser state and visible chrome controls, including bookmarks,
+  history, favicons, settings/profile defaults, window controls, menu events,
+  and x402 events
+- before browser-state API implementation starts, the required durable
+  trust-boundary inventory and method-by-method `chrome-runtime-api.js` no-op
+  audit must be created in `docs/package-chrome-trust-boundaries.md`
+
+Planned verification for the first checkpoint:
+
+- `npm run lint`
+- `npm test`
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js`
+
+Baseline verification on 2026-06-23:
+
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2099 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+
+Phase 1 trust-boundary inventory:
+
+- created `docs/package-chrome-trust-boundaries.md`
+- classified the required browser flows across provider path, browser-state
+  API, surface-control API, trusted surface, and bundled-only/deferred
+  categories
+- audited every package-mode method in
+  `src/renderer/lib/chrome-runtime-api.js`
+- recorded that proposed deferrals are not user-approved and cannot be used to
+  claim completion
+
+Next checkpoint:
+
+- add package-mode smoke coverage for the current empty bookmarks bar and
+  wallet/sidebar behavior
+- implement the first browser-state shell APIs for bookmarks and bookmark-bar
+  settings, with package preload/policy/renderer adapter tests
+
+### Browser-State Checkpoint 1: Bookmarks And Settings Read
+
+Current checkpoint: ordinary browser-state shell APIs now cover the official
+package chrome bookmark bar and bookmark write path, and the visible package
+wallet/sidebar affordance is intentionally hidden instead of remaining an inert
+button.
+
+Implemented in this checkpoint:
+
+- exported the existing bookmark store operations so bundled IPC and package
+  shell API calls share the same load/add/update/remove behavior
+- added versioned shell API methods and capabilities for settings read and
+  bookmark read/write:
+  - `browserState.settings.get` / `browserState.settings.read`
+  - `browserState.bookmarks.get` / `browserState.bookmarks.read`
+  - `browserState.bookmarks.add/update/remove` /
+    `browserState.bookmarks.write`
+- exposed those methods through the narrow package preload as `freedomShell`
+  methods only
+- updated the package renderer adapter to delegate settings reads and bookmark
+  read/write calls to `freedomShell`
+- kept `window.electronAPI`, wallet, identity, provider, permission, Node, and
+  Electron primitives unavailable in package chrome
+- hid the wallet/sidebar toolbar button in package mode until a shell-owned
+  surface-control path exists
+- expanded official package smoke coverage so it fails if default bookmarks do
+  not render, if a default bookmark cannot navigate under the harness, or if
+  the wallet/sidebar button is visible as an inert control
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/bookmarks-store.test.js` passed: 5 suites, 35 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2103 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- settings writes and bookmark-bar menu toggle behavior still need either real
+  shell APIs or intentional disabled/hidden smoke coverage
+- direct add/edit/remove bookmark UI smoke is still pending, though the shell
+  API and adapter write paths have unit coverage
+- history/autocomplete, favicons, profile/menu behavior, window/menu command
+  events, surface-control, provider-flow bypass, trusted prompt broker, and
+  `freedom-chrome://active/` package serving remain for later phases

@@ -30,6 +30,11 @@ describe('shell-api-policy', () => {
       TABS_NAVIGATE: 'tabs.navigate',
       TABS_RELOAD: 'tabs.reload',
       TABS_GO_HOME: 'tabs.goHome',
+      BROWSER_STATE_SETTINGS_GET: 'browserState.settings.get',
+      BROWSER_STATE_BOOKMARKS_GET: 'browserState.bookmarks.get',
+      BROWSER_STATE_BOOKMARKS_ADD: 'browserState.bookmarks.add',
+      BROWSER_STATE_BOOKMARKS_UPDATE: 'browserState.bookmarks.update',
+      BROWSER_STATE_BOOKMARKS_REMOVE: 'browserState.bookmarks.remove',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -48,6 +53,11 @@ describe('shell-api-policy', () => {
       'tabs.navigate': 'tabs.write',
       'tabs.reload': 'tabs.write',
       'tabs.goHome': 'tabs.write',
+      'browserState.settings.get': 'browserState.settings.read',
+      'browserState.bookmarks.get': 'browserState.bookmarks.read',
+      'browserState.bookmarks.add': 'browserState.bookmarks.write',
+      'browserState.bookmarks.update': 'browserState.bookmarks.write',
+      'browserState.bookmarks.remove': 'browserState.bookmarks.write',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -64,6 +74,9 @@ describe('shell-api-policy', () => {
       NAVIGATION_RESOLVE: 'navigation.resolve',
       TABS_READ: 'tabs.read',
       TABS_WRITE: 'tabs.write',
+      BROWSER_STATE_SETTINGS_READ: 'browserState.settings.read',
+      BROWSER_STATE_BOOKMARKS_READ: 'browserState.bookmarks.read',
+      BROWSER_STATE_BOOKMARKS_WRITE: 'browserState.bookmarks.write',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -74,6 +87,9 @@ describe('shell-api-policy', () => {
       'tabs.snapshotChanged': 'tabs.read',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
+      'browserState.bookmarks.read',
+      'browserState.bookmarks.write',
+      'browserState.settings.read',
       'navigation.resolve',
       'shell.info',
       'shell.ready',

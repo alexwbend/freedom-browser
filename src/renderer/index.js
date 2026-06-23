@@ -674,6 +674,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     initOnboarding(); // Identity onboarding wizard
     initSidebar(); // Identity & wallet sidebar
     initWalletUi(); // Wallet & identity display in sidebar
+  } else {
+    document.getElementById('wallet-toggle-btn')?.classList.add('hidden');
   }
   loadBookmarks();
   initExternalNodeCandidatesModal();

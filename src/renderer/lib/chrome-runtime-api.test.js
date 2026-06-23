@@ -32,6 +32,17 @@ describe('chrome-runtime-api', () => {
     const freedomShell = {
       getInfo: jest.fn().mockResolvedValue({ platform: 'freebsd' }),
       markReady: jest.fn().mockResolvedValue({ ok: true }),
+      getSettings: jest.fn().mockResolvedValue({
+        theme: 'dark',
+        showBookmarkBar: true,
+        enableIdentityWallet: true,
+      }),
+      getBookmarks: jest
+        .fn()
+        .mockResolvedValue([{ label: 'Example', target: 'https://example.com' }]),
+      addBookmark: jest.fn().mockResolvedValue(true),
+      updateBookmark: jest.fn().mockResolvedValue(true),
+      removeBookmark: jest.fn().mockResolvedValue(true),
       resolveEns: jest.fn().mockResolvedValue({ type: 'not_found' }),
       invalidateEnsContent: jest.fn().mockResolvedValue(true),
     };
@@ -41,17 +52,56 @@ describe('chrome-runtime-api', () => {
     expect(mod.isPackageChromeRuntime()).toBe(true);
     await expect(api.getPlatform()).resolves.toBe('freebsd');
     await expect(api.getSettings()).resolves.toMatchObject({
-      theme: 'system',
-      enableIdentityWallet: false,
+      theme: 'dark',
+      showBookmarkBar: true,
+      enableIdentityWallet: true,
     });
-    await expect(api.getBookmarks()).resolves.toEqual([]);
+    await expect(api.getBookmarks()).resolves.toEqual([
+      { label: 'Example', target: 'https://example.com' },
+    ]);
+    await expect(
+      api.addBookmark({ label: 'Added', target: 'https://added.example' })
+    ).resolves.toBe(true);
+    await expect(
+      api.updateBookmark('https://example.com', {
+        label: 'Updated',
+        target: 'https://updated.example',
+      })
+    ).resolves.toBe(true);
+    await expect(api.removeBookmark('https://updated.example')).resolves.toBe(true);
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
     await expect(api.invalidateEnsContent('vitalik.eth')).resolves.toBe(true);
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
+    expect(freedomShell.addBookmark).toHaveBeenCalledWith({
+      label: 'Added',
+      target: 'https://added.example',
+    });
+    expect(freedomShell.updateBookmark).toHaveBeenCalledWith('https://example.com', {
+      label: 'Updated',
+      target: 'https://updated.example',
+    });
+    expect(freedomShell.removeBookmark).toHaveBeenCalledWith('https://updated.example');
     expect(global.window.electronAPI).toBeUndefined();
+  });
+
+  test('uses safe package defaults when browser-state shell methods are unavailable', async () => {
+    const freedomShell = {
+      getInfo: jest.fn().mockResolvedValue({ platform: 'linux' }),
+    };
+    const mod = await loadModule({ freedomShell });
+    const api = mod.getChromeRuntimeApi();
+
+    await expect(api.getSettings()).resolves.toMatchObject({
+      theme: 'system',
+      enableIdentityWallet: false,
+    });
+    await expect(api.getBookmarks()).resolves.toEqual([]);
+    await expect(api.addBookmark({ label: 'Added', target: 'https://added.example' })).resolves.toBe(
+      false
+    );
   });
 
   test('marks package chrome ready through freedomShell', async () => {

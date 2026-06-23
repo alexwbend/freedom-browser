@@ -3,6 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const defaultBookmarks = require('../config/default-bookmarks.json');
 
 const repoRoot = path.resolve(__dirname, '..');
 const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packages', 'minimal');
@@ -155,7 +156,14 @@ function writeOfficialChromePackage(root) {
           maxShellApi: '0.1.x',
         },
         files: listPackageFiles(root),
-        capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
+        capabilities: [
+          'shell.info',
+          'shell.ready',
+          'navigation.resolve',
+          'browserState.settings.read',
+          'browserState.bookmarks.read',
+          'browserState.bookmarks.write',
+        ],
         guestContent: {
           transitionalWebviews: true,
         },
@@ -489,6 +497,11 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'navigateTab',
         'reloadTab',
         'goHome',
+        'getSettings',
+        'getBookmarks',
+        'addBookmark',
+        'updateBookmark',
+        'removeBookmark',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -1089,8 +1102,33 @@ test('official browser chrome can launch as a local package with transitional we
 
     await expect(page.locator('[data-test="address-input"]')).toBeVisible();
     await expect(page.locator('[data-test="new-tab-btn"]')).toBeVisible();
+    await expect(page.locator('#wallet-toggle-btn')).toBeHidden();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
     await expectHomeReady(page);
+
+    await expect(page.locator('[data-test="bookmarks-bar"]')).toBeVisible();
+    await expect(page.locator('[data-test="bookmark-item"]')).toHaveCount(7);
+    const firstDefaultBookmark = defaultBookmarks[0];
+    await expect(page.locator('[data-test="bookmark-item"]').first()).toContainText(
+      firstDefaultBookmark.label
+    );
+    await setContentFixture(launched.app, firstDefaultBookmark.target, {
+      body:
+        '<!doctype html><title>bookmark fixture</title><p data-test="package-bookmark">bookmark bzz fixture</p>',
+    });
+    await setContentFixture(launched.app, `${firstDefaultBookmark.target}/`, {
+      body:
+        '<!doctype html><title>bookmark fixture</title><p data-test="package-bookmark">bookmark bzz fixture</p>',
+    });
+    await page.locator('[data-test="bookmark-item"]').first().click();
+    await expectActiveWebviewText(
+      page,
+      '[data-test="package-bookmark"]',
+      'bookmark bzz fixture'
+    );
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
+
     await page.locator('#reload-btn').click();
     await expectHomeReady(page);
 

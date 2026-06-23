@@ -52,6 +52,11 @@ describe('package-preload', () => {
       'navigateTab',
       'reloadTab',
       'goHome',
+      'getSettings',
+      'getBookmarks',
+      'addBookmark',
+      'updateBookmark',
+      'removeBookmark',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -146,6 +151,50 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.TABS_GO_HOME,
       args: [{ tabId: 1 }],
+    });
+
+    await exposures.freedomShell.getSettings();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET,
+      args: [],
+    });
+
+    await exposures.freedomShell.getBookmarks();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET,
+      args: [],
+    });
+
+    await exposures.freedomShell.addBookmark({
+      label: 'Example',
+      target: 'https://example.com',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD,
+      args: [{ label: 'Example', target: 'https://example.com' }],
+    });
+
+    await exposures.freedomShell.updateBookmark('https://example.com', {
+      label: 'Updated',
+      target: 'https://updated.example',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_UPDATE,
+      args: [
+        {
+          originalTarget: 'https://example.com',
+          bookmark: {
+            label: 'Updated',
+            target: 'https://updated.example',
+          },
+        },
+      ],
+    });
+
+    await exposures.freedomShell.removeBookmark('https://updated.example');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE,
+      args: [{ target: 'https://updated.example' }],
     });
   });
 

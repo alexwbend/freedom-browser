@@ -172,7 +172,16 @@ The local package directory must contain `manifest.json`:
     "minShellApi": "0.1.0",
     "maxShellApi": "0.1.x"
   },
-  "capabilities": ["shell.info", "shell.ready", "navigation.resolve", "tabs.read", "tabs.write"],
+  "capabilities": [
+    "shell.info",
+    "shell.ready",
+    "navigation.resolve",
+    "tabs.read",
+    "tabs.write",
+    "browserState.settings.read",
+    "browserState.bookmarks.read",
+    "browserState.bookmarks.write"
+  ],
   "files": [
     {
       "path": "index.html",
@@ -236,8 +245,8 @@ package-owned `<webview>` creation.
 The launched package smoke now builds a temporary official chrome package from
 `src/renderer` during the test run. The generated manifest opts into
 `guestContent.transitionalWebviews: true` and declares only the shell
-capabilities needed for startup readiness and deterministic navigation
-coverage.
+capabilities needed for startup readiness, deterministic navigation coverage,
+and the ordinary browser-state reads/writes used by the bookmarks bar.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
@@ -252,6 +261,10 @@ The official package smoke currently proves:
 - the real renderer chrome loads as local package chrome
 - package chrome receives `window.freedomShell` but not broad preload globals
 - the initial tab and home page render
+- default bookmarks render through the browser-state shell API
+- clicking a default bookmark navigates under the deterministic harness
+- the wallet/sidebar control is intentionally hidden in package mode until it
+  is backed by a shell-owned surface path
 - the main menu and node menu open
 - new tab, tab switch, and tab close work
 - reload works on the package home page
@@ -275,6 +288,11 @@ running Radicle network.
 - `resolveEns(name)`
 - `invalidateEnsContent(name)`
 - `markReady()`
+- `getSettings()`
+- `getBookmarks()`
+- `addBookmark(bookmark)`
+- `updateBookmark(originalTarget, bookmark)`
+- `removeBookmark(target)`
 - `getTabSnapshot()`
 - `createTab(options)`
 - `closeTab(tabId)`
@@ -317,6 +335,14 @@ serializable tab snapshot and validated tab command results for package chrome.
 This contract is intentionally main-owned and does not yet migrate bundled
 renderer tabs away from their current `<webview>` implementation.
 
+The browser-state methods expose ordinary browser UI state through the same
+sender-checked shell bridge. `getSettings()` currently provides read-only
+settings needed by package chrome initialization. The bookmark methods provide
+read/write access to the existing bookmark store so the official package
+bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
+These APIs return serializable data only and do not expose file paths or store
+internals.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -334,6 +360,9 @@ must be allowed by the package manifest's declared capabilities:
 - `navigation.resolve` allows `resolveNavigationInput(input)`, `resolveEns(name)`, and `invalidateEnsContent(name)`
 - `tabs.read` allows `getTabSnapshot()`
 - `tabs.write` allows tab command methods
+- `browserState.settings.read` allows `getSettings()`
+- `browserState.bookmarks.read` allows `getBookmarks()`
+- `browserState.bookmarks.write` allows bookmark add/update/remove methods
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

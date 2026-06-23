@@ -19,6 +19,11 @@ const SHELL_API_METHODS = Object.freeze({
   TABS_NAVIGATE: 'tabs.navigate',
   TABS_RELOAD: 'tabs.reload',
   TABS_GO_HOME: 'tabs.goHome',
+  BROWSER_STATE_SETTINGS_GET: 'browserState.settings.get',
+  BROWSER_STATE_BOOKMARKS_GET: 'browserState.bookmarks.get',
+  BROWSER_STATE_BOOKMARKS_ADD: 'browserState.bookmarks.add',
+  BROWSER_STATE_BOOKMARKS_UPDATE: 'browserState.bookmarks.update',
+  BROWSER_STATE_BOOKMARKS_REMOVE: 'browserState.bookmarks.remove',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -49,6 +54,16 @@ const freedomShell = Object.freeze({
   navigateTab: (tabId, url) => invokeShell(SHELL_API_METHODS.TABS_NAVIGATE, { tabId, url }),
   reloadTab: (tabId) => invokeShell(SHELL_API_METHODS.TABS_RELOAD, { tabId }),
   goHome: (tabId) => invokeShell(SHELL_API_METHODS.TABS_GO_HOME, { tabId }),
+  getSettings: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET),
+  getBookmarks: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET),
+  addBookmark: (bookmark) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD, bookmark),
+  updateBookmark: (originalTarget, bookmark) =>
+    invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_UPDATE, {
+      originalTarget,
+      bookmark,
+    }),
+  removeBookmark: (target) =>
+    invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE, { target }),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

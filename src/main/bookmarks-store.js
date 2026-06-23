@@ -59,42 +59,58 @@ function saveBookmarks(bookmarks) {
   }
 }
 
+function addBookmark(bookmark) {
+  const current = loadBookmarks();
+  // Prevent duplicates by target
+  if (current.some((b) => b.target === bookmark.target)) {
+    return false;
+  }
+  const updated = [...current, bookmark];
+  return saveBookmarks(updated);
+}
+
+function updateBookmark(originalTarget, bookmark) {
+  const current = loadBookmarks();
+  const index = current.findIndex((b) => b.target === originalTarget);
+  if (index === -1) {
+    return false;
+  }
+  // Check if new target conflicts with another bookmark (excluding the current one)
+  if (bookmark.target !== originalTarget && current.some((b) => b.target === bookmark.target)) {
+    return false;
+  }
+  current[index] = bookmark;
+  return saveBookmarks(current);
+}
+
+function removeBookmark(target) {
+  const current = loadBookmarks();
+  const updated = current.filter((b) => b.target !== target);
+  return saveBookmarks(updated);
+}
+
 function registerBookmarksIpc() {
   ipcMain.handle(IPC.BOOKMARKS_GET, () => {
     return loadBookmarks();
   });
 
   ipcMain.handle(IPC.BOOKMARKS_ADD, (_event, bookmark) => {
-    const current = loadBookmarks();
-    // Prevent duplicates by target
-    if (current.some((b) => b.target === bookmark.target)) {
-      return false;
-    }
-    const updated = [...current, bookmark];
-    return saveBookmarks(updated);
+    return addBookmark(bookmark);
   });
 
   ipcMain.handle(IPC.BOOKMARKS_UPDATE, (_event, { originalTarget, bookmark }) => {
-    const current = loadBookmarks();
-    const index = current.findIndex((b) => b.target === originalTarget);
-    if (index === -1) {
-      return false;
-    }
-    // Check if new target conflicts with another bookmark (excluding the current one)
-    if (bookmark.target !== originalTarget && current.some((b) => b.target === bookmark.target)) {
-      return false;
-    }
-    current[index] = bookmark;
-    return saveBookmarks(current);
+    return updateBookmark(originalTarget, bookmark);
   });
 
   ipcMain.handle(IPC.BOOKMARKS_REMOVE, (_event, target) => {
-    const current = loadBookmarks();
-    const updated = current.filter((b) => b.target !== target);
-    return saveBookmarks(updated);
+    return removeBookmark(target);
   });
 }
 
 module.exports = {
+  addBookmark,
+  loadBookmarks,
+  removeBookmark,
   registerBookmarksIpc,
+  updateBookmark,
 };

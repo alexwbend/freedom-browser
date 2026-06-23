@@ -139,6 +139,52 @@ function invalidateEnsContentForShell(name) {
   return require('./ens-resolver').invalidateEnsContent(name);
 }
 
+function getSettingsForShell() {
+  return require('./settings-store').loadSettings();
+}
+
+function normalizeBookmarkForShell(bookmark) {
+  if (!bookmark || typeof bookmark !== 'object') {
+    return null;
+  }
+  const label = typeof bookmark.label === 'string' ? bookmark.label.trim() : '';
+  const target = typeof bookmark.target === 'string' ? bookmark.target.trim() : '';
+  if (!target) {
+    return null;
+  }
+  return label ? { label, target } : { target };
+}
+
+function getBookmarksForShell() {
+  return require('./bookmarks-store').loadBookmarks();
+}
+
+function addBookmarkForShell(bookmark) {
+  const normalized = normalizeBookmarkForShell(bookmark);
+  if (!normalized) {
+    return false;
+  }
+  return require('./bookmarks-store').addBookmark(normalized);
+}
+
+function updateBookmarkForShell({ originalTarget, bookmark } = {}) {
+  if (typeof originalTarget !== 'string' || !originalTarget.trim()) {
+    return false;
+  }
+  const normalized = normalizeBookmarkForShell(bookmark);
+  if (!normalized) {
+    return false;
+  }
+  return require('./bookmarks-store').updateBookmark(originalTarget.trim(), normalized);
+}
+
+function removeBookmarkForShell({ target } = {}) {
+  if (typeof target !== 'string' || !target.trim()) {
+    return false;
+  }
+  return require('./bookmarks-store').removeBookmark(target.trim());
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -213,6 +259,21 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.TABS_GO_HOME]: {
     handler: ([options], _event, caller) => caller.tabRegistry.goHome(options),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET]: {
+    handler: () => getSettingsForShell(),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET]: {
+    handler: () => getBookmarksForShell(),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD]: {
+    handler: ([bookmark]) => addBookmarkForShell(bookmark),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_UPDATE]: {
+    handler: ([payload]) => updateBookmarkForShell(payload),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE]: {
+    handler: ([payload]) => removeBookmarkForShell(payload),
   },
 });
 
