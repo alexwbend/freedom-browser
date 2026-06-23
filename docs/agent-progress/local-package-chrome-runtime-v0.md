@@ -1675,6 +1675,12 @@ Verification in this checkpoint so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
 - `git diff --check` passed.
+- committed as `cf1f732` (`fix(chrome): disable package paste menu safely`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28056526192`, job `test` (`83060147191`), passed for
+  `cf1f732`.
+- GitHub Actions run `28056526192`, job `e2e-chrome-runtime`
+  (`83060147181`), passed for `cf1f732`.
 
 Known remaining gaps after this checkpoint:
 
