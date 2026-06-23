@@ -8,6 +8,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 const DAPP_PROVIDER_READONLY_REQUEST = 'dapp:provider-readonly-request';
+const DAPP_PROVIDER_HOST_CONTEXT = 'dapp:provider-host-context';
 const SWARM_PROVIDER_READONLY_REQUEST = 'swarm:provider-readonly-request';
 const SWARM_PROVIDER_HOST_CONTEXT = 'swarm:provider-host-context';
 
@@ -535,6 +536,19 @@ const sendEthereumResponseToPage = (id, result, error) => {
     error,
   }, window.location.origin);
 };
+const buildPackageEthereumUnavailableError = (method) => ({
+  code: 4100,
+  message: `Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: ${method}`,
+  data: { reason: 'trusted_prompt_unavailable' },
+});
+const forwardEthereumRequestToHost = (id, method, params, origin) => {
+  ipcRenderer.sendToHost('dapp:provider-request', {
+    id,
+    method,
+    params,
+    origin,
+  });
+};
 
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
@@ -557,12 +571,22 @@ window.addEventListener('message', (event) => {
       return;
     }
 
-    ipcRenderer.sendToHost('dapp:provider-request', {
-      id,
-      method,
-      params,
-      origin,
-    });
+    ipcRenderer
+      .invoke(DAPP_PROVIDER_HOST_CONTEXT)
+      .then(({ packageHosted = false } = {}) => {
+        if (packageHosted) {
+          sendEthereumResponseToPage(id, null, buildPackageEthereumUnavailableError(method));
+          return;
+        }
+
+        forwardEthereumRequestToHost(id, method, params, origin);
+      })
+      .catch((error) => {
+        sendEthereumResponseToPage(id, null, {
+          code: -32603,
+          message: error?.message || 'Provider host context unavailable',
+        });
+      });
   }
 });
 

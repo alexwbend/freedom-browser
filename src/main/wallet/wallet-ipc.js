@@ -75,6 +75,22 @@ function handleReadonlyProviderRequest(payload = {}) {
   };
 }
 
+function isPackageHostedProviderRequest(event) {
+  const hostWebContents = event?.sender?.hostWebContents;
+  if (!hostWebContents) {
+    return false;
+  }
+
+  const { isPackageWebContents } = require('../shell-api');
+  return isPackageWebContents(hostWebContents) === true;
+}
+
+function handleProviderHostContext(event) {
+  return {
+    packageHosted: isPackageHostedProviderRequest(event),
+  };
+}
+
 async function handleSendTransaction(walletIndex, params, kind, context = {}) {
   try {
     const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
@@ -102,6 +118,7 @@ function registerWalletIpc() {
   ipcMain.handle(IPC.DAPP_PROVIDER_READONLY_REQUEST, (_event, payload) =>
     handleReadonlyProviderRequest(payload)
   );
+  ipcMain.handle(IPC.DAPP_PROVIDER_HOST_CONTEXT, handleProviderHostContext);
 
   // Get all balances for an address (always fetches fresh)
   ipcMain.handle('wallet:get-balances', async (_event, address) => {
@@ -372,6 +389,7 @@ function registerWalletIpc() {
 
 module.exports = {
   buildTxRecordContext,
+  handleProviderHostContext,
   handleReadonlyProviderRequest,
   registerWalletIpc,
 };

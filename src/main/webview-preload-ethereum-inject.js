@@ -140,6 +140,7 @@
         if (event.data.error) {
           const err = new Error(event.data.error.message);
           err.code = event.data.error.code;
+          err.data = event.data.error.data;
           pending.reject(err);
         } else {
           console.log('[ethereum] Resolving with:', event.data.result);

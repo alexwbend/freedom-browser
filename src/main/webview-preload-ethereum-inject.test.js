@@ -175,10 +175,18 @@ describe('webview-preload-ethereum-inject', () => {
       deliverMessage({
         type: 'FREEDOM_ETHEREUM_RESPONSE',
         id,
-        error: { message: 'User rejected', code: 4001 },
+        error: {
+          message: 'User rejected',
+          code: 4001,
+          data: { reason: 'trusted_prompt_unavailable' },
+        },
       });
 
-      await expect(pending).rejects.toMatchObject({ message: 'User rejected', code: 4001 });
+      await expect(pending).rejects.toMatchObject({
+        message: 'User rejected',
+        code: 4001,
+        data: { reason: 'trusted_prompt_unavailable' },
+      });
     });
 
     test('ignores messages from a different source', async () => {

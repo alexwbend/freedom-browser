@@ -40,7 +40,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls call narrow owner-window methods or are hidden in test environment | `windows.control` | unit coverage for method/capability plus package smoke for visible fullscreen control | implemented for owner-window title/close/minimize/maximize/fullscreen |
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke opened the node menu but did not prove status/control behavior | `services.*` read API | shell owns node lifecycle and external-node prompts | package delegates read-only service registry/status/binary reads to `freedomShell`; start/stop and raw local endpoints remain shell-owned and unavailable to package chrome; default-port external-node candidate prompts fall back to shell-owned native dialogs for package windows | `services.read`, later narrower write caps only if approved | package smoke for sanitized status reads, broad node API absence, disabled lifecycle controls, and unit coverage for package-window native prompt fallback | read-only status implemented; package windows do not receive legacy external-node prompt IPC |
 | Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skips sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button must call shell-owned surface control, be hidden, or be explicitly disabled with smoke coverage | `surfaces.wallet.control` | official package smoke proving hidden behavior until the real trusted surface migrates; fixture smoke proving placeholder surface control | shell-owned placeholder API implemented; real wallet surface still pending trusted prompt migration |
-| Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | low-risk bypass implemented; full wallet UX still pending trusted prompt migration |
+| Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | low-risk bypass implemented; package-hosted `eth_requestAccounts` fails through main with `trusted_prompt_unavailable`; full wallet UX still pending trusted prompt migration |
 | Transaction send/sign | website/dApp or wallet UI | wallet UI and wallet IPC under broad preload | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned transaction/signing prompt | final approval rendered by shell-owned trusted surface; package chrome can only request surface/open state | none for package provider; surface caps only | trusted broker doc/tests before migration | proposed deferral for full migration |
 | Typed-data sign | website/dApp | wallet/dApp signing UI under bundled renderer | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned signing prompt | same as transaction sign | none for package provider; surface caps only | trusted broker doc/tests before migration | proposed deferral for full migration |
 | Identity onboarding | user in chrome/sidebar | onboarding and identity UI under bundled renderer with `window.identity` | package mode skips onboarding and lacks identity global | `trusted-surface` | shell-owned identity surface | ordinary package chrome may request open; vault creation/unlock/export remains shell-owned | `surfaces.identity.open` later | smoke for hidden/disabled/request behavior | proposed deferral unless visible |
@@ -52,7 +52,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Swarm feed update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests | proposed deferral for full UX |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events are no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | no silent no-op smoke if visible | raw x402 host events are not delivered to package chrome; package-hosted approval/unlock UI unavailability passes the 402 through safely, while full UX remains proposed deferral pending a real shell-owned prompt |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
-| Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented |
+| Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works, privileged package-hosted requests safe-fail | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented; package-hosted Ethereum and Swarm privileged methods fail before package chrome can broker them |
 
 ## Package Runtime API No-Op Audit
 
@@ -208,6 +208,26 @@ This checkpoint does not migrate wallet connect, transaction/signing,
 typed-data signing, x402 approvals, Swarm publish/feed approvals, or vault
 unlock. Those flows must use main-derived guest/request context and a real
 shell-owned prompt surface before they can be called complete in package mode.
+
+## Ethereum Provider Status
+
+Package-hosted guest content receives the page-facing Ethereum provider under
+the hardened transitional webview preload. The low-risk `eth_chainId` method
+bypasses package chrome and goes from the guest preload directly to main over
+`dapp:provider-readonly-request`.
+
+Higher-risk Ethereum provider requests from package-hosted guest content ask
+main for their host context before any host-renderer forwarding. If main
+derives that the guest is hosted by package chrome, the preload returns a
+structured `trusted_prompt_unavailable` provider error to the page and does not
+send the request through package chrome. Bundled trusted chrome keeps the
+legacy renderer prompt path for those methods until the prompt migration is
+complete.
+
+This checkpoint does not expose wallet globals, identity globals, raw wallet
+IPC, dApp permission stores, signing authority, or final account/transaction
+approval UI to package chrome. Wallet connect and signing still require the
+trusted prompt/surface migration before they can succeed in package mode.
 
 ## Swarm Provider Status
 

@@ -1961,6 +1961,7 @@ test('official browser chrome can launch as a local package with transitional we
         <title>provider fixture</title>
         <p data-test="provider-present">pending</p>
         <p data-test="provider-chain">pending</p>
+        <p data-test="provider-accounts">pending</p>
         <p data-test="swarm-provider-present">pending</p>
         <p data-test="swarm-provider-capabilities">pending</p>
         <p data-test="swarm-provider-publish">pending</p>
@@ -1996,6 +1997,15 @@ test('official browser chrome can launch as a local package with transitional we
                   setText('[data-test="provider-chain"]', chainId);
                 } catch (error) {
                   setText('[data-test="provider-chain"]', 'error:' + (error.message || error));
+                }
+                try {
+                  await provider.request({ method: 'eth_requestAccounts' });
+                  setText('[data-test="provider-accounts"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="provider-accounts"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
                 }
               }
 
@@ -2045,6 +2055,11 @@ test('official browser chrome can launch as a local package with transitional we
     await navigateAddress(page, `ipfs://${providerIpfsCid}/`);
     await expectActiveWebviewText(page, '[data-test="provider-present"]', 'present');
     await expectActiveWebviewText(page, '[data-test="provider-chain"]', '0x64');
+    await expectActiveWebviewText(
+      page,
+      '[data-test="provider-accounts"]',
+      'error:4100:trusted_prompt_unavailable'
+    );
     await expectActiveWebviewText(page, '[data-test="swarm-provider-present"]', 'present');
     await expectActiveWebviewText(
       page,

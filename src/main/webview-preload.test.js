@@ -356,13 +356,16 @@ describe('webview-preload', () => {
     });
   });
 
-  test('keeps higher-risk provider requests on the host-renderer path', () => {
+  test('keeps higher-risk provider requests on the host-renderer path outside package chrome', async () => {
     const { ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'https://app.example/',
         protocol: 'https:',
         pathname: '/',
         origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.DAPP_PROVIDER_HOST_CONTEXT]: { packageHosted: false },
       },
     });
     const messageHandler = global.window.addEventListener.mock.calls.find(
@@ -378,15 +381,65 @@ describe('webview-preload', () => {
         params: [],
       },
     });
+    await flushMicrotasks();
 
     expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
       'dapp:provider-readonly-request',
       expect.anything()
     );
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DAPP_PROVIDER_HOST_CONTEXT);
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('dapp:provider-request', {
       id: 8,
       method: 'eth_requestAccounts',
       params: [],
+      origin: 'https://app.example',
+    });
+  });
+
+  test('fails higher-risk provider requests before package chrome can broker them', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.DAPP_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+      },
+    });
+    const messageHandler = global.window.addEventListener.mock.calls.find(
+      ([event]) => event === 'message'
+    )?.[1];
+
+    messageHandler({
+      source: global.window,
+      data: {
+        type: 'FREEDOM_ETHEREUM_REQUEST',
+        id: 9,
+        method: 'eth_requestAccounts',
+        params: [],
+      },
+    });
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DAPP_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'dapp:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_ETHEREUM_RESPONSE',
+        id: 9,
+        result: null,
+        error: {
+          code: 4100,
+          message:
+            'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: eth_requestAccounts',
+          data: { reason: 'trusted_prompt_unavailable' },
+        },
+      },
       origin: 'https://app.example',
     });
   });

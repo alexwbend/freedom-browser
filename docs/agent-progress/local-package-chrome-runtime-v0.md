@@ -2010,6 +2010,61 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Provider-Flow Checkpoint 4: Ethereum Privileged Package Safe-Fail
+
+Current checkpoint: package-hosted guest Ethereum provider requests no longer
+fall back to package chrome for privileged methods. `eth_chainId` continues to
+execute on the direct read-only main path, while higher-risk methods ask main
+for the guest host context and fail in the guest page with a structured
+`trusted_prompt_unavailable` error when the host is registered package chrome.
+
+Implemented in this checkpoint:
+
+- added `dapp:provider-host-context` as a main-owned IPC gate that derives
+  whether a guest webview is hosted by registered package chrome from
+  `event.sender.hostWebContents`
+- changed the guest webview preload so non-readonly Ethereum provider methods
+  check that host context before forwarding to `sendToHost`
+- preserved bundled trusted chrome behavior by forwarding non-readonly
+  Ethereum methods to the legacy renderer prompt path when the guest is not
+  hosted by package chrome
+- returned page-facing provider errors with code `4100` and
+  `data.reason: "trusted_prompt_unavailable"` for privileged package-hosted
+  Ethereum methods instead of allowing package chrome to broker the request
+- preserved `error.data` on the injected page-facing Ethereum provider so
+  structured package-mode reasons are visible to dApps and smoke tests
+- expanded official package smoke so the guest IPFS fixture calls
+  `eth_requestAccounts` and observes the structured package-mode error
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/webview-preload.test.js src/main/webview-preload-ethereum-inject.test.js src/main/wallet/wallet-ipc.test.js` passed:
+  3 suites, 56 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2171 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- higher-risk Ethereum provider methods now fail before package chrome can
+  broker them, but they still need a real shell-owned prompt/surface path
+  before they can succeed in package mode
+- higher-risk Swarm provider methods fail before package chrome can broker
+  them, but they still need a real shell-owned prompt/surface path before they
+  can succeed in package mode
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Provider-Flow Checkpoint 2: Swarm Readonly Capabilities Bypass
 
 Current checkpoint: package-hosted guest content receives the page-facing Swarm

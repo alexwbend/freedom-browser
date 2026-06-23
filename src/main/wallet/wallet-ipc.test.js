@@ -15,9 +15,24 @@ jest.mock('../identity-manager', () => ({}));
 jest.mock('./rpc-manager', () => ({}));
 jest.mock('./vault-access', () => ({}));
 
-const { buildTxRecordContext, handleReadonlyProviderRequest } = require('./wallet-ipc');
+const mockIsPackageWebContents = jest.fn();
+jest.mock('../shell-api', () => ({
+  isPackageWebContents: mockIsPackageWebContents,
+}));
+
+const IPC = require('../../shared/ipc-channels');
+const {
+  buildTxRecordContext,
+  handleProviderHostContext,
+  handleReadonlyProviderRequest,
+  registerWalletIpc,
+} = require('./wallet-ipc');
 
 describe('wallet-ipc', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   test('renderer context cannot override fixed payment-history kind', () => {
     expect(buildTxRecordContext('dapp-send', {
       kind: 'wallet-send',
@@ -37,5 +52,31 @@ describe('wallet-ipc', () => {
       result: null,
       error: { code: 4200, message: 'Method not supported' },
     });
+  });
+
+  test('registers provider host-context handler', () => {
+    registerWalletIpc();
+
+    expect(require('electron').ipcMain.handle).toHaveBeenCalledWith(
+      IPC.DAPP_PROVIDER_HOST_CONTEXT,
+      handleProviderHostContext
+    );
+  });
+
+  test('reports package-hosted guest webviews from the main-owned host sender', () => {
+    const hostWebContents = { id: 20 };
+    mockIsPackageWebContents.mockReturnValue(true);
+
+    expect(handleProviderHostContext({ sender: { hostWebContents } })).toEqual({
+      packageHosted: true,
+    });
+    expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
+  });
+
+  test('reports false when a provider request has no package host', () => {
+    expect(handleProviderHostContext({ sender: {} })).toEqual({
+      packageHosted: false,
+    });
+    expect(mockIsPackageWebContents).not.toHaveBeenCalled();
   });
 });
