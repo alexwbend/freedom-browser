@@ -2010,6 +2010,62 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Provider-Flow Checkpoint 2: Swarm Readonly Capabilities Bypass
+
+Current checkpoint: package-hosted guest content receives the page-facing Swarm
+provider and can call the low-risk `swarm_getCapabilities` method without
+routing through package chrome. Higher-risk Swarm provider methods remain on
+the legacy bundled path until they can move behind shell-owned trusted
+prompts.
+
+Implemented in this checkpoint:
+
+- added `swarm:provider-readonly-request` as a main-owned provider IPC channel
+  for permission-free Swarm methods
+- restricted that direct channel to `swarm_getCapabilities`; attempts to call
+  privileged methods such as `swarm_publishData` return structured
+  `Method not supported` errors
+- changed the guest webview preload so `swarm.getCapabilities()` goes directly
+  from guest preload to main and posts the structured result back to the page
+  without `sendToHost("swarm:provider-request")`
+- kept publish, feed, signing, access-request, and upload-status methods on the
+  existing non-bypass path pending trusted prompt/surface migration
+- expanded the official package smoke so a guest IPFS fixture page must see
+  `window.swarm`, call `getCapabilities()`, and receive deterministic
+  `not-connected` under the harness
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/webview-preload.test.js src/main/swarm/swarm-provider-ipc.test.js` passed:
+  2 suites, 158 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2163 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `14b776b` (`feat(chrome): bypass package for swarm readonly
+  provider`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28063162536`, job `test` (`83081729681`), passed for
+  `14b776b`.
+- GitHub Actions run `28063162536`, job `e2e-chrome-runtime`
+  (`83081729705`), passed for `14b776b`.
+
+Known remaining gaps after this checkpoint:
+
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+- higher-risk Swarm provider methods still need main-derived request context
+  plus shell-owned approval UI before they can bypass the legacy bundled
+  renderer path
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 13: Swarm Publish Page Boundary
 
 Current checkpoint: package-hosted `freedom://publish` no longer exposes the
