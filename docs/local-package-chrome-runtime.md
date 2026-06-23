@@ -81,6 +81,16 @@ Normal launch with no package flags still uses bundled safe chrome. Direct
 `FREEDOM_CHROME_PACKAGE_INSTALL_DIR` / `--chrome-package-install` promotes a
 package into the cache.
 
+Store-backed package windows load their entry through the shell-owned
+`freedom-chrome://active/` scheme, for example:
+
+```text
+freedom-chrome://active/index.html
+```
+
+The direct local development path remains file-based for package authors. The
+cached path is the production-like origin model for pre-Swarm package work.
+
 ### Local Package Feed Chrome
 
 A deterministic local feed file can advertise unpacked package versions and use
@@ -217,6 +227,13 @@ Validation is intentionally local and conservative:
 
 Cached installs copy only the manifest and files declared by `files` into the
 store. Unlisted package files are not part of the installed package.
+
+When a cached package is active, `freedom-chrome://active/` serves only files
+declared by the active package manifest. The handler rejects dot-segment and
+encoded-separator paths, refuses undeclared files, rechecks each served file's
+SHA-256 hash against the manifest, and does not expose arbitrary store paths or
+install metadata. Package HTML responses include a conservative package CSP
+header compatible with the current official renderer and its internal pages.
 
 ## Transitional Guest Webviews
 
@@ -478,6 +495,13 @@ Cached package metadata is internal. `freedomShell.getInfo()` reports package
 id, name, version, source, runtime mode, capabilities, and fallback diagnostics
 without exposing package filesystem paths.
 
+Cached package rendering uses the `freedom-chrome://active/` scheme instead of
+raw file URLs. The active scheme maps requests back to the validated package
+root internally, serves only manifest-declared files, and revalidates content
+hashes before responding. The direct `FREEDOM_CHROME_PACKAGE_DIR` development
+path still loads from disk directly and is intentionally not the production-like
+cached origin model.
+
 ## Recovery
 
 Freedom falls back to bundled safe chrome when:
@@ -510,6 +534,12 @@ Focused unit tests:
 
 ```bash
 npm test -- src/main/chrome-package.test.js src/main/chrome-package-feed.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
+```
+
+Package-origin focused unit tests:
+
+```bash
+npm test -- src/main/chrome-package-protocol.test.js src/main/windows/mainWindow.test.js
 ```
 
 Bundled chrome smoke:

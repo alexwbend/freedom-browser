@@ -50,7 +50,7 @@ Current audited branch: `goal/local-package-chrome-runtime-v0` at
 | Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | package may request trusted publish/setup surface only | surface or trusted prompt cap | broker doc/tests | proposed deferral for full publish UX |
 | Swarm feed update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests | proposed deferral for full UX |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events are no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | no silent no-op smoke if visible | proposed deferral for full UX; broker foundation required |
-| Package install/update/recovery UI | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path | `trusted-surface` | shell/bundled safe chrome | package cannot render final recovery/install trust warnings | package-management caps only later | fallback/rollback smoke | already partly implemented; future UI remains shell-owned |
+| Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
 | Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works | low-risk `eth_chainId` bypass implemented |
 
 ## Package Runtime API No-Op Audit
@@ -142,3 +142,23 @@ This checkpoint does not migrate wallet connect, transaction/signing,
 typed-data signing, x402 approvals, Swarm publish/feed approvals, or vault
 unlock. Those flows must use main-derived guest/request context and a real
 shell-owned prompt surface before they can be called complete in package mode.
+
+## Package Origin Status
+
+Cached packages installed through the local store now load through the
+shell-owned `freedom-chrome://active/` origin instead of raw `file://` URLs.
+Direct `FREEDOM_CHROME_PACKAGE_DIR` development packages remain file-based for
+local authoring, but store-backed installs and cached launches use the scheme.
+
+The active package protocol handler:
+
+- serves only files declared in the active package manifest
+- rejects dot-segment traversal and encoded path separators
+- rechecks each served file's SHA-256 hash against the active manifest record
+- refuses undeclared package files and store metadata
+- avoids exposing arbitrary package filesystem paths in package-visible URLs
+- applies a package CSP header compatible with the current official renderer
+
+This is still a local/offline package-origin model. It does not add Swarm
+download, package signatures, marketplace install UI, or community package
+provenance.

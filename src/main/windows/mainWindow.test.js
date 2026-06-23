@@ -132,4 +132,41 @@ describe('mainWindow chrome package preferences', () => {
       src: 'https://example.com',
     });
   });
+
+  test('loads store-backed packages through the shell-owned package scheme', () => {
+    const { mod } = loadMainWindow();
+    const window = {
+      loadURL: jest.fn(() => Promise.resolve()),
+      loadFile: jest.fn(() => Promise.resolve()),
+    };
+
+    mod.loadChromeEntry(window, {
+      kind: 'local-package',
+      source: 'store',
+      entry: 'index.html',
+      entryPath: path.join('/store', 'index.html'),
+    });
+
+    expect(window.loadURL).toHaveBeenCalledWith('freedom-chrome://active/index.html');
+    expect(window.loadFile).not.toHaveBeenCalled();
+  });
+
+  test('keeps direct local package development on the file load path', () => {
+    const { mod } = loadMainWindow();
+    const window = {
+      loadURL: jest.fn(() => Promise.resolve()),
+      loadFile: jest.fn(() => Promise.resolve()),
+    };
+    const entryPath = path.join('/package', 'index.html');
+
+    mod.loadChromeEntry(window, {
+      kind: 'local-package',
+      source: 'local',
+      entry: 'index.html',
+      entryPath,
+    });
+
+    expect(window.loadURL).not.toHaveBeenCalled();
+    expect(window.loadFile).toHaveBeenCalledWith(entryPath);
+  });
 });

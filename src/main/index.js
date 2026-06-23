@@ -116,6 +116,10 @@ const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
+const {
+  CHROME_PACKAGE_SCHEME,
+  registerChromePackageProtocol,
+} = require('./chrome-package-protocol');
 
 // Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
@@ -131,6 +135,14 @@ const DWEB_PROTOCOL_PRIVILEGES = {
   allowServiceWorkers: true,
 };
 protocol.registerSchemesAsPrivileged([
+  {
+    scheme: CHROME_PACKAGE_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+    },
+  },
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
@@ -265,6 +277,7 @@ async function bootstrap() {
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
   }
+  registerChromePackageProtocol(defaultSession);
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
   installRequestRewriter();

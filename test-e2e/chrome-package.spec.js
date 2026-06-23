@@ -768,6 +768,7 @@ test('local package chrome installs into cache and launches offline from cache',
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    expect(page.url()).toBe('freedom-chrome://active/index.html');
     const installedInfo = JSON.parse(
       await page.locator('[data-test="shell-info-json"]').textContent()
     );
@@ -796,6 +797,7 @@ test('local package chrome installs into cache and launches offline from cache',
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+    expect(page.url()).toBe('freedom-chrome://active/index.html');
     const cachedInfo = JSON.parse(
       await page.locator('[data-test="shell-info-json"]').textContent()
     );

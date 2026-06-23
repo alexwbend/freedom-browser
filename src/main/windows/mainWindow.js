@@ -8,6 +8,7 @@ const {
   setActiveChromePackage,
   validateLocalChromePackage,
 } = require('../chrome-package');
+const { getChromePackageEntryUrl } = require('../chrome-package-protocol');
 const {
   getChromePackageStoreRoot,
   rollbackChromePackageStore,
@@ -36,6 +37,11 @@ function getIconPath() {
 }
 
 function loadChromeEntry(window, chromePackage, initialUrl) {
+  const packageUrl = getChromePackageEntryUrl(chromePackage);
+  if (packageUrl) {
+    return window.loadURL(packageUrl);
+  }
+
   if (chromePackage.kind === 'bundled' && initialUrl) {
     return window.loadFile(chromePackage.entryPath, { query: { initialUrl } });
   }
@@ -390,6 +396,7 @@ module.exports = {
   getPackageGuestPreloadPath,
   sanitizePackageGuestWebviewParams,
   getChromeWindowWebPreferences,
+  loadChromeEntry,
   focusOrCreateMainWindow,
   setWindowTitle,
   getWindowTitle,

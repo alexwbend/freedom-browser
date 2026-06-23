@@ -812,7 +812,8 @@ Known remaining gaps after this checkpoint:
   design before they can bypass package chrome safely
 - package mode still needs surface-control or intentional hidden/disabled
   coverage for more visible controls such as profile/window/menu affordances
-- `freedom-chrome://active/` package serving remains unimplemented
+- `freedom-chrome://active/` package serving was still pending at this point;
+  it is addressed in the package-origin checkpoint below
 
 ### Surface-Control Checkpoint 1: Wallet Placeholder Control
 
@@ -867,7 +868,8 @@ Known remaining gaps after this checkpoint:
   connect, signing, vault unlock, x402, and Swarm approval surfaces still need
   the trusted prompt broker foundation before package chrome can expose those
   flows safely
-- `freedom-chrome://active/` package serving remains unimplemented
+- `freedom-chrome://active/` package serving was still pending at this point;
+  it is addressed in the package-origin checkpoint below
 
 ### Trusted Prompt Broker Checkpoint 1: Test-Only Broker Path
 
@@ -920,4 +922,50 @@ Known remaining gaps after this checkpoint:
   typed-data signing, x402 approvals, Swarm publish/feed approvals, and vault
   unlock still need main-derived request context plus real shell-owned prompt
   UI before package mode can support those flows
-- `freedom-chrome://active/` package serving remains unimplemented
+- `freedom-chrome://active/` package serving was still pending at this point;
+  it is addressed in the package-origin checkpoint below
+
+### Package-Origin Checkpoint 1: Active Cached Package Scheme
+
+Current checkpoint: cached package windows now load their entry through the
+shell-owned `freedom-chrome://active/` scheme instead of raw file URLs. Direct
+local development packages remain file-based.
+
+Implemented in this checkpoint:
+
+- added `src/main/chrome-package-protocol.js`
+- registered `freedom-chrome` as a privileged standard, secure package scheme
+  before app ready
+- registered a default-session `freedom-chrome` protocol handler during app
+  bootstrap
+- changed store-backed package launch to `loadURL("freedom-chrome://active/...")`
+  while preserving `loadFile()` for bundled chrome and direct local package
+  development
+- served only files declared by the active package manifest
+- rejected dot-segment traversal and encoded separator package URLs
+- refused undeclared package files and store metadata
+- rechecked each served file's SHA-256 hash against the active package manifest
+- added package CSP headers for scheme responses
+- added package-origin unit coverage and a launched Electron smoke assertion
+  that cached package install/cache launches use the active scheme
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/chrome-package-protocol.test.js src/main/windows/mainWindow.test.js` passed: 2 suites, 14 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "local package chrome installs into cache"` passed: 1 test.
+- `npm test -- src/main/chrome-package-protocol.test.js src/main/windows/mainWindow.test.js src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/chrome-package-feed.test.js` passed: 5 suites, 51 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `npm test` passed: 114 suites passed, 5 skipped; 2122 passed, 17 skipped.
+- `git diff --check` passed.
+- `xvfb-run -a npm run test:e2e` passed: 27 tests.
+
+Known remaining gaps after this checkpoint:
+
+- direct local package development still uses file URLs by design
+- package signatures/provenance and Swarm package delivery remain out of scope
+- broad final package UX parity and multi-window diagnostics still need the
+  later hardening/final-gate work
