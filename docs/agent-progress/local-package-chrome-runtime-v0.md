@@ -1142,8 +1142,23 @@ Verification in this checkpoint:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the CI fix: 1 test.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the CI fix: 14 tests.
 - `npm run lint` passed after the CI fix.
-- GitHub target CI verification for the corrected branch head is pending until
-  the CI fix commit is pushed.
+- committed the first CI fix as `c99eedd` (`test(chrome): stabilize package
+  fullscreen smoke`) and pushed to
+  `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28044337945`, job `test` (`83018416603`), passed for
+  `c99eedd`.
+- GitHub Actions run `28044337945`, job `e2e-chrome-runtime`
+  (`83018416607`), failed for `c99eedd` because the first recorder instrumented
+  only the first live BrowserWindow; CI had a different non-destroyed window
+  before the package window, so the package owner window's `setFullScreen()`
+  calls were not recorded.
+- updated the fullscreen smoke recorder to instrument all live BrowserWindows
+  and aggregate recorded `setFullScreen(true/false)` calls.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the all-window recorder fix: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the all-window recorder fix: 14 tests.
+- `npm run lint` passed after the all-window recorder fix.
+- GitHub target CI verification for the all-window recorder branch head is
+  pending until the next fix commit is pushed.
 
 Known remaining gaps after this checkpoint:
 

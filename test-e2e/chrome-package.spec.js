@@ -381,30 +381,32 @@ async function expectBundledChromeLoaded(page) {
 
 async function installMainWindowFullScreenRecorder(app) {
   await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
-    if (!window || window.__freedomTestFullScreenRecorderInstalled) {
-      return;
-    }
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed() || window.__freedomTestFullScreenRecorderInstalled) {
+        continue;
+      }
 
-    const originalIsFullScreen = window.isFullScreen.bind(window);
-    const originalSetFullScreen = window.setFullScreen.bind(window);
-    window.__freedomTestFullScreenRecorderInstalled = true;
-    window.__freedomTestFullScreen = originalIsFullScreen();
-    window.__freedomTestFullScreenCalls = [];
-    window.isFullScreen = () => window.__freedomTestFullScreen;
-    window.setFullScreen = (value) => {
-      const nextValue = Boolean(value);
-      window.__freedomTestFullScreen = nextValue;
-      window.__freedomTestFullScreenCalls.push(nextValue);
-      return originalSetFullScreen(nextValue);
-    };
+      const originalIsFullScreen = window.isFullScreen.bind(window);
+      const originalSetFullScreen = window.setFullScreen.bind(window);
+      window.__freedomTestFullScreenRecorderInstalled = true;
+      window.__freedomTestFullScreen = originalIsFullScreen();
+      window.__freedomTestFullScreenCalls = [];
+      window.isFullScreen = () => window.__freedomTestFullScreen;
+      window.setFullScreen = (value) => {
+        const nextValue = Boolean(value);
+        window.__freedomTestFullScreen = nextValue;
+        window.__freedomTestFullScreenCalls.push(nextValue);
+        return originalSetFullScreen(nextValue);
+      };
+    }
   });
 }
 
 async function getMainWindowFullScreenCalls(app) {
   return app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
-    return [...(window?.__freedomTestFullScreenCalls || [])];
+    return BrowserWindow.getAllWindows()
+      .filter((candidate) => !candidate.isDestroyed())
+      .flatMap((window) => window.__freedomTestFullScreenCalls || []);
   });
 }
 
