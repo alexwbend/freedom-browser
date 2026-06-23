@@ -1687,49 +1687,6 @@ Known remaining gaps after this checkpoint:
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
 
-### Chrome UI Checkpoint 8: DevTools Command Smoke
-
-Current checkpoint: package chrome now has launched smoke coverage proving that
-the native Developer Tools command reaches the active package webview through
-the capability-gated `chrome.ui.commands` bridge instead of remaining a silent
-no-op.
-
-Implemented in this checkpoint:
-
-- expanded the official package runtime smoke to instrument the active
-  package-owned guest webview's DevTools methods
-- drove the real native application menu `toggle-devtools` command twice
-- verified the command path opens and then closes DevTools on the active
-  package webview without exposing Electron menu objects, arbitrary IPC, or
-  BrowserWindow authority to package chrome
-- kept the event delivery on the existing sender-checked
-  `chrome.ui.commands` shell event bridge
-- updated `docs/local-package-chrome-runtime.md` and
-  `docs/package-chrome-trust-boundaries.md`
-
-Verification in this checkpoint:
-
-- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
-  1 test.
-- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
-  13 tests.
-- `npm run lint` passed.
-- `npm test` passed: 115 suites passed, 5 skipped; 2146 passed, 17 skipped.
-- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
-  14 tests.
-- `git diff --check` passed.
-- committed as `bb057a1` (`test(chrome): cover package devtools command`)
-  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
-- GitHub Actions run `28058098467`, job `test` (`83065406705`), passed for
-  `bb057a1`.
-- GitHub Actions run `28058098467`, job `e2e-chrome-runtime`
-  (`83065408695`), passed for `bb057a1`.
-
-Known remaining gaps after this checkpoint:
-
-- profile creation/switching remains shell-owned/bundled-only until a scoped
-  trusted switching/launch contract is designed
-
 ### Chrome UI Checkpoint 7: Bookmark Mutation Smoke
 
 Current checkpoint: the official package smoke now covers the visible bookmark
@@ -1780,3 +1737,105 @@ Known remaining gaps after this checkpoint:
 
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
+
+### Chrome UI Checkpoint 8: DevTools Command Smoke
+
+Current checkpoint: package chrome now has launched smoke coverage proving that
+the native Developer Tools command reaches the active package webview through
+the capability-gated `chrome.ui.commands` bridge instead of remaining a silent
+no-op.
+
+Implemented in this checkpoint:
+
+- expanded the official package runtime smoke to instrument the active
+  package-owned guest webview's DevTools methods
+- drove the real native application menu `toggle-devtools` command twice
+- verified the command path opens and then closes DevTools on the active
+  package webview without exposing Electron menu objects, arbitrary IPC, or
+  BrowserWindow authority to package chrome
+- kept the event delivery on the existing sender-checked
+  `chrome.ui.commands` shell event bridge
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2146 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `bb057a1` (`test(chrome): cover package devtools command`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28058098467`, job `test` (`83065406705`), passed for
+  `bb057a1`.
+- GitHub Actions run `28058098467`, job `e2e-chrome-runtime`
+  (`83065408695`), passed for `bb057a1`.
+- GitHub Actions run `28058353014`, job `test` (`83066303541`), passed for
+  ledger commit `314b229`.
+- GitHub Actions run `28058353014`, job `e2e-chrome-runtime`
+  (`83066303197`), passed for ledger commit `314b229`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
+### Chrome UI Checkpoint 9: Update Notification Event Bridge
+
+Current checkpoint: package chrome no longer drops shell-owned updater
+notifications through a silent `onUpdateNotification` no-op. The updater still
+owns policy, ownership locks, dialogs, install behavior, and `autoUpdater`;
+package chrome receives only the existing serializable toast payload through a
+capability-gated shell event.
+
+Implemented in this checkpoint:
+
+- added `app.updates.notification` to the shared shell event registry, gated by
+  the existing `app.updates` capability
+- exposed `freedomShell.onUpdateNotification(callback)` from the package
+  preload and wired the package renderer adapter to delegate to it
+- mirrored updater `show-update-notification` payloads onto the package shell
+  event channel with `emitShellEventToPackageWebContents`
+- kept update check and install requests on the existing shell-owned
+  `app.checkForUpdates` and `app.restartAndInstallUpdate` methods
+- updated the fixture package broad-API absence smoke's explicit
+  `freedomShell` allowlist
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/updater.test.js` initially passed but left an updater timer open; the updater test now uses fake timers.
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/updater.test.js` passed after the timer fix:
+  4 suites, 21 tests.
+- `npm run lint` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2147 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` initially failed because the minimal package exposure smoke's explicit key list did not include `onUpdateNotification`.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "local package chrome loads through freedomShell"` passed after updating that allowlist:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `0a94bac` (`feat(chrome): bridge package update notifications`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28058811799`, job `test` (`83067789356`), passed for
+  `0a94bac`.
+- GitHub Actions run `28058811799`, job `e2e-chrome-runtime`
+  (`83067789347`), passed for `0a94bac`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- external-node candidate prompts and publish setup entry points still need a
+  shell-owned, hidden, or intentionally disabled package-mode disposition if
+  they are visible in package mode
+- raw x402, transaction signing, typed-data signing, identity, vault, Swarm
+  publish/feed, and seed/private-key export flows remain unavailable to
+  package chrome pending real shell-owned trusted surfaces; these are not
+  user-approved completion deferrals
