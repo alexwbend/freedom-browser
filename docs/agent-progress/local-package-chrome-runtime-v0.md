@@ -907,6 +907,12 @@ Verification in this checkpoint:
 - `npm test` passed: 113 suites passed, 5 skipped; 2113 tests passed, 17
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- committed as `7f4b25f` (`feat(chrome): add trusted prompt broker
+  foundation`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28039000303`, job `test` (`82999999527`), passed for
+  `7f4b25f`.
+- GitHub Actions run `28039000303`, job `e2e-chrome-runtime`
+  (`82999999439`), passed for `7f4b25f`.
 
 Known remaining gaps after this checkpoint:
 
