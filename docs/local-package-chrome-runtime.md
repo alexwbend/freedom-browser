@@ -395,6 +395,7 @@ running Radicle network.
 - `showAbout()`
 - `checkForUpdates()`
 - `restartAndInstallUpdate()`
+- `onUpdateNotification(callback)`
 - `updateTabMenuState(state)`
 - `setBookmarkBarToggleEnabled(enabled)`
 - `setBookmarkBarChecked(checked)`
@@ -531,6 +532,10 @@ primitives. `showAbout()` asks Electron to open the native About panel.
 `checkForUpdates()` and `restartAndInstallUpdate()` ask the shell updater to
 run its existing policy-owned actions; package chrome receives only a
 serializable request result and does not receive auto-updater authority.
+`onUpdateNotification(callback)` receives the shell-owned updater's
+serializable toast payload over `shell:event` when the package declares
+`app.updates`; package chrome still cannot access `autoUpdater`, dialogs,
+profile locks, install state, or update ownership internals.
 
 `updateTabMenuState(state)`, `setBookmarkBarToggleEnabled(enabled)`, and
 `setBookmarkBarChecked(checked)` let package chrome report ordinary browser UI
@@ -609,7 +614,8 @@ must be allowed by the package manifest's declared capabilities:
   through the shell-owned window factory
 - `app.about` allows `showAbout()` to request the shell-owned About panel
 - `app.updates` allows `checkForUpdates()` and
-  `restartAndInstallUpdate()` to request shell-owned updater actions
+  `restartAndInstallUpdate()` to request shell-owned updater actions and
+  `onUpdateNotification(callback)` to subscribe to updater notification events
 - `chrome.ui.commands` allows package chrome to receive shell-originated
   browser UI command events over `shell:event` and report native tab/bookmark
   bar menu state through the sender-checked shell request bridge

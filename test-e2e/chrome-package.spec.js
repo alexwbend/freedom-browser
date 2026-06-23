@@ -691,6 +691,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'showAbout',
         'checkForUpdates',
         'restartAndInstallUpdate',
+        'onUpdateNotification',
         'updateTabMenuState',
         'setBookmarkBarToggleEnabled',
         'setBookmarkBarChecked',

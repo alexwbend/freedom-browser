@@ -78,6 +78,7 @@ describe('chrome-runtime-api', () => {
       showAbout: jest.fn().mockResolvedValue({ ok: true }),
       checkForUpdates: jest.fn().mockResolvedValue({ ok: true }),
       restartAndInstallUpdate: jest.fn().mockResolvedValue({ ok: true }),
+      onUpdateNotification: jest.fn(() => 'cleanup-update-notification'),
       updateTabMenuState: jest.fn().mockResolvedValue({ ok: true }),
       setBookmarkBarToggleEnabled: jest.fn().mockResolvedValue({ ok: true }),
       setBookmarkBarChecked: jest.fn().mockResolvedValue({ ok: true }),
@@ -211,6 +212,7 @@ describe('chrome-runtime-api', () => {
       nextTab: jest.fn(),
       prevTab: jest.fn(),
       toggleBookmarkBar: jest.fn(),
+      updateNotification: jest.fn(),
       profileUpdated: jest.fn(),
     };
     expect(api.onCloseMenus(callbacks.closeMenus)).toBe('cleanup-close-menus');
@@ -226,6 +228,9 @@ describe('chrome-runtime-api', () => {
     expect(api.onPrevTab(callbacks.prevTab)).toBe('cleanup-prev-tab');
     expect(api.onToggleBookmarkBar(callbacks.toggleBookmarkBar)).toBe(
       'cleanup-toggle-bookmark-bar'
+    );
+    expect(api.onUpdateNotification(callbacks.updateNotification)).toBe(
+      'cleanup-update-notification'
     );
     expect(api.onProfileUpdated(callbacks.profileUpdated)).toBe('cleanup-profile-updated');
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');

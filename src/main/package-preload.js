@@ -81,6 +81,7 @@ const SHELL_API_EVENTS = Object.freeze({
   CHROME_MOVE_TAB_RIGHT_REQUESTED: 'chrome.commands.moveTabRight',
   CHROME_REOPEN_CLOSED_TAB_REQUESTED: 'chrome.commands.reopenClosedTab',
   CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED: 'chrome.commands.toggleBookmarkBar',
+  APP_UPDATE_NOTIFICATION: 'app.updates.notification',
   BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
   SERVICES_REGISTRY_UPDATED: 'services.registryUpdated',
   SERVICES_STATUS_UPDATED: 'services.statusUpdated',
@@ -160,6 +161,8 @@ const freedomShell = Object.freeze({
   showAbout: () => invokeShell(SHELL_API_METHODS.APP_SHOW_ABOUT),
   checkForUpdates: () => invokeShell(SHELL_API_METHODS.APP_CHECK_FOR_UPDATES),
   restartAndInstallUpdate: () => invokeShell(SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE),
+  onUpdateNotification: (callback) =>
+    onShellEvent(SHELL_API_EVENTS.APP_UPDATE_NOTIFICATION, callback),
   updateTabMenuState: (state) =>
     invokeShell(SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE, state),
   setBookmarkBarToggleEnabled: (enabled) =>

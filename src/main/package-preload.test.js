@@ -86,6 +86,7 @@ describe('package-preload', () => {
       'showAbout',
       'checkForUpdates',
       'restartAndInstallUpdate',
+      'onUpdateNotification',
       'updateTabMenuState',
       'setBookmarkBarToggleEnabled',
       'setBookmarkBarChecked',
@@ -497,6 +498,7 @@ describe('package-preload', () => {
     const newTabWithUrlCallback = jest.fn();
     const focusAddressBarCallback = jest.fn();
     const toggleBookmarkBarCallback = jest.fn();
+    const updateNotificationCallback = jest.fn();
     const profileUpdatedCallback = jest.fn();
     const serviceRegistryUpdatedCallback = jest.fn();
     const serviceStatusUpdatedCallback = jest.fn();
@@ -510,6 +512,8 @@ describe('package-preload', () => {
       exposures.freedomShell.onFocusAddressBarRequested(focusAddressBarCallback);
     const cleanupToggleBookmarkBar =
       exposures.freedomShell.onToggleBookmarkBarRequested(toggleBookmarkBarCallback);
+    const cleanupUpdateNotification =
+      exposures.freedomShell.onUpdateNotification(updateNotificationCallback);
     const cleanupProfileUpdated = exposures.freedomShell.onProfileUpdated(profileUpdatedCallback);
     const cleanupServiceRegistryUpdated =
       exposures.freedomShell.onServiceRegistryUpdated(serviceRegistryUpdatedCallback);
@@ -522,6 +526,7 @@ describe('package-preload', () => {
       newTabWithUrlHandler,
       focusAddressBarHandler,
       toggleBookmarkBarHandler,
+      updateNotificationHandler,
       profileUpdatedHandler,
       serviceRegistryUpdatedHandler,
       serviceStatusUpdatedHandler,
@@ -560,6 +565,15 @@ describe('package-preload', () => {
     ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED,
       data: {},
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.APP_UPDATE_NOTIFICATION,
+      data: {
+        type: 'ready',
+        version: '1.2.3',
+        message: 'Update ready',
+        actionLabel: 'Install now',
+      },
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.BROWSER_STATE_PROFILE_UPDATED,
@@ -606,6 +620,12 @@ describe('package-preload', () => {
     expect(newTabWithUrlCallback).toHaveBeenCalledWith('freedom://history', 'history');
     expect(focusAddressBarCallback).toHaveBeenCalledTimes(1);
     expect(toggleBookmarkBarCallback).toHaveBeenCalledTimes(1);
+    expect(updateNotificationCallback).toHaveBeenCalledWith({
+      type: 'ready',
+      version: '1.2.3',
+      message: 'Update ready',
+      actionLabel: 'Install now',
+    });
     expect(profileUpdatedCallback).toHaveBeenCalledWith({
       id: 'test',
       displayName: 'Test',
@@ -627,6 +647,7 @@ describe('package-preload', () => {
     cleanupNewTabWithUrl();
     cleanupFocusAddressBar();
     cleanupToggleBookmarkBar();
+    cleanupUpdateNotification();
     cleanupProfileUpdated();
     cleanupServiceRegistryUpdated();
     cleanupServiceStatusUpdated();
@@ -642,6 +663,10 @@ describe('package-preload', () => {
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,
       toggleBookmarkBarHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      updateNotificationHandler
     );
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,

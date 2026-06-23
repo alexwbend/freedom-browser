@@ -5,6 +5,8 @@ const path = require('path');
 const { loadSettings } = require('./settings-store');
 const { getActiveProfile } = require('./profile-resolver');
 const { DEFAULT_PROFILE_ID } = require('./profile-catalog');
+const { emitShellEventToPackageWebContents } = require('./shell-api');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const {
   releaseUpdaterOwnerLock,
   tryAcquireUpdaterOwnerLock,
@@ -200,6 +202,16 @@ function setMainWindow(window) {
   mainWindow = window;
 }
 
+function sendUpdateNotification(payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('show-update-notification', payload);
+  emitShellEventToPackageWebContents(
+    mainWindow.webContents,
+    SHELL_API_EVENTS.APP_UPDATE_NOTIFICATION,
+    payload
+  );
+}
+
 function isUpdateCheckEnabled() {
   const settings = loadSettings();
   return settings.autoUpdate !== false;
@@ -249,8 +261,8 @@ autoUpdater.on('update-not-available', () => {
   log.info('[updater] No updates available');
 
   // Only show notification for manual checks
-  if (isManualCheck && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('show-update-notification', {
+  if (isManualCheck) {
+    sendUpdateNotification({
       type: 'up-to-date',
       message: 'Freedom is up to date',
     });
@@ -282,7 +294,7 @@ autoUpdater.on('update-downloaded', (info) => {
 
   // Show in-app notification via renderer
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('show-update-notification', {
+    sendUpdateNotification({
       type: 'ready',
       version: info.version,
       message: installMode.readyMessage || `Update v${info.version} ready to install`,

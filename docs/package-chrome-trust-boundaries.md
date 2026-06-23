@@ -76,7 +76,7 @@ by this document.
 | `onProfileUpdated` | no-op | profile UI cannot react | implemented through a sanitized `browserState.profiles.updated` shell event gated by `browserState.profiles.read` |
 | `onCloseMenus` | no-op | global menu close commands may not reach chrome | implemented through `chrome.ui.commands` shell events for system-menu-open/window-blur close-menu requests |
 | `onOpenPublishSetup` | no-op | publish setup requests can silently fail | shell-owned surface request or hidden/disabled publish entry |
-| `onUpdateNotification` | no-op | update notifications absent | shell-owned update notification path or bundled-only deferral |
+| `onUpdateNotification` | no-op | update notifications absent | implemented through the `app.updates.notification` shell event gated by `app.updates`; package chrome receives only the existing toast payload, while updater policy and install behavior remain in main |
 | `onNewTab`, `onCloseTab`, `onNewTabWithUrl`, `onNavigateToUrl`, `onLoadUrl`, `onReload`, `onHardReload`, `onNextTab`, `onPrevTab`, `onMoveTabLeft`, `onMoveTabRight`, `onReopenClosedTab` | no-op event subscriptions | native menu/shortcut commands may not control package tabs | package adapter now subscribes to `chrome.ui.commands` shell events for native menu, guest window-open, and custom-protocol navigation delivery; smoke covers native New Tab, Close Tab, and Reload |
 | `onToggleDevTools`, `onCloseDevTools`, `onCloseAllDevTools` | no-op | developer controls may fail silently | package adapter now subscribes to `chrome.ui.commands` shell events; native toggle and shutdown close-all are bridged to package windows, and official package smoke covers native Developer Tools toggle delivery to the active webview |
 | `onFocusAddressBar` | no-op | shortcut/menu focus may fail | implemented through `chrome.ui.commands`; official package smoke covers native Focus Address Bar |
@@ -151,10 +151,13 @@ calls through this shell-owned path.
 ## System Menu Command Status
 
 The first app/system command slice implements `windows.open`, `app.about`, and
-`app.updates` for package chrome menu actions. `newWindow()` and
+`app.updates` for package chrome menu actions and update notifications.
+`newWindow()` and
 `openUrlInNewWindow(url)` request the existing shell-owned window factory;
 `showAbout()` requests the Electron About panel; `checkForUpdates()` and
 `restartAndInstallUpdate()` request the existing shell updater actions.
+`onUpdateNotification()` subscribes to a capability-gated shell event carrying
+the same serializable toast payload bundled chrome receives.
 
 These commands return only serializable request results. They do not expose
 `BrowserWindow`, native menus, `autoUpdater`, dialogs, profile locks, install

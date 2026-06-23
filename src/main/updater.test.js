@@ -1,4 +1,5 @@
 const EventEmitter = require('events');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { createAppMock, loadMainModule } = require('../../test/helpers/main-process-test-utils');
 
 function loadUpdaterModule(activeProfile, options = {}) {
@@ -22,6 +23,8 @@ function loadUpdaterModule(activeProfile, options = {}) {
     released: false,
     release: jest.fn(),
   }));
+  const emitShellEventToPackageWebContents =
+    options.emitShellEventToPackageWebContents || jest.fn();
 
   const app = {
     ...createAppMock(),
@@ -44,10 +47,19 @@ function loadUpdaterModule(activeProfile, options = {}) {
         releaseUpdaterOwnerLock: jest.fn(),
         tryAcquireUpdaterOwnerLock,
       }),
+      [require.resolve('./shell-api')]: () => ({
+        emitShellEventToPackageWebContents,
+      }),
     },
   });
 
-  return { mod, autoUpdater, ipcMain, tryAcquireUpdaterOwnerLock };
+  return {
+    mod,
+    autoUpdater,
+    ipcMain,
+    tryAcquireUpdaterOwnerLock,
+    emitShellEventToPackageWebContents,
+  };
 }
 
 describe('updater profile relaunch behavior', () => {
@@ -124,6 +136,46 @@ describe('updater profile relaunch behavior', () => {
 
     expect(autoUpdater.autoRunAppAfterInstall).toBe(false);
     expect(autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, false);
+  });
+
+  test('mirrors update notifications to package shell event channel', () => {
+    jest.useFakeTimers();
+    const { mod, autoUpdater, emitShellEventToPackageWebContents } = loadUpdaterModule({
+      id: 'default',
+      displayName: 'Default',
+      source: 'catalog',
+    });
+    const mainWindow = {
+      isDestroyed: jest.fn(() => false),
+      webContents: {
+        send: jest.fn(),
+      },
+    };
+
+    mod.initUpdater(mainWindow, null, {
+      profile: {
+        id: 'default',
+        displayName: 'Default',
+        source: 'catalog',
+      },
+    });
+    autoUpdater.emit('update-downloaded', { version: '1.2.3' });
+
+    const expectedPayload = {
+      type: 'ready',
+      version: '1.2.3',
+      message: 'Update v1.2.3 ready to install',
+      actionLabel: 'Install now',
+    };
+    expect(mainWindow.webContents.send).toHaveBeenCalledWith(
+      'show-update-notification',
+      expectedPayload
+    );
+    expect(emitShellEventToPackageWebContents).toHaveBeenCalledWith(
+      mainWindow.webContents,
+      SHELL_API_EVENTS.APP_UPDATE_NOTIFICATION,
+      expectedPayload
+    );
   });
 
   test('non-owner profile retries and starts update checks after ownership transfers', async () => {

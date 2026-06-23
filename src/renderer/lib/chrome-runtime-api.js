@@ -78,6 +78,8 @@ const createPackageRuntimeApi = () =>
     showAbout: () => callFreedomShell('showAbout', null),
     checkForUpdates: () => callFreedomShell('checkForUpdates', null),
     restartAndInstallUpdate: () => callFreedomShell('restartAndInstallUpdate', null),
+    onUpdateNotification: (callback) =>
+      subscribeFreedomShell('onUpdateNotification', callback),
     getPlatform: async () => {
       const info = await getPackageInfo();
       return info?.platform || 'linux';
@@ -99,7 +101,6 @@ const createPackageRuntimeApi = () =>
     onProfileUpdated: (callback) => subscribeFreedomShell('onProfileUpdated', callback),
     onCloseMenus: (callback) => subscribeFreedomShell('onCloseMenusRequested', callback),
     onOpenPublishSetup: () => noopDisposer,
-    onUpdateNotification: () => noopDisposer,
     onNewTab: (callback) => subscribeFreedomShell('onNewTabRequested', callback),
     onCloseTab: (callback) => subscribeFreedomShell('onCloseTabRequested', callback),
     onNewTabWithUrl: (callback) =>
