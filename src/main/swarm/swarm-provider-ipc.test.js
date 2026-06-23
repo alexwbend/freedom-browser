@@ -104,6 +104,7 @@ global.fetch = jest.fn();
 
 const {
   registerSwarmProviderIpc,
+  handleReadonlyProviderRequest,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,
@@ -158,6 +159,48 @@ describe('swarm-provider-ipc', () => {
 
   test('registers swarm:provider-execute handler', () => {
     expect(ipcHandlers['swarm:provider-execute']).toBeDefined();
+  });
+
+  test('registers swarm:provider-readonly-request handler', () => {
+    expect(ipcHandlers['swarm:provider-readonly-request']).toBeDefined();
+  });
+
+  describe('readonly provider handler', () => {
+    test('supports swarm_getCapabilities without a renderer permission broker', async () => {
+      mockGetPermission.mockReturnValue(null);
+      mockGetBeeApiUrl.mockReturnValue('http://127.0.0.1:1633');
+      global.fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ beeMode: 'light' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ready' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ stamps: [{ usable: true }] }) });
+
+      const result = await handleReadonlyProviderRequest(
+        { senderFrame: { url: 'https://app.example/page' } },
+        { method: 'swarm_getCapabilities', params: {} }
+      );
+
+      expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
+      expect(result.result).toMatchObject({
+        canPublish: false,
+        reason: 'not-connected',
+      });
+    });
+
+    test('rejects privileged swarm methods on the readonly path', async () => {
+      const result = await handleReadonlyProviderRequest(
+        { senderFrame: { url: 'https://app.example/page' } },
+        { method: 'swarm_publishData', params: { data: 'hello' } }
+      );
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4200,
+          message: 'Method not supported: swarm_publishData',
+        },
+      });
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
   });
 
   describe('method dispatch', () => {

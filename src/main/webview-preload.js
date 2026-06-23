@@ -8,6 +8,7 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 const DAPP_PROVIDER_READONLY_REQUEST = 'dapp:provider-readonly-request';
+const SWARM_PROVIDER_READONLY_REQUEST = 'swarm:provider-readonly-request';
 
 // The webview preload runs in a sandbox — require() is restricted to a small
 // whitelist (electron, events, timers, url), so we cannot read provider
@@ -692,23 +693,45 @@ try {
   console.error('[webview-preload] Failed to inject swarm provider:', err);
 }
 
-// Bridge postMessage from page to IPC (Swarm)
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.data.type === 'FREEDOM_SWARM_REQUEST') {
-    const { id, method, params } = event.data;
-    ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
-  }
-});
-
-// Bridge IPC responses back to page (Swarm)
-ipcRenderer.on('swarm:provider-response', (_event, { id, result, error }) => {
+const MAIN_READONLY_SWARM_METHODS = new Set(['swarm_getCapabilities']);
+const sendSwarmResponseToPage = (id, result, error) => {
   window.postMessage({
     type: 'FREEDOM_SWARM_RESPONSE',
     id,
     result,
     error,
   }, window.location.origin);
+};
+
+// Bridge postMessage from page to IPC (Swarm)
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  if (event.data.type === 'FREEDOM_SWARM_REQUEST') {
+    const { id, method, params } = event.data;
+    const origin = window.location.origin;
+
+    if (MAIN_READONLY_SWARM_METHODS.has(method)) {
+      ipcRenderer
+        .invoke(SWARM_PROVIDER_READONLY_REQUEST, { method, params, origin })
+        .then(({ result = null, error = null } = {}) => {
+          sendSwarmResponseToPage(id, result, error);
+        })
+        .catch((error) => {
+          sendSwarmResponseToPage(id, null, {
+            code: -32603,
+            message: error?.message || 'Swarm provider request failed',
+          });
+        });
+      return;
+    }
+
+    ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
+  }
+});
+
+// Bridge IPC responses back to page (Swarm)
+ipcRenderer.on('swarm:provider-response', (_event, { id, result, error }) => {
+  sendSwarmResponseToPage(id, result, error);
 });
 
 ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {

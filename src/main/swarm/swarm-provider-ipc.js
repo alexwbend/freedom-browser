@@ -5,9 +5,13 @@
  * The renderer shows prompts and provides fast UX feedback, but this
  * module re-validates everything before executing.
  *
- * Single IPC handler: swarm:provider-execute
+ * IPC handlers:
+ * - swarm:provider-execute
  *   Receives { method, params, origin } from renderer.
  *   Checks permissions, validates params, runs pre-flight, dispatches.
+ * - swarm:provider-readonly-request
+ *   Handles permission-free methods that guest preloads can send directly to
+ *   main without package chrome mediation.
  *
  * Trust model for origin:
  *   The main process trusts the origin string from the renderer because:
@@ -19,6 +23,11 @@
  *       through the request-rewriter — the internal URL doesn't carry
  *       the dweb protocol identity (bzz://, ens://, ipfs://).
  *   The renderer is the only process that can map webview → tab → display URL.
+ *   Direct read-only guest-preload requests are deliberately narrower: they
+ *   are accepted only for permission-free methods, derive sender URL when
+ *   Chromium exposes a useful origin, and otherwise fall back to the
+ *   preload-supplied page origin without granting publish/feed/signing
+ *   authority.
  */
 
 const { ipcMain } = require('electron');
@@ -93,6 +102,7 @@ const KNOWN_METHODS = [
   'swarm_readSingleOwnerChunk',
   'swarm_getSigningIdentity',
 ];
+const READONLY_PROVIDER_METHODS = new Set(['swarm_getCapabilities']);
 
 // Tag ownership: tagUid → origin. Session-scoped, not persisted.
 // Prevents cross-origin tag snooping via getUploadStatus.
@@ -361,6 +371,35 @@ async function executeSwarmMethod(method, params, origin) {
     log.error('[SwarmProvider] executeSwarmMethod failed:', err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
   }
+}
+
+async function handleReadonlyProviderRequest(event, payload = {}) {
+  const method = typeof payload.method === 'string' ? payload.method : '';
+  if (!READONLY_PROVIDER_METHODS.has(method)) {
+    return {
+      result: null,
+      error: { ...ERRORS.UNSUPPORTED_METHOD, message: `Method not supported: ${method}` },
+    };
+  }
+
+  const origin = getReadonlyRequestOrigin(event, payload);
+  return executeSwarmMethod(method, payload.params, origin);
+}
+
+function getReadonlyRequestOrigin(event, payload = {}) {
+  const senderUrl = event?.senderFrame?.url || event?.sender?.getURL?.() || '';
+  try {
+    if (senderUrl) {
+      const parsed = new URL(senderUrl);
+      if (parsed.origin && parsed.origin !== 'null') {
+        return parsed.origin;
+      }
+    }
+  } catch {
+    // Fall back to the preload-supplied page origin below.
+  }
+
+  return typeof payload.origin === 'string' ? payload.origin : '';
 }
 
 function handleRequestAccess(origin) {
@@ -1474,6 +1513,7 @@ function registerSwarmProviderIpc() {
     const { method, params, origin } = args || {};
     return executeSwarmMethod(method, params, origin);
   });
+  ipcMain.handle(IPC.SWARM_PROVIDER_READONLY_REQUEST, handleReadonlyProviderRequest);
 
   log.info('[SwarmProvider] IPC handler registered');
 }
@@ -1481,6 +1521,7 @@ function registerSwarmProviderIpc() {
 module.exports = {
   registerSwarmProviderIpc,
   executeSwarmMethod,
+  handleReadonlyProviderRequest,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,

@@ -391,6 +391,94 @@ describe('webview-preload', () => {
     });
   });
 
+  test('routes swarm_getCapabilities provider requests directly to main', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.SWARM_PROVIDER_READONLY_REQUEST]: {
+          result: { canPublish: false, reason: 'not-connected' },
+          error: null,
+        },
+      },
+    });
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 9,
+          method: 'swarm_getCapabilities',
+          params: {},
+        },
+      });
+    }
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_READONLY_REQUEST, {
+      method: 'swarm_getCapabilities',
+      params: {},
+      origin: 'https://app.example',
+    });
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'swarm:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id: 9,
+        result: { canPublish: false, reason: 'not-connected' },
+        error: null,
+      },
+      origin: 'https://app.example',
+    });
+  });
+
+  test('keeps higher-risk swarm provider requests on the host-renderer path', () => {
+    const { ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+    });
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 10,
+          method: 'swarm_publishData',
+          params: { data: 'hello', contentType: 'text/plain' },
+        },
+      });
+    }
+
+    expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+      IPC.SWARM_PROVIDER_READONLY_REQUEST,
+      expect.anything()
+    );
+    expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('swarm:provider-request', {
+      id: 10,
+      method: 'swarm_publishData',
+      params: { data: 'hello', contentType: 'text/plain' },
+    });
+  });
+
   test('collects rich context menu data and forwards it to the host renderer', () => {
     const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
       selectionText: 'Selected text',

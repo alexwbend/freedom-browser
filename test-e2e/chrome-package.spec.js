@@ -1961,22 +1961,62 @@ test('official browser chrome can launch as a local package with transitional we
         <title>provider fixture</title>
         <p data-test="provider-present">pending</p>
         <p data-test="provider-chain">pending</p>
+        <p data-test="swarm-provider-present">pending</p>
+        <p data-test="swarm-provider-capabilities">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
               const element = document.querySelector(selector);
               if (element) element.textContent = value;
             };
+            const waitForSwarm = () => new Promise((resolve) => {
+              let attempts = 0;
+              const poll = () => {
+                if (window.swarm && typeof window.swarm.getCapabilities === 'function') {
+                  resolve(window.swarm);
+                  return;
+                }
+                attempts += 1;
+                if (attempts >= 30) {
+                  resolve(null);
+                  return;
+                }
+                setTimeout(poll, 100);
+              };
+              poll();
+            });
             const run = async () => {
               const provider = window.ethereum;
               const present = provider && typeof provider.request === 'function';
               setText('[data-test="provider-present"]', present ? 'present' : 'missing');
-              if (!present) return;
-              try {
-                const chainId = await provider.request({ method: 'eth_chainId' });
-                setText('[data-test="provider-chain"]', chainId);
-              } catch (error) {
-                setText('[data-test="provider-chain"]', 'error:' + (error.message || error));
+              if (present) {
+                try {
+                  const chainId = await provider.request({ method: 'eth_chainId' });
+                  setText('[data-test="provider-chain"]', chainId);
+                } catch (error) {
+                  setText('[data-test="provider-chain"]', 'error:' + (error.message || error));
+                }
+              }
+
+              const swarm = await waitForSwarm();
+              const swarmPresent = swarm && typeof swarm.getCapabilities === 'function';
+              setText(
+                '[data-test="swarm-provider-present"]',
+                swarmPresent ? 'present' : 'missing'
+              );
+              if (swarmPresent) {
+                try {
+                  const capabilities = await swarm.getCapabilities();
+                  setText(
+                    '[data-test="swarm-provider-capabilities"]',
+                    capabilities?.reason || 'ready'
+                  );
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-capabilities"]',
+                    'error:' + (error.message || error)
+                  );
+                }
               }
             };
             if (window.ethereum) {
@@ -1995,6 +2035,12 @@ test('official browser chrome can launch as a local package with transitional we
     await navigateAddress(page, `ipfs://${providerIpfsCid}/`);
     await expectActiveWebviewText(page, '[data-test="provider-present"]', 'present');
     await expectActiveWebviewText(page, '[data-test="provider-chain"]', '0x64');
+    await expectActiveWebviewText(page, '[data-test="swarm-provider-present"]', 'present');
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-capabilities"]',
+      'not-connected'
+    );
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
 

@@ -239,6 +239,7 @@ module.exports = {
 
   // Swarm Provider (main-process authority)
   SWARM_PROVIDER_EXECUTE: 'swarm:provider-execute',
+  SWARM_PROVIDER_READONLY_REQUEST: 'swarm:provider-readonly-request',
 
   // Swarm Feed Store
   SWARM_GET_ALL_ORIGINS: 'swarm:get-all-origins',
