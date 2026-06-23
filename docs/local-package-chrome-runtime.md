@@ -500,6 +500,14 @@ candidates is also shell-owned in package mode: package windows do not receive
 the legacy renderer prompt IPC, and main falls back to the native dialog path
 instead of exposing profile node-configuration decisions to package chrome.
 
+The `freedom://settings/startup` publish setup entry point remains shell-owned
+in package mode. Bundled chrome still receives the legacy
+`sidebar:open-publish-setup` renderer event so it can open the wallet sidebar
+checklist. Package-hosted internal pages do not receive that event through
+package chrome; main returns structured `PUBLISH_SETUP_UNAVAILABLE`, and the
+settings page disables the visible setup action with that message instead of
+leaving a clickable no-op.
+
 The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. The current implemented surface is `wallet`, backed by
 caller-scoped placeholder state with `owner: "shell"` and

@@ -13,6 +13,7 @@ const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { startProbe: startSwarmProbe, cancelProbe: cancelSwarmProbe } = require('./swarm/swarm-probe');
 const {
   emitShellEventToPackageWebContents,
+  isPackageWebContents,
   serializeProfileForShell,
 } = require('./shell-api');
 const {
@@ -668,7 +669,22 @@ function registerBaseIpcHandlers(callbacks = {}) {
   });
 
   ipcMain.handle(IPC.SIDEBAR_OPEN_PUBLISH_SETUP, (event) => {
-    event.sender.hostWebContents?.send(IPC.SIDEBAR_OPEN_PUBLISH_SETUP);
+    const hostWebContents = event.sender.hostWebContents;
+    if (!hostWebContents) {
+      return failure(
+        'PUBLISH_SETUP_HOST_MISSING',
+        'Publish setup can only be opened from a hosted internal page'
+      );
+    }
+    if (isPackageWebContents(hostWebContents)) {
+      return failure(
+        'PUBLISH_SETUP_UNAVAILABLE',
+        'Publish setup is shell-owned and unavailable in package mode'
+      );
+    }
+
+    hostWebContents.send(IPC.SIDEBAR_OPEN_PUBLISH_SETUP);
+    return success();
   });
 
   ipcMain.handle(IPC.CONTEXT_MENU_SAVE_IMAGE, async (event, imageUrl) => {

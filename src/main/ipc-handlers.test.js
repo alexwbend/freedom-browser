@@ -185,6 +185,7 @@ function loadIpcHandlersModule(options = {}) {
     },
   });
   const state = require('./state');
+  const shellApi = require('./shell-api');
 
   state.activeBzzBases.clear();
   state.activeRadBases.clear();
@@ -200,6 +201,7 @@ function loadIpcHandlersModule(options = {}) {
     log,
     mod,
     nativeImage,
+    shellApi,
     state,
     webContents,
     createProfileForActiveApp,
@@ -388,8 +390,57 @@ describe('ipc-handlers', () => {
     await ctx.ipcMain.handlers.get(IPC.OPEN_URL_IN_NEW_TAB)(event, 'https://open.example');
     expect(hostWebContents.send).toHaveBeenCalledWith('tab:new-with-url', 'https://open.example');
 
-    await ctx.ipcMain.handlers.get(IPC.SIDEBAR_OPEN_PUBLISH_SETUP)(event);
+    expect(ctx.ipcMain.handlers.get(IPC.SIDEBAR_OPEN_PUBLISH_SETUP)(event)).toEqual(success());
     expect(hostWebContents.send).toHaveBeenCalledWith(IPC.SIDEBAR_OPEN_PUBLISH_SETUP);
+  });
+
+  test('does not forward publish setup requests into package chrome', async () => {
+    const ctx = loadIpcHandlersModule();
+    const hostWebContents = {
+      id: 42,
+      send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
+    };
+    ctx.shellApi.registerPackageWebContents(hostWebContents, {
+      runtimeMode: 'local',
+      source: 'test',
+      packageId: 'baby.freedom.chrome.test',
+      packageType: 'browser-chrome',
+      name: 'Test Chrome',
+      version: '0.0.1',
+      capabilities: [],
+    });
+    const event = {
+      sender: {
+        hostWebContents,
+      },
+    };
+
+    ctx.mod.registerBaseIpcHandlers();
+
+    expect(ctx.ipcMain.handlers.get(IPC.SIDEBAR_OPEN_PUBLISH_SETUP)(event)).toEqual(
+      failure(
+        'PUBLISH_SETUP_UNAVAILABLE',
+        'Publish setup is shell-owned and unavailable in package mode'
+      )
+    );
+    expect(hostWebContents.send).not.toHaveBeenCalled();
+  });
+
+  test('returns a structured publish setup error without a host renderer', async () => {
+    const ctx = loadIpcHandlersModule();
+    const event = {
+      sender: {},
+    };
+
+    ctx.mod.registerBaseIpcHandlers();
+
+    expect(ctx.ipcMain.handlers.get(IPC.SIDEBAR_OPEN_PUBLISH_SETUP)(event)).toEqual(
+      failure(
+        'PUBLISH_SETUP_HOST_MISSING',
+        'Publish setup can only be opened from a hosted internal page'
+      )
+    );
   });
 
   test('returns active profile metadata without local paths', async () => {

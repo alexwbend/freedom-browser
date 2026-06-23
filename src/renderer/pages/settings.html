@@ -1699,8 +1699,23 @@
 
         swarmModeHelp.textContent =
           'Ultra-light — read-only. Set up publishing to switch to light mode.';
-        showAction('Set up publishing →', () => {
-          freedomAPI.openPublishSetup().catch(() => {});
+        showAction('Set up publishing →', async () => {
+          swarmModeBtn.disabled = true;
+          try {
+            const result = await freedomAPI.openPublishSetup();
+            if (result?.success === false) {
+              swarmModeHelp.textContent =
+                result.error?.message || 'Publish setup is unavailable in this browser mode.';
+              swarmModeBtn.textContent = 'Publishing setup unavailable';
+              swarmModeBtn.onclick = null;
+              return;
+            }
+            swarmModeBtn.disabled = false;
+          } catch (err) {
+            swarmModeHelp.textContent =
+              err?.message || 'Publish setup could not be opened from this page.';
+            swarmModeBtn.disabled = false;
+          }
         });
       };
 

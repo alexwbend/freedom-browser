@@ -333,6 +333,44 @@ async function getActiveWebviewText(page, selector) {
   }, selector);
 }
 
+async function getActiveWebviewPublishSetupState(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return { exists: false };
+    }
+    try {
+      return await webview.executeJavaScript(`
+        (() => {
+          const button = document.getElementById('swarm-mode-action-btn');
+          const help = document.getElementById('swarm-mode-help');
+          return {
+            exists: Boolean(button),
+            hidden: button ? button.hidden : null,
+            disabled: button ? button.disabled : null,
+            text: button ? button.textContent : null,
+            help: help ? help.textContent : null,
+          };
+        })()
+      `);
+    } catch (error) {
+      return { exists: false, error: error?.message || String(error) };
+    }
+  });
+}
+
+async function clickActiveWebviewPublishSetup(page) {
+  await page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      throw new Error('No active webview');
+    }
+    await webview.executeJavaScript(`
+      document.getElementById('swarm-mode-action-btn')?.click()
+    `);
+  });
+}
+
 async function showActiveWebviewContextMenu(page, context) {
   await page.evaluate((payload) => {
     const webview = document.querySelector('webview:not(.hidden)');
@@ -2042,13 +2080,38 @@ test('official browser chrome can launch as a local package with transitional we
       'Radicle Integration Disabled'
     );
 
-    await navigateAddress(page, 'freedom://settings');
+    await navigateAddress(page, 'freedom://settings/startup');
     await expect
       .poll(() => getActiveWebviewUrl(page), {
         message: 'Waiting for freedom://settings to load in package webview',
         timeout: 10_000,
       })
       .toContain('/pages/settings.html');
+    await expect
+      .poll(() => getActiveWebviewPublishSetupState(page), {
+        message: 'Waiting for package settings publish setup action',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        hidden: false,
+        disabled: false,
+        text: 'Set up publishing →',
+        help: 'Ultra-light — read-only. Set up publishing to switch to light mode.',
+      });
+    await clickActiveWebviewPublishSetup(page);
+    await expect
+      .poll(() => getActiveWebviewPublishSetupState(page), {
+        message: 'Waiting for package settings publish setup unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        hidden: false,
+        disabled: true,
+        text: 'Publishing setup unavailable',
+        help: 'Publish setup is shell-owned and unavailable in package mode',
+      });
 
     await navigateAddress(page, 'freedom://home', '');
     await expectHomeReady(page);
