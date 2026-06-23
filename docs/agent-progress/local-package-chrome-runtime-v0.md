@@ -2049,6 +2049,12 @@ Verification in this checkpoint:
 - `npm test` passed: 116 suites passed, 5 skipped; 2171 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `d640672` (`fix(chrome): block package ethereum provider
+  prompts`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28064598057`, job `test` (`83086064980`), passed for
+  `d640672`.
+- GitHub Actions run `28064598057`, job `e2e-chrome-runtime`
+  (`83086064896`), passed for `d640672`.
 
 Known remaining gaps after this checkpoint:
 
