@@ -6,6 +6,7 @@ const swarm = window.freedomAPI?.swarm;
 
 const PROGRESS_POLL_MS = 2000;
 const PROGRESS_TIMEOUT_MS = 600000; // 10 minutes max poll
+const PACKAGE_SWARM_PUBLISH_UNAVAILABLE = 'SWARM_PUBLISH_UNAVAILABLE';
 
 // DOM refs
 const statusBanner = document.getElementById('publish-status-banner');
@@ -70,7 +71,11 @@ function init() {
   });
 
   historyClearBtn?.addEventListener('click', async () => {
-    await swarm.clearPublishHistory();
+    const result = await swarm.clearPublishHistory();
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return;
+    }
     loadHistory();
   });
 
@@ -119,6 +124,32 @@ function disableActions() {
   });
 }
 
+function disablePublishing(message = 'Swarm publishing is unavailable.') {
+  stopProgressPoll();
+  showView('actions');
+  showBanner(message, 'warn');
+  disableActions();
+  if (textSubmitBtn) textSubmitBtn.disabled = true;
+  if (historyClearBtn) historyClearBtn.disabled = true;
+  if (typeof document !== 'undefined' && document.body) {
+    document.body.dataset.swarmPublishUnavailable = 'true';
+  }
+}
+
+function normalizeErrorMessage(error, fallback = 'Swarm publishing failed.') {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+  if (typeof error.message === 'string' && error.message) return error.message;
+  return fallback;
+}
+
+function isPackagePublishUnavailable(result) {
+  return (
+    result?.success === false &&
+    result?.error?.code === PACKAGE_SWARM_PUBLISH_UNAVAILABLE
+  );
+}
+
 // ============================================
 // Stamp check (deferred to publish time)
 // ============================================
@@ -126,8 +157,17 @@ function disableActions() {
 async function ensureStampsAvailable() {
   try {
     const result = await swarm.getStamps();
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return false;
+    }
     if (!result?.success || !result.stamps?.some((s) => s.usable)) {
-      showError('No usable postage stamps. Purchase stamps before publishing.');
+      showError(
+        normalizeErrorMessage(
+          result?.error,
+          'No usable postage stamps. Purchase stamps before publishing.'
+        )
+      );
       return false;
     }
     return true;
@@ -144,6 +184,10 @@ async function ensureStampsAvailable() {
 async function handlePublishFile() {
   try {
     const picked = await swarm.pickFileForPublish();
+    if (isPackagePublishUnavailable(picked)) {
+      disablePublishing(normalizeErrorMessage(picked.error));
+      return;
+    }
     if (!picked?.success && picked?.error) { showError(picked.error); return; }
     if (!picked?.path) return; // User cancelled
 
@@ -153,6 +197,11 @@ async function handlePublishFile() {
     setProgress('Uploading file\u2026', 0);
 
     const result = await swarm.publishFilePath(picked.path);
+
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return;
+    }
 
     if (!result?.success) {
       showError(result?.error || 'Upload failed.');
@@ -172,6 +221,10 @@ async function handlePublishFile() {
 async function handlePublishFolder() {
   try {
     const picked = await swarm.pickDirectoryForPublish();
+    if (isPackagePublishUnavailable(picked)) {
+      disablePublishing(normalizeErrorMessage(picked.error));
+      return;
+    }
     if (!picked?.success && picked?.error) { showError(picked.error); return; }
     if (!picked?.path) return; // User cancelled
 
@@ -181,6 +234,11 @@ async function handlePublishFolder() {
     setProgress('Uploading folder\u2026', 0);
 
     const result = await swarm.publishDirectoryPath(picked.path);
+
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return;
+    }
 
     if (!result?.success) {
       showError(result?.error || 'Upload failed.');
@@ -208,6 +266,11 @@ async function handlePublishText() {
     setProgress('Publishing text\u2026', 0);
 
     const result = await swarm.publishData(text);
+
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return;
+    }
 
     if (!result?.success) {
       showError(result?.error || 'Publish failed.');
@@ -286,7 +349,7 @@ function showResult(result) {
 
 function showError(message) {
   showView('error');
-  if (errorText) errorText.textContent = message;
+  if (errorText) errorText.textContent = normalizeErrorMessage(message);
 }
 
 async function copyToClipboard(text) {
@@ -305,6 +368,10 @@ async function loadHistory() {
 
   try {
     const result = await swarm.getPublishHistory();
+    if (isPackagePublishUnavailable(result)) {
+      disablePublishing(normalizeErrorMessage(result.error));
+      return;
+    }
     if (result?.success) {
       renderHistory(result.entries || []);
     }

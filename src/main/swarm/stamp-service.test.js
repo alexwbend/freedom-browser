@@ -51,6 +51,19 @@ jest.mock('electron-log', () => ({
   error: jest.fn(),
 }));
 
+const mockIsPackageHostedInternalPage = jest.fn(() => false);
+
+jest.mock('../package-hosted-internal-page', () => ({
+  isPackageHostedInternalPage: (...args) => mockIsPackageHostedInternalPage(...args),
+  packageHostedSwarmPublishUnavailable: () => ({
+    success: false,
+    error: {
+      code: 'SWARM_PUBLISH_UNAVAILABLE',
+      message: 'Swarm publishing is shell-owned and unavailable in package mode',
+    },
+  }),
+}));
+
 const { normalizeBatch, registerSwarmIpc } = require('./stamp-service');
 const { Size, Duration } = require('@ethersphere/bee-js');
 
@@ -61,6 +74,12 @@ async function invokeIpc(channel, ...args) {
   const handler = ipcHandlers[channel];
   if (!handler) throw new Error(`No handler for ${channel}`);
   return handler({}, ...args);
+}
+
+async function invokeIpcWithEvent(channel, event, ...args) {
+  const handler = ipcHandlers[channel];
+  if (!handler) throw new Error(`No handler for ${channel}`);
+  return handler(event, ...args);
 }
 
 // Helper to create batch objects that mimic bee-js class instances
@@ -142,6 +161,24 @@ describe('stamp-service', () => {
   describe('IPC handlers', () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      mockIsPackageHostedInternalPage.mockReturnValue(false);
+    });
+
+    test('swarm:get-stamps denies package-hosted internal pages', async () => {
+      mockIsPackageHostedInternalPage.mockReturnValue(true);
+
+      const result = await invokeIpcWithEvent('swarm:get-stamps', {
+        sender: { hostWebContents: { id: 42 } },
+      });
+
+      expect(result).toEqual({
+        success: false,
+        error: {
+          code: 'SWARM_PUBLISH_UNAVAILABLE',
+          message: 'Swarm publishing is shell-owned and unavailable in package mode',
+        },
+      });
+      expect(mockGetPostageBatches).not.toHaveBeenCalled();
     });
 
     test('swarm:get-stamps returns normalized batches', async () => {

@@ -9,6 +9,10 @@
 const { ipcMain } = require('electron');
 const { Size, Duration } = require('@ethersphere/bee-js');
 const { getBee, toHex } = require('./swarm-service');
+const {
+  isPackageHostedInternalPage,
+  packageHostedSwarmPublishUnavailable,
+} = require('../package-hosted-internal-page');
 const log = require('electron-log');
 
 const BUY_TIMEOUT_MS = 300000; // 5 minutes — chain tx can be slow
@@ -175,7 +179,11 @@ async function extendStorageSize(batchIdHex, newSizeGB) {
  * Register IPC handlers for stamp operations.
  */
 function registerSwarmIpc() {
-  ipcMain.handle('swarm:get-stamps', async () => {
+  ipcMain.handle('swarm:get-stamps', async (event) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedSwarmPublishUnavailable();
+    }
+
     try {
       const stamps = await getStamps();
       return { success: true, stamps };

@@ -11,6 +11,10 @@ const { app, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const {
+  isPackageHostedInternalPage,
+  packageHostedSwarmPublishUnavailable,
+} = require('../package-hosted-internal-page');
 
 const SCHEMA_VERSION = 1;
 const ORPHAN_SWEEP_MESSAGE = 'interrupted by app exit';
@@ -266,7 +270,11 @@ function removeEntry(id) {
 }
 
 function registerPublishHistoryIpc() {
-  ipcMain.handle('swarm:get-publish-history', () => {
+  ipcMain.handle('swarm:get-publish-history', (event) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedSwarmPublishUnavailable();
+    }
+
     try {
       return { success: true, entries: getEntries() };
     } catch (err) {
@@ -275,7 +283,11 @@ function registerPublishHistoryIpc() {
     }
   });
 
-  ipcMain.handle('swarm:clear-publish-history', () => {
+  ipcMain.handle('swarm:clear-publish-history', (event) => {
+    if (isPackageHostedInternalPage(event)) {
+      return packageHostedSwarmPublishUnavailable();
+    }
+
     try {
       clearEntries();
       return { success: true };

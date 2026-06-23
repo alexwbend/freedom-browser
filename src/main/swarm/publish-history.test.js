@@ -18,6 +18,7 @@ function loadPublishHistoryModule(options = {}) {
         warn: jest.fn(),
         error: jest.fn(),
       }),
+      ...(options.extraMocks || {}),
     },
   });
 }
@@ -275,5 +276,37 @@ describe('publish-history (sqlite)', () => {
     const clearResult = await ipcMain.invoke('swarm:clear-publish-history');
     expect(clearResult.success).toBe(true);
     expect(mod.getEntries()).toHaveLength(0);
+  });
+
+  test('publish history IPC denies package-hosted internal pages', async () => {
+    const ipcMain = createIpcMainMock();
+    const unavailableResult = {
+      success: false,
+      error: {
+        code: 'SWARM_PUBLISH_UNAVAILABLE',
+        message: 'Swarm publishing is shell-owned and unavailable in package mode',
+      },
+    };
+    ({ mod } = loadPublishHistoryModule({
+      userDataDir,
+      ipcMain,
+      extraMocks: {
+        [require.resolve('../package-hosted-internal-page')]: () => ({
+          isPackageHostedInternalPage: jest.fn(() => true),
+          packageHostedSwarmPublishUnavailable: jest.fn(() => unavailableResult),
+        }),
+      },
+    }));
+    mod.registerPublishHistoryIpc();
+    mod.addEntry({ type: 'data', name: 'one' });
+    const event = { sender: { hostWebContents: { id: 42 } } };
+
+    expect(ipcMain.handlers.get('swarm:get-publish-history')(event)).toEqual(
+      unavailableResult
+    );
+    expect(ipcMain.handlers.get('swarm:clear-publish-history')(event)).toEqual(
+      unavailableResult
+    );
+    expect(mod.getEntries()).toHaveLength(1);
   });
 });

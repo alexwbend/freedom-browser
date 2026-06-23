@@ -13,11 +13,21 @@ const { ipcMain, dialog, BrowserWindow } = require('electron');
 const { getBee, selectBestBatch, toHex } = require('./swarm-service');
 const { addEntry, updateEntry } = require('./publish-history');
 const { createProfileTempDir } = require('../profile-paths');
+const {
+  isPackageHostedInternalPage,
+  packageHostedSwarmPublishUnavailable,
+} = require('../package-hosted-internal-page');
 const log = require('electron-log');
 
 // Sentinel for user-initiated publishes (text/file/directory triggered from
 // the freedom://publish UI). dApp-driven publishes pass their actual origin.
 const USER_ORIGIN = 'freedom://publish';
+
+function denyPackageHostedPublish(event) {
+  return isPackageHostedInternalPage(event)
+    ? packageHostedSwarmPublishUnavailable()
+    : null;
+}
 
 /**
  * Normalize an UploadResult to a Freedom publish result.
@@ -224,12 +234,20 @@ async function getUploadStatus(tagUid) {
  * go through swarm-provider-ipc.js (window.swarm.*), which enforces origin
  * permissions, size limits, and pre-flight checks.
  *
+ * Package-hosted internal pages are also denied here. They can render
+ * freedom://publish during the transitional package-webview phase, but package
+ * chrome must not receive raw file paths, stamp/publish state, or final Swarm
+ * publish authority until a shell-owned publish prompt exists.
+ *
  * If you add a new handler here, preserve this invariant: never expose it
  * to webview-preload.js without guardInternal(), and never to arbitrary
  * pages at all.
  */
 function registerPublishIpc() {
-  ipcMain.handle('swarm:publish-data', async (_event, data) => {
+  ipcMain.handle('swarm:publish-data', async (event, data) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     if (!data && data !== '') {
       return { success: false, error: 'Data is required' };
     }
@@ -250,7 +268,10 @@ function registerPublishIpc() {
     }
   });
 
-  ipcMain.handle('swarm:publish-file', async (_event, filePath) => {
+  ipcMain.handle('swarm:publish-file', async (event, filePath) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     if (!filePath || typeof filePath !== 'string') {
       return { success: false, error: 'File path is required' };
     }
@@ -275,7 +296,10 @@ function registerPublishIpc() {
     }
   });
 
-  ipcMain.handle('swarm:publish-directory', async (_event, dirPath) => {
+  ipcMain.handle('swarm:publish-directory', async (event, dirPath) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     if (!dirPath || typeof dirPath !== 'string') {
       return { success: false, error: 'Directory path is required' };
     }
@@ -300,7 +324,10 @@ function registerPublishIpc() {
     }
   });
 
-  ipcMain.handle('swarm:get-upload-status', async (_event, tagUid) => {
+  ipcMain.handle('swarm:get-upload-status', async (event, tagUid) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     try {
       if (!tagUid || typeof tagUid !== 'number') {
         return { success: false, error: 'Tag UID is required' };
@@ -313,7 +340,10 @@ function registerPublishIpc() {
     }
   });
 
-  ipcMain.handle('swarm:pick-file', async () => {
+  ipcMain.handle('swarm:pick-file', async (event) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     try {
       const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(win, {
@@ -330,7 +360,10 @@ function registerPublishIpc() {
     }
   });
 
-  ipcMain.handle('swarm:pick-directory', async () => {
+  ipcMain.handle('swarm:pick-directory', async (event) => {
+    const denied = denyPackageHostedPublish(event);
+    if (denied) return denied;
+
     try {
       const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
       const result = await dialog.showOpenDialog(win, {

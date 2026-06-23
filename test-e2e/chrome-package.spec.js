@@ -359,6 +359,46 @@ async function getActiveWebviewPublishSetupState(page) {
   });
 }
 
+async function getActiveWebviewPublishPageState(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return { exists: false };
+    }
+    try {
+      return await webview.executeJavaScript(`
+        (() => {
+          const byId = (id) => document.getElementById(id);
+          const buttonState = (id) => {
+            const button = byId(id);
+            return button
+              ? {
+                  exists: true,
+                  disabled: button.disabled,
+                  text: button.textContent.trim(),
+                }
+              : { exists: false };
+          };
+          return {
+            exists: true,
+            url: location.href,
+            unavailable: document.body.dataset.swarmPublishUnavailable || '',
+            bannerText: byId('publish-status-banner')?.textContent || '',
+            bannerHidden: byId('publish-status-banner')?.classList.contains('hidden') ?? true,
+            file: buttonState('publish-file-btn'),
+            folder: buttonState('publish-folder-btn'),
+            text: buttonState('publish-text-btn'),
+            textInputHidden: byId('publish-text-input')?.classList.contains('hidden') ?? false,
+            historyClearDisabled: byId('publish-history-clear')?.disabled ?? null,
+          };
+        })()
+      `);
+    } catch (error) {
+      return { exists: false, error: error?.message || String(error) };
+    }
+  });
+}
+
 async function clickActiveWebviewPublishSetup(page) {
   await page.evaluate(async () => {
     const webview = document.querySelector('webview:not(.hidden)');
@@ -2111,6 +2151,30 @@ test('official browser chrome can launch as a local package with transitional we
         disabled: true,
         text: 'Publishing setup unavailable',
         help: 'Publish setup is shell-owned and unavailable in package mode',
+      });
+
+    await navigateAddress(page, 'freedom://publish');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for freedom://publish to load in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/publish.html');
+    await expect
+      .poll(() => getActiveWebviewPublishPageState(page), {
+        message: 'Waiting for package publish page unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        unavailable: 'true',
+        bannerText: 'Swarm publishing is shell-owned and unavailable in package mode',
+        bannerHidden: false,
+        file: { exists: true, disabled: true },
+        folder: { exists: true, disabled: true },
+        text: { exists: true, disabled: true },
+        textInputHidden: true,
+        historyClearDisabled: true,
       });
 
     await navigateAddress(page, 'freedom://home', '');

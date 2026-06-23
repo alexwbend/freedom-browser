@@ -42,6 +42,19 @@ jest.mock('../profile-paths', () => ({
   createProfileTempDir: jest.fn(() => '/tmp/freedom-profile-swarm-publish'),
 }));
 
+const mockIsPackageHostedInternalPage = jest.fn(() => false);
+
+jest.mock('../package-hosted-internal-page', () => ({
+  isPackageHostedInternalPage: (...args) => mockIsPackageHostedInternalPage(...args),
+  packageHostedSwarmPublishUnavailable: () => ({
+    success: false,
+    error: {
+      code: 'SWARM_PUBLISH_UNAVAILABLE',
+      message: 'Swarm publishing is shell-owned and unavailable in package mode',
+    },
+  }),
+}));
+
 // Mock fs for file operations
 jest.mock('fs', () => ({
   existsSync: jest.fn(),
@@ -65,6 +78,12 @@ async function invokeIpc(channel, ...args) {
   const handler = ipcHandlers[channel];
   if (!handler) throw new Error(`No handler for ${channel}`);
   return handler({}, ...args);
+}
+
+async function invokeIpcWithEvent(channel, event, ...args) {
+  const handler = ipcHandlers[channel];
+  if (!handler) throw new Error(`No handler for ${channel}`);
+  return handler(event, ...args);
 }
 
 function makeRef(hex) {
@@ -135,6 +154,26 @@ describe('publish-service', () => {
   describe('IPC handlers', () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      mockIsPackageHostedInternalPage.mockReturnValue(false);
+    });
+
+    test('swarm:publish-data denies package-hosted internal pages', async () => {
+      mockIsPackageHostedInternalPage.mockReturnValue(true);
+
+      const result = await invokeIpcWithEvent(
+        'swarm:publish-data',
+        { sender: { hostWebContents: { id: 42 } } },
+        'hello world'
+      );
+
+      expect(result).toEqual({
+        success: false,
+        error: {
+          code: 'SWARM_PUBLISH_UNAVAILABLE',
+          message: 'Swarm publishing is shell-owned and unavailable in package mode',
+        },
+      });
+      expect(mockUploadFile).not.toHaveBeenCalled();
     });
 
     test('swarm:publish-data uploads via uploadFile and returns normalized result', async () => {

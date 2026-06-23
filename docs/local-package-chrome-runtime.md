@@ -298,6 +298,9 @@ The official package smoke currently proves:
   browser-state shell API in package mode
 - package-safe settings writes persist through the browser-state shell API
   without allowing package chrome to mutate service/provider settings
+- `freedom://settings/startup` and `freedom://publish` expose intentional
+  package-mode unavailable states for shell-owned Swarm publish flows instead
+  of leaving visible publish controls clickable
 - the profile indicator/menu renders the active profile through a read-only
   profile shell API, while profile creation and switching controls are disabled
   in package mode
@@ -507,6 +510,16 @@ checklist. Package-hosted internal pages do not receive that event through
 package chrome; main returns structured `PUBLISH_SETUP_UNAVAILABLE`, and the
 settings page disables the visible setup action with that message instead of
 leaving a clickable no-op.
+
+The direct `freedom://publish` page is also disabled when hosted by package
+chrome. Its internal page preload can normally call path-based
+`freedomAPI.swarm.*` methods for trusted bundled UI, so main rejects
+package-hosted publish, file/folder picker, upload-status, stamp-read, and
+publish-history IPC with structured `SWARM_PUBLISH_UNAVAILABLE`. The page
+surfaces that result as a warning and disables the visible Publish File,
+Publish Folder, and Publish Text controls. Full Swarm publish/feed approval
+still requires a real shell-owned trusted prompt before it can be called
+complete in package mode.
 
 The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. The current implemented surface is `wallet`, backed by

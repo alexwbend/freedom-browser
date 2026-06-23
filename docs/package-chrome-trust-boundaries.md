@@ -48,7 +48,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Seed/private-key export | user in wallet settings | bundled wallet settings uses identity/wallet IPC | unavailable to package chrome | `trusted-surface` | shell-owned export prompt | must remain shell-owned; never package-rendered | none for package chrome | negative API exposure tests | proposed deferral for full UX |
 | dApp permissions | website provider flow and permissions UI | renderer/provider and permission stores | package lacks dApp permission globals | `provider-path`, `trusted-surface` for grants | shell-owned permission prompt | main derives committed origin and permission key; package can display read-only summaries later | no package provider caps | provider bypass smoke and permission broker tests | provider safety required |
 | Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | provider bypass smoke where harness supports it | safety required, full prompt migration later |
-| Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | package may request trusted publish/setup surface only | surface or trusted prompt cap | broker doc/tests | proposed deferral for full publish UX |
+| Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow and `freedom://publish` internal page | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | package-hosted publish/setup entry points are visibly unavailable until a shell-owned publish prompt exists | surface or trusted prompt cap | broker doc/tests plus official package smoke for disabled `freedom://publish` controls | package-hosted direct publish page disabled with `SWARM_PUBLISH_UNAVAILABLE`; full publish UX remains proposed deferral pending a real shell-owned prompt |
 | Swarm feed update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests | proposed deferral for full UX |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events are no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | no silent no-op smoke if visible | raw x402 host events are not delivered to package chrome; package-hosted approval/unlock UI unavailability passes the 402 through safely, while full UX remains proposed deferral pending a real shell-owned prompt |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
@@ -208,6 +208,22 @@ This checkpoint does not migrate wallet connect, transaction/signing,
 typed-data signing, x402 approvals, Swarm publish/feed approvals, or vault
 unlock. Those flows must use main-derived guest/request context and a real
 shell-owned prompt surface before they can be called complete in package mode.
+
+## Swarm Publish Page Status
+
+The direct `freedom://publish` internal page is intentionally unavailable when
+it is hosted inside package chrome. The page still exists as bundled trusted UI,
+but its path-based publish, file/folder picker, upload-status, stamp-read, and
+publish-history IPC calls return structured `SWARM_PUBLISH_UNAVAILABLE` when
+main detects that the internal page's `hostWebContents` is a registered package
+window. The page surfaces that result and disables Publish File, Publish
+Folder, and Publish Text in official package smoke.
+
+This does not implement the final Swarm publish/feed approval UX. That remains
+a shell-owned trusted prompt/surface migration: package chrome may eventually
+request the surface, but it must not receive raw publish paths, stamp
+management authority, feed signing authority, or final approval rendering
+authority.
 
 ## Package Origin Status
 
