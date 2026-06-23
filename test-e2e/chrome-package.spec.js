@@ -407,6 +407,26 @@ async function clickApplicationMenuItem(app, itemId) {
   }, itemId);
 }
 
+async function getApplicationMenuItemStates(app, itemIds) {
+  return app.evaluate(({ Menu }, ids) => {
+    const menu = Menu.getApplicationMenu();
+    return Object.fromEntries(
+      ids.map((id) => {
+        const item = menu?.getMenuItemById(id);
+        return [
+          id,
+          item
+            ? {
+                enabled: item.enabled,
+                checked: item.checked,
+              }
+            : null,
+        ];
+      })
+    );
+  }, itemIds);
+}
+
 async function installMainWindowFullScreenRecorder(app) {
   await app.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -588,6 +608,9 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'showAbout',
         'checkForUpdates',
         'restartAndInstallUpdate',
+        'updateTabMenuState',
+        'setBookmarkBarToggleEnabled',
+        'setBookmarkBarChecked',
         'onTabCommandResult',
         'onTabSnapshotChanged',
         'onCloseMenusRequested',
@@ -1372,9 +1395,37 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('[data-test="tab"][data-tab-id="1"]')).toHaveClass(/active/);
     await page.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
+    await expect
+      .poll(() =>
+        getApplicationMenuItemStates(launched.app, [
+          'next-tab',
+          'prev-tab',
+          'move-tab-right',
+          'move-tab-left',
+        ])
+      )
+      .toMatchObject({
+        'next-tab': { enabled: false },
+        'prev-tab': { enabled: false },
+        'move-tab-right': { enabled: false },
+        'move-tab-left': { enabled: false },
+      });
 
     await clickApplicationMenuItem(launched.app, 'new-tab');
     await expect(page.locator('[data-test="tab"]')).toHaveCount(2);
+    await expect
+      .poll(() =>
+        getApplicationMenuItemStates(launched.app, [
+          'next-tab',
+          'prev-tab',
+          'move-tab-left',
+        ])
+      )
+      .toMatchObject({
+        'next-tab': { enabled: true },
+        'prev-tab': { enabled: true },
+        'move-tab-left': { enabled: true },
+      });
     await clickApplicationMenuItem(launched.app, 'focus-address-bar');
     await expect(input).toBeFocused();
     await clickApplicationMenuItem(launched.app, 'reload');
@@ -1389,16 +1440,31 @@ test('official browser chrome can launch as a local package with transitional we
       'https://example.com/'
     );
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeHidden();
+    await expect
+      .poll(() => getApplicationMenuItemStates(launched.app, ['toggle-bookmark-bar']))
+      .toMatchObject({
+        'toggle-bookmark-bar': { enabled: true },
+      });
     await clickApplicationMenuItem(launched.app, 'toggle-bookmark-bar');
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => window.freedomShell.getSettings()))
       .toMatchObject({ showBookmarkBar: true });
+    await expect
+      .poll(() => getApplicationMenuItemStates(launched.app, ['toggle-bookmark-bar']))
+      .toMatchObject({
+        'toggle-bookmark-bar': { enabled: true, checked: true },
+      });
     await clickApplicationMenuItem(launched.app, 'toggle-bookmark-bar');
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeHidden();
     await expect
       .poll(() => page.evaluate(() => window.freedomShell.getSettings()))
       .toMatchObject({ showBookmarkBar: false });
+    await expect
+      .poll(() => getApplicationMenuItemStates(launched.app, ['toggle-bookmark-bar']))
+      .toMatchObject({
+        'toggle-bookmark-bar': { enabled: true, checked: false },
+      });
 
     await page.locator('#home-btn').click();
     await expectHomeReady(page);

@@ -476,12 +476,11 @@ function setupApplicationMenu() {
   updateTabMenuItems();
 }
 
-// Receive tab state updates from the renderer and apply to menu items immediately
-ipcMain.on('menu:update-tab-state', (_event, state) => {
+function applyTabMenuState(state = {}) {
   const menu = Menu.getApplicationMenu();
-  if (!menu) return;
+  if (!menu) return false;
 
-  const { tabCount, activeIndex, hasClosedTabs } = state;
+  const { tabCount, activeIndex, hasClosedTabs } = state || {};
   const hasMultipleTabs = tabCount > 1;
   const hasTabs = tabCount > 0;
 
@@ -497,6 +496,37 @@ ipcMain.on('menu:update-tab-state', (_event, state) => {
   setEnabled('move-tab-left', hasMultipleTabs && activeIndex > 0);
   setEnabled('reopen-closed-tab', hasClosedTabs);
   setEnabled('toggle-devtools', hasTabs);
+  return true;
+}
+
+function getBookmarkBarToggleMenuItem() {
+  if (toggleBookmarkBarMenuItem) {
+    return toggleBookmarkBarMenuItem;
+  }
+  return Menu.getApplicationMenu()?.getMenuItemById('toggle-bookmark-bar') || null;
+}
+
+function setBookmarkBarToggleEnabled(enabled) {
+  const item = getBookmarkBarToggleMenuItem();
+  if (!item) {
+    return false;
+  }
+  item.enabled = Boolean(enabled);
+  return true;
+}
+
+function setBookmarkBarChecked(checked) {
+  const item = getBookmarkBarToggleMenuItem();
+  if (!item) {
+    return false;
+  }
+  item.checked = Boolean(checked);
+  return true;
+}
+
+// Receive tab state updates from the bundled renderer and apply to menu items immediately
+ipcMain.on('menu:update-tab-state', (_event, state) => {
+  applyTabMenuState(state);
 });
 
 // Track fullscreen state changes from any window to update menu label
@@ -507,16 +537,12 @@ app.on('browser-window-created', (_event, win) => {
 
 // Allow renderer to enable/disable the bookmark bar toggle menu item
 ipcMain.on('menu:set-bookmark-bar-toggle-enabled', (_event, enabled) => {
-  if (toggleBookmarkBarMenuItem) {
-    toggleBookmarkBarMenuItem.enabled = enabled;
-  }
+  setBookmarkBarToggleEnabled(enabled);
 });
 
 // Allow renderer to update the bookmark bar checked state
 ipcMain.on('menu:set-bookmark-bar-checked', (_event, checked) => {
-  if (toggleBookmarkBarMenuItem) {
-    toggleBookmarkBarMenuItem.checked = checked;
-  }
+  setBookmarkBarChecked(checked);
 });
 
 function updateFullscreenMenuItem(newIsFullScreen) {
@@ -527,8 +553,11 @@ function updateFullscreenMenuItem(newIsFullScreen) {
 }
 
 module.exports = {
+  applyTabMenuState,
   buildApplicationMenuTemplate,
   sendChromeCommand,
+  setBookmarkBarChecked,
+  setBookmarkBarToggleEnabled,
   setupApplicationMenu,
   updateTabMenuItems,
   updateFullscreenMenuItem,

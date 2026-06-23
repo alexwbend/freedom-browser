@@ -64,6 +64,9 @@ describe('chrome-runtime-api', () => {
       showAbout: jest.fn().mockResolvedValue({ ok: true }),
       checkForUpdates: jest.fn().mockResolvedValue({ ok: true }),
       restartAndInstallUpdate: jest.fn().mockResolvedValue({ ok: true }),
+      updateTabMenuState: jest.fn().mockResolvedValue({ ok: true }),
+      setBookmarkBarToggleEnabled: jest.fn().mockResolvedValue({ ok: true }),
+      setBookmarkBarChecked: jest.fn().mockResolvedValue({ ok: true }),
       onCloseMenusRequested: jest.fn(() => 'cleanup-close-menus'),
       onFocusAddressBarRequested: jest.fn(() => 'cleanup-focus-address-bar'),
       onToggleDevToolsRequested: jest.fn(() => 'cleanup-toggle-devtools'),
@@ -125,6 +128,11 @@ describe('chrome-runtime-api', () => {
     await expect(api.showAbout()).resolves.toEqual({ ok: true });
     await expect(api.checkForUpdates()).resolves.toEqual({ ok: true });
     await expect(api.restartAndInstallUpdate()).resolves.toEqual({ ok: true });
+    await expect(
+      api.updateTabMenuState({ tabCount: 2, activeIndex: 1, hasClosedTabs: true })
+    ).resolves.toEqual({ ok: true });
+    await expect(api.setBookmarkBarToggleEnabled(false)).resolves.toEqual({ ok: true });
+    await expect(api.setBookmarkBarChecked(true)).resolves.toEqual({ ok: true });
     const callbacks = {
       closeMenus: jest.fn(),
       focusAddressBar: jest.fn(),
@@ -163,6 +171,13 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.showAbout).toHaveBeenCalledTimes(1);
     expect(freedomShell.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(freedomShell.restartAndInstallUpdate).toHaveBeenCalledTimes(1);
+    expect(freedomShell.updateTabMenuState).toHaveBeenCalledWith({
+      tabCount: 2,
+      activeIndex: 1,
+      hasClosedTabs: true,
+    });
+    expect(freedomShell.setBookmarkBarToggleEnabled).toHaveBeenCalledWith(false);
+    expect(freedomShell.setBookmarkBarChecked).toHaveBeenCalledWith(true);
     expect(freedomShell.saveSettings).toHaveBeenCalledWith({ showBookmarkBar: false });
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',

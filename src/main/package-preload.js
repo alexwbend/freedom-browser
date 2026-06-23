@@ -43,6 +43,9 @@ const SHELL_API_METHODS = Object.freeze({
   WINDOWS_MINIMIZE: 'windows.minimize',
   WINDOWS_TOGGLE_MAXIMIZE: 'windows.toggleMaximize',
   WINDOWS_TOGGLE_FULLSCREEN: 'windows.toggleFullscreen',
+  CHROME_UI_UPDATE_TAB_MENU_STATE: 'chrome.ui.updateTabMenuState',
+  CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED: 'chrome.ui.setBookmarkBarToggleEnabled',
+  CHROME_UI_SET_BOOKMARK_BAR_CHECKED: 'chrome.ui.setBookmarkBarChecked',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -126,6 +129,12 @@ const freedomShell = Object.freeze({
   showAbout: () => invokeShell(SHELL_API_METHODS.APP_SHOW_ABOUT),
   checkForUpdates: () => invokeShell(SHELL_API_METHODS.APP_CHECK_FOR_UPDATES),
   restartAndInstallUpdate: () => invokeShell(SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE),
+  updateTabMenuState: (state) =>
+    invokeShell(SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE, state),
+  setBookmarkBarToggleEnabled: (enabled) =>
+    invokeShell(SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED, enabled),
+  setBookmarkBarChecked: (checked) =>
+    invokeShell(SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED, checked),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

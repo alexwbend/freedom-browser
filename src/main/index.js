@@ -182,7 +182,13 @@ const {
 } = require('./windows/mainWindow');
 focusCurrentProfileWindow = focusOrCreateMainWindow;
 const { initUpdater, checkForUpdates, installUpdate } = require('./updater');
-const { setupApplicationMenu, updateTabMenuItems } = require('./menu');
+const {
+  applyTabMenuState,
+  setBookmarkBarChecked,
+  setBookmarkBarToggleEnabled,
+  setupApplicationMenu,
+  updateTabMenuItems,
+} = require('./menu');
 const { registerWebContentsHandlers } = require('./webcontents-setup');
 const { installTestHarness } = require('./test-harness');
 
@@ -233,6 +239,9 @@ async function bootstrap() {
     onNewWindow: createMainWindow,
     onCheckForUpdates: checkForUpdates,
     onRestartAndInstallUpdate: installUpdate,
+    onUpdateTabMenuState: applyTabMenuState,
+    onSetBookmarkBarToggleEnabled: setBookmarkBarToggleEnabled,
+    onSetBookmarkBarChecked: setBookmarkBarChecked,
   });
   registerSettingsIpc();
   registerBookmarksIpc();

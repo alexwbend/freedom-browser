@@ -80,8 +80,8 @@ by this document.
 | `onNewTab`, `onCloseTab`, `onNewTabWithUrl`, `onNavigateToUrl`, `onLoadUrl`, `onReload`, `onHardReload`, `onNextTab`, `onPrevTab`, `onMoveTabLeft`, `onMoveTabRight`, `onReopenClosedTab` | no-op event subscriptions | native menu/shortcut commands may not control package tabs | package adapter now subscribes to `chrome.ui.commands` shell events for native menu, guest window-open, and custom-protocol navigation delivery; smoke covers native New Tab, Close Tab, and Reload |
 | `onToggleDevTools`, `onCloseDevTools`, `onCloseAllDevTools` | no-op | developer controls may fail silently | package adapter now subscribes to `chrome.ui.commands` shell events; native toggle and shutdown close-all are bridged to package windows, with broader devtools smoke still pending if final parity requires it |
 | `onFocusAddressBar` | no-op | shortcut/menu focus may fail | implemented through `chrome.ui.commands`; official package smoke covers native Focus Address Bar |
-| `onToggleBookmarksBar`, `onToggleBookmarkBar`, `setBookmarkBarToggleEnabled`, `setBookmarkBarChecked` | no-op | bookmark bar menu state can be wrong | singular native toggle command is implemented through `chrome.ui.commands` plus `browserState.settings.write` and smoke-covered; plural legacy hook remains unused/no-op; menu checked/enabled state updates remain pending |
-| `updateTabMenuState` | no-op | native tab menu state may be wrong | package tab state event or package-mode menu disabled state |
+| `onToggleBookmarksBar`, `onToggleBookmarkBar`, `setBookmarkBarToggleEnabled`, `setBookmarkBarChecked` | no-op | bookmark bar menu state can be wrong | singular native toggle command is implemented through `chrome.ui.commands` plus `browserState.settings.write` and smoke-covered; plural legacy hook remains unused/no-op; checked/enabled native menu state updates now delegate through `freedomShell` shell requests and official package smoke covers native checked/enabled state |
+| `updateTabMenuState` | no-op | native tab menu state may be wrong | implemented through `freedomShell.updateTabMenuState()` and `chrome.ui.commands`; official package smoke covers tab menu enabled/disabled state for one-tab and two-tab package chrome states |
 | `getSettings` | now delegates to `freedomShell.getSettings()` with hard-coded defaults only if the shell method is unavailable | wallet/sidebar/bookmark bar/settings page state can be wrong if writes remain unsupported | read path implemented through `browserState.settings.read` |
 | `saveSettings` | now delegates to `freedomShell.saveSettings()` with `false` only if the shell method is unavailable | visible settings controls can silently fail | implemented for package-safe browser UI settings through `browserState.settings.write`; service/node/provider settings in the payload are ignored and remain shell-owned |
 | `getBookmarks` | now delegates to `freedomShell.getBookmarks()` with `[]` only if the shell method is unavailable | bookmarks bar is empty despite default bookmarks | implemented through `browserState.bookmarks.read` |
@@ -165,9 +165,10 @@ native application menu paths for New Tab, Focus Address Bar, Reload, Close
 Tab, and Always Show Bookmarks Bar.
 
 This does not expose Electron menu objects, accelerators, arbitrary IPC, or
-BrowserWindow authority to package chrome. Remaining menu-state work includes
-package-safe updates for native tab-menu enabled state and bookmark-bar
-checked/enabled state.
+BrowserWindow authority to package chrome. Package chrome now reports native
+tab-menu enabled state and bookmark-bar checked/enabled state through
+sender-checked `freedomShell` requests gated by `chrome.ui.commands`; main
+normalizes the state payload and applies it through menu-owned handlers.
 
 ## Trusted Prompt Broker Status
 

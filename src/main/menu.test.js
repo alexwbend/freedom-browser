@@ -42,7 +42,7 @@ function loadMenuModule(platform) {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   }
 
-  return { capturedTemplate, mod };
+  return { capturedTemplate, menuInstance, mod };
 }
 
 function findTopLabel(template, label) {
@@ -114,5 +114,40 @@ describe('menu', () => {
     expect(fileIndex).toBeGreaterThanOrEqual(0);
     expect(editIndex).toBe(fileIndex + 1);
     expect(viewIndex).toBeGreaterThan(editIndex);
+  });
+
+  test('applies renderer tab and bookmark-bar state to native menu items', () => {
+    const { menuInstance, mod } = loadMenuModule('linux');
+    const items = new Map(
+      [
+        'reload',
+        'next-tab',
+        'prev-tab',
+        'move-tab-right',
+        'move-tab-left',
+        'reopen-closed-tab',
+        'toggle-devtools',
+        'toggle-bookmark-bar',
+      ].map((id) => [id, { id, enabled: true, checked: false }])
+    );
+    menuInstance.getMenuItemById.mockImplementation((id) => items.get(id) || null);
+
+    expect(
+      mod.applyTabMenuState({ tabCount: 2, activeIndex: 0, hasClosedTabs: true })
+    ).toBe(true);
+
+    expect(items.get('reload').enabled).toBe(true);
+    expect(items.get('next-tab').enabled).toBe(true);
+    expect(items.get('prev-tab').enabled).toBe(true);
+    expect(items.get('move-tab-right').enabled).toBe(true);
+    expect(items.get('move-tab-left').enabled).toBe(false);
+    expect(items.get('reopen-closed-tab').enabled).toBe(true);
+    expect(items.get('toggle-devtools').enabled).toBe(true);
+
+    expect(mod.setBookmarkBarToggleEnabled(false)).toBe(true);
+    expect(items.get('toggle-bookmark-bar').enabled).toBe(false);
+
+    expect(mod.setBookmarkBarChecked(true)).toBe(true);
+    expect(items.get('toggle-bookmark-bar').checked).toBe(true);
   });
 });

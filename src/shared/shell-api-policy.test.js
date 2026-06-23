@@ -54,6 +54,9 @@ describe('shell-api-policy', () => {
       WINDOWS_MINIMIZE: 'windows.minimize',
       WINDOWS_TOGGLE_MAXIMIZE: 'windows.toggleMaximize',
       WINDOWS_TOGGLE_FULLSCREEN: 'windows.toggleFullscreen',
+      CHROME_UI_UPDATE_TAB_MENU_STATE: 'chrome.ui.updateTabMenuState',
+      CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED: 'chrome.ui.setBookmarkBarToggleEnabled',
+      CHROME_UI_SET_BOOKMARK_BAR_CHECKED: 'chrome.ui.setBookmarkBarChecked',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -96,6 +99,9 @@ describe('shell-api-policy', () => {
       'windows.minimize': 'windows.control',
       'windows.toggleMaximize': 'windows.control',
       'windows.toggleFullscreen': 'windows.control',
+      'chrome.ui.updateTabMenuState': 'chrome.ui.commands',
+      'chrome.ui.setBookmarkBarToggleEnabled': 'chrome.ui.commands',
+      'chrome.ui.setBookmarkBarChecked': 'chrome.ui.commands',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {

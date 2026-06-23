@@ -1304,3 +1304,56 @@ Known remaining gaps after this checkpoint:
   context actions, direct context-menu open-in-new-window smoke, and some
   history/favicon management methods still need final audit disposition before
   completion
+
+### Native Menu State Checkpoint 1: Application Menu State Bridge
+
+Current checkpoint: package chrome no longer uses silent no-op adapter methods
+for native tab menu state or bookmark-bar menu checked/enabled state. The
+renderer reports those ordinary browser UI states through sender-checked,
+capability-gated `freedomShell` requests, and main applies them to the
+shell-owned Electron application menu.
+
+Implemented in this checkpoint:
+
+- added shell API methods gated by the existing `chrome.ui.commands`
+  capability:
+  - `chrome.ui.updateTabMenuState`
+  - `chrome.ui.setBookmarkBarToggleEnabled`
+  - `chrome.ui.setBookmarkBarChecked`
+- exposed package preload methods:
+  - `updateTabMenuState(state)`
+  - `setBookmarkBarToggleEnabled(enabled)`
+  - `setBookmarkBarChecked(checked)`
+- changed `src/renderer/lib/chrome-runtime-api.js` package adapter methods for
+  those menu-state updates to delegate to `freedomShell` instead of no-op
+  shims
+- kept native menu authority in main: package chrome reports only serializable
+  tab/bookmark-bar state and receives no Electron `Menu` objects, menu item
+  references, arbitrary IPC, or BrowserWindow authority
+- normalized package-provided tab menu state in `src/main/shell-api.js` before
+  applying it to menu-owned handlers
+- extracted `src/main/menu.js` helper functions so bundled chrome keeps the
+  legacy IPC path while package chrome uses the narrow shell API path
+- wired the menu handlers into `registerShellApiIpc()` from `src/main/index.js`
+- expanded official package smoke coverage to assert native application menu
+  enabled/checked state for one-tab/two-tab transitions and bookmark-bar
+  toggles
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/menu.test.js` passed: 5 suites, 51 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed because the smoke assumed the native bookmark-bar menu item started unchecked, while the same smoke had already persisted `showBookmarkBar: true` directly through `freedomShell` for package-safe settings coverage. The assertion was corrected to require enabled state before the first native toggle and checked-state transitions after renderer-driven toggles.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the smoke correction: 1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `npm test` passed: 114 suites passed, 5 skipped; 2133 passed, 17 skipped.
+
+Known remaining gaps after this checkpoint:
+
+- profile mutation/switching, service/node status commands, clipboard/image
+  context actions, direct context-menu open-in-new-window smoke, and some
+  history/favicon management methods still need final audit disposition before
+  completion

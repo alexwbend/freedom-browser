@@ -192,12 +192,12 @@ The local package directory must contain `manifest.json`:
     "browserState.settings.write",
     "browserState.bookmarks.read",
     "browserState.bookmarks.write",
-          "browserState.history.read",
-          "browserState.history.write",
-          "browserState.favicons.read",
-          "chrome.ui.commands",
-          "windows.control",
-          "windows.open",
+    "browserState.history.read",
+    "browserState.history.write",
+    "browserState.favicons.read",
+    "chrome.ui.commands",
+    "windows.control",
+    "windows.open",
     "app.about",
     "app.updates"
   ],
@@ -306,6 +306,8 @@ The official package smoke currently proves:
 - native application menu commands for New Tab, Close Tab, Focus Address Bar,
   Reload, and Always Show Bookmarks Bar reach package chrome through the
   capability-gated `chrome.ui.commands` event bridge
+- package chrome reports tab-menu enabled state and bookmark-bar checked/enabled
+  state to the native application menu through capability-gated shell requests
 - new tab, tab switch, and tab close work
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
@@ -359,6 +361,9 @@ running Radicle network.
 - `showAbout()`
 - `checkForUpdates()`
 - `restartAndInstallUpdate()`
+- `updateTabMenuState(state)`
+- `setBookmarkBarToggleEnabled(enabled)`
+- `setBookmarkBarChecked(checked)`
 - `onTabCommandResult(callback)`
 - `onTabSnapshotChanged(callback)`
 - `onCloseMenusRequested(callback)`
@@ -466,6 +471,13 @@ primitives. `showAbout()` asks Electron to open the native About panel.
 run its existing policy-owned actions; package chrome receives only a
 serializable request result and does not receive auto-updater authority.
 
+`updateTabMenuState(state)`, `setBookmarkBarToggleEnabled(enabled)`, and
+`setBookmarkBarChecked(checked)` let package chrome report ordinary browser UI
+state to the shell-owned native application menu. The shell normalizes the tab
+state payload, applies it through menu-owned handlers registered by main, and
+returns only serializable success/error results. Package chrome does not receive
+Electron `Menu` objects, native menu item references, or arbitrary IPC.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -513,7 +525,8 @@ must be allowed by the package manifest's declared capabilities:
 - `app.updates` allows `checkForUpdates()` and
   `restartAndInstallUpdate()` to request shell-owned updater actions
 - `chrome.ui.commands` allows package chrome to receive shell-originated
-  browser UI command events over `shell:event`
+  browser UI command events over `shell:event` and report native tab/bookmark
+  bar menu state through the sender-checked shell request bridge
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

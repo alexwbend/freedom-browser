@@ -32,6 +32,9 @@ const shellCommandHandlers = {
   onNewWindow: null,
   onCheckForUpdates: null,
   onRestartAndInstallUpdate: null,
+  onUpdateTabMenuState: null,
+  onSetBookmarkBarToggleEnabled: null,
+  onSetBookmarkBarChecked: null,
 };
 const SENSITIVE_DIAGNOSTIC_KEYS = new Set([
   'entrypath',
@@ -510,6 +513,16 @@ function configureShellCommandHandlers(options = {}) {
     typeof options.onRestartAndInstallUpdate === 'function'
       ? options.onRestartAndInstallUpdate
       : null;
+  shellCommandHandlers.onUpdateTabMenuState =
+    typeof options.onUpdateTabMenuState === 'function' ? options.onUpdateTabMenuState : null;
+  shellCommandHandlers.onSetBookmarkBarToggleEnabled =
+    typeof options.onSetBookmarkBarToggleEnabled === 'function'
+      ? options.onSetBookmarkBarToggleEnabled
+      : null;
+  shellCommandHandlers.onSetBookmarkBarChecked =
+    typeof options.onSetBookmarkBarChecked === 'function'
+      ? options.onSetBookmarkBarChecked
+      : null;
 }
 
 function shellCommandUnavailable(command, message = 'Shell command is unavailable') {
@@ -534,6 +547,66 @@ function shellCommandFailed(command, message = 'Shell command failed') {
       message,
     },
   };
+}
+
+function normalizeNonNegativeInteger(value, fallback = 0) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return fallback;
+  }
+  return Math.floor(number);
+}
+
+function normalizeTabMenuState(state) {
+  const payload = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+  const tabCount = normalizeNonNegativeInteger(payload.tabCount, 0);
+  const activeIndex = normalizeNonNegativeInteger(payload.activeIndex, 0);
+  return {
+    tabCount,
+    activeIndex: tabCount > 0 ? Math.min(activeIndex, tabCount - 1) : 0,
+    hasClosedTabs: payload.hasClosedTabs === true,
+  };
+}
+
+function runChromeUiMenuStateCommand(command, handler, payload) {
+  if (typeof handler !== 'function') {
+    return shellCommandUnavailable(command, 'Chrome UI menu state command is unavailable');
+  }
+
+  try {
+    const applied = handler(payload);
+    return {
+      ok: applied !== false,
+      command,
+      owner: 'shell',
+    };
+  } catch {
+    return shellCommandFailed(command, 'Chrome UI menu state command failed');
+  }
+}
+
+function updateTabMenuStateForShell([state]) {
+  return runChromeUiMenuStateCommand(
+    SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+    shellCommandHandlers.onUpdateTabMenuState,
+    normalizeTabMenuState(state)
+  );
+}
+
+function setBookmarkBarToggleEnabledForShell([enabled]) {
+  return runChromeUiMenuStateCommand(
+    SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
+    shellCommandHandlers.onSetBookmarkBarToggleEnabled,
+    Boolean(enabled)
+  );
+}
+
+function setBookmarkBarCheckedForShell([checked]) {
+  return runChromeUiMenuStateCommand(
+    SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
+    shellCommandHandlers.onSetBookmarkBarChecked,
+    Boolean(checked)
+  );
 }
 
 function normalizeNewWindowTargetUrl(value) {
@@ -800,6 +873,15 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN]: {
     handler: toggleFullscreenWindowForShell,
+  },
+  [SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE]: {
+    handler: updateTabMenuStateForShell,
+  },
+  [SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED]: {
+    handler: setBookmarkBarToggleEnabledForShell,
+  },
+  [SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED]: {
+    handler: setBookmarkBarCheckedForShell,
   },
 });
 

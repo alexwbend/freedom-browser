@@ -1230,6 +1230,69 @@ describe('shell-api', () => {
     expect(onRestartAndInstallUpdate).toHaveBeenCalledTimes(1);
   });
 
+  test('handles capability-gated package chrome UI menu state commands', async () => {
+    const onUpdateTabMenuState = jest.fn(() => true);
+    const onSetBookmarkBarToggleEnabled = jest.fn(() => true);
+    const onSetBookmarkBarChecked = jest.fn(() => true);
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 117 });
+    mod.configureShellCommandHandlers({
+      onUpdateTabMenuState,
+      onSetBookmarkBarToggleEnabled,
+      onSetBookmarkBarChecked,
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['chrome.ui.commands'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+          args: [{ tabCount: 2.7, activeIndex: 8, hasClosedTabs: true }],
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+      owner: 'shell',
+    });
+    expect(onUpdateTabMenuState).toHaveBeenCalledWith({
+      tabCount: 2,
+      activeIndex: 1,
+      hasClosedTabs: true,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
+          args: [0],
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
+      owner: 'shell',
+    });
+    expect(onSetBookmarkBarToggleEnabled).toHaveBeenCalledWith(false);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED, args: ['yes'] }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      command: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
+      owner: 'shell',
+    });
+    expect(onSetBookmarkBarChecked).toHaveBeenCalledWith(true);
+  });
+
   test('returns structured errors for unavailable or invalid system menu commands', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 115 });
@@ -1260,6 +1323,33 @@ describe('shell-api', () => {
     });
   });
 
+  test('returns structured errors for unavailable chrome UI menu state commands', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 118 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['chrome.ui.commands'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+          args: [{ tabCount: 1 }],
+        }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      command: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+      owner: 'shell',
+      error: {
+        code: 'SHELL_COMMAND_UNAVAILABLE',
+        message: 'Chrome UI menu state command is unavailable',
+      },
+    });
+  });
+
   test('rejects system menu commands without declared capabilities', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 116 });
@@ -1285,6 +1375,19 @@ describe('shell-api', () => {
       details: {
         method: SHELL_API_METHODS.APP_CHECK_FOR_UPDATES,
         requiredCapability: 'app.updates',
+      },
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED, args: [true] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
+        requiredCapability: 'chrome.ui.commands',
       },
     });
   });

@@ -76,6 +76,9 @@ describe('package-preload', () => {
       'showAbout',
       'checkForUpdates',
       'restartAndInstallUpdate',
+      'updateTabMenuState',
+      'setBookmarkBarToggleEnabled',
+      'setBookmarkBarChecked',
       'onTabCommandResult',
       'onTabSnapshotChanged',
       'onCloseMenusRequested',
@@ -353,6 +356,34 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE,
       args: [],
+    });
+
+    await exposures.freedomShell.updateTabMenuState({
+      tabCount: 2,
+      activeIndex: 1,
+      hasClosedTabs: true,
+    });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE,
+      args: [
+        {
+          tabCount: 2,
+          activeIndex: 1,
+          hasClosedTabs: true,
+        },
+      ],
+    });
+
+    await exposures.freedomShell.setBookmarkBarToggleEnabled(false);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_TOGGLE_ENABLED,
+      args: [false],
+    });
+
+    await exposures.freedomShell.setBookmarkBarChecked(true);
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.CHROME_UI_SET_BOOKMARK_BAR_CHECKED,
+      args: [true],
     });
   });
 
