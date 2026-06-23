@@ -269,6 +269,8 @@ The official package smoke currently proves:
 - clicking a default bookmark navigates under the deterministic harness
 - autocomplete includes bookmark and recorded-history suggestions in package
   mode
+- guest content receives the page-facing Ethereum provider in package mode and
+  a low-risk `eth_chainId` request bypasses package chrome through main
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
 - the main menu and node menu open
@@ -395,6 +397,12 @@ being forwarded to package chrome.
 The package preload must not expose broad first-party APIs such as
 `electronAPI`, `wallet`, `identity`, `swarmProvider`, `swarmPermissions`, or
 `dappPermissions`.
+
+Package chrome is also not the dApp provider broker. The current low-risk
+package-mode proof routes guest `ethereum.request({ method: 'eth_chainId' })`
+from the webview preload directly to main over a read-only provider channel.
+Higher-risk provider methods remain on the legacy bundled path until the
+trusted prompt/surface broker migration gives them shell-owned approval UI.
 
 ## Package Store
 

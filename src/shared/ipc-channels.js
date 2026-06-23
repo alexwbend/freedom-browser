@@ -87,6 +87,9 @@ module.exports = {
   HISTORY_REMOVE: 'history:remove',
   HISTORY_CLEAR: 'history:clear',
 
+  // dApp provider
+  DAPP_PROVIDER_READONLY_REQUEST: 'dapp:provider-readonly-request',
+
   // Internal
   GET_WEBVIEW_PRELOAD_PATH: 'internal:get-webview-preload-path',
   GET_INTERNAL_PAGES: 'internal:get-pages',

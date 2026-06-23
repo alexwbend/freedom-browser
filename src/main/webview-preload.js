@@ -7,6 +7,7 @@
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
+const DAPP_PROVIDER_READONLY_REQUEST = 'dapp:provider-readonly-request';
 
 // The webview preload runs in a sandbox — require() is restricted to a small
 // whitelist (electron, events, timers, url), so we cannot read provider
@@ -523,11 +524,36 @@ try {
 }
 
 // Bridge postMessage from page to IPC
+const MAIN_READONLY_PROVIDER_METHODS = new Set(['eth_chainId']);
+const sendEthereumResponseToPage = (id, result, error) => {
+  window.postMessage({
+    type: 'FREEDOM_ETHEREUM_RESPONSE',
+    id,
+    result,
+    error,
+  }, window.location.origin);
+};
+
 window.addEventListener('message', (event) => {
   if (event.source !== window) return;
   if (event.data.type === 'FREEDOM_ETHEREUM_REQUEST') {
     const { id, method, params } = event.data;
     const origin = window.location.origin;
+
+    if (MAIN_READONLY_PROVIDER_METHODS.has(method)) {
+      ipcRenderer
+        .invoke(DAPP_PROVIDER_READONLY_REQUEST, { method, params, origin })
+        .then(({ result = null, error = null } = {}) => {
+          sendEthereumResponseToPage(id, result, error);
+        })
+        .catch((error) => {
+          sendEthereumResponseToPage(id, null, {
+            code: -32603,
+            message: error?.message || 'Provider request failed',
+          });
+        });
+      return;
+    }
 
     ipcRenderer.sendToHost('dapp:provider-request', {
       id,
@@ -541,12 +567,7 @@ window.addEventListener('message', (event) => {
 // Bridge IPC responses back to page
 ipcRenderer.on('dapp:provider-response', (_event, { id, result, error }) => {
   console.log('[webview-preload] Received provider response:', { id, result, error });
-  window.postMessage({
-    type: 'FREEDOM_ETHEREUM_RESPONSE',
-    id,
-    result,
-    error,
-  }, window.location.origin);
+  sendEthereumResponseToPage(id, result, error);
 });
 
 ipcRenderer.on('dapp:provider-event', (_event, { event, data }) => {

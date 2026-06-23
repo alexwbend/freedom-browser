@@ -6,6 +6,7 @@
 
 const { ipcMain } = require('electron');
 const QRCode = require('qrcode');
+const IPC = require('../../shared/ipc-channels');
 const { getAllBalances, getBalancesWithCache, clearBalanceCache } = require('./balance-service');
 const { getChain, getAllChains } = require('./chains');
 const { testProvider } = require('./provider-manager');
@@ -23,6 +24,10 @@ const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
+
+const READONLY_PROVIDER_ERRORS = Object.freeze({
+  UNSUPPORTED_METHOD: { code: 4200, message: 'Method not supported' },
+});
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -57,6 +62,19 @@ function buildTxRecordContext(kind, context = {}) {
   return { ...context, kind };
 }
 
+function handleReadonlyProviderRequest(payload = {}) {
+  const method = typeof payload.method === 'string' ? payload.method : '';
+  if (method === 'eth_chainId') {
+    // Match the current renderer-side provider default without exposing wallet
+    // or permission APIs to package chrome.
+    return { result: '0x64', error: null };
+  }
+  return {
+    result: null,
+    error: READONLY_PROVIDER_ERRORS.UNSUPPORTED_METHOD,
+  };
+}
+
 async function handleSendTransaction(walletIndex, params, kind, context = {}) {
   try {
     const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
@@ -81,6 +99,10 @@ async function handleSendTransaction(walletIndex, params, kind, context = {}) {
  * Register wallet IPC handlers
  */
 function registerWalletIpc() {
+  ipcMain.handle(IPC.DAPP_PROVIDER_READONLY_REQUEST, (_event, payload) =>
+    handleReadonlyProviderRequest(payload)
+  );
+
   // Get all balances for an address (always fetches fresh)
   ipcMain.handle('wallet:get-balances', async (_event, address) => {
     try {
@@ -350,5 +372,6 @@ function registerWalletIpc() {
 
 module.exports = {
   buildTxRecordContext,
+  handleReadonlyProviderRequest,
   registerWalletIpc,
 };

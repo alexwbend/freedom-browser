@@ -751,6 +751,12 @@ Verification in this checkpoint:
 - `npm test` passed: 112 suites passed, 5 skipped; 2103 tests passed, 17
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- committed as `5dc6778` (`feat(chrome): bridge package history state`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28036672279`, job `test` (`82991788420`), passed for
+  `5dc6778`.
+- GitHub Actions run `28036672279`, job `e2e-chrome-runtime`
+  (`82991788433`), passed for `5dc6778`.
 
 Known remaining gaps after this checkpoint:
 
@@ -761,3 +767,43 @@ Known remaining gaps after this checkpoint:
 - profile/menu behavior, window/menu command events, service/node status,
   surface-control, provider-flow bypass, trusted prompt broker, and
   `freedom-chrome://active/` package serving remain for later phases
+
+### Provider-Flow Checkpoint 1: Low-Risk Direct Chain ID
+
+Current checkpoint: package mode now has a deterministic provider-flow safety
+proof for the low-risk `eth_chainId` method.
+
+Implemented in this checkpoint:
+
+- added a main-owned read-only dApp provider IPC channel for `eth_chainId`
+- routed guest webview `ethereum.request({ method: 'eth_chainId' })` from the
+  guest preload directly to main without `sendToHost` or package chrome
+  mediation
+- kept higher-risk provider methods on the existing legacy path until the
+  trusted prompt/surface broker migration is implemented
+- kept package chrome without provider globals
+- expanded official package smoke so a guest IPFS page must see
+  `window.ethereum` and receive `0x64` from `eth_chainId`
+- added webview-preload unit coverage proving `eth_chainId` bypasses
+  `sendToHost` while `eth_requestAccounts` stays on the legacy host-renderer
+  path
+- updated runtime and trust-boundary docs
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/webview-preload.test.js src/main/wallet/wallet-ipc.test.js` passed: 2 suites, 19 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2106 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- wallet connect, account exposure, transaction/signing, Swarm provider, and
+  x402 provider/approval flows still need the trusted prompt/surface broker
+  design before they can bypass package chrome safely
+- package mode still needs surface-control or intentional hidden/disabled
+  coverage for more visible controls such as profile/window/menu affordances
+- `freedom-chrome://active/` package serving remains unimplemented

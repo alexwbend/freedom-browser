@@ -67,6 +67,7 @@ function loadWebviewPreloadModule(options = {}) {
   const selection = {
     toString: jest.fn(() => selectionText),
   };
+  const postedMessages = [];
   const clipboard = {
     writeText: jest.fn().mockResolvedValue(undefined),
   };
@@ -77,6 +78,9 @@ function loadWebviewPreloadModule(options = {}) {
     location,
     getSelection: jest.fn(() => selection),
     addEventListener: jest.fn(),
+    postMessage: jest.fn((data, origin) => {
+      postedMessages.push({ data, origin });
+    }),
     fetch: windowFetch,
   };
   global.location = location;
@@ -100,6 +104,7 @@ function loadWebviewPreloadModule(options = {}) {
     exposures: contextBridge.exposedValues,
     ipcRenderer,
     location,
+    postedMessages,
     windowFetch,
     getWindowFetch: () => global.window.fetch,
   };
@@ -302,6 +307,88 @@ describe('webview-preload', () => {
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       '[freedomAPI] blocked "getHistory" on non-internal page: https://example.com/articles/1'
     );
+  });
+
+  test('routes eth_chainId provider requests directly to main', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        'dapp:provider-readonly-request': { result: '0x64', error: null },
+      },
+    });
+    const messageHandler = global.window.addEventListener.mock.calls.find(
+      ([event]) => event === 'message'
+    )?.[1];
+
+    messageHandler({
+      source: global.window,
+      data: {
+        type: 'FREEDOM_ETHEREUM_REQUEST',
+        id: 7,
+        method: 'eth_chainId',
+        params: [],
+      },
+    });
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('dapp:provider-readonly-request', {
+      method: 'eth_chainId',
+      params: [],
+      origin: 'https://app.example',
+    });
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'dapp:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_ETHEREUM_RESPONSE',
+        id: 7,
+        result: '0x64',
+        error: null,
+      },
+      origin: 'https://app.example',
+    });
+  });
+
+  test('keeps higher-risk provider requests on the host-renderer path', () => {
+    const { ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+    });
+    const messageHandler = global.window.addEventListener.mock.calls.find(
+      ([event]) => event === 'message'
+    )?.[1];
+
+    messageHandler({
+      source: global.window,
+      data: {
+        type: 'FREEDOM_ETHEREUM_REQUEST',
+        id: 8,
+        method: 'eth_requestAccounts',
+        params: [],
+      },
+    });
+
+    expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+      'dapp:provider-readonly-request',
+      expect.anything()
+    );
+    expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('dapp:provider-request', {
+      id: 8,
+      method: 'eth_requestAccounts',
+      params: [],
+      origin: 'https://app.example',
+    });
   });
 
   test('collects rich context menu data and forwards it to the host renderer', () => {

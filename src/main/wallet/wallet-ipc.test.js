@@ -15,7 +15,7 @@ jest.mock('../identity-manager', () => ({}));
 jest.mock('./rpc-manager', () => ({}));
 jest.mock('./vault-access', () => ({}));
 
-const { buildTxRecordContext } = require('./wallet-ipc');
+const { buildTxRecordContext, handleReadonlyProviderRequest } = require('./wallet-ipc');
 
 describe('wallet-ipc', () => {
   test('renderer context cannot override fixed payment-history kind', () => {
@@ -25,6 +25,17 @@ describe('wallet-ipc', () => {
     })).toEqual({
       kind: 'dapp-send',
       origin: 'https://app.example',
+    });
+  });
+
+  test('handles only low-risk read-only provider methods', () => {
+    expect(handleReadonlyProviderRequest({ method: 'eth_chainId' })).toEqual({
+      result: '0x64',
+      error: null,
+    });
+    expect(handleReadonlyProviderRequest({ method: 'eth_requestAccounts' })).toEqual({
+      result: null,
+      error: { code: 4200, message: 'Method not supported' },
     });
   });
 });

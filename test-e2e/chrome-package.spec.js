@@ -10,6 +10,7 @@ const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packag
 const rendererSourceDir = path.join(repoRoot, 'src', 'renderer');
 const sampleBzzHash = 'a'.repeat(64);
 const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
+const providerIpfsCid = `bafybeib${'b'.repeat(51)}`;
 const sampleIpnsName = 'example.ipns';
 const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
@@ -1185,6 +1186,48 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('.autocomplete-item').filter({ hasText: 'https://example.com/' }))
       .toBeVisible();
     await input.press('Escape');
+
+    await setContentFixture(launched.app, `ipfs://${providerIpfsCid}/`, {
+      body: `<!doctype html>
+        <title>provider fixture</title>
+        <p data-test="provider-present">pending</p>
+        <p data-test="provider-chain">pending</p>
+        <script>
+          (() => {
+            const setText = (selector, value) => {
+              const element = document.querySelector(selector);
+              if (element) element.textContent = value;
+            };
+            const run = async () => {
+              const provider = window.ethereum;
+              const present = provider && typeof provider.request === 'function';
+              setText('[data-test="provider-present"]', present ? 'present' : 'missing');
+              if (!present) return;
+              try {
+                const chainId = await provider.request({ method: 'eth_chainId' });
+                setText('[data-test="provider-chain"]', chainId);
+              } catch (error) {
+                setText('[data-test="provider-chain"]', 'error:' + (error.message || error));
+              }
+            };
+            if (window.ethereum) {
+              run();
+            } else {
+              window.addEventListener('ethereum#initialized', run, { once: true });
+              setTimeout(() => {
+                if (document.querySelector('[data-test="provider-present"]')?.textContent === 'pending') {
+                  setText('[data-test="provider-present"]', 'missing');
+                }
+              }, 3000);
+            }
+          })();
+        </script>`,
+    });
+    await navigateAddress(page, `ipfs://${providerIpfsCid}/`);
+    await expectActiveWebviewText(page, '[data-test="provider-present"]', 'present');
+    await expectActiveWebviewText(page, '[data-test="provider-chain"]', '0x64');
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
 
     await navigateAddress(page, 'http://example.test/path');
     await expectActiveWebviewText(
