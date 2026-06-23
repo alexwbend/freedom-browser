@@ -854,6 +854,12 @@ Verification in this checkpoint:
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
 - `git diff --check` passed.
+- committed as `a680424` (`feat(chrome): add shell-owned surface control`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28037966618`, job `test` (`82996352824`), passed for
+  `a680424`.
+- GitHub Actions run `28037966618`, job `e2e-chrome-runtime`
+  (`82996352722`), passed for `a680424`.
 
 Known remaining gaps after this checkpoint:
 
