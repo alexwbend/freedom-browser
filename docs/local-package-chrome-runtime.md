@@ -192,11 +192,12 @@ The local package directory must contain `manifest.json`:
     "browserState.settings.write",
     "browserState.bookmarks.read",
     "browserState.bookmarks.write",
-    "browserState.history.read",
-    "browserState.history.write",
-    "browserState.favicons.read",
-    "windows.control",
-    "windows.open",
+          "browserState.history.read",
+          "browserState.history.write",
+          "browserState.favicons.read",
+          "chrome.ui.commands",
+          "windows.control",
+          "windows.open",
     "app.about",
     "app.updates"
   ],
@@ -302,6 +303,9 @@ The official package smoke currently proves:
   `setFullScreen(true/false)` command path
 - the main menu New Window control opens another package chrome BrowserWindow
   through a shell-owned command path
+- native application menu commands for New Tab, Close Tab, Focus Address Bar,
+  Reload, and Always Show Bookmarks Bar reach package chrome through the
+  capability-gated `chrome.ui.commands` event bridge
 - new tab, tab switch, and tab close work
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
@@ -357,6 +361,24 @@ running Radicle network.
 - `restartAndInstallUpdate()`
 - `onTabCommandResult(callback)`
 - `onTabSnapshotChanged(callback)`
+- `onCloseMenusRequested(callback)`
+- `onFocusAddressBarRequested(callback)`
+- `onToggleDevToolsRequested(callback)`
+- `onCloseDevToolsRequested(callback)`
+- `onCloseAllDevToolsRequested(callback)`
+- `onNewTabRequested(callback)`
+- `onCloseTabRequested(callback)`
+- `onNewTabWithUrlRequested(callback)`
+- `onNavigateToUrlRequested(callback)`
+- `onLoadUrlRequested(callback)`
+- `onReloadRequested(callback)`
+- `onHardReloadRequested(callback)`
+- `onNextTabRequested(callback)`
+- `onPrevTabRequested(callback)`
+- `onMoveTabLeftRequested(callback)`
+- `onMoveTabRightRequested(callback)`
+- `onReopenClosedTabRequested(callback)`
+- `onToggleBookmarkBarRequested(callback)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -453,6 +475,14 @@ package to declare `tabs.write`.
 emitted when a successful tab command changes the shell-owned serializable tab
 snapshot. It returns a cleanup function and requires `tabs.read`.
 
+The `on*Requested(callback)` chrome command subscriptions deliver shell-originated
+browser UI commands such as native menu/shortcut New Tab, Close Tab, Reload,
+Focus Address Bar, bookmark-bar toggle, tab traversal, DevTools commands,
+guest-window-open requests, and custom-protocol navigation requests. They use
+the same `shell:event` channel, require `chrome.ui.commands`, and are delivered
+only to registered package windows. Bundled chrome keeps its legacy direct IPC
+path.
+
 Every shell API request must come from a registered local package window and
 must be allowed by the package manifest's declared capabilities:
 
@@ -482,6 +512,8 @@ must be allowed by the package manifest's declared capabilities:
 - `app.about` allows `showAbout()` to request the shell-owned About panel
 - `app.updates` allows `checkForUpdates()` and
   `restartAndInstallUpdate()` to request shell-owned updater actions
+- `chrome.ui.commands` allows package chrome to receive shell-originated
+  browser UI command events over `shell:event`
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

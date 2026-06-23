@@ -31,7 +31,7 @@ Pre-Swarm hardening checkpoints recorded in
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Bookmarks bar read | package chrome UI | `src/renderer/lib/bookmarks-ui.js` calls `electronAPI.getBookmarks`; main uses `src/main/bookmarks-store.js` | `chrome-runtime-api.js` returned `[]`, so default bookmarks did not render | `browser-state-api` | none | package delegates bookmark reads to a narrow shell API | `browserState.bookmarks.read` | unit coverage, package preload parity, official package smoke with non-empty default bookmarks | implemented in first browser-state checkpoint |
 | Bookmark add/update/remove | package chrome UI | `bookmarks-ui.js` calls `electronAPI.addBookmark/updateBookmark/removeBookmark` | adapter returned `false`, making visible controls fail silently | `browser-state-api` | none | package delegates writes if controls remain visible; otherwise controls must be disabled/hidden with smoke coverage | `browserState.bookmarks.write` | unit coverage plus package smoke for add/remove or disabled behavior | API implemented; direct add/remove smoke still pending |
-| Bookmark bar visibility setting | package chrome UI and menu | `bookmarks-ui.js` reads `settings.showBookmarkBar`; menu IPC toggles state | package default returned `showBookmarkBar: false`; menu event is no-op | `browser-state-api`, possibly later menu/window API | none | package reads current setting and can persist package-safe browser UI settings; native menu toggle events still need a package-safe bridge if kept enabled | `browserState.settings.read`, `browserState.settings.write` | package smoke for settings write and tested default state; menu/toggle bridge still pending if visible | read/write API implemented; native menu toggle pending |
+| Bookmark bar visibility setting | package chrome UI and menu | `bookmarks-ui.js` reads `settings.showBookmarkBar`; menu IPC toggles state | package default returned `showBookmarkBar: false`; menu event was no-op | `browser-state-api`, package command event | none | package reads current setting, persists package-safe browser UI settings, and receives native bookmark-bar toggle commands through a shell event bridge | `browserState.settings.read`, `browserState.settings.write`, `chrome.ui.commands` | package smoke for settings writes and native bookmark-bar menu toggle | implemented |
 | History/autocomplete read | address bar UI | autocomplete/navigation use `electronAPI.getHistory` and main `src/main/history.js` | adapter returned `[]` | `browser-state-api` | none | expose history read if package autocomplete depends on it | `browserState.history.read` | harness-populated autocomplete smoke when implemented | implemented for autocomplete |
 | History add | navigation lifecycle | renderer records visits with `electronAPI.addHistory` | adapter returned `false` | `browser-state-api` | none | expose add only if package mode records history from shell-owned navigation state | `browserState.history.write` | unit and smoke coverage for recording or explicit disabled behavior | implemented for navigation recording |
 | Favicons | tabs, bookmarks, autocomplete | renderer calls favicon IPC in `src/main/favicons.js` | adapter returned `null` | `browser-state-api` | none | cached favicon read if visible package UI depends on icons | `browserState.favicons.read` | unit coverage and smoke if icons are asserted | cached read implemented; network fetch remains unavailable |
@@ -74,13 +74,13 @@ by this document.
 | `getActiveProfile`, `listProfiles`, `createProfile`, `openProfile` | null/empty/false | profile menu may render incomplete or inert | expose safe profile display read; profile mutation/switching is proposed deferred unless visible controls require it |
 | `resolveExternalNodeCandidates`, `onExternalNodeCandidates` | no-op | external-node prompt can disappear | shell-owned service prompt or bundled-only/hidden behavior |
 | `onProfileUpdated` | no-op | profile UI cannot react | implement event if profile display becomes package-visible |
-| `onCloseMenus` | no-op | global menu close commands may not reach chrome | implement if shell menu commands target package chrome, otherwise document not used |
+| `onCloseMenus` | no-op | global menu close commands may not reach chrome | implemented through `chrome.ui.commands` shell events for system-menu-open/window-blur close-menu requests |
 | `onOpenPublishSetup` | no-op | publish setup requests can silently fail | shell-owned surface request or hidden/disabled publish entry |
 | `onUpdateNotification` | no-op | update notifications absent | shell-owned update notification path or bundled-only deferral |
-| `onNewTab`, `onCloseTab`, `onNewTabWithUrl`, `onNavigateToUrl`, `onLoadUrl`, `onReload`, `onHardReload`, `onNextTab`, `onPrevTab`, `onMoveTabLeft`, `onMoveTabRight`, `onReopenClosedTab` | no-op event subscriptions | native menu/shortcut commands may not control package tabs | existing tab shell APIs cover direct UI actions; add command/event bridge or hide native menu commands in package mode |
-| `onToggleDevTools`, `onCloseDevTools`, `onCloseAllDevTools` | no-op | developer controls may fail silently | package-safe devtools command policy or hidden/disabled behavior |
-| `onFocusAddressBar` | no-op | shortcut/menu focus may fail | shell command/event bridge if shortcut is visible/supported |
-| `onToggleBookmarksBar`, `setBookmarkBarToggleEnabled`, `setBookmarkBarChecked` | no-op | bookmark bar menu state can be wrong | browser-state settings API plus shell command/event bridge if menu remains exposed |
+| `onNewTab`, `onCloseTab`, `onNewTabWithUrl`, `onNavigateToUrl`, `onLoadUrl`, `onReload`, `onHardReload`, `onNextTab`, `onPrevTab`, `onMoveTabLeft`, `onMoveTabRight`, `onReopenClosedTab` | no-op event subscriptions | native menu/shortcut commands may not control package tabs | package adapter now subscribes to `chrome.ui.commands` shell events for native menu, guest window-open, and custom-protocol navigation delivery; smoke covers native New Tab, Close Tab, and Reload |
+| `onToggleDevTools`, `onCloseDevTools`, `onCloseAllDevTools` | no-op | developer controls may fail silently | package adapter now subscribes to `chrome.ui.commands` shell events; native toggle and shutdown close-all are bridged to package windows, with broader devtools smoke still pending if final parity requires it |
+| `onFocusAddressBar` | no-op | shortcut/menu focus may fail | implemented through `chrome.ui.commands`; official package smoke covers native Focus Address Bar |
+| `onToggleBookmarksBar`, `onToggleBookmarkBar`, `setBookmarkBarToggleEnabled`, `setBookmarkBarChecked` | no-op | bookmark bar menu state can be wrong | singular native toggle command is implemented through `chrome.ui.commands` plus `browserState.settings.write` and smoke-covered; plural legacy hook remains unused/no-op; menu checked/enabled state updates remain pending |
 | `updateTabMenuState` | no-op | native tab menu state may be wrong | package tab state event or package-mode menu disabled state |
 | `getSettings` | now delegates to `freedomShell.getSettings()` with hard-coded defaults only if the shell method is unavailable | wallet/sidebar/bookmark bar/settings page state can be wrong if writes remain unsupported | read path implemented through `browserState.settings.read` |
 | `saveSettings` | now delegates to `freedomShell.saveSettings()` with `false` only if the shell method is unavailable | visible settings controls can silently fail | implemented for package-safe browser UI settings through `browserState.settings.write`; service/node/provider settings in the payload are ignored and remain shell-owned |
@@ -148,6 +148,26 @@ These commands return only serializable request results. They do not expose
 state, or Electron primitives to package chrome. The official package smoke
 exercises the visible New Window menu item by opening a second package chrome
 window and closing it again.
+
+## Native Chrome Command Event Status
+
+Package chrome now receives ordinary shell-originated browser UI commands over
+the same `shell:event` channel used by earlier package events. The event names
+live in `src/shared/shell-api-policy.js`, require the `chrome.ui.commands`
+capability, and are delivered only to registered package windows. Bundled
+chrome keeps the legacy direct IPC path.
+
+The bridge covers native/system menu and shell-originated requests for menu
+closing, address-bar focus, tab creation/closing/traversal/move/reopen,
+reload/hard reload, bookmark-bar toggle, DevTools toggle/close, guest
+window-open, and custom-protocol navigation. Official package smoke covers the
+native application menu paths for New Tab, Focus Address Bar, Reload, Close
+Tab, and Always Show Bookmarks Bar.
+
+This does not expose Electron menu objects, accelerators, arbitrary IPC, or
+BrowserWindow authority to package chrome. Remaining menu-state work includes
+package-safe updates for native tab-menu enabled state and bookmark-bar
+checked/enabled state.
 
 ## Trusted Prompt Broker Status
 

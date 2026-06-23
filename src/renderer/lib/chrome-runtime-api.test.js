@@ -64,6 +64,16 @@ describe('chrome-runtime-api', () => {
       showAbout: jest.fn().mockResolvedValue({ ok: true }),
       checkForUpdates: jest.fn().mockResolvedValue({ ok: true }),
       restartAndInstallUpdate: jest.fn().mockResolvedValue({ ok: true }),
+      onCloseMenusRequested: jest.fn(() => 'cleanup-close-menus'),
+      onFocusAddressBarRequested: jest.fn(() => 'cleanup-focus-address-bar'),
+      onToggleDevToolsRequested: jest.fn(() => 'cleanup-toggle-devtools'),
+      onNewTabRequested: jest.fn(() => 'cleanup-new-tab'),
+      onCloseTabRequested: jest.fn(() => 'cleanup-close-tab'),
+      onNewTabWithUrlRequested: jest.fn(() => 'cleanup-new-tab-with-url'),
+      onReloadRequested: jest.fn(() => 'cleanup-reload'),
+      onNextTabRequested: jest.fn(() => 'cleanup-next-tab'),
+      onPrevTabRequested: jest.fn(() => 'cleanup-prev-tab'),
+      onToggleBookmarkBarRequested: jest.fn(() => 'cleanup-toggle-bookmark-bar'),
     };
     const mod = await loadModule({ freedomShell });
     const api = mod.getChromeRuntimeApi();
@@ -115,6 +125,32 @@ describe('chrome-runtime-api', () => {
     await expect(api.showAbout()).resolves.toEqual({ ok: true });
     await expect(api.checkForUpdates()).resolves.toEqual({ ok: true });
     await expect(api.restartAndInstallUpdate()).resolves.toEqual({ ok: true });
+    const callbacks = {
+      closeMenus: jest.fn(),
+      focusAddressBar: jest.fn(),
+      toggleDevtools: jest.fn(),
+      newTab: jest.fn(),
+      closeTab: jest.fn(),
+      newTabWithUrl: jest.fn(),
+      reload: jest.fn(),
+      nextTab: jest.fn(),
+      prevTab: jest.fn(),
+      toggleBookmarkBar: jest.fn(),
+    };
+    expect(api.onCloseMenus(callbacks.closeMenus)).toBe('cleanup-close-menus');
+    expect(api.onFocusAddressBar(callbacks.focusAddressBar)).toBe(
+      'cleanup-focus-address-bar'
+    );
+    expect(api.onToggleDevTools(callbacks.toggleDevtools)).toBe('cleanup-toggle-devtools');
+    expect(api.onNewTab(callbacks.newTab)).toBe('cleanup-new-tab');
+    expect(api.onCloseTab(callbacks.closeTab)).toBe('cleanup-close-tab');
+    expect(api.onNewTabWithUrl(callbacks.newTabWithUrl)).toBe('cleanup-new-tab-with-url');
+    expect(api.onReload(callbacks.reload)).toBe('cleanup-reload');
+    expect(api.onNextTab(callbacks.nextTab)).toBe('cleanup-next-tab');
+    expect(api.onPrevTab(callbacks.prevTab)).toBe('cleanup-prev-tab');
+    expect(api.onToggleBookmarkBar(callbacks.toggleBookmarkBar)).toBe(
+      'cleanup-toggle-bookmark-bar'
+    );
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.setWindowTitle).toHaveBeenCalledWith('Loaded Title');
@@ -143,6 +179,24 @@ describe('chrome-runtime-api', () => {
       url: 'https://history.example',
     });
     expect(freedomShell.getCachedFavicon).toHaveBeenCalledWith('https://history.example');
+    expect(freedomShell.onCloseMenusRequested).toHaveBeenCalledWith(callbacks.closeMenus);
+    expect(freedomShell.onFocusAddressBarRequested).toHaveBeenCalledWith(
+      callbacks.focusAddressBar
+    );
+    expect(freedomShell.onToggleDevToolsRequested).toHaveBeenCalledWith(
+      callbacks.toggleDevtools
+    );
+    expect(freedomShell.onNewTabRequested).toHaveBeenCalledWith(callbacks.newTab);
+    expect(freedomShell.onCloseTabRequested).toHaveBeenCalledWith(callbacks.closeTab);
+    expect(freedomShell.onNewTabWithUrlRequested).toHaveBeenCalledWith(
+      callbacks.newTabWithUrl
+    );
+    expect(freedomShell.onReloadRequested).toHaveBeenCalledWith(callbacks.reload);
+    expect(freedomShell.onNextTabRequested).toHaveBeenCalledWith(callbacks.nextTab);
+    expect(freedomShell.onPrevTabRequested).toHaveBeenCalledWith(callbacks.prevTab);
+    expect(freedomShell.onToggleBookmarkBarRequested).toHaveBeenCalledWith(
+      callbacks.toggleBookmarkBar
+    );
     expect(global.window.electronAPI).toBeUndefined();
   });
 

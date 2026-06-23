@@ -1241,3 +1241,60 @@ Known remaining gaps after this checkpoint:
   context actions, direct context-menu open-in-new-window smoke, and some
   history/favicon management methods still need final audit disposition before
   completion
+
+### Native Command Event Checkpoint 1: Application Menu Bridge
+
+Current checkpoint: native application menu and shell-originated browser UI
+commands now reach package chrome through a capability-gated `shell:event`
+bridge instead of relying on broad preload IPC channels that package chrome
+does not receive.
+
+Implemented in this checkpoint:
+
+- added `chrome.ui.commands` as an explicit package capability for ordinary
+  shell-originated browser UI command events
+- added versioned shell event names for menu closing, address-bar focus,
+  DevTools commands, tab creation/closing/traversal/move/reopen,
+  new-tab-with-URL, navigate/load URL, reload/hard reload, and bookmark-bar
+  toggle requests
+- exposed package-preload subscriptions such as
+  `onNewTabRequested`, `onCloseTabRequested`,
+  `onFocusAddressBarRequested`, `onReloadRequested`, and
+  `onToggleBookmarkBarRequested`
+- changed `src/renderer/lib/chrome-runtime-api.js` so the official package
+  adapter's existing native menu subscription methods delegate to the
+  `freedomShell` command subscriptions instead of silent no-op handlers
+- routed `src/main/menu.js` native menu commands through a helper that delivers
+  `shell:event` to registered package windows only when the package declares
+  `chrome.ui.commands`; bundled windows keep the legacy direct IPC path
+- routed webview window-open and custom-protocol navigation requests through
+  the same event bridge for package windows
+- routed package-window blur menu-close and shutdown DevTools close-all through
+  the event bridge, with bundled fallback preserved
+- granted the generated official local chrome package manifest
+  `chrome.ui.commands`
+- expanded official package smoke coverage for native application menu New
+  Tab, Focus Address Bar, Reload, Close Tab, and Always Show Bookmarks Bar
+  behavior in package mode
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/menu.test.js src/main/windows/mainWindow.test.js` passed: 6 suites, 55 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed because the new bookmark-bar assertion assumed the renderer's local bookmark-bar override had been updated by a direct settings write; the smoke was corrected to drive the native toggle from the actual hidden non-home state.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the smoke correction: 1 test.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- `npm test` passed: 114 suites passed, 5 skipped; 2130 passed, 17 skipped.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- package adapter menu-state methods `updateTabMenuState`,
+  `setBookmarkBarToggleEnabled`, and `setBookmarkBarChecked` still need a
+  package-safe shell path or intentional final disposition
+- profile mutation/switching, service/node status commands, clipboard/image
+  context actions, direct context-menu open-in-new-window smoke, and some
+  history/favicon management methods still need final audit disposition before
+  completion

@@ -168,6 +168,7 @@ function writeOfficialChromePackage(root) {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'chrome.ui.commands',
           'windows.control',
           'windows.open',
           'app.about',
@@ -393,6 +394,19 @@ async function clickVisibleMainMenuItem(page, selector) {
   }, selector);
 }
 
+async function clickApplicationMenuItem(app, itemId) {
+  await app.evaluate(({ Menu }, id) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(id);
+    if (!item) {
+      throw new Error(`Missing application menu item: ${id}`);
+    }
+    if (item.enabled === false) {
+      throw new Error(`Application menu item is disabled: ${id}`);
+    }
+    item.click();
+  }, itemId);
+}
+
 async function installMainWindowFullScreenRecorder(app) {
   await app.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -576,6 +590,24 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'restartAndInstallUpdate',
         'onTabCommandResult',
         'onTabSnapshotChanged',
+        'onCloseMenusRequested',
+        'onFocusAddressBarRequested',
+        'onToggleDevToolsRequested',
+        'onCloseDevToolsRequested',
+        'onCloseAllDevToolsRequested',
+        'onNewTabRequested',
+        'onCloseTabRequested',
+        'onNewTabWithUrlRequested',
+        'onNavigateToUrlRequested',
+        'onLoadUrlRequested',
+        'onReloadRequested',
+        'onHardReloadRequested',
+        'onNextTabRequested',
+        'onPrevTabRequested',
+        'onMoveTabLeftRequested',
+        'onMoveTabRightRequested',
+        'onReopenClosedTabRequested',
+        'onToggleBookmarkBarRequested',
       ],
       hasElectronAPI: false,
       hasWallet: false,
@@ -1341,12 +1373,32 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
 
+    await clickApplicationMenuItem(launched.app, 'new-tab');
+    await expect(page.locator('[data-test="tab"]')).toHaveCount(2);
+    await clickApplicationMenuItem(launched.app, 'focus-address-bar');
+    await expect(input).toBeFocused();
+    await clickApplicationMenuItem(launched.app, 'reload');
+    await expectHomeReady(page);
+    await clickApplicationMenuItem(launched.app, 'close-tab');
+    await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
+
     await navigateAddress(page, 'example.com', 'https://example.com/');
     await expectActiveWebviewText(
       page,
       '[data-test="harness-http-stub-url"]',
       'https://example.com/'
     );
+    await expect(page.locator('[data-test="bookmarks-bar"]')).toBeHidden();
+    await clickApplicationMenuItem(launched.app, 'toggle-bookmark-bar');
+    await expect(page.locator('[data-test="bookmarks-bar"]')).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.freedomShell.getSettings()))
+      .toMatchObject({ showBookmarkBar: true });
+    await clickApplicationMenuItem(launched.app, 'toggle-bookmark-bar');
+    await expect(page.locator('[data-test="bookmarks-bar"]')).toBeHidden();
+    await expect
+      .poll(() => page.evaluate(() => window.freedomShell.getSettings()))
+      .toMatchObject({ showBookmarkBar: false });
 
     await page.locator('#home-btn').click();
     await expectHomeReady(page);

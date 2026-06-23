@@ -1,6 +1,8 @@
 const log = require('./logger');
 const { BrowserWindow, app } = require('electron');
 const { activeBzzBases, activeRadBases } = require('./state');
+const { emitShellEventToPackageWebContents } = require('./shell-api');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { cleanupWebContents: cleanupX402WebContents } = require('./x402/intercept');
 
 const sanitizeUrlForLog = (rawUrl) => {
@@ -31,6 +33,22 @@ const sanitizeUrlForLog = (rawUrl) => {
     return 'unknown';
   }
 };
+
+function sendChromeCommand(win, legacyChannel, legacyArgs = [], shellEventName = null, data = {}) {
+  if (!win?.webContents) {
+    return false;
+  }
+
+  if (shellEventName) {
+    const delivery = emitShellEventToPackageWebContents(win.webContents, shellEventName, data);
+    if (delivery.delivered || delivery.reason !== 'not-package') {
+      return delivery.delivered;
+    }
+  }
+
+  win.webContents.send(legacyChannel, ...legacyArgs);
+  return true;
+}
 
 function registerWebContentsHandlers() {
   app.on('web-contents-created', (_event, contents) => {
@@ -75,7 +93,14 @@ function registerWebContentsHandlers() {
           // Pass targetName for named link targets (e.g. target="mywindow")
           // Skip special targets (_blank, _self, _parent, _top) - they should use default behavior
           const isNamedTarget = frameName && !frameName.startsWith('_');
-          parentWindow.webContents.send('tab:new-with-url', url, isNamedTarget ? frameName : null);
+          const targetName = isNamedTarget ? frameName : null;
+          sendChromeCommand(
+            parentWindow,
+            'tab:new-with-url',
+            [url, targetName],
+            SHELL_API_EVENTS.CHROME_NEW_TAB_WITH_URL_REQUESTED,
+            { url, targetName }
+          );
         }
         return { action: 'deny' };
       });
@@ -102,7 +127,13 @@ function registerWebContentsHandlers() {
             return win.webContents.id !== contents.id;
           });
           if (parentWindow) {
-            parentWindow.webContents.send('navigate-to-url', url);
+            sendChromeCommand(
+              parentWindow,
+              'navigate-to-url',
+              [url],
+              SHELL_API_EVENTS.CHROME_NAVIGATE_TO_URL_REQUESTED,
+              { url }
+            );
           }
         }
       });

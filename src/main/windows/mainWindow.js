@@ -13,7 +13,12 @@ const {
   getChromePackageStoreRoot,
   rollbackChromePackageStore,
 } = require('../chrome-package-store');
-const { onPackageReady, registerPackageWebContents } = require('../shell-api');
+const {
+  emitShellEventToPackageWebContents,
+  onPackageReady,
+  registerPackageWebContents,
+} = require('../shell-api');
+const { SHELL_API_EVENTS } = require('../../shared/shell-api-policy');
 
 let currentWindowTitle = 'Freedom';
 
@@ -297,7 +302,13 @@ function createMainWindow(initialUrl = null, options = {}) {
 
   // Close renderer menus when window loses focus (e.g., clicking system menu)
   window.on('blur', () => {
-    window.webContents.send('menus:close');
+    const delivery = emitShellEventToPackageWebContents(
+      window.webContents,
+      SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED
+    );
+    if (delivery.reason === 'not-package') {
+      window.webContents.send('menus:close');
+    }
   });
 
   const wc = window.webContents;

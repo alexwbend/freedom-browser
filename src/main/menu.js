@@ -1,6 +1,8 @@
 const log = require('./logger');
 const { BrowserWindow, Menu, app, ipcMain } = require('electron');
 const { isMainBrowserWindow, getMainWindows, createMainWindow } = require('./windows/mainWindow');
+const { emitShellEventToPackageWebContents } = require('./shell-api');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const {
   checkForUpdates,
   getInstallRelaunchMode,
@@ -22,7 +24,13 @@ function getTargetWindow() {
 function openProfilesManager() {
   const win = getTargetWindow();
   if (win) {
-    win.webContents.send('tab:new-with-url', 'freedom://settings/profiles');
+    sendChromeCommand(
+      win,
+      'tab:new-with-url',
+      ['freedom://settings/profiles'],
+      SHELL_API_EVENTS.CHROME_NEW_TAB_WITH_URL_REQUESTED,
+      { url: 'freedom://settings/profiles' }
+    );
     return;
   }
   createMainWindow('freedom://settings/profiles');
@@ -33,6 +41,21 @@ let closeTabMenuItem = null;
 let toggleBookmarkBarMenuItem = null;
 let isFullScreen = false;
 
+function sendChromeCommand(win, legacyChannel, legacyArgs = [], shellEventName = null, data = {}) {
+  if (!win?.webContents) {
+    return false;
+  }
+
+  if (shellEventName) {
+    const delivery = emitShellEventToPackageWebContents(win.webContents, shellEventName, data);
+    if (delivery.delivered || delivery.reason !== 'not-package') {
+      return delivery.delivered;
+    }
+  }
+
+  win.webContents.send(legacyChannel, ...legacyArgs);
+  return true;
+}
 
 function updateTabMenuItems() {
   const hasWindows = BrowserWindow.getAllWindows().length > 0;
@@ -65,7 +88,7 @@ function buildFileSubmenu(isMac) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:new');
+          sendChromeCommand(win, 'tab:new', [], SHELL_API_EVENTS.CHROME_NEW_TAB_REQUESTED);
         }
       },
     },
@@ -78,7 +101,12 @@ function buildFileSubmenu(isMac) {
         const focusedMainWindow = mainWindows.find((win) => win.isFocused());
 
         if (focusedMainWindow) {
-          focusedMainWindow.webContents.send('tab:close');
+          sendChromeCommand(
+            focusedMainWindow,
+            'tab:close',
+            [],
+            SHELL_API_EVENTS.CHROME_CLOSE_TAB_REQUESTED
+          );
         }
         // If no main window is focused (DevTools has focus), do nothing.
         // User can close DevTools with the X button or Cmd+Option+I
@@ -93,7 +121,7 @@ function buildFileSubmenu(isMac) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:close');
+          sendChromeCommand(win, 'tab:close', [], SHELL_API_EVENTS.CHROME_CLOSE_TAB_REQUESTED);
         }
       },
     });
@@ -107,7 +135,12 @@ function buildFileSubmenu(isMac) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:reopen-closed');
+          sendChromeCommand(
+            win,
+            'tab:reopen-closed',
+            [],
+            SHELL_API_EVENTS.CHROME_REOPEN_CLOSED_TAB_REQUESTED
+          );
         }
       },
     },
@@ -147,7 +180,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('page:reload');
+          sendChromeCommand(win, 'page:reload', [], SHELL_API_EVENTS.CHROME_RELOAD_REQUESTED);
         }
       },
     },
@@ -158,19 +191,30 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('page:hard-reload');
+          sendChromeCommand(
+            win,
+            'page:hard-reload',
+            [],
+            SHELL_API_EVENTS.CHROME_HARD_RELOAD_REQUESTED
+          );
         }
       },
     },
     { type: 'separator' },
     {
+      id: 'focus-address-bar',
       label: 'Focus Address Bar',
       accelerator: 'CmdOrCtrl+L',
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('menus:close');
-          win.webContents.send('focus:address-bar');
+          sendChromeCommand(win, 'menus:close', [], SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED);
+          sendChromeCommand(
+            win,
+            'focus:address-bar',
+            [],
+            SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED
+          );
         }
       },
     },
@@ -194,7 +238,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:next');
+          sendChromeCommand(win, 'tab:next', [], SHELL_API_EVENTS.CHROME_NEXT_TAB_REQUESTED);
         }
       },
     },
@@ -205,7 +249,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:prev');
+          sendChromeCommand(win, 'tab:prev', [], SHELL_API_EVENTS.CHROME_PREV_TAB_REQUESTED);
         }
       },
     },
@@ -216,7 +260,12 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:move-right');
+          sendChromeCommand(
+            win,
+            'tab:move-right',
+            [],
+            SHELL_API_EVENTS.CHROME_MOVE_TAB_RIGHT_REQUESTED
+          );
         }
       },
     },
@@ -227,7 +276,12 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:move-left');
+          sendChromeCommand(
+            win,
+            'tab:move-left',
+            [],
+            SHELL_API_EVENTS.CHROME_MOVE_TAB_LEFT_REQUESTED
+          );
         }
       },
     },
@@ -241,7 +295,12 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('bookmarks:toggle-bar');
+          sendChromeCommand(
+            win,
+            'bookmarks:toggle-bar',
+            [],
+            SHELL_API_EVENTS.CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED
+          );
         }
       },
     },
@@ -253,7 +312,12 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('devtools:toggle');
+          sendChromeCommand(
+            win,
+            'devtools:toggle',
+            [],
+            SHELL_API_EVENTS.CHROME_TOGGLE_DEVTOOLS_REQUESTED
+          );
         }
       },
     },
@@ -284,7 +348,13 @@ function buildHistorySubmenu(isMac) {
       click: () => {
         const win = getTargetWindow();
         if (win) {
-          win.webContents.send('tab:new-with-url', 'freedom://history');
+          sendChromeCommand(
+            win,
+            'tab:new-with-url',
+            ['freedom://history'],
+            SHELL_API_EVENTS.CHROME_NEW_TAB_WITH_URL_REQUESTED,
+            { url: 'freedom://history' }
+          );
         }
       },
     },
@@ -395,7 +465,7 @@ function setupApplicationMenu() {
   menu.on('menu-will-show', () => {
     const windows = getMainWindows();
     windows.forEach((win) => {
-      win.webContents.send('menus:close');
+      sendChromeCommand(win, 'menus:close', [], SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED);
     });
   });
 
@@ -458,6 +528,7 @@ function updateFullscreenMenuItem(newIsFullScreen) {
 
 module.exports = {
   buildApplicationMenuTemplate,
+  sendChromeCommand,
   setupApplicationMenu,
   updateTabMenuItems,
   updateFullscreenMenuItem,

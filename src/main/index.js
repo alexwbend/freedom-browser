@@ -109,7 +109,8 @@ const { registerShutdownSignalHandlers } = require('./shutdown-signals');
 const unregisterShutdownSignalHandlers = registerShutdownSignalHandlers({ app, logger: log });
 const { BrowserWindow, protocol, session } = require('electron');
 const { registerBaseIpcHandlers } = require('./ipc-handlers');
-const { registerShellApiIpc } = require('./shell-api');
+const { emitShellEventToPackageWebContents, registerShellApiIpc } = require('./shell-api');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const { installRequestRewriter } = require('./request-rewriter');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
@@ -380,7 +381,13 @@ app.on('before-quit', async (event) => {
   log.info('[App] Closing all DevTools...');
   for (const win of getMainWindows()) {
     try {
-      win.webContents.send('devtools:close-all');
+      const delivery = emitShellEventToPackageWebContents(
+        win.webContents,
+        SHELL_API_EVENTS.CHROME_CLOSE_ALL_DEVTOOLS_REQUESTED
+      );
+      if (delivery.reason === 'not-package') {
+        win.webContents.send('devtools:close-all');
+      }
     } catch {
       // Window might already be closing
     }

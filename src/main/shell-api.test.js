@@ -567,6 +567,57 @@ describe('shell-api', () => {
     });
   });
 
+  test('emits package shell events only to registered capable package callers', () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 1021 });
+
+    expect(
+      mod.emitShellEventToPackageWebContents(
+        sender,
+        SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED
+      )
+    ).toEqual({
+      delivered: false,
+      reason: 'not-package',
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['shell.info', 'chrome.ui.commands'] })
+    );
+
+    expect(
+      mod.emitShellEventToPackageWebContents(
+        sender,
+        SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED
+      )
+    ).toEqual({ delivered: true });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED,
+      data: {},
+    });
+
+    sender.send.mockClear();
+    expect(
+      mod.emitShellEventToPackageWebContents(
+        sender,
+        SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED,
+        { activeTabId: 1 }
+      )
+    ).toEqual({
+      delivered: false,
+      reason: 'capability-denied',
+      requiredCapability: 'tabs.read',
+    });
+    expect(sender.send).not.toHaveBeenCalled();
+
+    expect(mod.emitShellEventToPackageWebContents(sender, 'unknown.event')).toEqual({
+      delivered: false,
+      reason: 'unsupported-event',
+    });
+  });
+
   test('handles capability-gated browser state requests', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 103 });

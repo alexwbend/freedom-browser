@@ -39,6 +39,14 @@ const callFreedomShell = (methodName, fallbackValue, ...args) => {
   return method(...args);
 };
 
+const subscribeFreedomShell = (methodName, callback) => {
+  const method = getRuntimeWindow().freedomShell?.[methodName];
+  if (typeof method !== 'function') {
+    return noopDisposer;
+  }
+  return method(callback);
+};
+
 const createPackageRuntimeApi = () =>
   Object.freeze({
     setBzzBase: asyncSuccess,
@@ -66,25 +74,34 @@ const createPackageRuntimeApi = () =>
     resolveExternalNodeCandidates: noop,
     onExternalNodeCandidates: () => noopDisposer,
     onProfileUpdated: () => noopDisposer,
-    onCloseMenus: () => noopDisposer,
+    onCloseMenus: (callback) => subscribeFreedomShell('onCloseMenusRequested', callback),
     onOpenPublishSetup: () => noopDisposer,
     onUpdateNotification: () => noopDisposer,
-    onNewTab: () => noopDisposer,
-    onCloseTab: () => noopDisposer,
-    onNewTabWithUrl: () => noopDisposer,
-    onNavigateToUrl: () => noopDisposer,
-    onLoadUrl: () => noopDisposer,
-    onToggleDevTools: () => noopDisposer,
-    onCloseDevTools: () => noopDisposer,
-    onCloseAllDevTools: () => noopDisposer,
-    onFocusAddressBar: () => noopDisposer,
-    onReload: () => noopDisposer,
-    onHardReload: () => noopDisposer,
-    onNextTab: () => noopDisposer,
-    onPrevTab: () => noopDisposer,
-    onMoveTabLeft: () => noopDisposer,
-    onMoveTabRight: () => noopDisposer,
-    onReopenClosedTab: () => noopDisposer,
+    onNewTab: (callback) => subscribeFreedomShell('onNewTabRequested', callback),
+    onCloseTab: (callback) => subscribeFreedomShell('onCloseTabRequested', callback),
+    onNewTabWithUrl: (callback) =>
+      subscribeFreedomShell('onNewTabWithUrlRequested', callback),
+    onNavigateToUrl: (callback) =>
+      subscribeFreedomShell('onNavigateToUrlRequested', callback),
+    onLoadUrl: (callback) => subscribeFreedomShell('onLoadUrlRequested', callback),
+    onToggleDevTools: (callback) =>
+      subscribeFreedomShell('onToggleDevToolsRequested', callback),
+    onCloseDevTools: (callback) =>
+      subscribeFreedomShell('onCloseDevToolsRequested', callback),
+    onCloseAllDevTools: (callback) =>
+      subscribeFreedomShell('onCloseAllDevToolsRequested', callback),
+    onFocusAddressBar: (callback) =>
+      subscribeFreedomShell('onFocusAddressBarRequested', callback),
+    onReload: (callback) => subscribeFreedomShell('onReloadRequested', callback),
+    onHardReload: (callback) => subscribeFreedomShell('onHardReloadRequested', callback),
+    onNextTab: (callback) => subscribeFreedomShell('onNextTabRequested', callback),
+    onPrevTab: (callback) => subscribeFreedomShell('onPrevTabRequested', callback),
+    onMoveTabLeft: (callback) => subscribeFreedomShell('onMoveTabLeftRequested', callback),
+    onMoveTabRight: (callback) => subscribeFreedomShell('onMoveTabRightRequested', callback),
+    onReopenClosedTab: (callback) =>
+      subscribeFreedomShell('onReopenClosedTabRequested', callback),
+    onToggleBookmarkBar: (callback) =>
+      subscribeFreedomShell('onToggleBookmarkBarRequested', callback),
     onToggleBookmarksBar: () => noopDisposer,
     updateTabMenuState: noop,
     setBookmarkBarToggleEnabled: noop,

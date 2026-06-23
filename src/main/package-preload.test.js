@@ -78,6 +78,24 @@ describe('package-preload', () => {
       'restartAndInstallUpdate',
       'onTabCommandResult',
       'onTabSnapshotChanged',
+      'onCloseMenusRequested',
+      'onFocusAddressBarRequested',
+      'onToggleDevToolsRequested',
+      'onCloseDevToolsRequested',
+      'onCloseAllDevToolsRequested',
+      'onNewTabRequested',
+      'onCloseTabRequested',
+      'onNewTabWithUrlRequested',
+      'onNavigateToUrlRequested',
+      'onLoadUrlRequested',
+      'onReloadRequested',
+      'onHardReloadRequested',
+      'onNextTabRequested',
+      'onPrevTabRequested',
+      'onMoveTabLeftRequested',
+      'onMoveTabRightRequested',
+      'onReopenClosedTabRequested',
+      'onToggleBookmarkBarRequested',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -338,14 +356,32 @@ describe('package-preload', () => {
     });
   });
 
-  test('subscribes to package-visible tab events', () => {
+  test('subscribes to package-visible shell events', () => {
     const { exposures, ipcRenderer } = loadPackagePreload();
     const commandCallback = jest.fn();
     const snapshotCallback = jest.fn();
+    const newTabCallback = jest.fn();
+    const newTabWithUrlCallback = jest.fn();
+    const focusAddressBarCallback = jest.fn();
+    const toggleBookmarkBarCallback = jest.fn();
 
     const cleanupCommand = exposures.freedomShell.onTabCommandResult(commandCallback);
     const cleanupSnapshot = exposures.freedomShell.onTabSnapshotChanged(snapshotCallback);
-    const [commandHandler, snapshotHandler] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
+    const cleanupNewTab = exposures.freedomShell.onNewTabRequested(newTabCallback);
+    const cleanupNewTabWithUrl =
+      exposures.freedomShell.onNewTabWithUrlRequested(newTabWithUrlCallback);
+    const cleanupFocusAddressBar =
+      exposures.freedomShell.onFocusAddressBarRequested(focusAddressBarCallback);
+    const cleanupToggleBookmarkBar =
+      exposures.freedomShell.onToggleBookmarkBarRequested(toggleBookmarkBarCallback);
+    const [
+      commandHandler,
+      snapshotHandler,
+      newTabHandler,
+      newTabWithUrlHandler,
+      focusAddressBarHandler,
+      toggleBookmarkBarHandler,
+    ] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
 
     ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.TABS_COMMAND_RESULT,
@@ -361,6 +397,25 @@ describe('package-preload', () => {
         activeTabId: 2,
         tabs: [{ id: 2 }],
       },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.CHROME_NEW_TAB_REQUESTED,
+      data: {},
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.CHROME_NEW_TAB_WITH_URL_REQUESTED,
+      data: {
+        url: 'freedom://history',
+        targetName: 'history',
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED,
+      data: {},
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED,
+      data: {},
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: 'unrelated.event',
@@ -380,12 +435,30 @@ describe('package-preload', () => {
       activeTabId: 2,
       tabs: [{ id: 2 }],
     });
+    expect(newTabCallback).toHaveBeenCalledTimes(1);
+    expect(newTabWithUrlCallback).toHaveBeenCalledWith('freedom://history', 'history');
+    expect(focusAddressBarCallback).toHaveBeenCalledTimes(1);
+    expect(toggleBookmarkBarCallback).toHaveBeenCalledTimes(1);
 
     cleanupCommand();
     cleanupSnapshot();
+    cleanupNewTab();
+    cleanupNewTabWithUrl();
+    cleanupFocusAddressBar();
+    cleanupToggleBookmarkBar();
 
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, commandHandler);
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, snapshotHandler);
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, newTabHandler);
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, newTabWithUrlHandler);
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      focusAddressBarHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      toggleBookmarkBarHandler
+    );
     expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });
 });

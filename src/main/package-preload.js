@@ -47,6 +47,24 @@ const SHELL_API_METHODS = Object.freeze({
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
   TABS_SNAPSHOT_CHANGED: 'tabs.snapshotChanged',
+  CHROME_CLOSE_MENUS_REQUESTED: 'chrome.commands.closeMenus',
+  CHROME_FOCUS_ADDRESS_BAR_REQUESTED: 'chrome.commands.focusAddressBar',
+  CHROME_TOGGLE_DEVTOOLS_REQUESTED: 'chrome.commands.toggleDevTools',
+  CHROME_CLOSE_DEVTOOLS_REQUESTED: 'chrome.commands.closeDevTools',
+  CHROME_CLOSE_ALL_DEVTOOLS_REQUESTED: 'chrome.commands.closeAllDevTools',
+  CHROME_NEW_TAB_REQUESTED: 'chrome.commands.newTab',
+  CHROME_CLOSE_TAB_REQUESTED: 'chrome.commands.closeTab',
+  CHROME_NEW_TAB_WITH_URL_REQUESTED: 'chrome.commands.newTabWithUrl',
+  CHROME_NAVIGATE_TO_URL_REQUESTED: 'chrome.commands.navigateToUrl',
+  CHROME_LOAD_URL_REQUESTED: 'chrome.commands.loadUrl',
+  CHROME_RELOAD_REQUESTED: 'chrome.commands.reload',
+  CHROME_HARD_RELOAD_REQUESTED: 'chrome.commands.hardReload',
+  CHROME_NEXT_TAB_REQUESTED: 'chrome.commands.nextTab',
+  CHROME_PREV_TAB_REQUESTED: 'chrome.commands.prevTab',
+  CHROME_MOVE_TAB_LEFT_REQUESTED: 'chrome.commands.moveTabLeft',
+  CHROME_MOVE_TAB_RIGHT_REQUESTED: 'chrome.commands.moveTabRight',
+  CHROME_REOPEN_CLOSED_TAB_REQUESTED: 'chrome.commands.reopenClosedTab',
+  CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED: 'chrome.commands.toggleBookmarkBar',
 });
 
 const invokeShell = (method, ...args) => ipcRenderer.invoke(SHELL_REQUEST, { method, args });
@@ -59,6 +77,10 @@ const onShellEvent = (eventName, callback) => {
   ipcRenderer.on(SHELL_EVENT, handler);
   return () => ipcRenderer.removeListener(SHELL_EVENT, handler);
 };
+const onShellCommand = (eventName, callback) =>
+  onShellEvent(eventName, (data = {}) => callback(data));
+const onShellCommandWithUrl = (eventName, callback) =>
+  onShellCommand(eventName, ({ url, targetName } = {}) => callback(url, targetName));
 
 const freedomShell = Object.freeze({
   getInfo: () => invokeShell(SHELL_API_METHODS.GET_INFO),
@@ -107,6 +129,42 @@ const freedomShell = Object.freeze({
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),
+  onCloseMenusRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED, callback),
+  onFocusAddressBarRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_FOCUS_ADDRESS_BAR_REQUESTED, callback),
+  onToggleDevToolsRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_TOGGLE_DEVTOOLS_REQUESTED, callback),
+  onCloseDevToolsRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_CLOSE_DEVTOOLS_REQUESTED, callback),
+  onCloseAllDevToolsRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_CLOSE_ALL_DEVTOOLS_REQUESTED, callback),
+  onNewTabRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_NEW_TAB_REQUESTED, callback),
+  onCloseTabRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_CLOSE_TAB_REQUESTED, callback),
+  onNewTabWithUrlRequested: (callback) =>
+    onShellCommandWithUrl(SHELL_API_EVENTS.CHROME_NEW_TAB_WITH_URL_REQUESTED, callback),
+  onNavigateToUrlRequested: (callback) =>
+    onShellCommandWithUrl(SHELL_API_EVENTS.CHROME_NAVIGATE_TO_URL_REQUESTED, callback),
+  onLoadUrlRequested: (callback) =>
+    onShellCommandWithUrl(SHELL_API_EVENTS.CHROME_LOAD_URL_REQUESTED, callback),
+  onReloadRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_RELOAD_REQUESTED, callback),
+  onHardReloadRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_HARD_RELOAD_REQUESTED, callback),
+  onNextTabRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_NEXT_TAB_REQUESTED, callback),
+  onPrevTabRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_PREV_TAB_REQUESTED, callback),
+  onMoveTabLeftRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_MOVE_TAB_LEFT_REQUESTED, callback),
+  onMoveTabRightRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_MOVE_TAB_RIGHT_REQUESTED, callback),
+  onReopenClosedTabRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_REOPEN_CLOSED_TAB_REQUESTED, callback),
+  onToggleBookmarkBarRequested: (callback) =>
+    onShellCommand(SHELL_API_EVENTS.CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED, callback),
 });
 
 contextBridge.exposeInMainWorld('freedomShell', freedomShell);

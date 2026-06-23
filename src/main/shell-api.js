@@ -833,6 +833,36 @@ function emitShellEvent(event, caller, eventName, data) {
   });
 }
 
+function emitShellEventToPackageWebContents(sender, eventName, data = {}) {
+  if (!sender || typeof sender !== 'object') {
+    return { delivered: false, reason: 'missing-sender' };
+  }
+
+  const caller = packageCallers.get(sender);
+  if (!caller) {
+    return { delivered: false, reason: 'not-package' };
+  }
+
+  const requiredCapability = getRequiredCapabilityForEvent(eventName);
+  if (!requiredCapability) {
+    return { delivered: false, reason: 'unsupported-event' };
+  }
+
+  if (!caller.capabilities.has(requiredCapability)) {
+    return {
+      delivered: false,
+      reason: 'capability-denied',
+      requiredCapability,
+    };
+  }
+
+  sender.send?.(IPC.SHELL_EVENT, {
+    event: eventName,
+    data: cloneShellApiValue(data),
+  });
+  return { delivered: true };
+}
+
 async function handleShellRequest(event, payload = {}) {
   if (!payload || typeof payload !== 'object') {
     throw createShellApiError('SHELL_PAYLOAD_INVALID', 'Shell API payload must be an object');
@@ -875,6 +905,7 @@ module.exports = {
   createPackageCallerIdentity,
   describeChromePackage,
   describePackageCaller,
+  emitShellEventToPackageWebContents,
   getInfo,
   handleShellRequest,
   markReady,
