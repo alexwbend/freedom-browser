@@ -172,6 +172,10 @@ describe('chrome-runtime-api', () => {
       success: false,
       error: { code: 'SERVICE_BASE_UNAVAILABLE' },
     });
+    await expect(api.resolveExternalNodeCandidates({ requestId: 'req-1' })).resolves.toMatchObject({
+      success: false,
+      error: { code: 'EXTERNAL_NODE_PROMPT_UNAVAILABLE' },
+    });
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });

@@ -495,7 +495,10 @@ status/binary availability with `controllable: false`. Package chrome receives
 service registry/status events through `onServiceRegistryUpdated()` and
 `onServiceStatusUpdated()` when it declares `services.read`, but it does not
 receive node lifecycle methods. Ant/IPFS/Radicle start/stop and endpoint base
-updates remain shell-owned.
+updates remain shell-owned. The startup prompt for default-port external node
+candidates is also shell-owned in package mode: package windows do not receive
+the legacy renderer prompt IPC, and main falls back to the native dialog path
+instead of exposing profile node-configuration decisions to package chrome.
 
 The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. The current implemented surface is `wallet`, backed by

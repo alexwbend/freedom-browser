@@ -1040,6 +1040,10 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
   };
 }
 
+function isPackageWebContents(sender) {
+  return packageCallers.has(sender);
+}
+
 function getPackageCaller(event) {
   const sender = event?.sender || null;
   if (!sender) {
@@ -1324,6 +1328,7 @@ module.exports = {
   emitShellEventToPackageWebContents,
   getInfo,
   handleShellRequest,
+  isPackageWebContents,
   markReady,
   onPackageReady,
   registerPackageWebContents,

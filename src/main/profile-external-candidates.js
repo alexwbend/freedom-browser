@@ -216,9 +216,28 @@ function waitForWindowLoad(window) {
   });
 }
 
+function isPackagePromptWindow(window, options = {}) {
+  if (!window?.webContents) {
+    return false;
+  }
+  if (typeof options.isPackageWebContents === 'function') {
+    return options.isPackageWebContents(window.webContents) === true;
+  }
+  try {
+    const { isPackageWebContents } = require('./shell-api');
+    return isPackageWebContents(window.webContents) === true;
+  } catch {
+    return false;
+  }
+}
+
 async function presentExternalCandidatesInWindow(profile, candidates, options = {}) {
   const window = options.window;
   if (!window || window.isDestroyed?.() || !window.webContents) {
+    return null;
+  }
+
+  if (isPackagePromptWindow(window, options)) {
     return null;
   }
 
@@ -309,5 +328,6 @@ module.exports = {
   probeEndpoint,
   presentExternalCandidatesInWindow,
   promptForDefaultExternalCandidates,
+  isPackagePromptWindow,
   shouldPromptForProtocol,
 };

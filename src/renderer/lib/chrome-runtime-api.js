@@ -1,5 +1,4 @@
 const getRuntimeWindow = () => (typeof window === 'undefined' ? {} : window);
-const noop = () => {};
 const noopDisposer = () => {};
 const asyncNull = async () => null;
 const asyncFalse = async () => false;
@@ -15,6 +14,11 @@ const asyncServiceBaseUnavailable = async () =>
   unavailableResult(
     'SERVICE_BASE_UNAVAILABLE',
     'Service endpoint base updates are shell-owned in package mode'
+  );
+const asyncExternalNodePromptUnavailable = async () =>
+  unavailableResult(
+    'EXTERNAL_NODE_PROMPT_UNAVAILABLE',
+    'External node candidate decisions are shell-owned in package mode'
   );
 const unavailableResult = (code, message) => ({
   success: false,
@@ -96,7 +100,7 @@ const createPackageRuntimeApi = () =>
       }),
     createProfile: asyncProfileMutationUnavailable,
     openProfile: asyncProfileMutationUnavailable,
-    resolveExternalNodeCandidates: noop,
+    resolveExternalNodeCandidates: asyncExternalNodePromptUnavailable,
     onExternalNodeCandidates: () => noopDisposer,
     onProfileUpdated: (callback) => subscribeFreedomShell('onProfileUpdated', callback),
     onCloseMenus: (callback) => subscribeFreedomShell('onCloseMenusRequested', callback),

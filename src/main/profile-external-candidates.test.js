@@ -276,6 +276,28 @@ describe('profile external candidates', () => {
     });
   });
 
+  test('does not send legacy renderer prompt IPC to package chrome windows', async () => {
+    const profile = createProfile();
+    const webContents = new EventEmitter();
+    const window = new EventEmitter();
+    webContents.isLoading = () => false;
+    webContents.send = jest.fn();
+    window.webContents = webContents;
+    window.isDestroyed = () => false;
+
+    const choices = await presentExternalCandidatesInWindow(
+      profile,
+      [{ protocol: 'bee', label: 'Swarm', endpoints: ['http://127.0.0.1:1633'] }],
+      {
+        isPackageWebContents: (sender) => sender === webContents,
+        window,
+      }
+    );
+
+    expect(choices).toBeNull();
+    expect(webContents.send).not.toHaveBeenCalled();
+  });
+
   test('ignores external-candidate decisions from a different window sender', async () => {
     const profile = createProfile();
     const ipcMain = new EventEmitter();

@@ -637,6 +637,7 @@ describe('shell-api', () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 1021 });
 
+    expect(mod.isPackageWebContents(sender)).toBe(false);
     expect(
       mod.emitShellEventToPackageWebContents(
         sender,
@@ -652,6 +653,7 @@ describe('shell-api', () => {
       sender,
       makePackage({ capabilities: ['shell.info', 'chrome.ui.commands'] })
     );
+    expect(mod.isPackageWebContents(sender)).toBe(true);
 
     expect(
       mod.emitShellEventToPackageWebContents(
