@@ -1620,6 +1620,12 @@ Verification in this checkpoint so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
 - `git diff --check` passed.
+- committed as `2e9485e` (`feat(chrome): bridge package history and favicons`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28055494647`, job `test` (`83056635440`), passed for
+  `2e9485e`.
+- GitHub Actions run `28055494647`, job `e2e-chrome-runtime`
+  (`83056635580`), passed for `2e9485e`.
 
 Known remaining gaps after this checkpoint:
 
