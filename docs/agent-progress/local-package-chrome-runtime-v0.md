@@ -1350,6 +1350,12 @@ Verification in this checkpoint so far:
 - `git diff --check` passed.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
 - `npm test` passed: 114 suites passed, 5 skipped; 2133 passed, 17 skipped.
+- committed as `46d73e7` (`feat(chrome): bridge package native menu state`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28049138591`, job `test` (`83034906839`), passed for
+  `46d73e7`.
+- GitHub Actions run `28049138591`, job `e2e-chrome-runtime`
+  (`83034906952`), passed for `46d73e7`.
 
 Known remaining gaps after this checkpoint:
 
