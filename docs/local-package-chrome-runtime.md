@@ -324,6 +324,9 @@ The official package smoke currently proves:
 - package context-menu Copy Link Address and Copy Image Address write through a
   narrow shell-owned clipboard API without exposing clipboard reads to package
   chrome
+- package chrome disables the custom address-bar context-menu Paste item
+  because package chrome has no clipboard-read authority; keyboard paste uses
+  the browser/input path and is covered by official package smoke
 - package context-menu Open Link in New Window opens another package chrome
   BrowserWindow through a shell-owned command path, and native menu state is
   restored for the original package window after the child window closes
@@ -543,7 +546,9 @@ shell-owned clipboard operations for visible page context-menu actions.
 through main. These APIs are intentionally narrow: package chrome cannot read
 clipboard contents, cannot receive the chosen filesystem path from
 `saveImage()`, and image fetch/save uses the existing main-process HTTP(S)-only
-fetch helper.
+fetch helper. The custom address-bar context-menu Paste item is disabled in
+package mode rather than receiving a clipboard-read API; users can still paste
+through the system keyboard shortcut, which stays browser/input-mediated.
 
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It

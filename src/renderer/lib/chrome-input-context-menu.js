@@ -1,8 +1,9 @@
 // Right-click edit menu for chrome <input> elements (address bar, etc.).
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
-import { getChromeRuntimeApi } from './chrome-runtime-api.js';
+import { getChromeRuntimeApi, isPackageChromeRuntime } from './chrome-runtime-api.js';
 
 const electronAPI = getChromeRuntimeApi();
+const packageChromeRuntime = isPackageChromeRuntime();
 
 let contextMenu = null;
 let activeInput = null;
@@ -55,9 +56,16 @@ function updateActionStates(input, selection) {
   const hasText = input.value.length > 0;
   const cut = contextMenu.querySelector('[data-action="cut"]');
   const copy = contextMenu.querySelector('[data-action="copy"]');
+  const paste = contextMenu.querySelector('[data-action="paste"]');
   const selectAll = contextMenu.querySelector('[data-action="select-all"]');
   if (cut) cut.disabled = !hasSelection;
   if (copy) copy.disabled = !hasSelection;
+  if (paste) {
+    paste.disabled = packageChromeRuntime;
+    paste.title = packageChromeRuntime
+      ? 'Paste from this menu is unavailable in package mode; use the system paste shortcut'
+      : '';
+  }
   if (selectAll) selectAll.disabled = !hasText;
 }
 
@@ -120,7 +128,29 @@ async function readClipboard() {
   try {
     return await navigator.clipboard.readText();
   } catch {
-    return '';
+    return null;
+  }
+}
+
+function runBrowserPasteCommand(input, selection) {
+  if (typeof document.execCommand !== 'function') {
+    return false;
+  }
+  const beforeValue = input.value;
+  const beforeStart = input.selectionStart;
+  const beforeEnd = input.selectionEnd;
+
+  try {
+    const handled = document.execCommand('paste');
+    return (
+      handled === true &&
+      (input.value !== beforeValue ||
+        input.selectionStart !== beforeStart ||
+        input.selectionEnd !== beforeEnd)
+    );
+  } catch {
+    applySelection(input, selection);
+    return false;
   }
 }
 
@@ -149,6 +179,10 @@ async function runEditAction(action, input, selection) {
     }
     case 'paste': {
       const clipText = await readClipboard();
+      if (clipText === null) {
+        mutated = runBrowserPasteCommand(input, selection);
+        break;
+      }
       input.value =
         input.value.slice(0, selection.start) + clipText + input.value.slice(selection.end);
       const caret = selection.start + clipText.length;

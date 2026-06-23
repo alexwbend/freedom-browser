@@ -1634,3 +1634,49 @@ Known remaining gaps after this checkpoint:
   rather than a package shell clipboard-read API
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
+
+### Chrome UI Checkpoint 6: Package Paste Boundary
+
+Current checkpoint: package chrome still receives no clipboard-read authority,
+but the visible custom address-bar Paste menu item is no longer a clickable
+silent no-op. Package mode disables that custom Paste item with an explicit
+title while keyboard paste continues through the browser/input path.
+
+Implemented in this checkpoint:
+
+- kept `readClipboardText()` unavailable in package mode; no
+  `freedomShell` clipboard-read method or capability was added
+- changed `src/renderer/lib/chrome-input-context-menu.js` so package mode
+  disables the custom Paste menu item and explains that users should use the
+  system paste shortcut
+- preserved bundled chrome behavior where the custom Paste menu can use the
+  existing trusted renderer clipboard-read fallback
+- added a defensive browser paste-command fallback for environments where
+  `navigator.clipboard.readText()` is denied but a user-gesture browser paste
+  command is available
+- ensured Paste leaves the input untouched when no package-safe paste source is
+  available instead of replacing selected text with an empty string
+- expanded official package smoke coverage to prove the custom Paste item is
+  disabled and `Ctrl+V`/`Meta+V` still pastes into the address bar
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/renderer/lib/chrome-input-context-menu.test.js src/renderer/lib/chrome-runtime-api.test.js` passed:
+  2 suites, 27 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed when package-mode custom Paste did nothing; the implementation now disables that item and relies on keyboard paste.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm test` passed: 115 suites passed, 5 skipped; 2146 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed

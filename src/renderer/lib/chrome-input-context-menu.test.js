@@ -14,6 +14,7 @@ const createClassList = (initialClasses = []) => {
 const createMenuItem = (action) => ({
   dataset: { action },
   disabled: false,
+  title: '',
   closest: jest.fn((selector) => (selector === '.context-menu-item' ? createMenuItem(action) : null)),
 });
 
@@ -89,7 +90,7 @@ const createContextMenu = () => {
   };
 };
 
-const loadModule = async ({ input, contextMenu, electronAPI } = {}) => {
+const loadModule = async ({ input, contextMenu, electronAPI, freedomShell } = {}) => {
   jest.resetModules();
 
   const addressInput = input ?? createInput();
@@ -111,6 +112,7 @@ const loadModule = async ({ input, contextMenu, electronAPI } = {}) => {
           }
         : handler;
     }),
+    execCommand: jest.fn(() => false),
   };
 
   const windowHandlers = {};
@@ -124,6 +126,7 @@ const loadModule = async ({ input, contextMenu, electronAPI } = {}) => {
             copyText: jest.fn().mockResolvedValue({ success: true }),
             readClipboardText: jest.fn().mockResolvedValue({ success: true, text: 'pasted' }),
           }),
+    freedomShell,
     addEventListener: jest.fn((event, handler) => {
       windowHandlers[event] = handler;
     }),
@@ -245,6 +248,42 @@ describe('chrome-input-context-menu', () => {
 
     expect(navigator.clipboard.readText).toHaveBeenCalled();
     expect(input.value).toBe('hello pastedworld');
+  });
+
+  test('uses browser paste command when clipboard reads are unavailable', async () => {
+    const input = createInput('hello world');
+    input.setSelectionRange(6, 6);
+    const { menu } = await loadModule({ input, electronAPI: null });
+    navigator.clipboard.readText.mockRejectedValueOnce(new Error('denied'));
+    document.execCommand.mockImplementationOnce((command) => {
+      expect(command).toBe('paste');
+      input.value = 'hello browser-pastedworld';
+      input.setSelectionRange('hello browser-pasted'.length, 'hello browser-pasted'.length);
+      return true;
+    });
+
+    openContextMenu(input);
+    await clickMenu(menu, 'paste');
+
+    expect(document.execCommand).toHaveBeenCalledWith('paste');
+    expect(input.value).toBe('hello browser-pastedworld');
+    expect(input.dispatchEvent).toHaveBeenCalled();
+  });
+
+  test('leaves input untouched when no paste source is available', async () => {
+    const input = createInput('hello world');
+    input.setSelectionRange(6, 11);
+    const { menu } = await loadModule({ input, electronAPI: null });
+    navigator.clipboard.readText.mockRejectedValueOnce(new Error('denied'));
+
+    openContextMenu(input);
+    await clickMenu(menu, 'paste');
+
+    expect(document.execCommand).toHaveBeenCalledWith('paste');
+    expect(input.value).toBe('hello world');
+    expect(input.selectionStart).toBe(6);
+    expect(input.selectionEnd).toBe(11);
+    expect(input.dispatchEvent).not.toHaveBeenCalled();
   });
 
   test('paste uses live caret when right-click did not capture a range', async () => {
@@ -386,6 +425,25 @@ describe('chrome-input-context-menu', () => {
 
     await clickMenu(menu, 'copy');
     expect(window.electronAPI.copyText).not.toHaveBeenCalled();
+  });
+
+  test('disables context-menu paste in package mode', async () => {
+    const input = createInput('');
+    input.setSelectionRange(0, 0);
+    const { menu } = await loadModule({
+      input,
+      electronAPI: null,
+      freedomShell: {
+        getInfo: jest.fn().mockResolvedValue({ platform: 'linux' }),
+      },
+    });
+
+    openContextMenu(input);
+
+    expect(menu.items.paste.disabled).toBe(true);
+    expect(menu.items.paste.title).toBe(
+      'Paste from this menu is unavailable in package mode; use the system paste shortcut'
+    );
   });
 
   test('cut leaves text untouched when clipboard write fails', async () => {

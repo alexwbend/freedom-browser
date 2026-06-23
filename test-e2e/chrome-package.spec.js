@@ -14,6 +14,7 @@ const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
 const providerIpfsCid = `bafybeib${'b'.repeat(51)}`;
 const sampleIpnsName = 'example.ipns';
 const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+const pasteModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 const faviconFixtureBytes = Buffer.from('package-favicon-fixture', 'utf8');
 
 function hashFileSha256(filePath) {
@@ -1439,6 +1440,23 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('.autocomplete-item').filter({ hasText: firstDefaultBookmark.label }))
       .toBeVisible();
     await input.press('Escape');
+
+    const packagePasteText = 'package-paste-via-browser-clipboard';
+    await clearClipboardText(launched.app);
+    await launched.app.evaluate(({ clipboard }, text) => clipboard.writeText(text), packagePasteText);
+    await input.fill('');
+    await input.click({ button: 'right' });
+    const inputContextMenu = page.locator('[data-test="chrome-input-context-menu"]');
+    await expect(inputContextMenu).toBeVisible();
+    await expect(inputContextMenu.getByRole('button', { name: 'Paste' })).toBeDisabled();
+    await expect(inputContextMenu.getByRole('button', { name: 'Paste' })).toHaveAttribute(
+      'title',
+      'Paste from this menu is unavailable in package mode; use the system paste shortcut'
+    );
+    await page.keyboard.press('Escape');
+    await input.click();
+    await input.press(`${pasteModifier}+v`);
+    await expect.poll(async () => input.inputValue(), { timeout: 15_000 }).toBe(packagePasteText);
 
     await page.locator('#reload-btn').click();
     await expectHomeReady(page);
