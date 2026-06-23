@@ -1686,3 +1686,54 @@ Known remaining gaps after this checkpoint:
 
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
+
+### Chrome UI Checkpoint 7: Bookmark Mutation Smoke
+
+Current checkpoint: the official package smoke now covers the visible bookmark
+add, edit, and delete controls instead of relying only on shell API/unit
+coverage for bookmark writes.
+
+Implemented in this checkpoint:
+
+- expanded the official package runtime smoke to navigate to a deterministic
+  IPFS fixture page and add it through the visible Add Bookmark modal
+- verified the add operation by reading package-visible bookmark state through
+  `window.freedomShell.getBookmarks()`
+- exercised the bookmark context menu's Edit action, changed the bookmark
+  label and target, and verified the old target was removed while the edited
+  target persisted
+- exercised the bookmark context menu's Delete action and verified the edited
+  bookmark was removed
+- kept bookmark mutation authority on the existing narrow
+  `browserState.bookmarks.write` shell API; no broad preload, filesystem,
+  Electron, wallet, identity, or provider authority was added
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md` so the method audit no longer
+  lists direct bookmark mutation smoke as pending
+
+Verification in this checkpoint:
+
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed with the HTTP fixture URL because `FREEDOM_TEST_MODE` routes HTTP through the harness stub; the smoke now uses a deterministic IPFS fixture.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after switching to the IPFS fixture: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2146 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` initially failed because the modal submit click was timing-sensitive in the combined run; the smoke now submits the visible bookmark form through `requestSubmit()` and waits for bookmark store state.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the deterministic form-submit fix: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the form-submit fix: 14 tests.
+- `git diff --check` passed.
+- committed as `bba87e2` (`test(chrome): cover package bookmark mutations`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28056778467`, job `test` (`83061063420`), passed for
+  prior branch head `70e542f`.
+- GitHub Actions run `28056778467`, job `e2e-chrome-runtime`
+  (`83061063797`), passed for prior branch head `70e542f`.
+- GitHub Actions run `28057368338`, job `test` (`83062948447`), passed for
+  `bba87e2`.
+- GitHub Actions run `28057368338`, job `e2e-chrome-runtime`
+  (`83062949033`), passed for `bba87e2`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
