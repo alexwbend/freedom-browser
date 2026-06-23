@@ -43,6 +43,11 @@ describe('shell-api-policy', () => {
       SURFACES_CLOSE: 'surfaces.close',
       SURFACES_TOGGLE: 'surfaces.toggle',
       TRUSTED_PROMPTS_REQUEST_TEST: 'trustedPrompts.requestTest',
+      WINDOWS_SET_TITLE: 'windows.setTitle',
+      WINDOWS_CLOSE: 'windows.close',
+      WINDOWS_MINIMIZE: 'windows.minimize',
+      WINDOWS_TOGGLE_MAXIMIZE: 'windows.toggleMaximize',
+      WINDOWS_TOGGLE_FULLSCREEN: 'windows.toggleFullscreen',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -74,6 +79,11 @@ describe('shell-api-policy', () => {
       'surfaces.close': 'surfaces.wallet.control',
       'surfaces.toggle': 'surfaces.wallet.control',
       'trustedPrompts.requestTest': 'trustedPrompts.test',
+      'windows.setTitle': 'windows.control',
+      'windows.close': 'windows.control',
+      'windows.minimize': 'windows.control',
+      'windows.toggleMaximize': 'windows.control',
+      'windows.toggleFullscreen': 'windows.control',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -98,6 +108,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
       SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
       TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
+      WINDOWS_CONTROL: 'windows.control',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -121,6 +132,7 @@ describe('shell-api-policy', () => {
       'tabs.read',
       'tabs.write',
       'trustedPrompts.test',
+      'windows.control',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
   });

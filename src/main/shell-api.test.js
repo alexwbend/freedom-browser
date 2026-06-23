@@ -933,6 +933,162 @@ describe('shell-api', () => {
     });
   });
 
+  test('handles capability-gated window control requests for the owner window', async () => {
+    const { mod } = loadShellApi();
+    let maximized = false;
+    let fullScreen = false;
+    const ownerWindow = {
+      isDestroyed: jest.fn(() => false),
+      isMinimized: jest.fn(() => false),
+      isMaximized: jest.fn(() => maximized),
+      maximize: jest.fn(() => {
+        maximized = true;
+      }),
+      unmaximize: jest.fn(() => {
+        maximized = false;
+      }),
+      isFullScreen: jest.fn(() => fullScreen),
+      setFullScreen: jest.fn((value) => {
+        fullScreen = value;
+      }),
+      setTitle: jest.fn(),
+      close: jest.fn(),
+      minimize: jest.fn(),
+    };
+    const sender = makeSender({
+      id: 111,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['windows.control'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_SET_TITLE, args: [' Loaded Title '] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_SET_TITLE,
+      owner: 'shell',
+      title: 'Loaded Title - Freedom',
+      state: {
+        maximized: false,
+        fullScreen: false,
+      },
+    });
+    expect(ownerWindow.setTitle).toHaveBeenCalledWith('Loaded Title - Freedom');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE, args: [] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE,
+      maximized: true,
+      state: {
+        maximized: true,
+      },
+    });
+    expect(ownerWindow.maximize).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE, args: [] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE,
+      maximized: false,
+      state: {
+        maximized: false,
+      },
+    });
+    expect(ownerWindow.unmaximize).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN, args: [] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN,
+      fullScreen: true,
+      state: {
+        fullScreen: true,
+      },
+    });
+    expect(ownerWindow.setFullScreen).toHaveBeenCalledWith(true);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_MINIMIZE, args: [] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_MINIMIZE,
+    });
+    expect(ownerWindow.minimize).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_CLOSE, args: [] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      command: SHELL_API_METHODS.WINDOWS_CLOSE,
+    });
+    expect(ownerWindow.close).toHaveBeenCalledTimes(1);
+  });
+
+  test('rejects window control requests without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 112 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN,
+        requiredCapability: 'windows.control',
+      },
+    });
+  });
+
+  test('returns a structured window error when the owner window is unavailable', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({
+      id: 113,
+      getOwnerBrowserWindow: jest.fn(() => null),
+    });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['windows.control'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.WINDOWS_MINIMIZE, args: [] }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      command: SHELL_API_METHODS.WINDOWS_MINIMIZE,
+      owner: 'shell',
+      error: {
+        code: 'WINDOW_UNAVAILABLE',
+        message: 'Owner window is unavailable',
+      },
+    });
+  });
+
   test('returns false for malformed browser state write payloads', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 105 });

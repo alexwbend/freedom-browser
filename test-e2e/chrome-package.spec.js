@@ -167,6 +167,7 @@ function writeOfficialChromePackage(root) {
           'browserState.history.read',
           'browserState.history.write',
           'browserState.favicons.read',
+          'windows.control',
         ],
         guestContent: {
           transitionalWebviews: true,
@@ -514,6 +515,11 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'closeSurface',
         'toggleSurface',
         'requestTestTrustedPrompt',
+        'setWindowTitle',
+        'closeWindow',
+        'minimizeWindow',
+        'maximizeWindow',
+        'toggleFullscreen',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -1217,6 +1223,20 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
     await page.locator('#menu-button').click();
     await expect(page.locator('#menu-dropdown')).not.toHaveClass(/open/);
+
+    const isMainWindowFullScreen = () =>
+      launched.app.evaluate(({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find(
+          (candidate) => !candidate.isDestroyed()
+        );
+        return Boolean(window?.isFullScreen());
+      });
+    await page.locator('#menu-button').click();
+    await page.locator('#fullscreen-btn').click();
+    await expect.poll(isMainWindowFullScreen).toBe(true);
+    await page.locator('#menu-button').click();
+    await page.locator('#fullscreen-btn').click();
+    await expect.poll(isMainWindowFullScreen).toBe(false);
 
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).toHaveClass(/open/);

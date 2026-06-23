@@ -193,7 +193,8 @@ The local package directory must contain `manifest.json`:
     "browserState.bookmarks.write",
     "browserState.history.read",
     "browserState.history.write",
-    "browserState.favicons.read"
+    "browserState.favicons.read",
+    "windows.control"
   ],
   "files": [
     {
@@ -291,6 +292,7 @@ The official package smoke currently proves:
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
 - the main menu and node menu open
+- the main menu fullscreen control toggles the shell-owned BrowserWindow state
 - new tab, tab switch, and tab close work
 - reload works on the package home page
 - bare-domain, `http://`, and `https://` address-bar navigation go through the deterministic test harness
@@ -333,6 +335,11 @@ running Radicle network.
 - `navigateTab(tabId, url)`
 - `reloadTab(tabId)`
 - `goHome(tabId)`
+- `setWindowTitle(title)`
+- `closeWindow()`
+- `minimizeWindow()`
+- `maximizeWindow()`
+- `toggleFullscreen()`
 - `onTabCommandResult(callback)`
 - `onTabSnapshotChanged(callback)`
 
@@ -402,6 +409,13 @@ supplying final origin/security truth. The method requires
 expose wallet, identity, x402, Swarm, vault, or signing APIs. It is not a
 production prompt capability and is not declared by the official package smoke.
 
+The window-control methods expose a narrow shell-owned command path for the
+calling package window only. They let visible chrome affordances set the window
+title, close/minimize the owner window, toggle maximize, and toggle fullscreen
+without giving package chrome Electron primitives or access to other windows.
+The current official package smoke exercises the visible fullscreen menu
+control through this path.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -430,6 +444,9 @@ must be allowed by the package manifest's declared capabilities:
   `toggleSurface("wallet")`
 - `trustedPrompts.test` allows `requestTestTrustedPrompt(payload)` for the
   test-only broker slice
+- `windows.control` allows `setWindowTitle(title)`, `closeWindow()`,
+  `minimizeWindow()`, `maximizeWindow()`, and `toggleFullscreen()` for the
+  calling package window
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

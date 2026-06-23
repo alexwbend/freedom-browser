@@ -36,7 +36,7 @@ Current audited branch: `goal/local-package-chrome-runtime-v0` at
 | Favicons | tabs, bookmarks, autocomplete | renderer calls favicon IPC in `src/main/favicons.js` | adapter returned `null` | `browser-state-api` | none | cached favicon read if visible package UI depends on icons | `browserState.favicons.read` | unit coverage and smoke if icons are asserted | cached read implemented; network fetch remains unavailable |
 | Settings | settings page, UI init, feature flags | `settings-store.js` via broad preload | adapter returns startup defaults and `saveSettings: false` | `browser-state-api` | settings page is ordinary browser UI except privileged settings | package reads narrow settings required for visible chrome; writes only for ordinary browser settings | `browserState.settings.read`, maybe `browserState.settings.write` | unit coverage plus settings/package smoke for any visible setting | partial required |
 | Profiles/profile menu | profile indicator/menu | broad preload profile IPC and profile resolver | adapter returns null/empty/no-op | `browser-state-api` for display, trusted/shell for switching | switching can relaunch shell/profile | display current profile safely; profile creation/switching remains bundled-only or shell-owned until scoped | `browserState.profiles.read`, later `profiles.switch` | smoke for visible profile menu behavior | proposed deferral unless visible controls require it |
-| Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls should call narrow window methods or be hidden in test environment | `window.control` or narrower | unit coverage for method/capability plus smoke for visible controls | required if visible controls are active in package smoke |
+| Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls call narrow owner-window methods or are hidden in test environment | `windows.control` | unit coverage for method/capability plus package smoke for visible fullscreen control | implemented for owner-window title/close/minimize/maximize/fullscreen |
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke currently opens node menu; live node status is not fully asserted | `browser-state-api` or `services.*` read API | shell owns node lifecycle | expose read-only service status needed by visible node menu; start/stop remains shell-owned and scoped | `services.read`, later narrower write caps | package smoke for node menu behavior and no silent controls | required for visible tested controls, live-node details may be deferred |
 | Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skips sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button must call shell-owned surface control, be hidden, or be explicitly disabled with smoke coverage | `surfaces.wallet.control` | official package smoke proving hidden behavior until the real trusted surface migrates; fixture smoke proving placeholder surface control | shell-owned placeholder API implemented; real wallet surface still pending trusted prompt migration |
 | Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | low-risk bypass implemented; full wallet UX still pending trusted prompt migration |
@@ -64,8 +64,8 @@ by this document.
 | Method(s) | Start behavior in package mode | Visible feature risk | Required disposition |
 | --- | --- | --- | --- |
 | `setBzzBase`, `clearBzzBase`, `setRadBase`, `clearRadBase` | return `{ success: true }` without shell work | service status/settings can misrepresent node base changes | replace with service/settings shell APIs if visible controls depend on them, or hide/disable related controls with smoke coverage |
-| `setWindowTitle` | no-op | window title may be stale | low-risk window API or documented harmless no-op if not user-visible |
-| `closeWindow`, `minimizeWindow`, `maximizeWindow`, `toggleFullscreen` | no-op | title bar controls can become clickable silent no-ops | implement narrow `window.*` shell APIs or hide/disable in package smoke |
+| `setWindowTitle` | no-op | window title may be stale | implemented through `freedomShell.setWindowTitle()` and `windows.control` |
+| `closeWindow`, `minimizeWindow`, `maximizeWindow`, `toggleFullscreen` | no-op | title bar/menu controls can become clickable silent no-ops | implemented through owner-window `freedomShell` methods and `windows.control`; visible fullscreen menu action has package smoke coverage |
 | `newWindow`, `openUrlInNewWindow` | no-op | menu/context controls can silently fail | implement scoped shell methods or hide/disable visible controls |
 | `showAbout` | no-op | menu item can silently fail | implement shell-owned about surface or hide/disable |
 | `checkForUpdates`, `restartAndInstallUpdate` | no-op | update UI can mislead | shell-owned update surface/API or explicit bundled-only behavior |
@@ -119,6 +119,19 @@ signing, vault, x402, or Swarm approval UI into package mode. The official
 package chrome still hides the wallet/sidebar affordance until a real
 shell-owned trusted wallet surface exists, while the fixture package smoke
 exercises the placeholder surface-control path.
+
+## Window-Control Status
+
+The first window-control slice implements `windows.control` for
+`setWindowTitle`, `closeWindow`, `minimizeWindow`, `maximizeWindow`, and
+`toggleFullscreen` through the sender-checked `window.freedomShell` bridge.
+Each command resolves the BrowserWindow from the calling package sender and
+cannot target arbitrary windows.
+
+This checkpoint exists to remove visible chrome/menu silent no-ops. It does not
+expose Electron, BrowserWindow objects, native menus, app updater APIs, or new
+window creation to package chrome. The official package smoke exercises the
+visible fullscreen menu action through this shell-owned path.
 
 ## Trusted Prompt Broker Status
 

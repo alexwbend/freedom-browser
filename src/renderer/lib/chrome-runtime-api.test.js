@@ -53,6 +53,11 @@ describe('chrome-runtime-api', () => {
       getCachedFavicon: jest.fn().mockResolvedValue('data:image/png;base64,ZmF2'),
       resolveEns: jest.fn().mockResolvedValue({ type: 'not_found' }),
       invalidateEnsContent: jest.fn().mockResolvedValue(true),
+      setWindowTitle: jest.fn().mockResolvedValue({ ok: true }),
+      closeWindow: jest.fn().mockResolvedValue({ ok: true }),
+      minimizeWindow: jest.fn().mockResolvedValue({ ok: true }),
+      maximizeWindow: jest.fn().mockResolvedValue({ ok: true }),
+      toggleFullscreen: jest.fn().mockResolvedValue({ ok: true }),
     };
     const mod = await loadModule({ freedomShell });
     const api = mod.getChromeRuntimeApi();
@@ -93,8 +98,18 @@ describe('chrome-runtime-api', () => {
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
     await expect(api.invalidateEnsContent('vitalik.eth')).resolves.toBe(true);
+    await expect(api.setWindowTitle('Loaded Title')).resolves.toEqual({ ok: true });
+    await expect(api.closeWindow()).resolves.toEqual({ ok: true });
+    await expect(api.minimizeWindow()).resolves.toEqual({ ok: true });
+    await expect(api.maximizeWindow()).resolves.toEqual({ ok: true });
+    await expect(api.toggleFullscreen()).resolves.toEqual({ ok: true });
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
+    expect(freedomShell.setWindowTitle).toHaveBeenCalledWith('Loaded Title');
+    expect(freedomShell.closeWindow).toHaveBeenCalledTimes(1);
+    expect(freedomShell.minimizeWindow).toHaveBeenCalledTimes(1);
+    expect(freedomShell.maximizeWindow).toHaveBeenCalledTimes(1);
+    expect(freedomShell.toggleFullscreen).toHaveBeenCalledTimes(1);
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',
       target: 'https://added.example',

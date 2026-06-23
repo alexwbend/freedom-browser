@@ -373,6 +373,94 @@ function requestTestTrustedPromptForShell(payload, caller) {
   });
 }
 
+function formatWindowTitleForShell(title) {
+  const trimmed = typeof title === 'string' ? title.trim() : '';
+  return trimmed ? `${trimmed} - Freedom` : 'Freedom';
+}
+
+function describeWindowState(window) {
+  return {
+    minimized: typeof window?.isMinimized === 'function' ? window.isMinimized() : false,
+    maximized: typeof window?.isMaximized === 'function' ? window.isMaximized() : false,
+    fullScreen: typeof window?.isFullScreen === 'function' ? window.isFullScreen() : false,
+  };
+}
+
+function controlOwnerWindow(event, command, action) {
+  const window = event?.sender?.getOwnerBrowserWindow?.() || null;
+  if (!window || window.isDestroyed?.()) {
+    return {
+      ok: false,
+      command,
+      owner: 'shell',
+      error: {
+        code: 'WINDOW_UNAVAILABLE',
+        message: 'Owner window is unavailable',
+      },
+    };
+  }
+
+  try {
+    const details = action(window) || {};
+    return {
+      ok: true,
+      command,
+      owner: 'shell',
+      ...details,
+      state: describeWindowState(window),
+    };
+  } catch {
+    return {
+      ok: false,
+      command,
+      owner: 'shell',
+      error: {
+        code: 'WINDOW_COMMAND_FAILED',
+        message: 'Window command failed',
+      },
+    };
+  }
+}
+
+function setWindowTitleForShell([title], event) {
+  const formattedTitle = formatWindowTitleForShell(title);
+  return controlOwnerWindow(event, SHELL_API_METHODS.WINDOWS_SET_TITLE, (window) => {
+    window.setTitle(formattedTitle);
+    return { title: formattedTitle };
+  });
+}
+
+function closeWindowForShell(_args, event) {
+  return controlOwnerWindow(event, SHELL_API_METHODS.WINDOWS_CLOSE, (window) => {
+    window.close();
+  });
+}
+
+function minimizeWindowForShell(_args, event) {
+  return controlOwnerWindow(event, SHELL_API_METHODS.WINDOWS_MINIMIZE, (window) => {
+    window.minimize();
+  });
+}
+
+function toggleMaximizeWindowForShell(_args, event) {
+  return controlOwnerWindow(event, SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE, (window) => {
+    if (window.isMaximized?.()) {
+      window.unmaximize?.();
+      return { maximized: false };
+    }
+    window.maximize?.();
+    return { maximized: true };
+  });
+}
+
+function toggleFullscreenWindowForShell(_args, event) {
+  return controlOwnerWindow(event, SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN, (window) => {
+    const nextFullScreen = !window.isFullScreen?.();
+    window.setFullScreen?.(nextFullScreen);
+    return { fullScreen: nextFullScreen };
+  });
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -487,6 +575,21 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST]: {
     handler: ([payload], _event, caller) => requestTestTrustedPromptForShell(payload, caller),
+  },
+  [SHELL_API_METHODS.WINDOWS_SET_TITLE]: {
+    handler: setWindowTitleForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_CLOSE]: {
+    handler: closeWindowForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_MINIMIZE]: {
+    handler: minimizeWindowForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE]: {
+    handler: toggleMaximizeWindowForShell,
+  },
+  [SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN]: {
+    handler: toggleFullscreenWindowForShell,
   },
 });
 

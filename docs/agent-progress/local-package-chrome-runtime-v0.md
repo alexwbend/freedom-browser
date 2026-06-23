@@ -1023,3 +1023,53 @@ Known remaining gaps after this checkpoint:
 
 - this hardens diagnostics only; the final UX parity gate and any remaining
   no-op package adapter dispositions still need later checkpoint work
+
+### Window-Control Checkpoint 1: Owner-Window Shell Commands
+
+Current checkpoint: package chrome no longer uses silent no-op adapter methods
+for ordinary owner-window title/fullscreen/window commands. Visible fullscreen
+menu behavior is now exercised in official package smoke.
+
+Implemented in this checkpoint:
+
+- added shell API methods behind a new `windows.control` capability:
+  - `windows.setTitle`
+  - `windows.close`
+  - `windows.minimize`
+  - `windows.toggleMaximize`
+  - `windows.toggleFullscreen`
+- exposed matching package preload methods on `window.freedomShell`:
+  - `setWindowTitle(title)`
+  - `closeWindow()`
+  - `minimizeWindow()`
+  - `maximizeWindow()`
+  - `toggleFullscreen()`
+- changed `src/renderer/lib/chrome-runtime-api.js` package adapter methods for
+  those commands to delegate to `freedomShell` instead of no-op shims
+- scoped each command to the BrowserWindow that owns the registered package
+  sender; package chrome cannot choose an arbitrary target window
+- added capability-denial and unavailable-owner-window unit coverage
+- granted the official local package smoke manifest `windows.control`
+- expanded official package smoke to click the visible fullscreen menu control
+  and verify the shell-owned BrowserWindow fullscreen state toggles on and off
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed: 4 suites, 38 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 114 suites passed, 5 skipped; 2126 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- GitHub target CI is pending for the checkpoint commit.
+
+Known remaining gaps after this checkpoint:
+
+- new-window/about/update/menu event no-op adapter methods remain intentionally
+  unavailable until they are implemented through narrow shell APIs or hidden
+  and covered in package-mode smoke
+- profile mutation/switching, settings writes, and some history/favicon
+  management methods still need final audit disposition before completion

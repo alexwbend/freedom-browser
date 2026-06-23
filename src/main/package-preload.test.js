@@ -65,6 +65,11 @@ describe('package-preload', () => {
       'closeSurface',
       'toggleSurface',
       'requestTestTrustedPrompt',
+      'setWindowTitle',
+      'closeWindow',
+      'minimizeWindow',
+      'maximizeWindow',
+      'toggleFullscreen',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -258,6 +263,36 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
       args: [{ kind: 'test.confirmation', origin: 'https://spoofed.example' }],
+    });
+
+    await exposures.freedomShell.setWindowTitle('Loaded Title');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_SET_TITLE,
+      args: ['Loaded Title'],
+    });
+
+    await exposures.freedomShell.closeWindow();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_CLOSE,
+      args: [],
+    });
+
+    await exposures.freedomShell.minimizeWindow();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_MINIMIZE,
+      args: [],
+    });
+
+    await exposures.freedomShell.maximizeWindow();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE,
+      args: [],
+    });
+
+    await exposures.freedomShell.toggleFullscreen();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN,
+      args: [],
     });
   });
 

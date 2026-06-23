@@ -32,6 +32,11 @@ const SHELL_API_METHODS = Object.freeze({
   SURFACES_CLOSE: 'surfaces.close',
   SURFACES_TOGGLE: 'surfaces.toggle',
   TRUSTED_PROMPTS_REQUEST_TEST: 'trustedPrompts.requestTest',
+  WINDOWS_SET_TITLE: 'windows.setTitle',
+  WINDOWS_CLOSE: 'windows.close',
+  WINDOWS_MINIMIZE: 'windows.minimize',
+  WINDOWS_TOGGLE_MAXIMIZE: 'windows.toggleMaximize',
+  WINDOWS_TOGGLE_FULLSCREEN: 'windows.toggleFullscreen',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -82,6 +87,11 @@ const freedomShell = Object.freeze({
   toggleSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_TOGGLE, { surface }),
   requestTestTrustedPrompt: (payload) =>
     invokeShell(SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST, payload),
+  setWindowTitle: (title) => invokeShell(SHELL_API_METHODS.WINDOWS_SET_TITLE, title),
+  closeWindow: () => invokeShell(SHELL_API_METHODS.WINDOWS_CLOSE),
+  minimizeWindow: () => invokeShell(SHELL_API_METHODS.WINDOWS_MINIMIZE),
+  maximizeWindow: () => invokeShell(SHELL_API_METHODS.WINDOWS_TOGGLE_MAXIMIZE),
+  toggleFullscreen: () => invokeShell(SHELL_API_METHODS.WINDOWS_TOGGLE_FULLSCREEN),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),
