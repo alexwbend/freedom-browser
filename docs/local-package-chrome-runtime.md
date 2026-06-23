@@ -319,8 +319,8 @@ The official package smoke currently proves:
 - the main menu New Window control opens another package chrome BrowserWindow
   through a shell-owned command path
 - native application menu commands for New Tab, Close Tab, Focus Address Bar,
-  Reload, and Always Show Bookmarks Bar reach package chrome through the
-  capability-gated `chrome.ui.commands` event bridge
+  Reload, Developer Tools, and Always Show Bookmarks Bar reach package chrome
+  through the capability-gated `chrome.ui.commands` event bridge
 - package chrome reports tab-menu enabled state and bookmark-bar checked/enabled
   state to the native application menu through capability-gated shell requests
 - package context-menu Copy Link Address and Copy Image Address write through a

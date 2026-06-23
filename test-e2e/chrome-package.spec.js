@@ -1766,6 +1766,30 @@ test('official browser chrome can launch as a local package with transitional we
     await expectHomeReady(page);
     await clickApplicationMenuItem(launched.app, 'close-tab');
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
+    await page.evaluate(() => {
+      const webview = document.querySelector('webview:not(.hidden)');
+      if (!webview) {
+        throw new Error('No active webview for DevTools recorder');
+      }
+      let opened = false;
+      window.__freedomDevToolsCalls = [];
+      webview.openDevTools = () => {
+        opened = true;
+        window.__freedomDevToolsCalls.push('open');
+      };
+      webview.closeDevTools = () => {
+        opened = false;
+        window.__freedomDevToolsCalls.push('close');
+      };
+      webview.isDevToolsOpened = () => opened;
+    });
+    await clickApplicationMenuItem(launched.app, 'toggle-devtools');
+    await expect.poll(() => page.evaluate(() => window.__freedomDevToolsCalls)).toEqual(['open']);
+    await clickApplicationMenuItem(launched.app, 'toggle-devtools');
+    await expect.poll(() => page.evaluate(() => window.__freedomDevToolsCalls)).toEqual([
+      'open',
+      'close',
+    ]);
 
     await navigateAddress(page, 'example.com', 'https://example.com/');
     await expectActiveWebviewText(
