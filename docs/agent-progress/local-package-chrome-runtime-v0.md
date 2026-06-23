@@ -1012,7 +1012,12 @@ Verification in this checkpoint:
 - `npm run lint` passed.
 - `npm test` passed: 114 suites passed, 5 skipped; 2123 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
-- GitHub target CI is pending for the checkpoint commit.
+- committed as `93de353` (`fix(shell): scope package diagnostics to caller`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28041362076`, job `test` (`83008156498`), passed for
+  `93de353`.
+- GitHub Actions run `28041362076`, job `e2e-chrome-runtime`
+  (`83008156304`), passed for `93de353`.
 
 Known remaining gaps after this checkpoint:
 
