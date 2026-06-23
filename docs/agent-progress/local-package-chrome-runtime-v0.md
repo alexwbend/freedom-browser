@@ -2066,6 +2066,63 @@ Known remaining gaps after this checkpoint:
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
 
+### Provider-Flow Checkpoint 3: Swarm Privileged Package Safe-Fail
+
+Current checkpoint: package-hosted guest Swarm provider requests no longer
+fall back to package chrome for privileged methods. `swarm_getCapabilities`
+continues to execute on the direct read-only main path, while higher-risk
+methods ask main for the guest host context and fail in the guest page with a
+structured `trusted_prompt_unavailable` error when the host is registered
+package chrome.
+
+Implemented in this checkpoint:
+
+- added `swarm:provider-host-context` as a main-owned IPC gate that derives
+  whether a guest webview is hosted by registered package chrome from
+  `event.sender.hostWebContents`
+- changed the guest webview preload so non-readonly Swarm provider methods
+  check that host context before forwarding to `sendToHost`
+- preserved bundled trusted chrome behavior by forwarding non-readonly Swarm
+  methods to the legacy renderer prompt path when the guest is not hosted by
+  package chrome
+- returned page-facing provider errors with code `4200` and
+  `data.reason: "trusted_prompt_unavailable"` for privileged package-hosted
+  Swarm methods instead of allowing package chrome to broker the request
+- expanded official package smoke so the guest IPFS fixture calls
+  `swarm.publishData()` and observes the structured package-mode error
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/webview-preload.test.js src/main/swarm/swarm-provider-ipc.test.js` passed:
+  2 suites, 162 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2167 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `e7b10d7` (`fix(chrome): block package swarm provider
+  prompts`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28063806101`, job `test` (`83083658676`), passed for
+  `e7b10d7`.
+- GitHub Actions run `28063806101`, job `e2e-chrome-runtime`
+  (`83083658705`), passed for `e7b10d7`.
+
+Known remaining gaps after this checkpoint:
+
+- higher-risk Swarm provider methods now fail before package chrome can broker
+  them, but they still need a real shell-owned prompt/surface path before they
+  can succeed in package mode
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 13: Swarm Publish Page Boundary
 
 Current checkpoint: package-hosted `freedom://publish` no longer exposes the
