@@ -12,10 +12,17 @@ const mockLoadBookmarks = jest.fn();
 const mockAddBookmark = jest.fn();
 const mockUpdateBookmark = jest.fn();
 const mockRemoveBookmark = jest.fn();
+const mockGetAllHistory = jest.fn();
+const mockGetRecentHistory = jest.fn();
+const mockSearchHistory = jest.fn();
+const mockAddHistoryEntry = jest.fn();
+const mockGetCachedFavicon = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
 const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
+const HISTORY_MODULE = require.resolve('./history');
+const FAVICONS_MODULE = require.resolve('./favicons');
 
 function makeSender(overrides = {}) {
   return {
@@ -60,6 +67,15 @@ function loadShellApi(options = {}) {
         updateBookmark: mockUpdateBookmark,
         removeBookmark: mockRemoveBookmark,
       }),
+      [HISTORY_MODULE]: () => ({
+        getAllHistory: mockGetAllHistory,
+        getRecentHistory: mockGetRecentHistory,
+        searchHistory: mockSearchHistory,
+        addHistoryEntry: mockAddHistoryEntry,
+      }),
+      [FAVICONS_MODULE]: () => ({
+        getCachedFavicon: mockGetCachedFavicon,
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -79,6 +95,11 @@ describe('shell-api', () => {
     mockAddBookmark.mockReset();
     mockUpdateBookmark.mockReset();
     mockRemoveBookmark.mockReset();
+    mockGetAllHistory.mockReset();
+    mockGetRecentHistory.mockReset();
+    mockSearchHistory.mockReset();
+    mockAddHistoryEntry.mockReset();
+    mockGetCachedFavicon.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -422,6 +443,9 @@ describe('shell-api', () => {
           'browserState.settings.read',
           'browserState.bookmarks.read',
           'browserState.bookmarks.write',
+          'browserState.history.read',
+          'browserState.history.write',
+          'browserState.favicons.read',
         ],
       })
     );
@@ -435,6 +459,17 @@ describe('shell-api', () => {
     mockAddBookmark.mockReturnValue(true);
     mockUpdateBookmark.mockReturnValue(true);
     mockRemoveBookmark.mockReturnValue(true);
+    mockGetAllHistory.mockReturnValue([{ url: 'https://history.example', title: 'History' }]);
+    mockGetRecentHistory.mockReturnValue([
+      { url: 'https://recent.example', title: 'Recent' },
+    ]);
+    mockSearchHistory.mockReturnValue([{ url: 'https://search.example', title: 'Search' }]);
+    mockAddHistoryEntry.mockReturnValue({
+      url: 'https://added-history.example',
+      title: 'Added History',
+      protocol: 'https',
+    });
+    mockGetCachedFavicon.mockReturnValue('data:image/png;base64,ZmF2');
 
     const settingsResult = await mod.handleShellRequest(
       { sender },
@@ -495,6 +530,62 @@ describe('shell-api', () => {
     ).resolves.toBe(true);
     expect(mockRemoveBookmark).toHaveBeenCalledWith('https://updated.example');
 
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET, args: [{ limit: 3 }] }
+      )
+    ).resolves.toEqual([{ url: 'https://recent.example', title: 'Recent' }]);
+    expect(mockGetRecentHistory).toHaveBeenCalledWith(3);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET,
+          args: [{ query: ' Search ', limit: 999 }],
+        }
+      )
+    ).resolves.toEqual([{ url: 'https://search.example', title: 'Search' }]);
+    expect(mockSearchHistory).toHaveBeenCalledWith('Search', 500);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET, args: [] }
+      )
+    ).resolves.toEqual([{ url: 'https://history.example', title: 'History' }]);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD,
+          args: [{ url: ' https://added-history.example ', title: 'Added History' }],
+        }
+      )
+    ).resolves.toEqual({
+      url: 'https://added-history.example',
+      title: 'Added History',
+      protocol: 'https',
+    });
+    expect(mockAddHistoryEntry).toHaveBeenCalledWith({
+      url: 'https://added-history.example',
+      title: 'Added History',
+      protocol: 'unknown',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED,
+          args: [' https://favicon.example '],
+        }
+      )
+    ).resolves.toBe('data:image/png;base64,ZmF2');
+    expect(mockGetCachedFavicon).toHaveBeenCalledWith('https://favicon.example');
+
     settings.theme = 'mutated';
     expect(settingsResult.theme).toBe('system');
   });
@@ -516,6 +607,18 @@ describe('shell-api', () => {
         requiredCapability: 'browserState.bookmarks.read',
       },
     });
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET,
+        requiredCapability: 'browserState.history.read',
+      },
+    });
   });
 
   test('returns false for malformed browser state write payloads', async () => {
@@ -523,7 +626,7 @@ describe('shell-api', () => {
     const sender = makeSender({ id: 105 });
     mod.registerPackageWebContents(
       sender,
-      makePackage({ capabilities: ['browserState.bookmarks.write'] })
+      makePackage({ capabilities: ['browserState.bookmarks.write', 'browserState.history.write'] })
     );
 
     await expect(
@@ -544,9 +647,16 @@ describe('shell-api', () => {
         { method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE, args: [{}] }
       )
     ).resolves.toBe(false);
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD, args: [{}] }
+      )
+    ).resolves.toBeNull();
     expect(mockAddBookmark).not.toHaveBeenCalled();
     expect(mockUpdateBookmark).not.toHaveBeenCalled();
     expect(mockRemoveBookmark).not.toHaveBeenCalled();
+    expect(mockAddHistoryEntry).not.toHaveBeenCalled();
   });
 
   test('clones shell API handler results before returning them', async () => {

@@ -163,6 +163,9 @@ function writeOfficialChromePackage(root) {
           'browserState.settings.read',
           'browserState.bookmarks.read',
           'browserState.bookmarks.write',
+          'browserState.history.read',
+          'browserState.history.write',
+          'browserState.favicons.read',
         ],
         guestContent: {
           transitionalWebviews: true,
@@ -502,6 +505,9 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'addBookmark',
         'updateBookmark',
         'removeBookmark',
+        'getHistory',
+        'addHistory',
+        'getCachedFavicon',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -1129,6 +1135,13 @@ test('official browser chrome can launch as a local package with transitional we
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
 
+    const input = page.locator('[data-test="address-input"]');
+    await input.click();
+    await input.fill(firstDefaultBookmark.label);
+    await expect(page.locator('.autocomplete-item').filter({ hasText: firstDefaultBookmark.label }))
+      .toBeVisible();
+    await input.press('Escape');
+
     await page.locator('#reload-btn').click();
     await expectHomeReady(page);
 
@@ -1164,6 +1177,14 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="harness-http-stub-url"]',
       'https://example.com/'
     );
+
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
+    await input.click();
+    await input.fill('example.com');
+    await expect(page.locator('.autocomplete-item').filter({ hasText: 'https://example.com/' }))
+      .toBeVisible();
+    await input.press('Escape');
 
     await navigateAddress(page, 'http://example.test/path');
     await expectActiveWebviewText(
@@ -1241,7 +1262,6 @@ test('official browser chrome can launch as a local package with transitional we
     await navigateAddress(page, `bzz://${sampleBzzHash}/`);
     await expectActiveWebviewText(page, '[data-test="package-dweb"]', 'bzz fixture');
 
-    const input = page.locator('[data-test="address-input"]');
     await input.click();
     await input.fill('vitalik.eth');
     await input.press('Enter');

@@ -43,6 +43,14 @@ describe('chrome-runtime-api', () => {
       addBookmark: jest.fn().mockResolvedValue(true),
       updateBookmark: jest.fn().mockResolvedValue(true),
       removeBookmark: jest.fn().mockResolvedValue(true),
+      getHistory: jest
+        .fn()
+        .mockResolvedValue([{ title: 'History', url: 'https://history.example' }]),
+      addHistory: jest.fn().mockResolvedValue({
+        title: 'History',
+        url: 'https://history.example',
+      }),
+      getCachedFavicon: jest.fn().mockResolvedValue('data:image/png;base64,ZmF2'),
       resolveEns: jest.fn().mockResolvedValue({ type: 'not_found' }),
       invalidateEnsContent: jest.fn().mockResolvedValue(true),
     };
@@ -69,6 +77,18 @@ describe('chrome-runtime-api', () => {
       })
     ).resolves.toBe(true);
     await expect(api.removeBookmark('https://updated.example')).resolves.toBe(true);
+    await expect(api.getHistory({ limit: 5 })).resolves.toEqual([
+      { title: 'History', url: 'https://history.example' },
+    ]);
+    await expect(
+      api.addHistory({ title: 'History', url: 'https://history.example' })
+    ).resolves.toEqual({
+      title: 'History',
+      url: 'https://history.example',
+    });
+    await expect(api.getCachedFavicon('https://history.example')).resolves.toBe(
+      'data:image/png;base64,ZmF2'
+    );
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
@@ -84,6 +104,12 @@ describe('chrome-runtime-api', () => {
       target: 'https://updated.example',
     });
     expect(freedomShell.removeBookmark).toHaveBeenCalledWith('https://updated.example');
+    expect(freedomShell.getHistory).toHaveBeenCalledWith({ limit: 5 });
+    expect(freedomShell.addHistory).toHaveBeenCalledWith({
+      title: 'History',
+      url: 'https://history.example',
+    });
+    expect(freedomShell.getCachedFavicon).toHaveBeenCalledWith('https://history.example');
     expect(global.window.electronAPI).toBeUndefined();
   });
 
@@ -102,6 +128,9 @@ describe('chrome-runtime-api', () => {
     await expect(api.addBookmark({ label: 'Added', target: 'https://added.example' })).resolves.toBe(
       false
     );
+    await expect(api.getHistory({ limit: 5 })).resolves.toEqual([]);
+    await expect(api.addHistory({ url: 'https://history.example' })).resolves.toBe(false);
+    await expect(api.getCachedFavicon('https://history.example')).resolves.toBeNull();
   });
 
   test('marks package chrome ready through freedomShell', async () => {

@@ -185,6 +185,48 @@ function removeBookmarkForShell({ target } = {}) {
   return require('./bookmarks-store').removeBookmark(target.trim());
 }
 
+function normalizePositiveLimit(limit, fallback = null) {
+  const value = Number(limit);
+  if (!Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.min(Math.floor(value), 500);
+}
+
+function getHistoryForShell(options = {}) {
+  const history = require('./history');
+  const limit = normalizePositiveLimit(options?.limit);
+  const query = typeof options?.query === 'string' ? options.query.trim() : '';
+
+  if (query) {
+    return history.searchHistory(query, limit || 50);
+  }
+  if (limit) {
+    return history.getRecentHistory(limit);
+  }
+  return history.getAllHistory();
+}
+
+function addHistoryForShell(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const url = typeof entry.url === 'string' ? entry.url.trim() : '';
+  if (!url) {
+    return null;
+  }
+  const title = typeof entry.title === 'string' ? entry.title : '';
+  const protocol = typeof entry.protocol === 'string' ? entry.protocol : 'unknown';
+  return require('./history').addHistoryEntry({ url, title, protocol });
+}
+
+function getCachedFaviconForShell(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return null;
+  }
+  return require('./favicons').getCachedFavicon(url.trim());
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -274,6 +316,15 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE]: {
     handler: ([payload]) => removeBookmarkForShell(payload),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET]: {
+    handler: ([options]) => getHistoryForShell(options),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD]: {
+    handler: ([entry]) => addHistoryForShell(entry),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED]: {
+    handler: ([url]) => getCachedFaviconForShell(url),
   },
 });
 

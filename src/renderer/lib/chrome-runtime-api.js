@@ -101,8 +101,8 @@ const createPackageRuntimeApi = () =>
     resolveEnsReverse: asyncNull,
     invalidateEnsContent: (name) =>
       getRuntimeWindow().freedomShell?.invalidateEnsContent?.(name),
-    getHistory: asyncEmptyArray,
-    addHistory: asyncFalse,
+    getHistory: (options) => callFreedomShell('getHistory', [], options),
+    addHistory: (entry) => callFreedomShell('addHistory', false, entry),
     removeHistory: asyncFalse,
     clearHistory: asyncFalse,
     x402GetDetails: asyncNull,
@@ -127,7 +127,7 @@ const createPackageRuntimeApi = () =>
     readClipboardText: async () => ({ success: false, text: '' }),
     copyImageFromUrl: asyncFalse,
     getFavicon: asyncNull,
-    getCachedFavicon: asyncNull,
+    getCachedFavicon: (url) => callFreedomShell('getCachedFavicon', null, url),
     fetchFavicon: asyncNull,
     fetchFaviconWithKey: asyncNull,
   });

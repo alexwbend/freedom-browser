@@ -57,6 +57,9 @@ describe('package-preload', () => {
       'addBookmark',
       'updateBookmark',
       'removeBookmark',
+      'getHistory',
+      'addHistory',
+      'getCachedFavicon',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -195,6 +198,28 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE,
       args: [{ target: 'https://updated.example' }],
+    });
+
+    await exposures.freedomShell.getHistory({ limit: 10 });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET,
+      args: [{ limit: 10 }],
+    });
+
+    await exposures.freedomShell.addHistory({
+      url: 'https://history.example',
+      title: 'History',
+      protocol: 'https',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD,
+      args: [{ url: 'https://history.example', title: 'History', protocol: 'https' }],
+    });
+
+    await exposures.freedomShell.getCachedFavicon('https://history.example');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED,
+      args: ['https://history.example'],
     });
   });
 

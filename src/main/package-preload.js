@@ -24,6 +24,9 @@ const SHELL_API_METHODS = Object.freeze({
   BROWSER_STATE_BOOKMARKS_ADD: 'browserState.bookmarks.add',
   BROWSER_STATE_BOOKMARKS_UPDATE: 'browserState.bookmarks.update',
   BROWSER_STATE_BOOKMARKS_REMOVE: 'browserState.bookmarks.remove',
+  BROWSER_STATE_HISTORY_GET: 'browserState.history.get',
+  BROWSER_STATE_HISTORY_ADD: 'browserState.history.add',
+  BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -64,6 +67,10 @@ const freedomShell = Object.freeze({
     }),
   removeBookmark: (target) =>
     invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_REMOVE, { target }),
+  getHistory: (options = {}) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_HISTORY_GET, options),
+  addHistory: (entry) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_HISTORY_ADD, entry),
+  getCachedFavicon: (url) =>
+    invokeShell(SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED, url),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

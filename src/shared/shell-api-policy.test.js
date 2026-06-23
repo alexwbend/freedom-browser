@@ -35,6 +35,9 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_BOOKMARKS_ADD: 'browserState.bookmarks.add',
       BROWSER_STATE_BOOKMARKS_UPDATE: 'browserState.bookmarks.update',
       BROWSER_STATE_BOOKMARKS_REMOVE: 'browserState.bookmarks.remove',
+      BROWSER_STATE_HISTORY_GET: 'browserState.history.get',
+      BROWSER_STATE_HISTORY_ADD: 'browserState.history.add',
+      BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -58,6 +61,9 @@ describe('shell-api-policy', () => {
       'browserState.bookmarks.add': 'browserState.bookmarks.write',
       'browserState.bookmarks.update': 'browserState.bookmarks.write',
       'browserState.bookmarks.remove': 'browserState.bookmarks.write',
+      'browserState.history.get': 'browserState.history.read',
+      'browserState.history.add': 'browserState.history.write',
+      'browserState.favicons.getCached': 'browserState.favicons.read',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -77,6 +83,9 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_SETTINGS_READ: 'browserState.settings.read',
       BROWSER_STATE_BOOKMARKS_READ: 'browserState.bookmarks.read',
       BROWSER_STATE_BOOKMARKS_WRITE: 'browserState.bookmarks.write',
+      BROWSER_STATE_HISTORY_READ: 'browserState.history.read',
+      BROWSER_STATE_HISTORY_WRITE: 'browserState.history.write',
+      BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -89,6 +98,9 @@ describe('shell-api-policy', () => {
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'browserState.bookmarks.read',
       'browserState.bookmarks.write',
+      'browserState.favicons.read',
+      'browserState.history.read',
+      'browserState.history.write',
       'browserState.settings.read',
       'navigation.resolve',
       'shell.info',

@@ -180,7 +180,10 @@ The local package directory must contain `manifest.json`:
     "tabs.write",
     "browserState.settings.read",
     "browserState.bookmarks.read",
-    "browserState.bookmarks.write"
+    "browserState.bookmarks.write",
+    "browserState.history.read",
+    "browserState.history.write",
+    "browserState.favicons.read"
   ],
   "files": [
     {
@@ -246,7 +249,8 @@ The launched package smoke now builds a temporary official chrome package from
 `src/renderer` during the test run. The generated manifest opts into
 `guestContent.transitionalWebviews: true` and declares only the shell
 capabilities needed for startup readiness, deterministic navigation coverage,
-and the ordinary browser-state reads/writes used by the bookmarks bar.
+and the ordinary browser-state reads/writes used by the bookmarks bar and
+autocomplete.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
@@ -263,6 +267,8 @@ The official package smoke currently proves:
 - the initial tab and home page render
 - default bookmarks render through the browser-state shell API
 - clicking a default bookmark navigates under the deterministic harness
+- autocomplete includes bookmark and recorded-history suggestions in package
+  mode
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
 - the main menu and node menu open
@@ -293,6 +299,9 @@ running Radicle network.
 - `addBookmark(bookmark)`
 - `updateBookmark(originalTarget, bookmark)`
 - `removeBookmark(target)`
+- `getHistory(options)`
+- `addHistory(entry)`
+- `getCachedFavicon(url)`
 - `getTabSnapshot()`
 - `createTab(options)`
 - `closeTab(tabId)`
@@ -340,6 +349,9 @@ sender-checked shell bridge. `getSettings()` currently provides read-only
 settings needed by package chrome initialization. The bookmark methods provide
 read/write access to the existing bookmark store so the official package
 bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
+`getHistory()` and `addHistory()` expose the existing history store to package
+autocomplete and navigation recording. `getCachedFavicon()` exposes cached icon
+data only; package chrome does not receive the network favicon fetch APIs.
 These APIs return serializable data only and do not expose file paths or store
 internals.
 
@@ -363,6 +375,9 @@ must be allowed by the package manifest's declared capabilities:
 - `browserState.settings.read` allows `getSettings()`
 - `browserState.bookmarks.read` allows `getBookmarks()`
 - `browserState.bookmarks.write` allows bookmark add/update/remove methods
+- `browserState.history.read` allows `getHistory(options)`
+- `browserState.history.write` allows `addHistory(entry)`
+- `browserState.favicons.read` allows `getCachedFavicon(url)`
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.

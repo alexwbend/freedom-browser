@@ -704,6 +704,12 @@ Verification in this checkpoint:
 - `npm test` passed: 112 suites passed, 5 skipped; 2103 tests passed, 17
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+- committed as `92ea1e7` (`feat(chrome): add package browser-state shell
+  APIs`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28036065482`, job `test` (`82989628608`), passed for
+  `92ea1e7`.
+- GitHub Actions run `28036065482`, job `e2e-chrome-runtime`
+  (`82989628698`), passed for `92ea1e7`.
 
 Known remaining gaps after this checkpoint:
 
@@ -713,4 +719,45 @@ Known remaining gaps after this checkpoint:
   API and adapter write paths have unit coverage
 - history/autocomplete, favicons, profile/menu behavior, window/menu command
   events, surface-control, provider-flow bypass, trusted prompt broker, and
+  `freedom-chrome://active/` package serving remain for later phases
+
+### Browser-State Checkpoint 2: History And Cached Favicons
+
+Current checkpoint: package chrome now uses narrow browser-state shell APIs for
+history/autocomplete data, history recording, and cached favicon reads.
+
+Implemented in this checkpoint:
+
+- added shell API methods and capabilities:
+  - `browserState.history.get` / `browserState.history.read`
+  - `browserState.history.add` / `browserState.history.write`
+  - `browserState.favicons.getCached` / `browserState.favicons.read`
+- exposed those methods through `window.freedomShell` only
+- updated the package runtime adapter so `getHistory`, `addHistory`, and
+  `getCachedFavicon` no longer use no-op package defaults when shell support is
+  available
+- kept network favicon fetching APIs unavailable to package chrome pending a
+  scoped shell-owned fetch/write design
+- expanded official package smoke coverage so autocomplete must include a
+  default bookmark suggestion and a recorded-history suggestion in package mode
+- updated runtime and trust-boundary docs
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed: 4 suites, 30 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed: 13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 112 suites passed, 5 skipped; 2103 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- `saveSettings`, bookmark-bar menu toggle behavior, history remove/clear, and
+  network favicon fetch/write APIs still need either real shell APIs or
+  intentional disabled/hidden smoke coverage if visible in package mode
+- direct add/edit/remove bookmark UI smoke remains pending
+- profile/menu behavior, window/menu command events, service/node status,
+  surface-control, provider-flow bypass, trusted prompt broker, and
   `freedom-chrome://active/` package serving remain for later phases
