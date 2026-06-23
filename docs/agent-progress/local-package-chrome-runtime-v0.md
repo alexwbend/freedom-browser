@@ -1064,7 +1064,12 @@ Verification in this checkpoint:
 - `npm run lint` passed.
 - `npm test` passed: 114 suites passed, 5 skipped; 2126 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
-- GitHub target CI is pending for the checkpoint commit.
+- committed as `5817d9d` (`feat(shell): add package window controls`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28042384812`, job `test` (`83011708222`), passed for
+  `5817d9d`.
+- GitHub Actions run `28042384812`, job `e2e-chrome-runtime`
+  (`83011708172`), passed for `5817d9d`.
 
 Known remaining gaps after this checkpoint:
 
