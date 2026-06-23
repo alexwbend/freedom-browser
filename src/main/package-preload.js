@@ -20,6 +20,7 @@ const SHELL_API_METHODS = Object.freeze({
   TABS_RELOAD: 'tabs.reload',
   TABS_GO_HOME: 'tabs.goHome',
   BROWSER_STATE_SETTINGS_GET: 'browserState.settings.get',
+  BROWSER_STATE_SETTINGS_SAVE: 'browserState.settings.save',
   BROWSER_STATE_BOOKMARKS_GET: 'browserState.bookmarks.get',
   BROWSER_STATE_BOOKMARKS_ADD: 'browserState.bookmarks.add',
   BROWSER_STATE_BOOKMARKS_UPDATE: 'browserState.bookmarks.update',
@@ -73,6 +74,7 @@ const freedomShell = Object.freeze({
   reloadTab: (tabId) => invokeShell(SHELL_API_METHODS.TABS_RELOAD, { tabId }),
   goHome: (tabId) => invokeShell(SHELL_API_METHODS.TABS_GO_HOME, { tabId }),
   getSettings: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET),
+  saveSettings: (settings) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE, settings),
   getBookmarks: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET),
   addBookmark: (bookmark) => invokeShell(SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_ADD, bookmark),
   updateBookmark: (originalTarget, bookmark) =>

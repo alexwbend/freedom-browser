@@ -162,6 +162,7 @@ function writeOfficialChromePackage(root) {
           'shell.ready',
           'navigation.resolve',
           'browserState.settings.read',
+          'browserState.settings.write',
           'browserState.bookmarks.read',
           'browserState.bookmarks.write',
           'browserState.history.read',
@@ -550,6 +551,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'reloadTab',
         'goHome',
         'getSettings',
+        'saveSettings',
         'getBookmarks',
         'addBookmark',
         'updateBookmark',
@@ -1237,6 +1239,27 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#wallet-toggle-btn')).toBeHidden();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
     await expectHomeReady(page);
+
+    const settingsWriteResult = await page.evaluate(async () => {
+      const before = await window.freedomShell.getSettings();
+      const saved = await window.freedomShell.saveSettings({
+        theme: 'light',
+        showBookmarkBar: true,
+        enableIdentityWallet: false,
+        startAntAtLaunch: false,
+      });
+      const after = await window.freedomShell.getSettings();
+      return { before, saved, after };
+    });
+    expect(settingsWriteResult.saved).toBe(true);
+    expect(settingsWriteResult.after.theme).toBe('light');
+    expect(settingsWriteResult.after.showBookmarkBar).toBe(true);
+    expect(settingsWriteResult.after.enableIdentityWallet).toBe(
+      settingsWriteResult.before.enableIdentityWallet
+    );
+    expect(settingsWriteResult.after.startAntAtLaunch).toBe(
+      settingsWriteResult.before.startAntAtLaunch
+    );
 
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeVisible();
     await expect(page.locator('[data-test="bookmark-item"]')).toHaveCount(7);

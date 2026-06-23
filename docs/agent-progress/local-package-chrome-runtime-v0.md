@@ -1191,3 +1191,49 @@ Known remaining gaps after this checkpoint:
   native menu event bridges, devtools/focus shortcuts, service/node status
   commands, clipboard/image context actions, and some history/favicon
   management methods still need final audit disposition before completion
+
+### Browser-State Checkpoint 3: Package-Safe Settings Writes
+
+Current checkpoint: package chrome no longer uses a silent `saveSettings`
+adapter no-op for package-safe browser UI settings. Service/node/provider
+settings remain shell-owned and are ignored if included in a package settings
+write payload.
+
+Implemented in this checkpoint:
+
+- added shell API method and capability:
+  - `browserState.settings.save` / `browserState.settings.write`
+- exposed `saveSettings(settings)` through the narrow package preload
+- changed `src/renderer/lib/chrome-runtime-api.js` so package
+  `saveSettings()` delegates to `freedomShell.saveSettings()`
+- kept package settings writes scoped to a package-safe browser UI subset:
+  `theme`, `showBookmarkBar`, `blockUnverifiedEns`, `sidebarOpen`, and
+  `sidebarWidth`
+- ignored service/node/provider-oriented settings such as
+  `enableIdentityWallet` and `startAntAtLaunch` in package save payloads
+- granted the official package smoke manifest `browserState.settings.write`
+- expanded the official package smoke to prove live settings writes persist
+  safe keys while unsafe service/provider keys are not changed
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed: 4 suites, 41 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` initially failed because the fixture smoke's explicit `freedomShell` key list did not include the new `saveSettings` method; the expected narrow API surface list was updated.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the fixture smoke expectation update: 14 tests.
+- `npm test` passed: 114 suites passed, 5 skipped; 2129 passed, 17 skipped.
+- GitHub target CI verification for this settings-write checkpoint is pending
+  until the checkpoint is committed and pushed.
+
+Known remaining gaps after this checkpoint:
+
+- native bookmark-bar menu toggle, menu event bridges, devtools/focus
+  shortcuts, and native tab command events still need implementation or
+  intentional disabled/hidden behavior with coverage
+- profile mutation/switching, service/node status commands, clipboard/image
+  context actions, direct context-menu open-in-new-window smoke, and some
+  history/favicon management methods still need final audit disposition before
+  completion

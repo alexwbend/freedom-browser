@@ -8,6 +8,7 @@ const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-p
 const mockResolveEnsContent = jest.fn();
 const mockInvalidateEnsContent = jest.fn();
 const mockLoadSettings = jest.fn();
+const mockSaveSettings = jest.fn();
 const mockLoadBookmarks = jest.fn();
 const mockAddBookmark = jest.fn();
 const mockUpdateBookmark = jest.fn();
@@ -61,6 +62,7 @@ function loadShellApi(options = {}) {
       }),
       [SETTINGS_STORE_MODULE]: () => ({
         loadSettings: mockLoadSettings,
+        saveSettings: mockSaveSettings,
       }),
       [BOOKMARKS_STORE_MODULE]: () => ({
         loadBookmarks: mockLoadBookmarks,
@@ -92,6 +94,7 @@ describe('shell-api', () => {
     mockResolveEnsContent.mockReset();
     mockInvalidateEnsContent.mockReset();
     mockLoadSettings.mockReset();
+    mockSaveSettings.mockReset();
     mockLoadBookmarks.mockReset();
     mockAddBookmark.mockReset();
     mockUpdateBookmark.mockReset();
@@ -572,6 +575,7 @@ describe('shell-api', () => {
       makePackage({
         capabilities: [
           'browserState.settings.read',
+          'browserState.settings.write',
           'browserState.bookmarks.read',
           'browserState.bookmarks.write',
           'browserState.history.read',
@@ -586,6 +590,7 @@ describe('shell-api', () => {
       enableIdentityWallet: true,
     };
     mockLoadSettings.mockReturnValue(settings);
+    mockSaveSettings.mockReturnValue(true);
     mockLoadBookmarks.mockReturnValue([{ label: 'Example', target: 'https://example.com' }]);
     mockAddBookmark.mockReturnValue(true);
     mockUpdateBookmark.mockReturnValue(true);
@@ -611,6 +616,45 @@ describe('shell-api', () => {
       showBookmarkBar: true,
       enableIdentityWallet: true,
     });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE,
+          args: [
+            {
+              theme: 'light',
+              showBookmarkBar: false,
+              blockUnverifiedEns: false,
+              sidebarOpen: true,
+              sidebarWidth: 375.8,
+              enableIdentityWallet: false,
+              startAntAtLaunch: false,
+              injected: 'ignored',
+            },
+          ],
+        }
+      )
+    ).resolves.toBe(true);
+    expect(mockSaveSettings).toHaveBeenCalledWith({
+      theme: 'light',
+      showBookmarkBar: false,
+      blockUnverifiedEns: false,
+      sidebarOpen: true,
+      sidebarWidth: 375,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE,
+          args: [{ theme: 'sepia', enableIdentityWallet: false }],
+        }
+      )
+    ).resolves.toBe(false);
+
     await expect(
       mod.handleShellRequest(
         { sender },
@@ -736,6 +780,21 @@ describe('shell-api', () => {
       details: {
         method: SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET,
         requiredCapability: 'browserState.bookmarks.read',
+      },
+    });
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE,
+          args: [{ showBookmarkBar: true }],
+        }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE,
+        requiredCapability: 'browserState.settings.write',
       },
     });
     await expect(

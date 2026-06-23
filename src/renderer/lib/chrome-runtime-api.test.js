@@ -37,6 +37,7 @@ describe('chrome-runtime-api', () => {
         showBookmarkBar: true,
         enableIdentityWallet: true,
       }),
+      saveSettings: jest.fn().mockResolvedValue(true),
       getBookmarks: jest
         .fn()
         .mockResolvedValue([{ label: 'Example', target: 'https://example.com' }]),
@@ -74,6 +75,7 @@ describe('chrome-runtime-api', () => {
       showBookmarkBar: true,
       enableIdentityWallet: true,
     });
+    await expect(api.saveSettings({ showBookmarkBar: false })).resolves.toBe(true);
     await expect(api.getBookmarks()).resolves.toEqual([
       { label: 'Example', target: 'https://example.com' },
     ]);
@@ -125,6 +127,7 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.showAbout).toHaveBeenCalledTimes(1);
     expect(freedomShell.checkForUpdates).toHaveBeenCalledTimes(1);
     expect(freedomShell.restartAndInstallUpdate).toHaveBeenCalledTimes(1);
+    expect(freedomShell.saveSettings).toHaveBeenCalledWith({ showBookmarkBar: false });
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',
       target: 'https://added.example',
@@ -154,6 +157,7 @@ describe('chrome-runtime-api', () => {
       theme: 'system',
       enableIdentityWallet: false,
     });
+    await expect(api.saveSettings({ showBookmarkBar: true })).resolves.toBe(false);
     await expect(api.getBookmarks()).resolves.toEqual([]);
     await expect(api.addBookmark({ label: 'Added', target: 'https://added.example' })).resolves.toBe(
       false

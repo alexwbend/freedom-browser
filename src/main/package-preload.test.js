@@ -53,6 +53,7 @@ describe('package-preload', () => {
       'reloadTab',
       'goHome',
       'getSettings',
+      'saveSettings',
       'getBookmarks',
       'addBookmark',
       'updateBookmark',
@@ -175,6 +176,12 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET,
       args: [],
+    });
+
+    await exposures.freedomShell.saveSettings({ showBookmarkBar: true });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE,
+      args: [{ showBookmarkBar: true }],
     });
 
     await exposures.freedomShell.getBookmarks();

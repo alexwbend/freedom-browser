@@ -233,6 +233,40 @@ function getSettingsForShell() {
   return require('./settings-store').loadSettings();
 }
 
+const PACKAGE_WRITABLE_SETTINGS = Object.freeze({
+  theme: (value) => (['system', 'light', 'dark'].includes(value) ? value : undefined),
+  showBookmarkBar: (value) => (typeof value === 'boolean' ? value : undefined),
+  blockUnverifiedEns: (value) => (typeof value === 'boolean' ? value : undefined),
+  sidebarOpen: (value) => (typeof value === 'boolean' ? value : undefined),
+  sidebarWidth: (value) => {
+    const width = Number(value);
+    return Number.isFinite(width) && width > 0 ? Math.floor(width) : undefined;
+  },
+});
+
+function saveSettingsForShell(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return false;
+  }
+
+  const nextSettings = {};
+  for (const [key, normalize] of Object.entries(PACKAGE_WRITABLE_SETTINGS)) {
+    if (!Object.prototype.hasOwnProperty.call(settings, key)) {
+      continue;
+    }
+    const value = normalize(settings[key]);
+    if (value !== undefined) {
+      nextSettings[key] = value;
+    }
+  }
+
+  if (Object.keys(nextSettings).length === 0) {
+    return false;
+  }
+
+  return require('./settings-store').saveSettings(nextSettings);
+}
+
 function normalizeBookmarkForShell(bookmark) {
   if (!bookmark || typeof bookmark !== 'object') {
     return null;
@@ -697,6 +731,9 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.BROWSER_STATE_SETTINGS_GET]: {
     handler: () => getSettingsForShell(),
+  },
+  [SHELL_API_METHODS.BROWSER_STATE_SETTINGS_SAVE]: {
+    handler: ([settings]) => saveSettingsForShell(settings),
   },
   [SHELL_API_METHODS.BROWSER_STATE_BOOKMARKS_GET]: {
     handler: () => getBookmarksForShell(),

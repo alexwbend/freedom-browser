@@ -189,6 +189,7 @@ The local package directory must contain `manifest.json`:
     "tabs.read",
     "tabs.write",
     "browserState.settings.read",
+    "browserState.settings.write",
     "browserState.bookmarks.read",
     "browserState.bookmarks.write",
     "browserState.history.read",
@@ -287,6 +288,8 @@ The official package smoke currently proves:
 - package chrome receives `window.freedomShell` but not broad preload globals
 - the initial tab and home page render
 - default bookmarks render through the browser-state shell API
+- package-safe settings writes persist through the browser-state shell API
+  without allowing package chrome to mutate service/provider settings
 - clicking a default bookmark navigates under the deterministic harness
 - autocomplete includes bookmark and recorded-history suggestions in package
   mode
@@ -322,6 +325,7 @@ running Radicle network.
 - `invalidateEnsContent(name)`
 - `markReady()`
 - `getSettings()`
+- `saveSettings(settings)`
 - `getBookmarks()`
 - `addBookmark(bookmark)`
 - `updateBookmark(originalTarget, bookmark)`
@@ -391,8 +395,11 @@ This contract is intentionally main-owned and does not yet migrate bundled
 renderer tabs away from their current `<webview>` implementation.
 
 The browser-state methods expose ordinary browser UI state through the same
-sender-checked shell bridge. `getSettings()` currently provides read-only
-settings needed by package chrome initialization. The bookmark methods provide
+sender-checked shell bridge. `getSettings()` provides settings needed by
+package chrome initialization. `saveSettings(settings)` persists only
+package-safe browser UI settings such as theme, bookmark-bar visibility, ENS
+interstitial gating, and sidebar dimensions; service/node/provider-oriented
+settings in the same payload are ignored by main. The bookmark methods provide
 read/write access to the existing bookmark store so the official package
 bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
 `getHistory()` and `addHistory()` expose the existing history store to package
@@ -455,6 +462,8 @@ must be allowed by the package manifest's declared capabilities:
 - `tabs.read` allows `getTabSnapshot()`
 - `tabs.write` allows tab command methods
 - `browserState.settings.read` allows `getSettings()`
+- `browserState.settings.write` allows `saveSettings(settings)` for the
+  package-safe browser UI setting subset
 - `browserState.bookmarks.read` allows `getBookmarks()`
 - `browserState.bookmarks.write` allows bookmark add/update/remove methods
 - `browserState.history.read` allows `getHistory(options)`

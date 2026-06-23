@@ -90,7 +90,7 @@ const createPackageRuntimeApi = () =>
     setBookmarkBarToggleEnabled: noop,
     setBookmarkBarChecked: noop,
     getSettings: () => callFreedomShell('getSettings', { ...DEFAULT_SETTINGS }),
-    saveSettings: asyncFalse,
+    saveSettings: (settings) => callFreedomShell('saveSettings', false, settings),
     getBookmarks: () => callFreedomShell('getBookmarks', []),
     addBookmark: (bookmark) => callFreedomShell('addBookmark', false, bookmark),
     updateBookmark: (originalTarget, bookmark) =>
