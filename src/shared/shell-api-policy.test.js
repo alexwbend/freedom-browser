@@ -42,6 +42,7 @@ describe('shell-api-policy', () => {
       SURFACES_OPEN: 'surfaces.open',
       SURFACES_CLOSE: 'surfaces.close',
       SURFACES_TOGGLE: 'surfaces.toggle',
+      TRUSTED_PROMPTS_REQUEST_TEST: 'trustedPrompts.requestTest',
     });
     expect(Object.isFrozen(SHELL_API_METHODS)).toBe(true);
   });
@@ -72,6 +73,7 @@ describe('shell-api-policy', () => {
       'surfaces.open': 'surfaces.wallet.control',
       'surfaces.close': 'surfaces.wallet.control',
       'surfaces.toggle': 'surfaces.wallet.control',
+      'trustedPrompts.requestTest': 'trustedPrompts.test',
     });
 
     for (const method of Object.values(SHELL_API_METHODS)) {
@@ -95,6 +97,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_WRITE: 'browserState.history.write',
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
       SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
+      TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
     });
     expect(SHELL_API_EVENTS).toEqual({
       TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -117,6 +120,7 @@ describe('shell-api-policy', () => {
       'surfaces.wallet.control',
       'tabs.read',
       'tabs.write',
+      'trustedPrompts.test',
     ]);
     expect(isKnownShellCapability('wallet.export')).toBe(false);
   });

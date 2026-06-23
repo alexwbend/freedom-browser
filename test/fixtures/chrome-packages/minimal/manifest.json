@@ -15,16 +15,17 @@
     "navigation.resolve",
     "tabs.read",
     "tabs.write",
-    "surfaces.wallet.control"
+    "surfaces.wallet.control",
+    "trustedPrompts.test"
   ],
   "files": [
     {
       "path": "index.html",
-      "sha256": "1ebc863944a42fc1d9f3eca6a78f8a73d7f30a52837adb59976e2b3605399b42"
+      "sha256": "2fd5a98585dc2b39de7052e1d2ff159bb1acc9c2b3df18354871346794c46cbe"
     },
     {
       "path": "main.js",
-      "sha256": "fdfed7f26de04251b201f7852b1543acb732da51d13063e666b1a1f076896a7e"
+      "sha256": "3af9addd2fcfd2eebd4942fae3bdeddfba6fc90520aebe3fd506d0aa9466d8a0"
     },
     {
       "path": "styles.css",

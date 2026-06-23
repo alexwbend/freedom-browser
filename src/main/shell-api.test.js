@@ -729,6 +729,80 @@ describe('shell-api', () => {
     });
   });
 
+  test('routes test trusted prompt requests through main-derived caller context', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 109 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({
+        capabilities: ['trustedPrompts.test'],
+      })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
+          args: [
+            {
+              kind: 'test.confirmation',
+              reason: ' Prompt from package chrome ',
+              origin: 'https://spoofed.example',
+              tabId: 999,
+            },
+          ],
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: 'test.confirmation',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'trusted-prompt-broker',
+      context: {
+        source: 'main',
+        origin: null,
+        tabId: null,
+        caller: {
+          packageId: 'baby.freedom.chrome.fixture',
+          packageType: 'browser-chrome',
+          name: 'Fixture Chrome',
+          version: '0.0.1',
+        },
+      },
+      request: {
+        reason: 'Prompt from package chrome',
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'test-only-broker',
+      },
+    });
+  });
+
+  test('rejects trusted prompt requests without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 110 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
+          args: [{ kind: 'test.confirmation' }],
+        }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
+        requiredCapability: 'trustedPrompts.test',
+      },
+    });
+  });
+
   test('returns false for malformed browser state write payloads', async () => {
     const { mod } = loadShellApi();
     const sender = makeSender({ id: 105 });

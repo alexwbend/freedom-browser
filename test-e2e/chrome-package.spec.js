@@ -513,6 +513,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'openSurface',
         'closeSurface',
         'toggleSurface',
+        'requestTestTrustedPrompt',
         'onTabCommandResult',
         'onTabSnapshotChanged',
       ],
@@ -719,6 +720,31 @@ test('local package chrome loads through freedomShell without broad preload APIs
         error: {
           code: 'SURFACE_UNSUPPORTED',
         },
+      },
+    });
+
+    await expect(page.locator('[data-test="trusted-prompt-status"]')).toHaveText('ok');
+    const trustedPrompt = JSON.parse(
+      await page.locator('[data-test="trusted-prompt-json"]').textContent()
+    );
+    expect(trustedPrompt).toMatchObject({
+      ok: true,
+      kind: 'test.confirmation',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'trusted-prompt-broker',
+      context: {
+        source: 'main',
+        origin: null,
+        tabId: null,
+        caller: {
+          packageId: 'baby.freedom.chrome.fixture',
+          packageType: 'browser-chrome',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'test-only-broker',
       },
     });
   } finally {

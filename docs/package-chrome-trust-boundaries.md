@@ -119,3 +119,26 @@ signing, vault, x402, or Swarm approval UI into package mode. The official
 package chrome still hides the wallet/sidebar affordance until a real
 shell-owned trusted wallet surface exists, while the fixture package smoke
 exercises the placeholder surface-control path.
+
+## Trusted Prompt Broker Status
+
+The first broker foundation lives in `src/main/trusted-prompt-broker.js` and is
+documented in `docs/trusted-prompt-broker.md`. It implements a test-only
+`trustedPrompts.requestTest` method behind `trustedPrompts.test`.
+
+The test broker proves the required boundary shape:
+
+- package chrome can request a brokered prompt result only through
+  `window.freedomShell`
+- the request is sender-checked and capability-gated
+- the result says the surface owner is `shell` and the renderer is
+  `trusted-prompt-broker`
+- package-supplied `origin`, `tabId`, URL, label, and permission-key claims are
+  not trusted as final security truth
+- package chrome still receives no wallet, identity, provider, x402, Swarm,
+  vault, signing, Node, Electron, or arbitrary IPC authority
+
+This checkpoint does not migrate wallet connect, transaction/signing,
+typed-data signing, x402 approvals, Swarm publish/feed approvals, or vault
+unlock. Those flows must use main-derived guest/request context and a real
+shell-owned prompt surface before they can be called complete in package mode.

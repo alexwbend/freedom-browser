@@ -235,6 +235,41 @@
     }
   }
 
+  async function exerciseTrustedPrompt() {
+    const shell = window.freedomShell || {};
+    if (typeof shell.requestTestTrustedPrompt !== 'function') {
+      setText('trusted-prompt-status', 'missing-requestTestTrustedPrompt');
+      return false;
+    }
+
+    try {
+      const result = await shell.requestTestTrustedPrompt({
+        kind: 'test.confirmation',
+        reason: 'Fixture package broker check',
+        origin: 'https://spoofed.example',
+        tabId: 999,
+      });
+      setJson('trusted-prompt-json', result);
+
+      const ok =
+        result.ok === true &&
+        result.trusted === true &&
+        result.surfaceOwner === 'shell' &&
+        result.renderedBy === 'trusted-prompt-broker' &&
+        result.context?.source === 'main' &&
+        result.context?.origin === null &&
+        result.context?.tabId === null &&
+        result.context?.caller?.packageId === 'baby.freedom.chrome.fixture' &&
+        result.result?.outcome === 'accepted' &&
+        result.result?.source === 'test-only-broker';
+      setText('trusted-prompt-status', ok ? 'ok' : 'error:prompt-result');
+      return ok;
+    } catch (error) {
+      setText('trusted-prompt-status', `error:${error?.message || error}`);
+      return false;
+    }
+  }
+
   async function signalReady() {
     if (!window.freedomShell || typeof window.freedomShell.markReady !== 'function') {
       document.body.dataset.ready = 'missing-mark-ready';
@@ -259,12 +294,14 @@
     const matrixReady = await resolveNavigationMatrix();
     const tabsReady = await exerciseTabs();
     const surfacesReady = await exerciseSurfaces();
+    const trustedPromptReady = await exerciseTrustedPrompt();
     if (
       infoReady &&
       navigationReady &&
       matrixReady &&
       tabsReady &&
       surfacesReady &&
+      trustedPromptReady &&
       presentBroadApis.length === 0
     ) {
       await signalReady();

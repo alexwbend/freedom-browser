@@ -64,6 +64,7 @@ describe('package-preload', () => {
       'openSurface',
       'closeSurface',
       'toggleSurface',
+      'requestTestTrustedPrompt',
       'onTabCommandResult',
       'onTabSnapshotChanged',
     ]);
@@ -248,6 +249,15 @@ describe('package-preload', () => {
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.SURFACES_TOGGLE,
       args: [{ surface: 'wallet' }],
+    });
+
+    await exposures.freedomShell.requestTestTrustedPrompt({
+      kind: 'test.confirmation',
+      origin: 'https://spoofed.example',
+    });
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
+      args: [{ kind: 'test.confirmation', origin: 'https://spoofed.example' }],
     });
   });
 

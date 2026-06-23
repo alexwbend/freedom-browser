@@ -31,6 +31,7 @@ const SHELL_API_METHODS = Object.freeze({
   SURFACES_OPEN: 'surfaces.open',
   SURFACES_CLOSE: 'surfaces.close',
   SURFACES_TOGGLE: 'surfaces.toggle',
+  TRUSTED_PROMPTS_REQUEST_TEST: 'trustedPrompts.requestTest',
 });
 const SHELL_API_EVENTS = Object.freeze({
   TABS_COMMAND_RESULT: 'tabs.commandResult',
@@ -79,6 +80,8 @@ const freedomShell = Object.freeze({
   openSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_OPEN, { surface }),
   closeSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_CLOSE, { surface }),
   toggleSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_TOGGLE, { surface }),
+  requestTestTrustedPrompt: (payload) =>
+    invokeShell(SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST, payload),
   onTabCommandResult: (callback) => onShellEvent(SHELL_API_EVENTS.TABS_COMMAND_RESULT, callback),
   onTabSnapshotChanged: (callback) =>
     onShellEvent(SHELL_API_EVENTS.TABS_SNAPSHOT_CHANGED, callback),

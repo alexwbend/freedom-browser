@@ -308,6 +308,7 @@ running Radicle network.
 - `openSurface(surface)`
 - `closeSurface(surface)`
 - `toggleSurface(surface)`
+- `requestTestTrustedPrompt(payload)`
 - `getTabSnapshot()`
 - `createTab(options)`
 - `closeTab(tabId)`
@@ -372,6 +373,14 @@ smoke still keeps the wallet/sidebar affordance hidden until a real
 shell-owned trusted surface is available, while the fixture package smoke
 exercises the placeholder control path.
 
+`requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
+documented in `docs/trusted-prompt-broker.md`. It proves package chrome can
+request a shell-owned trusted prompt result without rendering the prompt or
+supplying final origin/security truth. The method requires
+`trustedPrompts.test`, ignores package-supplied origin/tab claims, and does not
+expose wallet, identity, x402, Swarm, vault, or signing APIs. It is not a
+production prompt capability and is not declared by the official package smoke.
+
 `onTabCommandResult(callback)` subscribes to package-visible
 `tabs.commandResult` events emitted after shell-owned tab commands complete. It
 returns a cleanup function. Like the tab command methods, the event requires the
@@ -398,6 +407,8 @@ must be allowed by the package manifest's declared capabilities:
 - `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
   `openSurface("wallet")`, `closeSurface("wallet")`, and
   `toggleSurface("wallet")`
+- `trustedPrompts.test` allows `requestTestTrustedPrompt(payload)` for the
+  test-only broker slice
 
 Requests from unknown or destroyed senders fail closed, and missing
 capabilities deny the method.
@@ -421,6 +432,10 @@ package-mode proof routes guest `ethereum.request({ method: 'eth_chainId' })`
 from the webview preload directly to main over a read-only provider channel.
 Higher-risk provider methods remain on the legacy bundled path until the
 trusted prompt/surface broker migration gives them shell-owned approval UI.
+The broker foundation currently exists as the test-only
+`requestTestTrustedPrompt()` path; real wallet connect, signing, x402, Swarm
+publish, and vault unlock flows still need main-derived request context and
+shell-owned prompt UI before they can move through the broker.
 
 ## Package Store
 

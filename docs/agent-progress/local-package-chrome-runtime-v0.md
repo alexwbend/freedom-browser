@@ -868,3 +868,50 @@ Known remaining gaps after this checkpoint:
   the trusted prompt broker foundation before package chrome can expose those
   flows safely
 - `freedom-chrome://active/` package serving remains unimplemented
+
+### Trusted Prompt Broker Checkpoint 1: Test-Only Broker Path
+
+Current checkpoint: package chrome can request a test-only trusted prompt
+result through a main-owned broker without rendering the prompt or supplying
+final origin/security truth. This is a broker foundation, not a real
+wallet/payment/publish/vault prompt migration.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-prompt-broker.js`
+- added shell API method and capability:
+  - `trustedPrompts.requestTest`
+  - `trustedPrompts.test`
+- exposed the method through `window.freedomShell.requestTestTrustedPrompt`
+- shell API requests pass only registered caller identity into the broker and
+  ignore package-supplied `origin`, `tabId`, URL, label, or permission-key
+  claims as final security truth
+- unsupported prompt kinds return structured `TRUSTED_PROMPT_UNSUPPORTED`
+  results
+- callers without `trustedPrompts.test` are denied by the shell API policy
+- the local fixture package declares `trustedPrompts.test` and exercises the
+  broker path before marking itself ready
+- official package chrome does not declare the test prompt capability
+- kept package chrome without wallet, identity, provider, x402, Swarm, vault,
+  signing, Node, Electron, or arbitrary IPC authority
+- added `docs/trusted-prompt-broker.md` and updated
+  `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/main/trusted-prompt-broker.test.js` passed: 4 suites, 32 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 113 suites passed, 5 skipped; 2113 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed: 14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- the broker slice is test-only; real wallet connect, transaction/signing,
+  typed-data signing, x402 approvals, Swarm publish/feed approvals, and vault
+  unlock still need main-derived request context plus real shell-owned prompt
+  UI before package mode can support those flows
+- `freedom-chrome://active/` package serving remains unimplemented

@@ -5,6 +5,7 @@ const { version: packageVersion } = require('../../package.json');
 const { getActiveChromePackage } = require('./chrome-package');
 const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
+const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
 const {
   SHELL_API_EVENTS,
   SHELL_API_METHODS,
@@ -286,6 +287,12 @@ function toggleSurfaceOpen(caller, payload) {
   return describeSurfaceState(caller, surface);
 }
 
+function requestTestTrustedPromptForShell(payload, caller) {
+  return defaultTrustedPromptBroker.requestTestPrompt(payload, {
+    caller: caller.identity,
+  });
+}
+
 function registerPackageWebContents(sender, chromePackage = getActiveChromePackage(), options = {}) {
   if (!sender || typeof sender !== 'object') {
     return () => {};
@@ -397,6 +404,9 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.SURFACES_TOGGLE]: {
     handler: ([payload], _event, caller) => toggleSurfaceOpen(caller, payload),
+  },
+  [SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST]: {
+    handler: ([payload], _event, caller) => requestTestTrustedPromptForShell(payload, caller),
   },
 });
 
