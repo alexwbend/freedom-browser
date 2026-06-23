@@ -1687,6 +1687,49 @@ Known remaining gaps after this checkpoint:
 - profile creation/switching remains shell-owned/bundled-only until a scoped
   trusted switching/launch contract is designed
 
+### Chrome UI Checkpoint 8: DevTools Command Smoke
+
+Current checkpoint: package chrome now has launched smoke coverage proving that
+the native Developer Tools command reaches the active package webview through
+the capability-gated `chrome.ui.commands` bridge instead of remaining a silent
+no-op.
+
+Implemented in this checkpoint:
+
+- expanded the official package runtime smoke to instrument the active
+  package-owned guest webview's DevTools methods
+- drove the real native application menu `toggle-devtools` command twice
+- verified the command path opens and then closes DevTools on the active
+  package webview without exposing Electron menu objects, arbitrary IPC, or
+  BrowserWindow authority to package chrome
+- kept the event delivery on the existing sender-checked
+  `chrome.ui.commands` shell event bridge
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm run lint` passed.
+- `npm test` passed: 115 suites passed, 5 skipped; 2146 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `bb057a1` (`test(chrome): cover package devtools command`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28058098467`, job `test` (`83065406705`), passed for
+  `bb057a1`.
+- GitHub Actions run `28058098467`, job `e2e-chrome-runtime`
+  (`83065408695`), passed for `bb057a1`.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 7: Bookmark Mutation Smoke
 
 Current checkpoint: the official package smoke now covers the visible bookmark
