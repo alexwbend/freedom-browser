@@ -1157,7 +1157,21 @@ Verification in this checkpoint:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the all-window recorder fix: 1 test.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the all-window recorder fix: 14 tests.
 - `npm run lint` passed after the all-window recorder fix.
-- GitHub target CI verification for the all-window recorder branch head is
+- committed the all-window recorder fix as `1273a80` (`test(chrome): record
+  fullscreen calls across windows`) and pushed to
+  `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28044839022`, job `test` (`83020108724`), passed for
+  `1273a80`.
+- GitHub Actions run `28044839022`, job `e2e-chrome-runtime`
+  (`83020108690`), failed for `1273a80` because the visible Fullscreen menu
+  item click still produced no recorded `setFullScreen()` call in CI even
+  though the same smoke passed locally. The next fix keeps the visible menu and
+  target-item assertions but triggers the already-visible menu command with a
+  DOM `click()` to avoid Ubuntu/Xvfb pointer-target variance on the menu item.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed after the deterministic menu-click fix: 1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed after the deterministic menu-click fix: 14 tests.
+- `npm run lint` passed after the deterministic menu-click fix.
+- GitHub target CI verification for the deterministic menu-click fix is
   pending until the next fix commit is pushed.
 
 Known remaining gaps after this checkpoint:

@@ -379,6 +379,19 @@ async function expectBundledChromeLoaded(page) {
   await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
 }
 
+async function clickVisibleMainMenuItem(page, selector) {
+  await page.locator('#menu-button').click();
+  await expect(page.locator('#menu-dropdown')).toHaveClass(/open/);
+  await expect(page.locator(selector)).toBeVisible();
+  await page.evaluate((targetSelector) => {
+    const element = document.querySelector(targetSelector);
+    if (!element) {
+      throw new Error(`Missing menu item: ${targetSelector}`);
+    }
+    element.click();
+  }, selector);
+}
+
 async function installMainWindowFullScreenRecorder(app) {
   await app.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -1264,11 +1277,9 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#menu-dropdown')).not.toHaveClass(/open/);
 
     await installMainWindowFullScreenRecorder(launched.app);
-    await page.locator('#menu-button').click();
-    await page.locator('#fullscreen-btn').click();
+    await clickVisibleMainMenuItem(page, '#fullscreen-btn');
     await expect.poll(() => getMainWindowFullScreenCalls(launched.app)).toEqual([true]);
-    await page.locator('#menu-button').click();
-    await page.locator('#fullscreen-btn').click();
+    await clickVisibleMainMenuItem(page, '#fullscreen-btn');
     await expect.poll(() => getMainWindowFullScreenCalls(launched.app)).toEqual([true, false]);
 
     const countBrowserWindows = () =>
@@ -1277,8 +1288,7 @@ test('official browser chrome can launch as a local package with transitional we
       });
     const windowCountBeforeNewWindow = await countBrowserWindows();
     const newWindowPromise = launched.app.waitForEvent('window');
-    await page.locator('#menu-button').click();
-    await page.locator('#new-window-menu-btn').click();
+    await clickVisibleMainMenuItem(page, '#new-window-menu-btn');
     const newPackageWindow = await newWindowPromise;
     await newPackageWindow.waitForLoadState('domcontentloaded');
     await newPackageWindow.waitForSelector('[data-test="address-input"]', { state: 'visible' });
