@@ -63,6 +63,9 @@ describe('package-preload', () => {
       'getCachedFavicon',
       'getActiveProfile',
       'listProfiles',
+      'getServiceRegistry',
+      'getServiceStatus',
+      'checkServiceBinary',
       'getSurfaceState',
       'openSurface',
       'closeSurface',
@@ -105,6 +108,8 @@ describe('package-preload', () => {
       'onReopenClosedTabRequested',
       'onToggleBookmarkBarRequested',
       'onProfileUpdated',
+      'onServiceRegistryUpdated',
+      'onServiceStatusUpdated',
     ]);
     expect(Object.isFrozen(exposures.freedomShell)).toBe(true);
     expect(exposures.electronAPI).toBeUndefined();
@@ -283,6 +288,24 @@ describe('package-preload', () => {
       args: [],
     });
 
+    await exposures.freedomShell.getServiceRegistry();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SERVICES_GET_REGISTRY,
+      args: [],
+    });
+
+    await exposures.freedomShell.getServiceStatus('ant');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SERVICES_GET_STATUS,
+      args: [{ service: 'ant' }],
+    });
+
+    await exposures.freedomShell.checkServiceBinary('ipfs');
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.SERVICES_CHECK_BINARY,
+      args: [{ service: 'ipfs' }],
+    });
+
     await exposures.freedomShell.getSurfaceState('wallet');
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.SURFACES_GET_STATE,
@@ -432,6 +455,8 @@ describe('package-preload', () => {
     const focusAddressBarCallback = jest.fn();
     const toggleBookmarkBarCallback = jest.fn();
     const profileUpdatedCallback = jest.fn();
+    const serviceRegistryUpdatedCallback = jest.fn();
+    const serviceStatusUpdatedCallback = jest.fn();
 
     const cleanupCommand = exposures.freedomShell.onTabCommandResult(commandCallback);
     const cleanupSnapshot = exposures.freedomShell.onTabSnapshotChanged(snapshotCallback);
@@ -443,6 +468,10 @@ describe('package-preload', () => {
     const cleanupToggleBookmarkBar =
       exposures.freedomShell.onToggleBookmarkBarRequested(toggleBookmarkBarCallback);
     const cleanupProfileUpdated = exposures.freedomShell.onProfileUpdated(profileUpdatedCallback);
+    const cleanupServiceRegistryUpdated =
+      exposures.freedomShell.onServiceRegistryUpdated(serviceRegistryUpdatedCallback);
+    const cleanupServiceStatusUpdated =
+      exposures.freedomShell.onServiceStatusUpdated(serviceStatusUpdatedCallback);
     const [
       commandHandler,
       snapshotHandler,
@@ -451,6 +480,8 @@ describe('package-preload', () => {
       focusAddressBarHandler,
       toggleBookmarkBarHandler,
       profileUpdatedHandler,
+      serviceRegistryUpdatedHandler,
+      serviceStatusUpdatedHandler,
     ] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
 
     ipcRenderer.emit(IPC.SHELL_EVENT, {
@@ -496,6 +527,21 @@ describe('package-preload', () => {
       },
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SERVICES_REGISTRY_UPDATED,
+      data: {
+        ant: { mode: 'bundled', statusMessage: 'Node: Ant', tempMessage: null },
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SERVICES_STATUS_UPDATED,
+      data: {
+        service: 'ant',
+        status: 'running',
+        error: null,
+        controllable: false,
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: 'unrelated.event',
       data: {
         ok: true,
@@ -522,6 +568,15 @@ describe('package-preload', () => {
       displayName: 'Test',
       isActive: true,
     });
+    expect(serviceRegistryUpdatedCallback).toHaveBeenCalledWith({
+      ant: { mode: 'bundled', statusMessage: 'Node: Ant', tempMessage: null },
+    });
+    expect(serviceStatusUpdatedCallback).toHaveBeenCalledWith({
+      service: 'ant',
+      status: 'running',
+      error: null,
+      controllable: false,
+    });
 
     cleanupCommand();
     cleanupSnapshot();
@@ -530,6 +585,8 @@ describe('package-preload', () => {
     cleanupFocusAddressBar();
     cleanupToggleBookmarkBar();
     cleanupProfileUpdated();
+    cleanupServiceRegistryUpdated();
+    cleanupServiceStatusUpdated();
 
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, commandHandler);
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, snapshotHandler);
@@ -546,6 +603,14 @@ describe('package-preload', () => {
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,
       profileUpdatedHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      serviceRegistryUpdatedHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      serviceStatusUpdatedHandler
     );
     expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });

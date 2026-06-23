@@ -1492,3 +1492,70 @@ Known remaining gaps after this checkpoint:
 - `readClipboardText()` remains intentionally unavailable to package chrome;
   visible paste behavior must continue to rely on browser-mediated paste paths
   rather than a package shell clipboard-read API
+
+### Chrome UI Checkpoint 4: Read-Only Service Status
+
+Current checkpoint: package chrome no longer relies on broad node preload
+globals or silent successful node-base no-ops for visible node-menu status. The
+official package gets a narrow read-only `services.read` shell API for sanitized
+Ant/IPFS/Radicle status, while lifecycle controls remain shell-owned and
+disabled in package mode.
+
+Implemented in this checkpoint:
+
+- added shell API methods and events gated by `services.read`:
+  - `services.getRegistry`
+  - `services.getStatus`
+  - `services.checkBinary`
+  - `services.registryUpdated`
+  - `services.statusUpdated`
+- exposed matching package preload methods:
+  - `getServiceRegistry()`
+  - `getServiceStatus(service)`
+  - `checkServiceBinary(service)`
+  - `onServiceRegistryUpdated(callback)`
+  - `onServiceStatusUpdated(callback)`
+- added package-visible service registry/status sanitizers that expose only
+  service mode/status text and never expose raw `api`, `gateway`, local ports,
+  filesystem paths, or registry internals
+- exported read-only status/binary helpers from the Ant/IPFS/Radicle managers
+  and bridged manager/registry updates into package shell events
+- added a renderer `service-runtime-api.js` adapter so bundled chrome keeps
+  using broad trusted service globals while package chrome uses `freedomShell`
+  service reads
+- changed the Ant/IPFS/Radicle node-menu UI to disable lifecycle toggles with
+  explicit package-mode behavior when running as package chrome
+- changed package `setBzzBase`, `clearBzzBase`, `setRadBase`, and
+  `clearRadBase` adapter methods to return structured
+  `SERVICE_BASE_UNAVAILABLE` results instead of fake success
+- granted the generated official local chrome package manifest `services.read`
+- expanded official package smoke coverage so package mode proves sanitized
+  service reads, absence of broad node globals, and disabled Ant/IPFS lifecycle
+  toggles
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/main/service-registry.test.js src/renderer/lib/service-runtime-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/renderer/lib/ant-ui.test.js src/renderer/lib/ipfs-ui.test.js src/renderer/lib/radicle-ui.test.js` passed: 9 suites, 69 tests.
+- `npm test -- src/main/chrome-package.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/shared/shell-api-policy.test.js` passed: 4 suites, 41 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed: 1 test.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js` passed:
+  13 tests.
+- `npm test` initially exposed old Ant/IPFS/Radicle manager unit-test mocks
+  that did not export `broadcastServiceStatusUpdate`; the managers now tolerate
+  that older mock shape with a no-op fallback.
+- `npm test -- src/main/ant-manager.test.js src/main/ipfs-manager.test.js src/main/radicle-manager.test.js` passed: 3 suites, 48 tests.
+- `npm test` passed: 115 suites passed, 5 skipped; 2143 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- history removal/clear and network favicon fetch/write package adapter methods
+  still need final audit disposition before completion
+- `readClipboardText()` remains intentionally unavailable to package chrome;
+  visible paste behavior must continue to rely on browser-mediated paste paths
+  rather than a package shell clipboard-read API

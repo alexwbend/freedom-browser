@@ -59,12 +59,14 @@ import {
   isPackageChromeRuntime,
   markPackageChromeReady,
 } from './lib/chrome-runtime-api.js';
+import { getServiceRuntimeApi } from './lib/service-runtime-api.js';
 import { pushDebug } from './lib/debug.js';
 import { initOnboarding } from './lib/onboarding.js';
 import { initSidebar } from './lib/sidebar.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 
 const electronAPI = getChromeRuntimeApi();
+const serviceRuntime = getServiceRuntimeApi();
 
 // Apply theme early to avoid flash
 initTheme();
@@ -82,7 +84,7 @@ electronAPI.onExternalNodeCandidates?.((payload) => {
 });
 
 // Listen for service registry updates from main process
-window.serviceRegistry?.onUpdate?.((registry) => {
+serviceRuntime.serviceRegistry.onUpdate?.((registry) => {
   pushDebug(`[ServiceRegistry] Update received: ${JSON.stringify(registry)}`);
   updateRegistry(registry);
   updateAntStatusLine();
@@ -94,7 +96,7 @@ window.serviceRegistry?.onUpdate?.((registry) => {
 });
 
 // Fetch initial registry state
-window.serviceRegistry?.getRegistry?.().then((registry) => {
+serviceRuntime.serviceRegistry.getRegistry?.().then((registry) => {
   if (registry) {
     pushDebug(`[ServiceRegistry] Initial state: ${JSON.stringify(registry)}`);
     updateRegistry(registry);

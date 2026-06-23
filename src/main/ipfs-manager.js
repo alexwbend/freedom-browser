@@ -13,6 +13,11 @@ const {
   clearErrorState,
   clearService,
 } = require('./service-registry');
+const serviceRegistry = require('./service-registry');
+const broadcastServiceStatusUpdate =
+  typeof serviceRegistry.broadcastServiceStatusUpdate === 'function'
+    ? serviceRegistry.broadcastServiceStatusUpdate
+    : () => {};
 const { FreedomIpfsNativeNode } = require('./ipfs/freedom-ipfs-native-node');
 
 const STATUS = {
@@ -85,6 +90,7 @@ function updateState(newState, error = null) {
   for (const win of windows) {
     win.webContents.send(IPC.IPFS_STATUS_UPDATE, { status: currentState, error: lastError });
   }
+  broadcastServiceStatusUpdate('ipfs', { status: currentState, error: lastError });
 }
 
 function checkHealth() {
@@ -291,6 +297,10 @@ function getActiveGatewayPort() {
   return null;
 }
 
+function getStatus() {
+  return { status: currentState, error: lastError, diagnostics: getNativeDiagnostics() };
+}
+
 function registerIpfsIpc() {
   ipcMain.handle(IPC.IPFS_START, () => {
     startIpfs();
@@ -303,7 +313,7 @@ function registerIpfsIpc() {
   });
 
   ipcMain.handle(IPC.IPFS_GET_STATUS, () => {
-    return { status: currentState, error: lastError, diagnostics: getNativeDiagnostics() };
+    return getStatus();
   });
 
   ipcMain.handle(IPC.IPFS_CHECK_BINARY, () => {
@@ -315,6 +325,8 @@ module.exports = {
   registerIpfsIpc,
   startIpfs,
   stopIpfs,
+  getStatus,
+  checkBinary,
   getActivePort,
   getActiveGatewayPort,
   getIpfsDataPath,

@@ -7,6 +7,7 @@
 
 const { BrowserWindow, ipcMain } = require('electron');
 const IPC = require('../shared/ipc-channels');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 
 // Node modes
 const MODE = {
@@ -45,6 +46,8 @@ const registry = {
   },
 };
 
+const SERVICE_NAMES = Object.freeze(['ipfs', 'ant', 'radicle']);
+
 // Default ports
 const DEFAULTS = {
   ant: {
@@ -76,6 +79,54 @@ function getRegistry() {
     ant: { ...registry.ant },
     radicle: { ...registry.radicle },
   };
+}
+
+function getPackageVisibleService(service) {
+  const entry = registry[service] || {};
+  return {
+    mode: typeof entry.mode === 'string' ? entry.mode : MODE.NONE,
+    statusMessage: typeof entry.statusMessage === 'string' ? entry.statusMessage : null,
+    tempMessage: typeof entry.tempMessage === 'string' ? entry.tempMessage : null,
+  };
+}
+
+function getPackageVisibleRegistry() {
+  return Object.fromEntries(
+    SERVICE_NAMES.map((service) => [service, getPackageVisibleService(service)])
+  );
+}
+
+function sanitizeServiceError(error) {
+  if (!error) return null;
+  return 'Service error';
+}
+
+function createPackageVisibleServiceStatus(service, statusPayload = {}) {
+  return {
+    success: true,
+    service,
+    status: typeof statusPayload.status === 'string' ? statusPayload.status : 'stopped',
+    error: sanitizeServiceError(statusPayload.error),
+    controllable: false,
+  };
+}
+
+function broadcastPackageShellEvent(eventName, data) {
+  let emitShellEventToPackageWebContents;
+  try {
+    ({ emitShellEventToPackageWebContents } = require('./shell-api'));
+  } catch {
+    return;
+  }
+  if (typeof emitShellEventToPackageWebContents !== 'function') return;
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    try {
+      emitShellEventToPackageWebContents(win.webContents, eventName, data);
+    } catch {
+      // Window might be closing or not registered as package chrome.
+    }
+  }
 }
 
 /**
@@ -195,6 +246,18 @@ function broadcastRegistryUpdate() {
       // Window might be closing
     }
   }
+  broadcastPackageShellEvent(
+    SHELL_API_EVENTS.SERVICES_REGISTRY_UPDATED,
+    getPackageVisibleRegistry()
+  );
+}
+
+function broadcastServiceStatusUpdate(service, statusPayload = {}) {
+  if (!SERVICE_NAMES.includes(service)) return;
+  broadcastPackageShellEvent(
+    SHELL_API_EVENTS.SERVICES_STATUS_UPDATED,
+    createPackageVisibleServiceStatus(service, statusPayload)
+  );
 }
 
 /**
@@ -255,6 +318,8 @@ module.exports = {
   DEFAULTS,
   getService,
   getRegistry,
+  getPackageVisibleRegistry,
+  createPackageVisibleServiceStatus,
   updateService,
   setStatusMessage,
   setTempStatusMessage,
@@ -268,5 +333,6 @@ module.exports = {
   getAntGatewayUrl,
   getRadicleApiUrl,
   broadcastRegistryUpdate,
+  broadcastServiceStatusUpdate,
   registerServiceRegistryIpc,
 };

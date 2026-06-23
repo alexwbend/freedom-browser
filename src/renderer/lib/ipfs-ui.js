@@ -1,6 +1,10 @@
 // IPFS node UI controls
 import { state, getDisplayMessage } from './state.js';
 import { pushDebug } from './debug.js';
+import {
+  getServiceRuntimeApi,
+  PACKAGE_SERVICE_CONTROL_DISABLED_TITLE,
+} from './service-runtime-api.js';
 
 // DOM elements (initialized in initIpfsUi)
 let ipfsToggleBtn = null;
@@ -15,6 +19,8 @@ let ipfsStatusValue = null;
 
 // Binary availability state
 let ipfsBinaryAvailable = true;
+
+const getIpfsApi = () => getServiceRuntimeApi().ipfs;
 
 export const stopIpfsInfoPolling = () => {
   if (state.ipfsInfoInterval) {
@@ -63,7 +69,7 @@ const fetchNativeStats = async () => {
   if (!ipfsInfoPanel?.classList.contains('visible')) return;
 
   try {
-    const status = await window.ipfs?.getStatus?.();
+    const status = await getIpfsApi().getStatus?.();
     if (!ipfsInfoPanel?.classList.contains('visible')) return;
     const stats = JSON.parse(status?.diagnostics?.nativeGatewayStats || '{}');
     if (ipfsActiveRequestsCount) {
@@ -83,7 +89,7 @@ const fetchVersionOnce = async () => {
   state.ipfsVersionFetched = true;
   let versionLabel = null;
   try {
-    const status = await window.ipfs?.getStatus?.();
+    const status = await getIpfsApi().getStatus?.();
     versionLabel = formatNativeVersionLabel(status?.diagnostics);
   } catch {
     // Fall back below; version display must not block status polling.
@@ -149,13 +155,13 @@ export const updateIpfsUi = (status, error) => {
   }
 };
 
-const setToggleDisabled = (disabled) => {
+const setToggleDisabled = (disabled, title = 'IPFS binary not found') => {
   if (!ipfsToggleBtn) return;
 
   if (disabled) {
     ipfsToggleBtn.classList.add('disabled');
     ipfsToggleBtn.setAttribute('disabled', 'true');
-    ipfsToggleBtn.setAttribute('title', 'IPFS binary not found');
+    ipfsToggleBtn.setAttribute('title', title);
   } else {
     ipfsToggleBtn.classList.remove('disabled');
     ipfsToggleBtn.removeAttribute('disabled');
@@ -191,6 +197,13 @@ export const updateIpfsStatusLine = () => {
 // Update toggle disabled state based on node mode
 export const updateIpfsToggleState = () => {
   if (!ipfsToggleBtn) return;
+  const ipfsApi = getIpfsApi();
+
+  if (ipfsApi.canControl === false) {
+    ipfsToggleBtn.classList.remove('external');
+    setToggleDisabled(true, PACKAGE_SERVICE_CONTROL_DISABLED_TITLE);
+    return;
+  }
 
   const mode = state.registry?.ipfs?.mode;
   const isReused = mode === 'reused';
@@ -215,12 +228,18 @@ export const initIpfsUi = () => {
   ipfsStatusRow = document.getElementById('ipfs-status-row');
   ipfsStatusLabel = document.getElementById('ipfs-status-label');
   ipfsStatusValue = document.getElementById('ipfs-status-value');
+  const ipfsApi = getIpfsApi();
 
   // Check binary availability
-  if (window.ipfs) {
-    window.ipfs.checkBinary().then(({ available }) => {
-      ipfsBinaryAvailable = available;
-      setToggleDisabled(!available);
+  if (ipfsApi.available !== false && ipfsApi.checkBinary) {
+    ipfsApi.checkBinary().then(({ available }) => {
+      ipfsBinaryAvailable = available === true;
+      setToggleDisabled(
+        !ipfsBinaryAvailable || ipfsApi.canControl === false,
+        ipfsApi.canControl === false
+          ? PACKAGE_SERVICE_CONTROL_DISABLED_TITLE
+          : 'IPFS binary not found'
+      );
       if (!available) {
         pushDebug('IPFS binary not found - toggle disabled');
       }
@@ -229,6 +248,7 @@ export const initIpfsUi = () => {
 
   // Toggle button listener
   ipfsToggleBtn?.addEventListener('click', () => {
+    if (ipfsApi.canControl === false) return;
     if (!ipfsBinaryAvailable) return;
 
     // Don't allow toggling when using an external node
@@ -240,7 +260,7 @@ export const initIpfsUi = () => {
       ipfsToggleSwitch?.classList.remove('running');
       stopIpfsInfoPolling();
       pushDebug('User toggled IPFS Off');
-      window.ipfs
+      ipfsApi
         .stop()
         .then(({ status, error }) => updateIpfsUi(status, error))
         .catch((err) => {
@@ -252,7 +272,7 @@ export const initIpfsUi = () => {
       ipfsToggleSwitch?.classList.add('running');
       startIpfsInfoPolling();
       pushDebug('User toggled IPFS On');
-      window.ipfs
+      ipfsApi
         .start()
         .then(({ status, error }) => updateIpfsUi(status, error))
         .catch((err) => {
@@ -263,16 +283,16 @@ export const initIpfsUi = () => {
   });
 
   // Listen for status updates from main process
-  if (window.ipfs) {
+  if (ipfsApi.available !== false) {
     const handleStatus = ({ status, error }) => {
       pushDebug(`IPFS Status Update: ${status} ${error ? `(${error})` : ''}`);
       updateIpfsUi(status, error);
     };
-    window.ipfs.onStatusUpdate(handleStatus);
+    ipfsApi.onStatusUpdate(handleStatus);
 
     // Initial status check
     const refreshIpfsStatus = () => {
-      window.ipfs.getStatus().then(({ status, error }) => {
+      ipfsApi.getStatus().then(({ status, error }) => {
         updateIpfsUi(status, error);
       });
     };

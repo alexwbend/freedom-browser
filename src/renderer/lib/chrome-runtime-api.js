@@ -4,7 +4,6 @@ const noopDisposer = () => {};
 const asyncNull = async () => null;
 const asyncFalse = async () => false;
 const asyncEmptyArray = async () => [];
-const asyncSuccess = async () => ({ success: true });
 const asyncProfileMutationUnavailable = async () => ({
   success: false,
   error: {
@@ -12,6 +11,11 @@ const asyncProfileMutationUnavailable = async () => ({
     message: 'Profile creation and switching are shell-owned in package mode',
   },
 });
+const asyncServiceBaseUnavailable = async () =>
+  unavailableResult(
+    'SERVICE_BASE_UNAVAILABLE',
+    'Service endpoint base updates are shell-owned in package mode'
+  );
 const unavailableResult = (code, message) => ({
   success: false,
   error: { code, message },
@@ -60,10 +64,10 @@ const subscribeFreedomShell = (methodName, callback) => {
 
 const createPackageRuntimeApi = () =>
   Object.freeze({
-    setBzzBase: asyncSuccess,
-    clearBzzBase: asyncSuccess,
-    setRadBase: asyncSuccess,
-    clearRadBase: asyncSuccess,
+    setBzzBase: asyncServiceBaseUnavailable,
+    clearBzzBase: asyncServiceBaseUnavailable,
+    setRadBase: asyncServiceBaseUnavailable,
+    clearRadBase: asyncServiceBaseUnavailable,
     setWindowTitle: (title) => callFreedomShell('setWindowTitle', null, title),
     closeWindow: () => callFreedomShell('closeWindow', null),
     minimizeWindow: () => callFreedomShell('minimizeWindow', null),

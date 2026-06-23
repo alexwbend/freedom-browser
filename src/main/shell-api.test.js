@@ -20,6 +20,14 @@ const mockAddHistoryEntry = jest.fn();
 const mockGetCachedFavicon = jest.fn();
 const mockGetActiveProfile = jest.fn();
 const mockListProfilesForActiveApp = jest.fn();
+const mockGetPackageVisibleRegistry = jest.fn();
+const mockCreatePackageVisibleServiceStatus = jest.fn();
+const mockAntGetStatus = jest.fn();
+const mockAntCheckBinary = jest.fn();
+const mockIpfsGetStatus = jest.fn();
+const mockIpfsCheckBinary = jest.fn();
+const mockRadicleGetStatus = jest.fn();
+const mockRadicleCheckBinary = jest.fn();
 const mockFetchBuffer = jest.fn();
 const mockFetchToFile = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
@@ -29,6 +37,10 @@ const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
 const HISTORY_MODULE = require.resolve('./history');
 const FAVICONS_MODULE = require.resolve('./favicons');
 const PROFILE_RESOLVER_MODULE = require.resolve('./profile-resolver');
+const SERVICE_REGISTRY_MODULE = require.resolve('./service-registry');
+const ANT_MANAGER_MODULE = require.resolve('./ant-manager');
+const IPFS_MANAGER_MODULE = require.resolve('./ipfs-manager');
+const RADICLE_MANAGER_MODULE = require.resolve('./radicle-manager');
 const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
 
 function makeSender(overrides = {}) {
@@ -89,6 +101,22 @@ function loadShellApi(options = {}) {
         getActiveProfile: mockGetActiveProfile,
         listProfilesForActiveApp: mockListProfilesForActiveApp,
       }),
+      [SERVICE_REGISTRY_MODULE]: () => ({
+        getPackageVisibleRegistry: mockGetPackageVisibleRegistry,
+        createPackageVisibleServiceStatus: mockCreatePackageVisibleServiceStatus,
+      }),
+      [ANT_MANAGER_MODULE]: () => ({
+        getStatus: mockAntGetStatus,
+        checkBinary: mockAntCheckBinary,
+      }),
+      [IPFS_MANAGER_MODULE]: () => ({
+        getStatus: mockIpfsGetStatus,
+        checkBinary: mockIpfsCheckBinary,
+      }),
+      [RADICLE_MANAGER_MODULE]: () => ({
+        getStatus: mockRadicleGetStatus,
+        checkBinary: mockRadicleCheckBinary,
+      }),
       [HTTP_FETCH_MODULE]: () => ({
         fetchBuffer: mockFetchBuffer,
         fetchToFile: mockFetchToFile,
@@ -120,6 +148,14 @@ describe('shell-api', () => {
     mockGetCachedFavicon.mockReset();
     mockGetActiveProfile.mockReset();
     mockListProfilesForActiveApp.mockReset();
+    mockGetPackageVisibleRegistry.mockReset();
+    mockCreatePackageVisibleServiceStatus.mockReset();
+    mockAntGetStatus.mockReset();
+    mockAntCheckBinary.mockReset();
+    mockIpfsGetStatus.mockReset();
+    mockIpfsCheckBinary.mockReset();
+    mockRadicleGetStatus.mockReset();
+    mockRadicleCheckBinary.mockReset();
     mockFetchBuffer.mockReset();
     mockFetchToFile.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
@@ -961,6 +997,136 @@ describe('shell-api', () => {
       details: {
         method: SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE,
         requiredCapability: 'browserState.profiles.read',
+      },
+    });
+  });
+
+  test('handles capability-gated read-only service requests without exposing endpoints', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 1051 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({
+        capabilities: ['services.read'],
+      })
+    );
+    mockGetPackageVisibleRegistry.mockReturnValue({
+      ant: {
+        mode: 'bundled',
+        statusMessage: 'Node: Ant',
+        tempMessage: null,
+      },
+      ipfs: {
+        mode: 'bundled',
+        statusMessage: 'Node: freedom-ipfs',
+        tempMessage: null,
+      },
+      radicle: {
+        mode: 'none',
+        statusMessage: null,
+        tempMessage: null,
+      },
+    });
+    mockAntGetStatus.mockReturnValue({
+      status: 'error',
+      error: 'binary not found at /tmp/private/antd',
+    });
+    mockCreatePackageVisibleServiceStatus.mockReturnValue({
+      success: true,
+      service: 'ant',
+      status: 'error',
+      error: 'Service error',
+      controllable: false,
+    });
+    mockIpfsCheckBinary.mockReturnValue(true);
+
+    const registry = await mod.handleShellRequest(
+      { sender },
+      { method: SHELL_API_METHODS.SERVICES_GET_REGISTRY, args: [] }
+    );
+    expect(registry).toEqual({
+      ant: {
+        mode: 'bundled',
+        statusMessage: 'Node: Ant',
+        tempMessage: null,
+      },
+      ipfs: {
+        mode: 'bundled',
+        statusMessage: 'Node: freedom-ipfs',
+        tempMessage: null,
+      },
+      radicle: {
+        mode: 'none',
+        statusMessage: null,
+        tempMessage: null,
+      },
+    });
+    expect(JSON.stringify(registry)).not.toContain('127.0.0.1');
+    expect(JSON.stringify(registry)).not.toContain('api');
+    expect(JSON.stringify(registry)).not.toContain('gateway');
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SERVICES_GET_STATUS, args: [{ service: 'ant' }] }
+      )
+    ).resolves.toEqual({
+      success: true,
+      service: 'ant',
+      status: 'error',
+      error: 'Service error',
+      controllable: false,
+    });
+    expect(mockAntGetStatus).toHaveBeenCalledTimes(1);
+    expect(mockCreatePackageVisibleServiceStatus).toHaveBeenCalledWith('ant', {
+      status: 'error',
+      error: 'binary not found at /tmp/private/antd',
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SERVICES_CHECK_BINARY, args: [{ service: 'ipfs' }] }
+      )
+    ).resolves.toEqual({
+      success: true,
+      service: 'ipfs',
+      available: true,
+      controllable: false,
+    });
+    expect(mockIpfsCheckBinary).toHaveBeenCalledTimes(1);
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SERVICES_GET_STATUS, args: [{ service: 'wallet' }] }
+      )
+    ).resolves.toEqual({
+      success: false,
+      service: 'wallet',
+      controllable: false,
+      error: {
+        code: 'SERVICE_UNSUPPORTED',
+        message: 'Unsupported service',
+      },
+    });
+  });
+
+  test('rejects service requests without declared capabilities', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 1052 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SERVICES_GET_REGISTRY, args: [] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SERVICES_GET_REGISTRY,
+        requiredCapability: 'services.read',
       },
     });
   });

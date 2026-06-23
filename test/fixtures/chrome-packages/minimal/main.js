@@ -10,6 +10,7 @@
     'ipfs',
     'radicle',
     'nodeConfig',
+    'serviceRegistry',
   ];
 
   const setText = (testId, value) => {

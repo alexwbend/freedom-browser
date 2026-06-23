@@ -169,6 +169,7 @@ function writeOfficialChromePackage(root) {
           'browserState.history.write',
           'browserState.favicons.read',
           'browserState.profiles.read',
+          'services.read',
           'chrome.ui.commands',
           'clipboard.write',
           'downloads.saveImage',
@@ -602,6 +603,11 @@ test('local package chrome loads through freedomShell without broad preload APIs
       hasSwarmProvider: 'swarmProvider' in window,
       hasSwarmPermissions: 'swarmPermissions' in window,
       hasDappPermissions: 'dappPermissions' in window,
+      hasAnt: 'ant' in window,
+      hasIpfs: 'ipfs' in window,
+      hasRadicle: 'radicle' in window,
+      hasServiceRegistry: 'serviceRegistry' in window,
+      hasNodeConfig: 'nodeConfig' in window,
     }));
     expect(exposure).toEqual({
       hasFreedomShell: true,
@@ -629,6 +635,9 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'getCachedFavicon',
         'getActiveProfile',
         'listProfiles',
+        'getServiceRegistry',
+        'getServiceStatus',
+        'checkServiceBinary',
         'getSurfaceState',
         'openSurface',
         'closeSurface',
@@ -671,6 +680,8 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'onReopenClosedTabRequested',
         'onToggleBookmarkBarRequested',
         'onProfileUpdated',
+        'onServiceRegistryUpdated',
+        'onServiceStatusUpdated',
       ],
       hasElectronAPI: false,
       hasWallet: false,
@@ -678,6 +689,11 @@ test('local package chrome loads through freedomShell without broad preload APIs
       hasSwarmProvider: false,
       hasSwarmPermissions: false,
       hasDappPermissions: false,
+      hasAnt: false,
+      hasIpfs: false,
+      hasRadicle: false,
+      hasServiceRegistry: false,
+      hasNodeConfig: false,
     });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
 
@@ -1417,6 +1433,44 @@ test('official browser chrome can launch as a local package with transitional we
 
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).toHaveClass(/open/);
+    const serviceState = await page.evaluate(async () => ({
+      registry: await window.freedomShell.getServiceRegistry(),
+      statuses: await Promise.all(
+        ['ant', 'ipfs', 'radicle'].map((service) => window.freedomShell.getServiceStatus(service))
+      ),
+      binaries: await Promise.all(
+        ['ant', 'ipfs', 'radicle'].map((service) => window.freedomShell.checkServiceBinary(service))
+      ),
+    }));
+    expect(Object.keys(serviceState.registry).sort()).toEqual(['ant', 'ipfs', 'radicle']);
+    expect(JSON.stringify(serviceState.registry)).not.toContain('127.0.0.1');
+    expect(JSON.stringify(serviceState.registry)).not.toContain('api');
+    expect(JSON.stringify(serviceState.registry)).not.toContain('gateway');
+    expect(serviceState.statuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ service: 'ant', controllable: false }),
+        expect.objectContaining({ service: 'ipfs', controllable: false }),
+        expect.objectContaining({ service: 'radicle', controllable: false }),
+      ])
+    );
+    expect(serviceState.binaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ service: 'ant', controllable: false }),
+        expect.objectContaining({ service: 'ipfs', controllable: false }),
+        expect.objectContaining({ service: 'radicle', controllable: false }),
+      ])
+    );
+    await expect(page.locator('#bee-toggle-btn')).toBeDisabled();
+    await expect(page.locator('#bee-toggle-btn')).toHaveAttribute(
+      'title',
+      'Node lifecycle controls are shell-owned in package mode'
+    );
+    await expect(page.locator('#ipfs-toggle-btn')).toBeDisabled();
+    await expect(page.locator('#ipfs-toggle-btn')).toHaveAttribute(
+      'title',
+      'Node lifecycle controls are shell-owned in package mode'
+    );
+    await expect(page.locator('#radicle-nodes-section')).toBeHidden();
     await page.locator('#bee-menu-button').click();
     await expect(page.locator('#bee-menu-dropdown')).not.toHaveClass(/open/);
 

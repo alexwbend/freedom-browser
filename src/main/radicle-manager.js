@@ -50,6 +50,11 @@ const {
   clearErrorState,
   clearService,
 } = require('./service-registry');
+const serviceRegistry = require('./service-registry');
+const broadcastServiceStatusUpdate =
+  typeof serviceRegistry.broadcastServiceStatusUpdate === 'function'
+    ? serviceRegistry.broadcastServiceStatusUpdate
+    : () => {};
 
 // Radicle community seed nodes for peer discovery
 const PREFERRED_SEEDS = [
@@ -335,6 +340,7 @@ function updateState(newState, error = null) {
   for (const win of windows) {
     win.webContents.send(IPC.RADICLE_STATUS_UPDATE, { status: currentState, error: lastError });
   }
+  broadcastServiceStatusUpdate('radicle', { status: currentState, error: lastError });
 }
 
 /**
@@ -1187,6 +1193,10 @@ function getActivePort() {
   return currentHttpPort;
 }
 
+function getStatus() {
+  return { status: currentState, error: lastError };
+}
+
 
 /**
  * Seed a repository from the Radicle network
@@ -1389,7 +1399,7 @@ function registerRadicleIpc() {
     if (!isRadicleIntegrationEnabled()) {
       return radicleDisabledResponse;
     }
-    return { status: currentState, error: lastError };
+    return getStatus();
   });
 
   ipcMain.handle(IPC.RADICLE_CHECK_BINARY, () => {
@@ -1470,6 +1480,8 @@ module.exports = {
   registerRadicleIpc,
   startRadicle,
   stopRadicle,
+  getStatus,
+  checkBinary,
   getActivePort,
   getRadicleBinaryPath,
   getRadicleDataPath,

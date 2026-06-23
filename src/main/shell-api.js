@@ -26,6 +26,7 @@ const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_GO_HOME,
 ]);
 const SUPPORTED_SURFACES = new Set(['wallet']);
+const SUPPORTED_SERVICES = new Set(['ant', 'ipfs', 'radicle']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODE = 'shell-owned-placeholder';
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
@@ -407,6 +408,65 @@ function listProfilesForShell() {
         })
       )
       .filter(Boolean),
+  };
+}
+
+function getServiceName(payload) {
+  if (typeof payload === 'string') {
+    return payload.trim();
+  }
+  if (payload && typeof payload === 'object' && typeof payload.service === 'string') {
+    return payload.service.trim();
+  }
+  return '';
+}
+
+function serviceResultError(service, code, message) {
+  return {
+    success: false,
+    service,
+    controllable: false,
+    error: { code, message },
+  };
+}
+
+function getServiceManager(service) {
+  if (service === 'ant') return require('./ant-manager');
+  if (service === 'ipfs') return require('./ipfs-manager');
+  if (service === 'radicle') return require('./radicle-manager');
+  return null;
+}
+
+function getServiceRegistryForShell() {
+  return require('./service-registry').getPackageVisibleRegistry();
+}
+
+function getServiceStatusForShell([payload]) {
+  const service = getServiceName(payload);
+  if (!SUPPORTED_SERVICES.has(service)) {
+    return serviceResultError(service, 'SERVICE_UNSUPPORTED', 'Unsupported service');
+  }
+
+  const manager = getServiceManager(service);
+  const status =
+    typeof manager?.getStatus === 'function'
+      ? manager.getStatus()
+      : { status: 'stopped', error: null };
+  return require('./service-registry').createPackageVisibleServiceStatus(service, status);
+}
+
+function checkServiceBinaryForShell([payload]) {
+  const service = getServiceName(payload);
+  if (!SUPPORTED_SERVICES.has(service)) {
+    return serviceResultError(service, 'SERVICE_UNSUPPORTED', 'Unsupported service');
+  }
+
+  const manager = getServiceManager(service);
+  return {
+    success: true,
+    service,
+    available: typeof manager?.checkBinary === 'function' ? manager.checkBinary() === true : false,
+    controllable: false,
   };
 }
 
@@ -1020,6 +1080,15 @@ const METHODS = Object.freeze({
   },
   [SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST]: {
     handler: () => listProfilesForShell(),
+  },
+  [SHELL_API_METHODS.SERVICES_GET_REGISTRY]: {
+    handler: () => getServiceRegistryForShell(),
+  },
+  [SHELL_API_METHODS.SERVICES_GET_STATUS]: {
+    handler: getServiceStatusForShell,
+  },
+  [SHELL_API_METHODS.SERVICES_CHECK_BINARY]: {
+    handler: checkServiceBinaryForShell,
   },
   [SHELL_API_METHODS.SURFACES_GET_STATE]: {
     handler: ([payload], _event, caller) => describeSurfaceState(caller, getSurfaceName(payload)),

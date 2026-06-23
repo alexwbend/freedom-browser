@@ -41,6 +41,9 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
       BROWSER_STATE_PROFILES_GET_ACTIVE: 'browserState.profiles.getActive',
       BROWSER_STATE_PROFILES_LIST: 'browserState.profiles.list',
+      SERVICES_GET_REGISTRY: 'services.getRegistry',
+      SERVICES_GET_STATUS: 'services.getStatus',
+      SERVICES_CHECK_BINARY: 'services.checkBinary',
       SURFACES_GET_STATE: 'surfaces.getState',
       SURFACES_OPEN: 'surfaces.open',
       SURFACES_CLOSE: 'surfaces.close',
@@ -91,6 +94,9 @@ describe('shell-api-policy', () => {
       'browserState.favicons.getCached': 'browserState.favicons.read',
       'browserState.profiles.getActive': 'browserState.profiles.read',
       'browserState.profiles.list': 'browserState.profiles.read',
+      'services.getRegistry': 'services.read',
+      'services.getStatus': 'services.read',
+      'services.checkBinary': 'services.read',
       'surfaces.getState': 'surfaces.wallet.control',
       'surfaces.open': 'surfaces.wallet.control',
       'surfaces.close': 'surfaces.wallet.control',
@@ -136,6 +142,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_HISTORY_WRITE: 'browserState.history.write',
       BROWSER_STATE_FAVICONS_READ: 'browserState.favicons.read',
       BROWSER_STATE_PROFILES_READ: 'browserState.profiles.read',
+      SERVICES_READ: 'services.read',
       SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
       TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
       APP_ABOUT: 'app.about',
@@ -168,6 +175,8 @@ describe('shell-api-policy', () => {
       CHROME_REOPEN_CLOSED_TAB_REQUESTED: 'chrome.commands.reopenClosedTab',
       CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED: 'chrome.commands.toggleBookmarkBar',
       BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
+      SERVICES_REGISTRY_UPDATED: 'services.registryUpdated',
+      SERVICES_STATUS_UPDATED: 'services.statusUpdated',
     });
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
       'tabs.commandResult': 'tabs.write',
@@ -191,6 +200,8 @@ describe('shell-api-policy', () => {
       'chrome.commands.reopenClosedTab': 'chrome.ui.commands',
       'chrome.commands.toggleBookmarkBar': 'chrome.ui.commands',
       'browserState.profiles.updated': 'browserState.profiles.read',
+      'services.registryUpdated': 'services.read',
+      'services.statusUpdated': 'services.read',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'app.about',
@@ -207,6 +218,7 @@ describe('shell-api-policy', () => {
       'clipboard.write',
       'downloads.saveImage',
       'navigation.resolve',
+      'services.read',
       'shell.info',
       'shell.ready',
       'surfaces.wallet.control',

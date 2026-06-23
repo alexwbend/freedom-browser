@@ -1,8 +1,11 @@
 const IPC = require('../shared/ipc-channels');
+const { SHELL_API_EVENTS } = require('../shared/shell-api-policy');
 const {
   createIpcMainMock,
   loadMainModule,
 } = require('../../test/helpers/main-process-test-utils');
+
+const SHELL_API_MODULE = require.resolve('./shell-api');
 
 function loadServiceRegistry(options = {}) {
   return loadMainModule(require.resolve('./service-registry'), options);
@@ -89,6 +92,77 @@ describe('service-registry', () => {
       })
     );
     expect(closingWindow.webContents.send).toHaveBeenCalled();
+  });
+
+  test('exposes a sanitized package-visible registry and shell event', () => {
+    const packageWebContents = { send: jest.fn() };
+    const emitShellEventToPackageWebContents = jest.fn();
+    const { mod } = loadServiceRegistry({
+      windows: [{ webContents: packageWebContents }],
+      extraMocks: {
+        [SHELL_API_MODULE]: () => ({
+          emitShellEventToPackageWebContents,
+        }),
+      },
+    });
+
+    mod.updateService('ant', {
+      api: 'http://127.0.0.1:11633',
+      gateway: 'http://127.0.0.1:11633',
+      mode: mod.MODE.BUNDLED,
+    });
+    mod.setStatusMessage('ant', 'Node: Ant');
+
+    const packageRegistry = mod.getPackageVisibleRegistry();
+    expect(packageRegistry.ant).toEqual({
+      mode: mod.MODE.BUNDLED,
+      statusMessage: 'Node: Ant',
+      tempMessage: null,
+    });
+    expect(JSON.stringify(packageRegistry)).not.toContain('127.0.0.1');
+    expect(JSON.stringify(packageRegistry)).not.toContain('gateway');
+    expect(JSON.stringify(packageRegistry)).not.toContain('api');
+    expect(emitShellEventToPackageWebContents).toHaveBeenCalledWith(
+      packageWebContents,
+      SHELL_API_EVENTS.SERVICES_REGISTRY_UPDATED,
+      expect.objectContaining({
+        ant: {
+          mode: mod.MODE.BUNDLED,
+          statusMessage: 'Node: Ant',
+          tempMessage: null,
+        },
+      })
+    );
+  });
+
+  test('broadcasts sanitized package service status events', () => {
+    const packageWebContents = { send: jest.fn() };
+    const emitShellEventToPackageWebContents = jest.fn();
+    const { mod } = loadServiceRegistry({
+      windows: [{ webContents: packageWebContents }],
+      extraMocks: {
+        [SHELL_API_MODULE]: () => ({
+          emitShellEventToPackageWebContents,
+        }),
+      },
+    });
+
+    mod.broadcastServiceStatusUpdate('ant', {
+      status: 'error',
+      error: 'binary not found at /tmp/private/antd',
+    });
+
+    expect(emitShellEventToPackageWebContents).toHaveBeenCalledWith(
+      packageWebContents,
+      SHELL_API_EVENTS.SERVICES_STATUS_UPDATED,
+      {
+        success: true,
+        service: 'ant',
+        status: 'error',
+        error: 'Service error',
+        controllable: false,
+      }
+    );
   });
 
   test('temporary messages override status and auto-clear back to the permanent message', () => {

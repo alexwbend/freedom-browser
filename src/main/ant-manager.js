@@ -24,6 +24,11 @@ const {
   clearErrorState,
   clearService,
 } = require('./service-registry');
+const serviceRegistry = require('./service-registry');
+const broadcastServiceStatusUpdate =
+  typeof serviceRegistry.broadcastServiceStatusUpdate === 'function'
+    ? serviceRegistry.broadcastServiceStatusUpdate
+    : () => {};
 
 // States
 const STATUS = {
@@ -310,6 +315,7 @@ function updateState(newState, error = null) {
   for (const win of windows) {
     win.webContents.send(IPC.ANT_STATUS_UPDATE, { status: currentState, error: lastError });
   }
+  broadcastServiceStatusUpdate('ant', { status: currentState, error: lastError });
 }
 
 /**
@@ -953,6 +959,7 @@ module.exports = {
   stopAnt,
   getActivePort,
   getStatus,
+  checkBinary,
   getAntDataPath,
   setUseInjectedIdentity,
   hasInjectedKeys,

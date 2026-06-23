@@ -196,6 +196,7 @@ The local package directory must contain `manifest.json`:
     "browserState.history.write",
     "browserState.favicons.read",
     "browserState.profiles.read",
+    "services.read",
     "chrome.ui.commands",
     "clipboard.write",
     "downloads.saveImage",
@@ -304,7 +305,12 @@ The official package smoke currently proves:
   a low-risk `eth_chainId` request bypasses package chrome through main
 - the wallet/sidebar control is intentionally hidden in package mode until it
   is backed by a shell-owned surface path
-- the main menu and node menu open
+- the main menu opens, and the node menu opens with sanitized service status
+  available through `services.read`
+- package chrome does not receive broad node globals such as `ant`, `ipfs`,
+  `radicle`, `serviceRegistry`, or `nodeConfig`
+- Ant and IPFS lifecycle toggles are disabled with explicit package-mode
+  behavior because node start/stop remains shell-owned
 - the main menu fullscreen control reaches the shell-owned BrowserWindow
   `setFullScreen(true/false)` command path
 - the main menu New Window control opens another package chrome BrowserWindow
@@ -353,6 +359,9 @@ running Radicle network.
 - `getCachedFavicon(url)`
 - `getActiveProfile()`
 - `listProfiles()`
+- `getServiceRegistry()`
+- `getServiceStatus(service)`
+- `checkServiceBinary(service)`
 - `getSurfaceState(surface)`
 - `openSurface(surface)`
 - `closeSurface(surface)`
@@ -402,6 +411,8 @@ running Radicle network.
 - `onReopenClosedTabRequested(callback)`
 - `onToggleBookmarkBarRequested(callback)`
 - `onProfileUpdated(callback)`
+- `onServiceRegistryUpdated(callback)`
+- `onServiceStatusUpdated(callback)`
 
 `getInfo()` returns shell/package diagnostics: shell API version, runtime mode,
 app version, platform, package id/name/version/source, declared capabilities,
@@ -459,6 +470,17 @@ claiming profile switching support. Profile creation and profile switching
 remain shell-owned/bundled-only until a scoped trusted switching surface exists.
 These APIs return serializable data only and do not expose file paths or store
 internals.
+
+The service read methods expose sanitized Ant, IPFS, and Radicle node status
+needed by the visible nodes menu. `getServiceRegistry()` returns only package
+visible `mode`, `statusMessage`, and `tempMessage` fields; it does not expose
+local API/gateway URLs, ports, filesystem paths, or registry internals.
+`getServiceStatus(service)` and `checkServiceBinary(service)` return read-only
+status/binary availability with `controllable: false`. Package chrome receives
+service registry/status events through `onServiceRegistryUpdated()` and
+`onServiceStatusUpdated()` when it declares `services.read`, but it does not
+receive node lifecycle methods. Ant/IPFS/Radicle start/stop and endpoint base
+updates remain shell-owned.
 
 The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. The current implemented surface is `wallet`, backed by
@@ -553,6 +575,9 @@ must be allowed by the package manifest's declared capabilities:
 - `browserState.favicons.read` allows `getCachedFavicon(url)`
 - `browserState.profiles.read` allows `getActiveProfile()`,
   `listProfiles()`, and `onProfileUpdated(callback)`
+- `services.read` allows `getServiceRegistry()`, `getServiceStatus(service)`,
+  `checkServiceBinary(service)`, `onServiceRegistryUpdated(callback)`, and
+  `onServiceStatusUpdated(callback)` for sanitized node-menu status only
 - `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
   `openSurface("wallet")`, `closeSurface("wallet")`, and
   `toggleSurface("wallet")`

@@ -1,6 +1,10 @@
 // Radicle node UI controls
 import { state, buildRadicleUrl, getDisplayMessage } from './state.js';
 import { pushDebug } from './debug.js';
+import {
+  getServiceRuntimeApi,
+  PACKAGE_SERVICE_CONTROL_DISABLED_TITLE,
+} from './service-runtime-api.js';
 
 // DOM elements (initialized in initRadicleUi)
 let radicleToggleBtn = null;
@@ -19,6 +23,8 @@ let radicleBinaryAvailable = true;
 
 // Polling state
 let radicleInfoInterval = null;
+
+const getRadicleApi = () => getServiceRuntimeApi().radicle;
 
 export const stopRadicleInfoPolling = () => {
   if (radicleInfoInterval) {
@@ -49,9 +55,10 @@ const fetchRadicleInfo = async () => {
   if (!radicleInfoPanel?.classList.contains('visible')) return;
 
   // Fetch connected peers count via IPC (uses rad node status --json)
-  if (window.radicle?.getConnections) {
+  const radicleApi = getRadicleApi();
+  if (radicleApi.getConnections) {
     try {
-      const connResult = await window.radicle.getConnections();
+      const connResult = await radicleApi.getConnections();
       if (!radicleInfoPanel?.classList.contains('visible')) return;
       if (connResult.success && radiclePeersCount) {
         radiclePeersCount.textContent = String(connResult.count);
@@ -165,13 +172,13 @@ export const updateRadicleUi = (status, error) => {
   }
 };
 
-const setToggleDisabled = (disabled) => {
+const setToggleDisabled = (disabled, title = 'Radicle binaries not found') => {
   if (!radicleToggleBtn) return;
 
   if (disabled) {
     radicleToggleBtn.classList.add('disabled');
     radicleToggleBtn.setAttribute('disabled', 'true');
-    radicleToggleBtn.setAttribute('title', 'Radicle binaries not found');
+    radicleToggleBtn.setAttribute('title', title);
   } else {
     radicleToggleBtn.classList.remove('disabled');
     radicleToggleBtn.removeAttribute('disabled');
@@ -180,10 +187,16 @@ const setToggleDisabled = (disabled) => {
 };
 
 const refreshRadicleBinaryAvailability = () => {
-  if (!window.radicle?.checkBinary) return;
-  window.radicle.checkBinary().then(({ available }) => {
-    radicleBinaryAvailable = available;
-    setToggleDisabled(!available);
+  const radicleApi = getRadicleApi();
+  if (radicleApi.available === false || !radicleApi.checkBinary) return;
+  radicleApi.checkBinary().then(({ available }) => {
+    radicleBinaryAvailable = available === true;
+    setToggleDisabled(
+      !radicleBinaryAvailable || radicleApi.canControl === false,
+      radicleApi.canControl === false
+        ? PACKAGE_SERVICE_CONTROL_DISABLED_TITLE
+        : 'Radicle binaries not found'
+    );
     if (!available) {
       pushDebug('Radicle binaries not found - toggle disabled');
     }
@@ -220,6 +233,13 @@ export const updateRadicleStatusLine = () => {
 export const updateRadicleToggleState = () => {
   if (!state.enableRadicleIntegration) return;
   if (!radicleToggleBtn) return;
+  const radicleApi = getRadicleApi();
+
+  if (radicleApi.canControl === false) {
+    radicleToggleBtn.classList.remove('external');
+    setToggleDisabled(true, PACKAGE_SERVICE_CONTROL_DISABLED_TITLE);
+    return;
+  }
 
   const mode = state.registry?.radicle?.mode;
   const isReused = mode === 'reused';
@@ -244,6 +264,7 @@ export const initRadicleUi = () => {
   radicleStatusValue = document.getElementById('radicle-status-value');
   radicleNodesSection = document.getElementById('radicle-nodes-section');
   updateRadicleSectionVisibility();
+  const radicleApi = getRadicleApi();
 
   // Check binary availability
   refreshRadicleBinaryAvailability();
@@ -251,6 +272,7 @@ export const initRadicleUi = () => {
   // Toggle button listener
   radicleToggleBtn?.addEventListener('click', () => {
     if (!state.enableRadicleIntegration) return;
+    if (radicleApi.canControl === false) return;
     if (!radicleBinaryAvailable) return;
 
     if (state.currentRadicleStatus === 'running' || state.currentRadicleStatus === 'starting') {
@@ -258,7 +280,7 @@ export const initRadicleUi = () => {
       radicleToggleSwitch?.classList.remove('running');
       stopRadicleInfoPolling();
       pushDebug('User toggled Radicle Off');
-      window.radicle
+      radicleApi
         .stop()
         .then(({ status, error }) => updateRadicleUi(status, error))
         .catch((err) => {
@@ -270,7 +292,7 @@ export const initRadicleUi = () => {
       radicleToggleSwitch?.classList.add('running');
       startRadicleInfoPolling();
       pushDebug('User toggled Radicle On');
-      window.radicle
+      radicleApi
         .start()
         .then(({ status, error }) => updateRadicleUi(status, error))
         .catch((err) => {
@@ -281,16 +303,16 @@ export const initRadicleUi = () => {
   });
 
   // Listen for status updates from main process
-  if (window.radicle) {
+  if (radicleApi.available !== false) {
     const handleStatus = ({ status, error }) => {
       pushDebug(`Radicle Status Update: ${status} ${error ? `(${error})` : ''}`);
       updateRadicleUi(status, error);
     };
-    window.radicle.onStatusUpdate(handleStatus);
+    radicleApi.onStatusUpdate(handleStatus);
 
     // Initial status check
     const refreshRadicleStatus = () => {
-      window.radicle.getStatus().then(({ status, error }) => {
+      radicleApi.getStatus().then(({ status, error }) => {
         updateRadicleUi(status, error);
       });
     };

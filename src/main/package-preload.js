@@ -30,6 +30,9 @@ const SHELL_API_METHODS = Object.freeze({
   BROWSER_STATE_FAVICONS_GET_CACHED: 'browserState.favicons.getCached',
   BROWSER_STATE_PROFILES_GET_ACTIVE: 'browserState.profiles.getActive',
   BROWSER_STATE_PROFILES_LIST: 'browserState.profiles.list',
+  SERVICES_GET_REGISTRY: 'services.getRegistry',
+  SERVICES_GET_STATUS: 'services.getStatus',
+  SERVICES_CHECK_BINARY: 'services.checkBinary',
   SURFACES_GET_STATE: 'surfaces.getState',
   SURFACES_OPEN: 'surfaces.open',
   SURFACES_CLOSE: 'surfaces.close',
@@ -74,6 +77,8 @@ const SHELL_API_EVENTS = Object.freeze({
   CHROME_REOPEN_CLOSED_TAB_REQUESTED: 'chrome.commands.reopenClosedTab',
   CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED: 'chrome.commands.toggleBookmarkBar',
   BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
+  SERVICES_REGISTRY_UPDATED: 'services.registryUpdated',
+  SERVICES_STATUS_UPDATED: 'services.statusUpdated',
 });
 
 const invokeShell = (method, ...args) => ipcRenderer.invoke(SHELL_REQUEST, { method, args });
@@ -121,6 +126,10 @@ const freedomShell = Object.freeze({
     invokeShell(SHELL_API_METHODS.BROWSER_STATE_FAVICONS_GET_CACHED, url),
   getActiveProfile: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_PROFILES_GET_ACTIVE),
   listProfiles: () => invokeShell(SHELL_API_METHODS.BROWSER_STATE_PROFILES_LIST),
+  getServiceRegistry: () => invokeShell(SHELL_API_METHODS.SERVICES_GET_REGISTRY),
+  getServiceStatus: (service) => invokeShell(SHELL_API_METHODS.SERVICES_GET_STATUS, { service }),
+  checkServiceBinary: (service) =>
+    invokeShell(SHELL_API_METHODS.SERVICES_CHECK_BINARY, { service }),
   getSurfaceState: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_GET_STATE, { surface }),
   openSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_OPEN, { surface }),
   closeSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_CLOSE, { surface }),
@@ -188,6 +197,10 @@ const freedomShell = Object.freeze({
     onShellCommand(SHELL_API_EVENTS.CHROME_TOGGLE_BOOKMARK_BAR_REQUESTED, callback),
   onProfileUpdated: (callback) =>
     onShellEvent(SHELL_API_EVENTS.BROWSER_STATE_PROFILE_UPDATED, callback),
+  onServiceRegistryUpdated: (callback) =>
+    onShellEvent(SHELL_API_EVENTS.SERVICES_REGISTRY_UPDATED, callback),
+  onServiceStatusUpdated: (callback) =>
+    onShellEvent(SHELL_API_EVENTS.SERVICES_STATUS_UPDATED, callback),
 });
 
 contextBridge.exposeInMainWorld('freedomShell', freedomShell);

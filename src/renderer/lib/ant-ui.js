@@ -1,6 +1,10 @@
 // Bee/Swarm node UI controls
 import { state, buildAntUrl, getDisplayMessage } from './state.js';
 import { pushDebug } from './debug.js';
+import {
+  getServiceRuntimeApi,
+  PACKAGE_SERVICE_CONTROL_DISABLED_TITLE,
+} from './service-runtime-api.js';
 
 // DOM elements (initialized in initAntUi)
 let beeToggleBtn = null;
@@ -15,6 +19,8 @@ let beeStatusValue = null;
 
 // Binary availability state
 let beeBinaryAvailable = true;
+
+const getAntApi = () => getServiceRuntimeApi().ant;
 
 export const stopAntInfoPolling = () => {
   if (state.antPeersInterval) {
@@ -179,13 +185,13 @@ export const resetAntVersion = () => {
   if (beeVersionText) beeVersionText.textContent = '';
 };
 
-const setToggleDisabled = (disabled) => {
+const setToggleDisabled = (disabled, title = 'Swarm binary not found') => {
   if (!beeToggleBtn) return;
 
   if (disabled) {
     beeToggleBtn.classList.add('disabled');
     beeToggleBtn.setAttribute('disabled', 'true');
-    beeToggleBtn.setAttribute('title', 'Swarm binary not found');
+    beeToggleBtn.setAttribute('title', title);
   } else {
     beeToggleBtn.classList.remove('disabled');
     beeToggleBtn.removeAttribute('disabled');
@@ -221,6 +227,13 @@ export const updateAntStatusLine = () => {
 // Update toggle disabled state based on node mode
 export const updateAntToggleState = () => {
   if (!beeToggleBtn) return;
+  const antApi = getAntApi();
+
+  if (antApi.canControl === false) {
+    beeToggleBtn.classList.remove('external');
+    setToggleDisabled(true, PACKAGE_SERVICE_CONTROL_DISABLED_TITLE);
+    return;
+  }
 
   const mode = state.registry?.ant?.mode;
   const isReused = mode === 'reused';
@@ -245,12 +258,18 @@ export const initAntUi = () => {
   beeStatusRow = document.getElementById('bee-status-row');
   beeStatusLabel = document.getElementById('bee-status-label');
   beeStatusValue = document.getElementById('bee-status-value');
+  const antApi = getAntApi();
 
   // Check binary availability
-  if (window.ant) {
-    window.ant.checkBinary().then(({ available }) => {
-      beeBinaryAvailable = available;
-      setToggleDisabled(!available);
+  if (antApi.available !== false && antApi.checkBinary) {
+    antApi.checkBinary().then(({ available }) => {
+      beeBinaryAvailable = available === true;
+      setToggleDisabled(
+        !beeBinaryAvailable || antApi.canControl === false,
+        antApi.canControl === false
+          ? PACKAGE_SERVICE_CONTROL_DISABLED_TITLE
+          : 'Swarm binary not found'
+      );
       if (!available) {
         pushDebug('Swarm binary not found - toggle disabled');
       }
@@ -259,6 +278,7 @@ export const initAntUi = () => {
 
   // Toggle button listener
   beeToggleBtn?.addEventListener('click', () => {
+    if (antApi.canControl === false) return;
     if (!beeBinaryAvailable) return;
 
     // Don't allow toggling when using an external node
@@ -270,7 +290,7 @@ export const initAntUi = () => {
       beeToggleSwitch?.classList.remove('running');
       stopAntInfoPolling();
       pushDebug('User toggled Swarm Off');
-      window.ant
+      antApi
         .stop()
         .then(({ status, error }) => updateAntUi(status, error))
         .catch((err) => {
@@ -282,7 +302,7 @@ export const initAntUi = () => {
       beeToggleSwitch?.classList.add('running');
       startAntInfoPolling();
       pushDebug('User toggled Swarm On');
-      window.ant
+      antApi
         .start()
         .then(({ status, error }) => updateAntUi(status, error))
         .catch((err) => {
@@ -293,16 +313,16 @@ export const initAntUi = () => {
   });
 
   // Listen for status updates from main process
-  if (window.ant) {
+  if (antApi.available !== false) {
     const handleStatus = ({ status, error }) => {
       pushDebug(`Ant Status Update: ${status} ${error ? `(${error})` : ''}`);
       updateAntUi(status, error);
     };
-    window.ant.onStatusUpdate(handleStatus);
+    antApi.onStatusUpdate(handleStatus);
 
     // Initial status check
     const refreshBeeStatus = () => {
-      window.ant.getStatus().then(({ status, error }) => {
+      antApi.getStatus().then(({ status, error }) => {
         updateAntUi(status, error);
       });
     };

@@ -144,6 +144,14 @@ describe('chrome-runtime-api', () => {
       success: false,
       error: { code: 'PROFILE_PACKAGE_MUTATION_UNAVAILABLE' },
     });
+    await expect(api.setBzzBase(1, 'http://127.0.0.1:1633')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SERVICE_BASE_UNAVAILABLE' },
+    });
+    await expect(api.clearRadBase(1)).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SERVICE_BASE_UNAVAILABLE' },
+    });
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
