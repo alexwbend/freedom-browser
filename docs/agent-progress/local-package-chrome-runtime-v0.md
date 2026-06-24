@@ -4766,3 +4766,67 @@ Known remaining gaps after this checkpoint:
   management flows, and richer feed-review UX still need shell-owned UI before
   the broader package runtime can be called complete; these are not
   user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 35: Trusted Wallet Management
+
+Current checkpoint: the shell-owned trusted wallet window can now perform
+scoped wallet-management actions for package-mode wallet UX while package
+chrome remains limited to `surfaces.wallet.control`. Package chrome still
+receives no wallet, identity, vault, dApp permission-store, signing, Node,
+Electron, or arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- added scoped trusted-wallet channels for setting the active wallet,
+  creating a derived wallet, renaming a wallet, and deleting a wallet; each
+  handler is accepted only from the trusted wallet WebContents and returns
+  structured errors
+- added wallet-management controls to the trusted wallet window: create
+  wallet, set active, rename, delete non-main wallet, plus the existing export
+  and dApp permission controls
+- kept derived wallet creation on the existing identity-manager contract: it
+  succeeds only when the vault is already unlocked and otherwise returns a
+  structured trusted-surface failure
+- blocked deletion of wallets that still have dApp permission references so
+  the user must revoke connected sites before removing that wallet from the
+  wallet list
+- fixed trusted wallet row layout so the expanded action set wraps cleanly
+  without collapsing wallet names or addresses into unreadable columns
+- updated the official package smoke to open the shell-owned trusted wallet
+  window and exercise the visible management controls under Electron
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-wallet-surface.test.js` passed:
+  1 suite, 19 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm test -- src/main/trusted-wallet-surface.test.js src/main/shell-api.test.js src/main/package-preload.test.js`
+  passed: 3 suites, 63 tests.
+- `git diff --check` passed.
+- `npm test` passed: 124 suites passed, 5 skipped; 2330 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+- committed as `db3ade4` (`feat(chrome): manage wallets in trusted surface`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28110424799`, job `test` (`83236028229`), passed for
+  `db3ade4`.
+- GitHub Actions run `28110424799`, job `e2e-chrome-runtime`
+  (`83236028214`), passed for `db3ade4`.
+
+Known remaining gaps after this checkpoint:
+
+- trusted wallet management can create a derived wallet only when the vault is
+  already unlocked; identity onboarding and broader non-provider vault
+  unlock/management flows still need shell-owned UX before wallet UX can be
+  called complete in package mode
+- richer wallet signing/account review and switching still need shell-owned
+  UX before the broader wallet experience can be called complete in package
+  mode
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path
