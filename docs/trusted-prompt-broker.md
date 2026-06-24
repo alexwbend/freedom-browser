@@ -610,8 +610,9 @@ Wallet connect:
   phrase vault, unlock or lock it, change the vault password, delete the vault
   after typed confirmation, and enable/disable quick unlock through scoped
   trusted-window IPC
-- future completion work should add any remaining non-provider account-management
-  surfaces that need shell-owned UI
+- additional non-provider account-management surfaces, if added later, must use
+  the same shell-owned UI boundary and must not expose raw account-management
+  APIs to package chrome
 
 Transaction and typed-data signing:
 
@@ -643,8 +644,7 @@ Transaction and typed-data signing:
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
 - non-provider vault management now lives in the shell-owned trusted identity
-  surface; future completion work should continue to avoid exposing raw vault
-  APIs to package chrome
+  surface; raw vault APIs remain unavailable to package chrome
 
 x402 approvals:
 

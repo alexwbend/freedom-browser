@@ -901,12 +901,10 @@ existing main-owned provider paths. The trusted window is bundled shell code
 with a dedicated preload and scoped IPC channels. Rejected prompts still return
 a structured `4001` user rejection. These slices do not expose raw feed-store
 IPC, stamp management, wallet account authority, or vault unlock state.
-Other higher-risk Ethereum and Swarm methods still fail
-with structured
+Other unsupported higher-risk Ethereum and Swarm methods fail with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
-them. Bundled chrome keeps the legacy renderer prompt path for those methods
-until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. Package-hosted x402 approval prompts now render in a shell-owned
+them. Bundled chrome keeps the legacy renderer prompt path for those methods.
+Package-hosted x402 approval prompts now render in a shell-owned
 trusted payment review window and can create the bounded default cap for
 recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the

@@ -5139,3 +5139,114 @@ Known remaining gaps after this checkpoint:
 - a formal final completion audit and branch-head GitHub target-job
   verification still remain before the long-running goal can be marked
   complete
+
+Remote verification after this checkpoint:
+
+- committed as `441de72` (`feat(chrome): render swarm feed review`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28117409824`, job `test` (`83260303638`), passed for
+  `441de72`.
+- GitHub Actions run `28117409824`, job `e2e-chrome-runtime`
+  (`83260303648`), passed for `441de72`.
+
+### Pre-Swarm Package Chrome Hardening Final Audit
+
+Status: no open completion gaps found in the final audit. No completion
+criterion below depends on a self-approved deferral.
+
+Completion criteria mapping:
+
+- Trust boundary inventory and decision record: implemented in
+  `docs/package-chrome-trust-boundaries.md`. The inventory classifies
+  browser-state APIs, surface-control APIs, provider paths, trusted surfaces,
+  package origin/recovery, and package-hosted internal page behavior. The same
+  document includes the method-by-method `src/renderer/lib/chrome-runtime-api.js`
+  no-op audit and records each method as delegated to `freedomShell`,
+  deliberately unavailable with structured behavior, removed, or owned by a
+  trusted surface.
+- Browser state shell APIs: implemented through `src/main/shell-api.js`,
+  `src/main/package-preload.js`, `src/shared/shell-api-policy.js`, and
+  `src/renderer/lib/chrome-runtime-api.js` for bookmarks, bookmark-bar
+  settings, package-safe settings writes, history, favicons, and display-only
+  profile data. Capabilities include `browserState.bookmarks.read/write`,
+  `browserState.settings.read/write`, `browserState.history.read/write`,
+  `browserState.favicons.read/write`, and `browserState.profiles.read`.
+  Official package smoke covers default bookmarks, add/edit/delete bookmark
+  UI, autocomplete, history page removal, favicon reads, package-safe
+  settings, and disabled unsafe settings/profile controls.
+- Shell-owned surface control API: implemented through
+  `surfaces.wallet.control`, `surfaces.identity.control`,
+  `surfaces.payments.control`, `surfaces.swarmPublish.control`, and the
+  `surfaces.stateChanged` event. Package chrome can request open/close/toggle
+  only; wallet, identity, payments, and Swarm publish management run in
+  shell-owned trusted windows with dedicated preloads and scoped IPC.
+- Provider flow safety in package mode: package-hosted guest content receives
+  page-facing Ethereum and Swarm providers through the hardened guest preload,
+  while package chrome has no provider globals. Low-risk
+  `eth_chainId` / `swarm_getCapabilities` requests bypass package chrome.
+  Higher-risk wallet, x402, Swarm access/publish/feed/signing paths ask main
+  for package host context, derive origin and package identity in main, use
+  shell-owned trusted prompts/surfaces where implemented, and fail with
+  structured provider errors before package chrome can broker unsupported
+  methods.
+- Trusted prompt broker foundation: implemented in
+  `src/main/trusted-prompt-broker.js` and documented in
+  `docs/trusted-prompt-broker.md`. The broker has a synthetic test slice and
+  production shell-owned trusted-window paths for wallet connect/sign/send,
+  x402 payment/vault unlock, Swarm access/publish/feed/signing, wallet
+  management, identity/vault management, payments, and Swarm publish.
+- Package origin and serving hardening: cached/activated packages load through
+  `freedom-chrome://active/` via `src/main/chrome-package-protocol.js`.
+  The handler serves only manifest-declared files, rejects traversal and
+  encoded separators, revalidates SHA-256 hashes, hides arbitrary filesystem
+  paths, and applies package CSP. Direct local directory development remains
+  file-based by design.
+- Package runtime diagnostics and multi-window correctness:
+  `freedomShell.getInfo()` derives package identity from the registered
+  calling sender rather than global active package state, and fallback
+  diagnostics redact unsafe package/feed/store paths. Unit coverage includes
+  caller-scoped package identity and multi-sender diagnostics.
+- Official package UX parity gate: `test-e2e/chrome-package.spec.js` covers
+  the official package runtime, home background, main/node/profile menus,
+  bookmarks, bookmark click and mutation UI, autocomplete/history, wallet,
+  identity, payments, Swarm publish surfaces, tabs, address bar, reload/home,
+  `freedom://home`, `freedom://settings`, protocol matrix coverage, package
+  broad API absence, provider-flow safety, cached package install/update,
+  rollback, and fallback recovery. `test-e2e/chrome-smoke.spec.js` covers the
+  bundled safe chrome recovery path.
+- Documentation and progress ledger: `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`,
+  `docs/trusted-prompt-broker.md`, and this progress ledger describe the
+  completed browser-state API, surface-control API, provider path vs chrome UI
+  path, trusted prompt boundary, package-origin model, diagnostics, runtime
+  modes, verification gates, and pre-Swarm limitations.
+
+Verification evidence for the final audit:
+
+- `npm test -- src/main/trusted-swarm-approval-prompt.test.js src/main/trusted-prompt-broker.test.js src/main/swarm/swarm-provider-ipc.test.js`
+  passed: 3 suites, 208 tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm test` passed: 125 suites passed, 5 skipped; 2347 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+- GitHub Actions run `28117409824`, job `test` (`83260303638`), passed for
+  `441de72`.
+- GitHub Actions run `28117409824`, job `e2e-chrome-runtime`
+  (`83260303648`), passed for `441de72`.
+
+Known limitations and post-goal roadmap items:
+
+- Swarm package upload/download/feed delivery, public marketplace behavior,
+  community package install UX, package signatures/provenance, community/theme
+  packages, dApp app mode, and a traditional web-hosted frontend remain outside
+  this goal.
+- Direct local package development can still use a file URL; cached/activated
+  packages use `freedom-chrome://active/`.
+- Package-created guest `<webview>` is still a hardened transitional bridge for
+  the official package runtime. Main enforces guest preload and WebPreferences
+  through `will-attach-webview`; the longer-term roadmap target remains
+  shell-owned guest views/WebContentsView.
