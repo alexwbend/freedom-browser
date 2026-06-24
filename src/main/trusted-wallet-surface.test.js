@@ -307,6 +307,91 @@ test('creates derived wallets only through the trusted surface window', async ()
   expect(mockCreateDerivedWallet).toHaveBeenCalledWith('Trading');
 });
 
+test('unlocks the vault and retries trusted wallet creation when the vault is locked', async () => {
+  const presentVaultUnlockPrompt = jest.fn().mockResolvedValue({
+    ok: true,
+    outcome: 'accepted',
+    response: 0,
+  });
+  mockCreateDerivedWallet
+    .mockRejectedValueOnce(new Error('Vault must be unlocked to create a new wallet'))
+    .mockResolvedValueOnce({
+      index: 2,
+      name: 'Trading',
+      address: '0x3333333333333333333333333333333333333333',
+    });
+  await openTrustedWalletSurface(
+    { caller: { packageId: 'baby.freedom.chrome.official-local' } },
+    { presentVaultUnlockPrompt }
+  );
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('create-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { name: ' Trading ' }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    wallet: {
+      index: 2,
+      name: 'Trading',
+      address: '0x3333333333333333333333333333333333333333',
+    },
+  });
+  expect(mockCreateDerivedWallet).toHaveBeenCalledTimes(2);
+  expect(mockCreateDerivedWallet).toHaveBeenNthCalledWith(1, 'Trading');
+  expect(mockCreateDerivedWallet).toHaveBeenNthCalledWith(2, 'Trading');
+  expect(presentVaultUnlockPrompt).toHaveBeenCalledWith(
+    expect.objectContaining({
+      kind: 'wallet.management',
+      method: 'wallet.createDerivedWallet',
+      heading: 'Unlock vault to create wallet',
+      origin: 'Freedom Wallet',
+      rows: [
+        { label: 'Action', value: 'Create wallet' },
+        { label: 'Wallet name', value: 'Trading' },
+      ],
+    }),
+    expect.objectContaining({
+      ownerWindow: surfaceWindow,
+      origin: 'Freedom Wallet',
+      caller: { packageId: 'baby.freedom.chrome.official-local' },
+      surface: 'wallet',
+    })
+  );
+});
+
+test('does not retry trusted wallet creation when vault unlock is rejected', async () => {
+  const presentVaultUnlockPrompt = jest.fn().mockResolvedValue({
+    ok: true,
+    outcome: 'rejected',
+    response: 1,
+  });
+  mockCreateDerivedWallet.mockRejectedValueOnce(
+    new Error('Vault must be unlocked to create a new wallet')
+  );
+  await openTrustedWalletSurface({}, { presentVaultUnlockPrompt });
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('create-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { name: 'Trading' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: {
+      code: 'TRUSTED_WALLET_SURFACE_CREATE_WALLET_UNLOCK_REJECTED',
+      message: 'Vault unlock was cancelled.',
+    },
+  });
+  expect(mockCreateDerivedWallet).toHaveBeenCalledTimes(1);
+  expect(presentVaultUnlockPrompt).toHaveBeenCalledTimes(1);
+});
+
 test('renames wallets only through the trusted surface window', async () => {
   await openTrustedWalletSurface({});
   const surfaceWindow = mockWindows[0];

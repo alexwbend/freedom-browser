@@ -568,12 +568,12 @@ Wallet connect:
   trusted window, revalidates the selected wallet index in main after
   acceptance, and writes the dApp permission from main
 - the shell-owned trusted wallet surface can set the active wallet, create a
-  derived wallet when the vault is already unlocked, rename wallets, delete
-  non-main wallets after connected dApp grants are revoked, and export the
-  vault seed phrase or a selected wallet private key after password
-  verification through scoped trusted-window IPC
-- future completion work should add identity onboarding, non-provider vault
-  unlock/management, and richer account review/switching in shell-owned
+  derived wallet through the shell-owned vault unlock prompt when needed,
+  rename wallets, delete non-main wallets after connected dApp grants are
+  revoked, and export the vault seed phrase or a selected wallet private key
+  after password verification through scoped trusted-window IPC
+- future completion work should add identity onboarding, broader non-provider
+  vault management, and richer account review/switching in shell-owned
   surfaces
 
 Transaction and typed-data signing:
@@ -595,8 +595,8 @@ Transaction and typed-data signing:
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
 - future completion work must add richer signing account review/switching,
-  identity onboarding, and broader non-provider vault unlock/management before
-  wallet UX can be called complete in package mode
+  identity onboarding, and broader non-provider vault management before wallet
+  UX can be called complete in package mode
 
 x402 approvals:
 
@@ -653,10 +653,11 @@ Vault unlock:
 ## Non-Goals In This Slice
 
 - no identity onboarding or general secret-management migration beyond scoped
-  wallet management plus password-gated seed/private-key export in the trusted
-  wallet surface
+  wallet management, trusted wallet create unlock, and password-gated
+  seed/private-key export in the trusted wallet surface
 - no full signing account-review/switching implementation
-- no general vault-unlock migration outside the current x402 and wallet-provider retry paths
+- no general vault-unlock migration outside the current x402, wallet-provider,
+  and trusted wallet create paths
 - no full publish-center approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

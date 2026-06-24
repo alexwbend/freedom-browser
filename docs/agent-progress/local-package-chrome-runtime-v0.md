@@ -4830,3 +4830,57 @@ Known remaining gaps after this checkpoint:
   mode
 - richer feed-review UX remains pending as a separate shell-owned surface or
   trusted prompt path
+
+### Trusted Prompt Broker Checkpoint 36: Trusted Wallet Create Vault Unlock
+
+Current checkpoint: the shell-owned trusted wallet window now opens a
+shell-owned trusted vault-unlock prompt when derived-wallet creation first
+finds the vault locked, then retries creation only after main reports a
+successful unlock. Package chrome remains limited to `surfaces.wallet.control`
+and still receives no wallet, identity, vault, dApp permission-store, signing,
+Node, Electron, or arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- added a trusted-wallet create-wallet unlock-and-retry path around
+  `identityManager.createDerivedWallet(...)`
+- reused the existing shell-owned `trusted-vault-unlock` modal with a
+  dedicated preload and sender-checked submit/cancel channels
+- passed wallet-management context to the vault prompt, including action and
+  wallet-name rows, while keeping package chrome out of the prompt path
+- preserved structured create-wallet results for accepted, rejected, and
+  unavailable vault-unlock outcomes
+- changed the vault-unlock prompt summary text from signing-specific wording
+  to generic continuation wording so it also fits wallet management
+- updated the official package smoke so clicking Create wallet in the
+  shell-owned trusted wallet window opens the trusted vault-unlock window and
+  cancellation returns a scoped wallet-management error
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-wallet-surface.test.js src/main/trusted-vault-unlock-prompt.test.js`
+  passed: 2 suites, 27 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm test -- src/main/trusted-wallet-surface.test.js src/main/trusted-vault-unlock-prompt.test.js src/main/shell-api.test.js src/main/package-preload.test.js`
+  passed: 4 suites, 71 tests.
+- `git diff --check` passed.
+- `npm test` passed: 124 suites passed, 5 skipped; 2332 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
+- identity onboarding and broader non-provider vault management remain
+  shell-owned future work before wallet UX can be called complete in package
+  mode
+- richer wallet signing/account review and switching still need shell-owned
+  UX before the broader wallet experience can be called complete in package
+  mode
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path

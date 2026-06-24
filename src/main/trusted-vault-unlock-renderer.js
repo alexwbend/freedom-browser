@@ -50,8 +50,8 @@
     const context = result.context || {};
     heading.textContent = context.heading || 'Unlock vault';
     summary.textContent = context.origin
-      ? `${context.origin} needs your vault unlocked before signing can continue.`
-      : 'Unlock your vault before signing can continue.';
+      ? `${context.origin} needs your vault unlocked to continue.`
+      : 'Unlock your vault to continue.';
     renderRows(context.rows);
     password.focus();
   }

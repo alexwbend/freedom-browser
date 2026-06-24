@@ -1075,6 +1075,42 @@ async function waitForTrustedWalletWindow(app) {
   throw new Error('Trusted wallet window did not appear');
 }
 
+async function waitForTrustedVaultUnlockWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('#unlock-form', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; other BrowserWindows do not host the trusted vault unlock prompt.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('#unlock-form', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the trusted vault unlock prompt is ready.
+      }
+    }
+  }
+
+  throw new Error('Trusted vault unlock window did not appear');
+}
+
 test('local package chrome loads through freedomShell without broad preload APIs', async () => {
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
@@ -1956,8 +1992,16 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(trustedWalletWindow.locator('#create-wallet-submit')).toBeVisible();
     await trustedWalletWindow.locator('#create-wallet-name').fill('Trading');
     await trustedWalletWindow.locator('#create-wallet-submit').click();
+    const vaultUnlockWindow = await waitForTrustedVaultUnlockWindow(launched.app);
+    await expect(vaultUnlockWindow.locator('#heading')).toHaveText('Unlock vault to create wallet');
+    await expect(vaultUnlockWindow.locator('#details')).toContainText('Create wallet');
+    await expect(vaultUnlockWindow.locator('#details')).toContainText('Trading');
+    await Promise.all([
+      vaultUnlockWindow.waitForEvent('close'),
+      vaultUnlockWindow.locator('#cancel').click(),
+    ]);
     await expect(trustedWalletWindow.locator('#management-error')).toContainText(
-      'Vault must be unlocked'
+      'Vault unlock was cancelled'
     );
     const savingsRow = trustedWalletWindow.locator('#wallet-list li').filter({
       hasText: 'Savings',

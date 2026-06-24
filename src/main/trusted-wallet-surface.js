@@ -3,11 +3,14 @@ const path = require('path');
 
 const { BrowserWindow, ipcMain } = require('electron');
 const identityManager = require('./identity-manager');
+const trustedVaultUnlockPrompt = require('./trusted-vault-unlock-prompt');
 const dappPermissions = require('./wallet/dapp-permissions');
+const { isVaultLockedError } = require('./wallet/vault-errors');
 
 const CHANNEL_PREFIX = 'trusted-wallet-surface';
 const SURFACE_WIDTH = 920;
 const SURFACE_HEIGHT = 680;
+const CREATE_WALLET_VAULT_LOCKED_MESSAGE = 'Vault must be unlocked to create a new wallet';
 
 let activeWindow = null;
 let activeSurfaceId = null;
@@ -90,6 +93,10 @@ function normalizeWalletName(name) {
   return text.slice(0, 80);
 }
 
+function isCreateWalletVaultLockedError(err) {
+  return isVaultLockedError(err) || err?.message === CREATE_WALLET_VAULT_LOCKED_MESSAGE;
+}
+
 function sanitizePermission(permission = {}) {
   return {
     origin: typeof permission.origin === 'string' ? permission.origin : '',
@@ -116,6 +123,87 @@ function formatDappPermissionReferenceError(walletIndex, permissions) {
   const extra = extraCount > 0 ? ` and ${extraCount} more` : '';
   const suffix = shownOrigins ? ` for ${shownOrigins}${extra}` : '';
   return `Cannot delete wallet with index ${walletIndex}; it is connected to dApps${suffix}. Revoke connected sites before deleting this wallet.`;
+}
+
+function buildCreateWalletUnlockRequest(name) {
+  return {
+    kind: 'wallet.management',
+    method: 'wallet.createDerivedWallet',
+    title: 'Unlock Wallet',
+    heading: 'Unlock vault to create wallet',
+    origin: 'Freedom Wallet',
+    reason: 'Freedom Wallet needs your vault unlocked to create a new wallet.',
+    rows: [
+      { label: 'Action', value: 'Create wallet' },
+      { label: 'Wallet name', value: name },
+    ],
+  };
+}
+
+async function requestCreateWalletVaultUnlock({
+  name,
+  surfaceWindow,
+  contextPayload,
+  presentVaultUnlockPrompt,
+}) {
+  if (typeof presentVaultUnlockPrompt !== 'function') {
+    return errorResult(
+      'TRUSTED_WALLET_SURFACE_CREATE_WALLET_UNLOCK_UNAVAILABLE',
+      'Trusted vault unlock prompt is unavailable'
+    );
+  }
+
+  const unlockPrompt = await presentVaultUnlockPrompt(
+    buildCreateWalletUnlockRequest(name),
+    {
+      ownerWindow: surfaceWindow,
+      origin: 'Freedom Wallet',
+      caller: contextPayload.caller || null,
+      surface: 'wallet',
+    }
+  );
+  if (unlockPrompt?.ok === true && unlockPrompt.outcome === 'accepted') {
+    return { ok: true };
+  }
+  if (unlockPrompt?.ok === true && unlockPrompt.outcome === 'rejected') {
+    return errorResult(
+      'TRUSTED_WALLET_SURFACE_CREATE_WALLET_UNLOCK_REJECTED',
+      'Vault unlock was cancelled.'
+    );
+  }
+  return errorResult(
+    'TRUSTED_WALLET_SURFACE_CREATE_WALLET_UNLOCK_UNAVAILABLE',
+    unlockPrompt?.error?.message || 'Trusted vault unlock prompt is unavailable'
+  );
+}
+
+async function createDerivedWalletWithVaultUnlock({
+  name,
+  surfaceWindow,
+  contextPayload,
+  presentVaultUnlockPrompt,
+}) {
+  try {
+    return await identityManager.createDerivedWallet(name);
+  } catch (err) {
+    if (!isCreateWalletVaultLockedError(err)) {
+      throw err;
+    }
+  }
+
+  const unlock = await requestCreateWalletVaultUnlock({
+    name,
+    surfaceWindow,
+    contextPayload,
+    presentVaultUnlockPrompt,
+  });
+  if (unlock.ok !== true) {
+    const err = new Error(unlock.error.message);
+    err.code = unlock.error.code;
+    throw err;
+  }
+
+  return identityManager.createDerivedWallet(name);
 }
 
 function buildSurfaceContext(context = {}) {
@@ -209,6 +297,8 @@ function registerSurfaceHandler(electronIpcMain, channel, handler) {
 async function openTrustedWalletSurface(context = {}, deps = {}) {
   const ElectronBrowserWindow = deps.BrowserWindow || BrowserWindow;
   const electronIpcMain = deps.ipcMain || ipcMain;
+  const presentVaultUnlockPrompt =
+    deps.presentVaultUnlockPrompt || trustedVaultUnlockPrompt.presentTrustedVaultUnlockPrompt;
   const onClosed = typeof context.onClosed === 'function' ? context.onClosed : null;
 
   if (
@@ -354,13 +444,18 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     if (mismatch) return mismatch;
     try {
       const name = normalizeWalletName(payload.name);
-      const wallet = await identityManager.createDerivedWallet(name);
+      const wallet = await createDerivedWalletWithVaultUnlock({
+        name,
+        surfaceWindow,
+        contextPayload,
+        presentVaultUnlockPrompt,
+      });
       const snapshot = await buildSnapshot();
       await notifySnapshotUpdated();
       return { ok: true, wallet, snapshot };
     } catch (err) {
       return errorResult(
-        'TRUSTED_WALLET_SURFACE_CREATE_WALLET_FAILED',
+        err?.code || 'TRUSTED_WALLET_SURFACE_CREATE_WALLET_FAILED',
         err?.message || 'Failed to create wallet'
       );
     }
