@@ -2010,6 +2010,54 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Surface-Control Checkpoint 2: Surface State Event
+
+Current checkpoint: package chrome can now mirror caller-scoped shell-owned
+surface state through a capability-gated `surfaces.stateChanged` event instead
+of relying only on direct command responses.
+
+Implemented in this checkpoint:
+
+- added the `surfaces.stateChanged` shell event, gated by the existing
+  `surfaces.wallet.control` capability
+- exposed `freedomShell.onSurfaceStateChanged(callback)` through the narrow
+  package preload and package runtime adapter
+- emitted state changes only for the registered package caller whose surface
+  state changed, and only when the `wallet` placeholder actually transitions
+  open/closed
+- updated the package-mode sidebar controller to subscribe through
+  `chrome-runtime-api.js`, mirror direct shell-owned `openSurface` /
+  `closeSurface` changes, and avoid duplicate open/close notifications when a
+  command response and event report the same state
+- expanded official package smoke so direct `freedomShell.openSurface("wallet")`
+  and `closeSurface("wallet")` update the visible wallet/sidebar affordance
+  through the event before the existing button path is exercised
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed:
+  4 suites, 49 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2180 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- this remains a placeholder surface; the real wallet center, wallet connect,
+  transaction signing, typed-data signing, identity, vault, x402
+  approval/unlock, Swarm publish/feed, seed/private-key export, and payment
+  history trusted surfaces still need shell-owned UI before they can be called
+  complete in package mode
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 19: Package-Hosted Settings Boundary
 
 Current checkpoint: package-hosted internal settings pages no longer use raw

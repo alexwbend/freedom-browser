@@ -189,6 +189,7 @@ describe('shell-api-policy', () => {
       BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
       SERVICES_REGISTRY_UPDATED: 'services.registryUpdated',
       SERVICES_STATUS_UPDATED: 'services.statusUpdated',
+      SURFACES_STATE_CHANGED: 'surfaces.stateChanged',
     });
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
       'tabs.commandResult': 'tabs.write',
@@ -215,6 +216,7 @@ describe('shell-api-policy', () => {
       'browserState.profiles.updated': 'browserState.profiles.read',
       'services.registryUpdated': 'services.read',
       'services.statusUpdated': 'services.read',
+      'surfaces.stateChanged': 'surfaces.wallet.control',
     });
     expect(KNOWN_SHELL_CAPABILITIES).toEqual([
       'app.about',

@@ -1284,6 +1284,18 @@ describe('shell-api', () => {
       owner: 'shell',
       mode: 'shell-owned-placeholder',
     });
+    expect(firstSender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        ok: true,
+        surface: 'wallet',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      }),
+    });
+    expect(secondSender.send).not.toHaveBeenCalled();
+    firstSender.send.mockClear();
 
     await expect(
       mod.handleShellRequest(
@@ -1295,6 +1307,7 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: false,
     });
+    expect(secondSender.send).not.toHaveBeenCalled();
 
     await expect(
       mod.handleShellRequest(
@@ -1306,6 +1319,15 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: false,
     });
+    expect(firstSender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        ok: true,
+        surface: 'wallet',
+        open: false,
+      }),
+    });
+    firstSender.send.mockClear();
 
     await expect(
       mod.handleShellRequest(
@@ -1317,6 +1339,7 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: false,
     });
+    expect(firstSender.send).not.toHaveBeenCalled();
 
     await expect(
       mod.handleShellRequest(

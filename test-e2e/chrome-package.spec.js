@@ -870,6 +870,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
         'openSurface',
         'closeSurface',
         'toggleSurface',
+        'onSurfaceStateChanged',
         'requestTestTrustedPrompt',
         'setWindowTitle',
         'closeWindow',
@@ -1592,6 +1593,16 @@ test('official browser chrome can launch as a local package with transitional we
       trusted: true,
     });
     await expect(page.locator('#wallet-toggle-btn')).toBeVisible();
+    await page.evaluate(() => window.freedomShell.openSurface('wallet'));
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
+    ).toBe(true);
+    await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await page.evaluate(() => window.freedomShell.closeSurface('wallet'));
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
+    ).toBe(false);
+    await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
     await page.locator('#wallet-toggle-btn').click();
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))

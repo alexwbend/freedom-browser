@@ -220,6 +220,8 @@ const createPackageRuntimeApi = () =>
         unavailableResult('SURFACE_CONTROL_UNAVAILABLE', 'Surface control is unavailable'),
         surface
       ),
+    onSurfaceStateChanged: (callback) =>
+      subscribeFreedomShell('onSurfaceStateChanged', callback),
     getFavicon: (url) => callFreedomShell('getFavicon', null, url),
     getCachedFavicon: (url) => callFreedomShell('getCachedFavicon', null, url),
     fetchFavicon: (url) => callFreedomShell('fetchFavicon', null, url),

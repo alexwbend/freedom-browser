@@ -14,6 +14,7 @@ let isOpen = false;
 let featureEnabled = false;
 let packageSurfaceMode = false;
 let runtimeApi;
+let packageSurfaceDisposer = null;
 
 // DOM references
 let sidebar;
@@ -35,11 +36,13 @@ export function initSidebar() {
 
   runtimeApi = getChromeRuntimeApi();
   packageSurfaceMode = isPackageChromeRuntime();
+  cleanupPackageSurfaceSubscription();
 
   if (packageSurfaceMode) {
     featureEnabled = true;
     configurePackageSurfacePlaceholder();
     applyFeatureVisibility();
+    packageSurfaceDisposer = subscribePackageSurfaceState();
     syncPackageSurfaceState();
   } else {
     // Load initial feature flag state
@@ -223,38 +226,52 @@ async function syncPackageSurfaceState() {
     return;
   }
 
-  isOpen = state.open === true;
-  applyState();
+  applyPackageSurfaceState(state, { dispatch: false });
 }
 
 async function togglePackageSurface() {
-  const wasOpen = isOpen;
   const state = await callPackageSurface('toggleSurface');
-  if (state?.ok === true && state.surface === WALLET_SURFACE) {
-    isOpen = state.open === true;
-    applyState();
-    dispatchVisibilityEvent(wasOpen);
-  }
+  applyPackageSurfaceState(state);
 }
 
 async function openPackageSurface() {
-  const wasOpen = isOpen;
   const state = await callPackageSurface('openSurface');
-  if (state?.ok === true && state.surface === WALLET_SURFACE) {
-    isOpen = state.open === true;
-    applyState();
-    dispatchVisibilityEvent(wasOpen);
-  }
+  applyPackageSurfaceState(state);
 }
 
 async function closePackageSurface() {
-  const wasOpen = isOpen;
   const state = await callPackageSurface('closeSurface');
-  if (state?.ok === true && state.surface === WALLET_SURFACE) {
-    isOpen = state.open === true;
-    applyState();
+  applyPackageSurfaceState(state);
+}
+
+function subscribePackageSurfaceState() {
+  if (typeof runtimeApi?.onSurfaceStateChanged !== 'function') {
+    return null;
+  }
+  const disposer = runtimeApi.onSurfaceStateChanged((state) => {
+    applyPackageSurfaceState(state);
+  });
+  return typeof disposer === 'function' ? disposer : null;
+}
+
+function cleanupPackageSurfaceSubscription() {
+  if (typeof packageSurfaceDisposer === 'function') {
+    packageSurfaceDisposer();
+  }
+  packageSurfaceDisposer = null;
+}
+
+function applyPackageSurfaceState(state, { dispatch = true } = {}) {
+  if (state?.ok !== true || state.surface !== WALLET_SURFACE) {
+    return false;
+  }
+  const wasOpen = isOpen;
+  isOpen = state.open === true;
+  applyState();
+  if (dispatch) {
     dispatchVisibilityEvent(wasOpen);
   }
+  return wasOpen !== isOpen;
 }
 
 async function callPackageSurface(methodName) {

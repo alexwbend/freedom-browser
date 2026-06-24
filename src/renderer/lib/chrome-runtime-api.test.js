@@ -113,6 +113,7 @@ describe('chrome-runtime-api', () => {
         owner: 'shell',
         mode: 'shell-owned-placeholder',
       }),
+      onSurfaceStateChanged: jest.fn(() => 'cleanup-surface-state'),
       onCloseMenusRequested: jest.fn(() => 'cleanup-close-menus'),
       onFocusAddressBarRequested: jest.fn(() => 'cleanup-focus-address-bar'),
       onToggleDevToolsRequested: jest.fn(() => 'cleanup-toggle-devtools'),
@@ -309,6 +310,7 @@ describe('chrome-runtime-api', () => {
       toggleBookmarkBar: jest.fn(),
       updateNotification: jest.fn(),
       profileUpdated: jest.fn(),
+      surfaceStateChanged: jest.fn(),
     };
     expect(api.onCloseMenus(callbacks.closeMenus)).toBe('cleanup-close-menus');
     expect(api.onFocusAddressBar(callbacks.focusAddressBar)).toBe(
@@ -329,6 +331,9 @@ describe('chrome-runtime-api', () => {
       'cleanup-update-notification'
     );
     expect(api.onProfileUpdated(callbacks.profileUpdated)).toBe('cleanup-profile-updated');
+    expect(api.onSurfaceStateChanged(callbacks.surfaceStateChanged)).toBe(
+      'cleanup-surface-state'
+    );
     expect(api.onX402ApprovalNeeded(jest.fn())).toEqual(expect.any(Function));
     expect(api.onX402ApprovalResult(jest.fn())).toEqual(expect.any(Function));
     expect(api.onX402UnlockNeeded(jest.fn())).toEqual(expect.any(Function));
@@ -360,6 +365,9 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.openSurface).toHaveBeenCalledWith('wallet');
     expect(freedomShell.closeSurface).toHaveBeenCalledWith('wallet');
     expect(freedomShell.toggleSurface).toHaveBeenCalledWith('wallet');
+    expect(freedomShell.onSurfaceStateChanged).toHaveBeenCalledWith(
+      callbacks.surfaceStateChanged
+    );
     expect(freedomShell.saveSettings).toHaveBeenCalledWith({ showBookmarkBar: false });
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',

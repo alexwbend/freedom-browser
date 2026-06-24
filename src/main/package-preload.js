@@ -85,6 +85,7 @@ const SHELL_API_EVENTS = Object.freeze({
   BROWSER_STATE_PROFILE_UPDATED: 'browserState.profiles.updated',
   SERVICES_REGISTRY_UPDATED: 'services.registryUpdated',
   SERVICES_STATUS_UPDATED: 'services.statusUpdated',
+  SURFACES_STATE_CHANGED: 'surfaces.stateChanged',
 });
 
 const invokeShell = (method, ...args) => ipcRenderer.invoke(SHELL_REQUEST, { method, args });
@@ -149,6 +150,8 @@ const freedomShell = Object.freeze({
   openSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_OPEN, { surface }),
   closeSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_CLOSE, { surface }),
   toggleSurface: (surface) => invokeShell(SHELL_API_METHODS.SURFACES_TOGGLE, { surface }),
+  onSurfaceStateChanged: (callback) =>
+    onShellEvent(SHELL_API_EVENTS.SURFACES_STATE_CHANGED, callback),
   requestTestTrustedPrompt: (payload) =>
     invokeShell(SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST, payload),
   setWindowTitle: (title) => invokeShell(SHELL_API_METHODS.WINDOWS_SET_TITLE, title),

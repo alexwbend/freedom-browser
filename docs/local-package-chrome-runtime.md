@@ -404,6 +404,7 @@ running Radicle network.
 - `openSurface(surface)`
 - `closeSurface(surface)`
 - `toggleSurface(surface)`
+- `onSurfaceStateChanged(callback)`
 - `requestTestTrustedPrompt(payload)`
 - `getTabSnapshot()`
 - `createTab(options)`
@@ -567,11 +568,14 @@ trusted surfaces. The current implemented surface is `wallet`, backed by
 caller-scoped placeholder state with `owner: "shell"` and
 `mode: "shell-owned-placeholder"`. Package chrome can read, open, close, or
 toggle that placeholder state only when it declares `surfaces.wallet.control`.
-This does not expose wallet, identity, provider, signing, or vault APIs, and it
-does not mean the real wallet center has been migrated. The official package
-smoke exercises the visible wallet/sidebar affordance against this shell-owned
-placeholder state. The fixture package smoke also exercises the placeholder
-control path.
+The same capability gates the caller-scoped `surfaces.stateChanged` event
+exposed as `onSurfaceStateChanged(callback)`, so package chrome can mirror
+shell-owned state changes without polling or broad IPC. This does not expose
+wallet, identity, provider, signing, or vault APIs, and it does not mean the
+real wallet center has been migrated. The official package smoke exercises the
+visible wallet/sidebar affordance against this shell-owned placeholder state
+and verifies direct shell state changes update the package UI through the event.
+The fixture package smoke also exercises the placeholder control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
 documented in `docs/trusted-prompt-broker.md`. It proves package chrome can

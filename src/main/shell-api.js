@@ -525,24 +525,37 @@ function describeSurfaceState(caller, surface) {
   };
 }
 
-function setSurfaceOpen(caller, payload, open) {
-  const surface = getSurfaceName(payload);
-  if (!SUPPORTED_SURFACES.has(surface)) {
-    return describeSurfaceState(caller, surface);
+function emitSurfaceStateChanged(event, caller, state, previousOpen) {
+  if (state?.ok !== true || previousOpen === state.open) {
+    return;
   }
-
-  caller.surfaces.set(surface, open);
-  return describeSurfaceState(caller, surface);
+  emitShellEvent(event, caller, SHELL_API_EVENTS.SURFACES_STATE_CHANGED, state);
 }
 
-function toggleSurfaceOpen(caller, payload) {
+function setSurfaceOpen(caller, payload, open, event) {
   const surface = getSurfaceName(payload);
   if (!SUPPORTED_SURFACES.has(surface)) {
     return describeSurfaceState(caller, surface);
   }
 
-  caller.surfaces.set(surface, caller.surfaces.get(surface) !== true);
-  return describeSurfaceState(caller, surface);
+  const previousOpen = caller.surfaces.get(surface) === true;
+  caller.surfaces.set(surface, open);
+  const state = describeSurfaceState(caller, surface);
+  emitSurfaceStateChanged(event, caller, state, previousOpen);
+  return state;
+}
+
+function toggleSurfaceOpen(caller, payload, event) {
+  const surface = getSurfaceName(payload);
+  if (!SUPPORTED_SURFACES.has(surface)) {
+    return describeSurfaceState(caller, surface);
+  }
+
+  const previousOpen = caller.surfaces.get(surface) === true;
+  caller.surfaces.set(surface, !previousOpen);
+  const state = describeSurfaceState(caller, surface);
+  emitSurfaceStateChanged(event, caller, state, previousOpen);
+  return state;
 }
 
 function requestTestTrustedPromptForShell(payload, caller) {
@@ -1132,13 +1145,13 @@ const METHODS = Object.freeze({
     handler: ([payload], _event, caller) => describeSurfaceState(caller, getSurfaceName(payload)),
   },
   [SHELL_API_METHODS.SURFACES_OPEN]: {
-    handler: ([payload], _event, caller) => setSurfaceOpen(caller, payload, true),
+    handler: ([payload], event, caller) => setSurfaceOpen(caller, payload, true, event),
   },
   [SHELL_API_METHODS.SURFACES_CLOSE]: {
-    handler: ([payload], _event, caller) => setSurfaceOpen(caller, payload, false),
+    handler: ([payload], event, caller) => setSurfaceOpen(caller, payload, false, event),
   },
   [SHELL_API_METHODS.SURFACES_TOGGLE]: {
-    handler: ([payload], _event, caller) => toggleSurfaceOpen(caller, payload),
+    handler: ([payload], event, caller) => toggleSurfaceOpen(caller, payload, event),
   },
   [SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST]: {
     handler: ([payload], _event, caller) => requestTestTrustedPromptForShell(payload, caller),

@@ -75,6 +75,7 @@ describe('package-preload', () => {
       'openSurface',
       'closeSurface',
       'toggleSurface',
+      'onSurfaceStateChanged',
       'requestTestTrustedPrompt',
       'setWindowTitle',
       'closeWindow',
@@ -502,6 +503,7 @@ describe('package-preload', () => {
     const profileUpdatedCallback = jest.fn();
     const serviceRegistryUpdatedCallback = jest.fn();
     const serviceStatusUpdatedCallback = jest.fn();
+    const surfaceStateChangedCallback = jest.fn();
 
     const cleanupCommand = exposures.freedomShell.onTabCommandResult(commandCallback);
     const cleanupSnapshot = exposures.freedomShell.onTabSnapshotChanged(snapshotCallback);
@@ -519,6 +521,8 @@ describe('package-preload', () => {
       exposures.freedomShell.onServiceRegistryUpdated(serviceRegistryUpdatedCallback);
     const cleanupServiceStatusUpdated =
       exposures.freedomShell.onServiceStatusUpdated(serviceStatusUpdatedCallback);
+    const cleanupSurfaceStateChanged =
+      exposures.freedomShell.onSurfaceStateChanged(surfaceStateChangedCallback);
     const [
       commandHandler,
       snapshotHandler,
@@ -530,6 +534,7 @@ describe('package-preload', () => {
       profileUpdatedHandler,
       serviceRegistryUpdatedHandler,
       serviceStatusUpdatedHandler,
+      surfaceStateChangedHandler,
     ] = ipcRenderer.listeners.get(IPC.SHELL_EVENT);
 
     ipcRenderer.emit(IPC.SHELL_EVENT, {
@@ -599,6 +604,16 @@ describe('package-preload', () => {
       },
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: {
+        ok: true,
+        surface: 'wallet',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
       event: 'unrelated.event',
       data: {
         ok: true,
@@ -640,6 +655,13 @@ describe('package-preload', () => {
       error: null,
       controllable: false,
     });
+    expect(surfaceStateChangedCallback).toHaveBeenCalledWith({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
 
     cleanupCommand();
     cleanupSnapshot();
@@ -651,6 +673,7 @@ describe('package-preload', () => {
     cleanupProfileUpdated();
     cleanupServiceRegistryUpdated();
     cleanupServiceStatusUpdated();
+    cleanupSurfaceStateChanged();
 
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, commandHandler);
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, snapshotHandler);
@@ -679,6 +702,10 @@ describe('package-preload', () => {
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,
       serviceStatusUpdatedHandler
+    );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+      IPC.SHELL_EVENT,
+      surfaceStateChangedHandler
     );
     expect(ipcRenderer.listeners.get(IPC.SHELL_EVENT)).toEqual([]);
   });
