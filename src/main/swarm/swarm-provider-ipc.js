@@ -480,23 +480,38 @@ async function presentNativeSwarmPublishPrompt(request, context = {}) {
   }
 
   const origin = request.origin || context.origin || 'Unknown site';
+  const details = request.details || {};
+  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
+  const contentType = details.contentType ? ` Type: ${details.contentType}.` : '';
+  const name = details.name ? ` Name: ${details.name}.` : '';
   const ownerWindow = context.ownerWindow || null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
     title: 'Freedom Swarm Publish',
     message: 'Swarm publish request',
     detail:
-      `${origin} requested Swarm publish access. ` +
-      'Package chrome cannot approve this request; the shell is rejecting it for now.',
-    buttons: ['Reject'],
-    defaultId: 0,
-    cancelId: 0,
+      `${origin} requested to publish data to Swarm.` +
+      contentType +
+      size +
+      name +
+      ' Choose Publish only if you trust this request.',
+    buttons: ['Publish', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
     noLink: true,
   });
   return {
     ok: true,
-    outcome: 'rejected',
+    outcome: result?.response === 0 ? 'accepted' : 'rejected',
     response: result?.response,
+  };
+}
+
+function summarizePublishDataPrompt(prepared) {
+  return {
+    contentType: prepared.contentType,
+    sizeBytes: prepared.size,
+    ...(prepared.name ? { name: prepared.name } : {}),
   };
 }
 
@@ -524,12 +539,32 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
+  const prepared = preparePublishDataParams(payload.params);
+  if (prepared.error) {
+    return {
+      result: null,
+      error: prepared.error,
+    };
+  }
+
   const origin = deriveProviderOrigin(event);
+  if (!origin) {
+    return {
+      result: null,
+      error: {
+        ...ERRORS.UNAUTHORIZED,
+        message: 'Unable to derive Swarm provider origin',
+        data: { reason: 'origin_unavailable' },
+      },
+    };
+  }
+
+  const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
   const prompt = await defaultTrustedPromptBroker.requestSwarmPublishPrompt(
     {
       method,
       reason: origin ? `Swarm publish request from ${origin}` : 'Swarm publish request',
+      details: summarizePublishDataPrompt(prepared),
     },
     {
       caller: getPackageHostIdentity(hostWebContents),
@@ -552,6 +587,16 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
         },
       },
       trustedPrompt: prompt || null,
+    };
+  }
+
+  if (prompt.result?.outcome === 'accepted') {
+    const publishOrigin = normalizeOrigin(origin);
+    const publishResult = await executePublishData(prepared, publishOrigin);
+    if (publishResult.result) resetVaultAutoLockTimer();
+    return {
+      ...publishResult,
+      trustedPrompt: prompt,
     };
   }
 
@@ -613,7 +658,7 @@ async function handleGetCapabilities(origin) {
 /**
  * Handle swarm_publishData: validate, enforce limits, publish via publish-service.
  */
-async function handlePublishData(params, origin) {
+function preparePublishDataParams(params) {
   if (!params || typeof params !== 'object') {
     return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
   }
@@ -650,6 +695,15 @@ async function handlePublishData(params, origin) {
     };
   }
 
+  return {
+    payload,
+    contentType,
+    name,
+    size,
+  };
+}
+
+async function executePublishData(prepared, origin) {
   // Pre-flight check
   const preFlight = await checkSwarmPreFlight();
   if (!preFlight.ok) {
@@ -660,16 +714,16 @@ async function handlePublishData(params, origin) {
   // on the success-path update) so failed rows also carry payload size.
   const historyEntry = addEntry({
     type: 'data',
-    name: name || 'Published data',
+    name: prepared.name || 'Published data',
     status: 'uploading',
     origin,
-    bytesSize: size,
+    bytesSize: prepared.size,
   });
 
   try {
-    const result = await publishData(payload, {
-      contentType,
-      name: name || undefined,
+    const result = await publishData(prepared.payload, {
+      contentType: prepared.contentType,
+      name: prepared.name || undefined,
     });
 
     updateEntry(historyEntry.id, { status: 'completed', ...result });
@@ -681,6 +735,14 @@ async function handlePublishData(params, origin) {
     log.error(`[SwarmProvider] publishData failed for ${origin}:`, err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
   }
+}
+
+async function handlePublishData(params, origin) {
+  const prepared = preparePublishDataParams(params);
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  return executePublishData(prepared, origin);
 }
 
 /**

@@ -257,7 +257,59 @@ describe('swarm-provider-ipc', () => {
       };
     }
 
-    test('routes package-hosted swarm_publishData through a shell-owned rejection prompt', async () => {
+    function mockPreFlightOk() {
+      mockGetBeeApiUrl.mockReturnValue('http://127.0.0.1:1633');
+      global.fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ beeMode: 'light' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ready' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ stamps: [{ usable: true }] }) });
+    }
+
+    test('rejects invalid package-hosted swarm_publishData before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishData',
+        params: { data: 'hello' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'contentType is required',
+          data: { reason: 'missing_content_type' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockPublishData).not.toHaveBeenCalled();
+    });
+
+    test('fails package-hosted swarm_publishData when main cannot derive the guest origin', async () => {
+      const event = buildPackageHostedEvent('');
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishData',
+        params: { data: 'hello', contentType: 'text/plain' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4100,
+          message: 'Unable to derive Swarm provider origin',
+          data: { reason: 'origin_unavailable' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockPublishData).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_publishData through a shell-owned prompt', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockGetPackageWebContentsIdentity.mockReturnValue({
@@ -268,7 +320,7 @@ describe('swarm-provider-ipc', () => {
         name: 'Freedom Official Chrome',
         version: '0.7.5',
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_publishData',
@@ -285,11 +337,13 @@ describe('swarm-provider-ipc', () => {
           title: 'Freedom Swarm Publish',
           message: 'Swarm publish request',
           detail:
-            'ipfs://bafyfixture requested Swarm publish access. ' +
-            'Package chrome cannot approve this request; the shell is rejecting it for now.',
-          buttons: ['Reject'],
-          defaultId: 0,
-          cancelId: 0,
+            'ipfs://bafyfixture requested to publish data to Swarm. ' +
+            'Type: text/plain. ' +
+            'Size: 5 bytes. ' +
+            'Choose Publish only if you trust this request.',
+          buttons: ['Publish', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
           noLink: true,
         })
       );
@@ -313,6 +367,76 @@ describe('swarm-provider-ipc', () => {
           ok: true,
           kind: 'swarm.publish',
           renderedBy: 'shell-native-dialog',
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('publishes package-hosted swarm_publishData after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPackageWebContentsIdentity.mockReturnValue({
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.official',
+        packageType: 'browser-chrome',
+        name: 'Freedom Official Chrome',
+        version: '0.7.5',
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockPublishData.mockResolvedValue({
+        reference: 'abc123',
+        bzzUrl: 'bzz://abc123',
+        tagUid: null,
+        batchIdUsed: 'batch1',
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishData',
+        params: { data: 'hello', contentType: 'text/plain', name: 'note.txt' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockGetPermission).not.toHaveBeenCalled();
+      expect(mockPublishData).toHaveBeenCalledWith('hello', {
+        contentType: 'text/plain',
+        name: 'note.txt',
+      });
+      expect(mockAddEntry).toHaveBeenCalledWith({
+        type: 'data',
+        name: 'note.txt',
+        status: 'uploading',
+        origin: 'ipfs://bafyfixture',
+        bytesSize: 5,
+      });
+      expect(mockUpdateEntry).toHaveBeenCalledWith(
+        'test-id',
+        expect.objectContaining({ status: 'completed', reference: 'abc123' })
+      );
+      expect(result).toMatchObject({
+        result: { reference: 'abc123', bzzUrl: 'bzz://abc123' },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            details: {
+              contentType: 'text/plain',
+              sizeBytes: 5,
+              name: 'note.txt',
+            },
+          },
           context: {
             origin: 'ipfs://bafyfixture',
             webContentsId: 42,

@@ -3263,3 +3263,62 @@ Known remaining gaps after this checkpoint:
   and seed/private-key export prompt surfaces still need shell-owned UI before
   they can be called complete in package mode; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 11: Package Swarm Data Publish Approval
+
+Current checkpoint: package-hosted `swarm.publishData()` can now proceed from
+a shell-owned native Publish / Reject prompt into the existing main-owned
+Swarm provider data-publish path. Package chrome still does not receive Swarm
+provider globals, raw Swarm IPC, publish-history IPC, stamp-management
+authority, feed-signing authority, file/folder publish authority, Node,
+Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- changed the package-hosted Swarm publish native prompt from rejection-only to
+  explicit `Publish` / `Reject`, with `Reject` as the default and cancel
+  action
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- validate `swarm_publishData` params in main before opening the prompt, so
+  invalid payloads fail without prompting
+- pass display-only publish details to the shell-owned prompt: content type,
+  byte size, and optional name
+- on accepted package-hosted `swarm_publishData`, execute the existing
+  main-owned provider publish path using the derived origin as a one-time
+  authorization
+- preserve page-facing `4001` with `data.reason:
+  "shell_trusted_prompt_rejected"` on rejection
+- leave `swarm_publishFiles`, feed methods, chunk/SOC signing methods,
+  `freedom://publish`, publish setup, stamp management, and full publish/feed
+  approval UI unavailable to package chrome
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 186 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2213 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted Swarm data publish now succeeds only for the data-only
+  provider method when the user accepts and normal Bee node/stamp readiness is
+  available; file/folder publish, feed publish/update, stamp management,
+  publish history, and full publish/feed review UI still need a real
+  shell-owned Swarm surface before Swarm publish can be called complete in
+  package mode
+- identity onboarding, general vault unlock, seed/private-key export, x402 cap
+  grants/payment-permission/vault-unlock flows, richer x402 review, and richer
+  wallet account/review surfaces still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals

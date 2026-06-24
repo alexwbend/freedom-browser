@@ -553,6 +553,11 @@ describe('trusted-prompt-broker', () => {
         {
           method: 'swarm_publishData',
           origin: 'https://spoofed.example',
+          details: {
+            contentType: 'text/plain',
+            sizeBytes: 5,
+            name: 'note.txt',
+          },
         },
         {
           caller,
@@ -585,6 +590,11 @@ describe('trusted-prompt-broker', () => {
         method: 'swarm_publishData',
         reason: 'Swarm publish request from ipfs://bafyapp',
         presentation: 'native-dialog',
+        details: {
+          contentType: 'text/plain',
+          sizeBytes: 5,
+          name: 'note.txt',
+        },
       },
       result: {
         outcome: 'rejected',
@@ -600,6 +610,11 @@ describe('trusted-prompt-broker', () => {
         reason: 'Swarm publish request from ipfs://bafyapp',
         origin: 'ipfs://bafyapp',
         webContentsId: 52,
+        details: {
+          contentType: 'text/plain',
+          sizeBytes: 5,
+          name: 'note.txt',
+        },
       },
       {
         caller,

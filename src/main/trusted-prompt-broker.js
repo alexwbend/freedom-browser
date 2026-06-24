@@ -345,6 +345,7 @@ function createTrustedPromptBroker(options = {}) {
     const reason =
       normalizeReason(payload.reason) ||
       `Swarm publish request from ${context.origin || 'unknown origin'}`;
+    const details = cloneSerializable(payload.details || null);
     const presentNativeDialog = context.presentNativeDialog || defaultPresentNativeDialog;
     if (typeof presentNativeDialog !== 'function') {
       return {
@@ -364,6 +365,7 @@ function createTrustedPromptBroker(options = {}) {
         reason,
         origin: context.origin || null,
         webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
+        ...(details ? { details } : {}),
       },
       context
     );
@@ -394,6 +396,7 @@ function createTrustedPromptBroker(options = {}) {
         method,
         reason,
         presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+        ...(details ? { details } : {}),
       },
       result: describeNativeDialogResult({
         ...presentationResult,

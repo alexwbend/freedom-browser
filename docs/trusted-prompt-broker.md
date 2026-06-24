@@ -252,7 +252,7 @@ signing methods such as `eth_sign` remain safe failure paths for now. This
 does not select accounts, unlock vault state, expose raw wallet authority, or
 migrate the full wallet center UI.
 
-### Package-Hosted Swarm Publish Denial
+### Package-Hosted Swarm Data Publish Approval
 
 Package-hosted guest content can now route `swarm.publishData()` to main
 without package chrome brokering the provider request:
@@ -263,31 +263,37 @@ guest webview preload
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.publish
   -> shell-owned native dialog
-  -> page-facing user rejection
+  -> main-owned provider publish execution or page-facing provider error
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
-origin claims are not used as final security truth.
+origin claims are not used as final security truth. Payload details are
+validated in main before the prompt opens; the prompt receives display-only
+content type, byte size, and optional name metadata.
 
-The current result intentionally rejects the publish request:
+If the user chooses Publish, main executes the existing `swarm_publishData`
+provider path as a one-time shell-owned authorization using the derived origin.
+The publish still depends on the local Bee node and usable stamps, so the page
+can receive normal provider errors such as `4900` with
+`data.reason: "node-stopped"` under the deterministic harness.
+
+Successful data publish returns the normal provider result:
 
 ```json
 {
-  "result": null,
-  "error": {
-    "code": 4001,
-    "message": "User rejected the request",
-    "data": {
-      "reason": "shell_trusted_prompt_rejected"
-    }
-  }
+  "result": {
+    "reference": "abc123",
+    "bzzUrl": "bzz://abc123"
+  },
+  "error": null
 }
 ```
 
-This proves a Swarm provider request reaches shell-owned prompt presentation
-with main-derived context. It does not publish data, write feed permissions,
-spend stamps, or migrate the full Swarm publish/feed approval UI.
+If the user rejects the prompt, the page still receives a provider-style
+`4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
+not grant Swarm access, write feed permissions, expose stamp management, allow
+file/folder publish, or migrate the full Swarm publish/feed approval UI.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
@@ -375,8 +381,9 @@ Swarm publish/feed approval:
 - main derives origin, feed identity, stamp/batch constraints, and publish
   target
 - broker opens shell-owned publish/feed prompt
-- current package-hosted `swarm_publishData` slice rejects after shell-owned
-  native presentation
+- current package-hosted `swarm_publishData` slice can execute data-only
+  publish after shell-owned native approval, subject to normal node/stamp
+  readiness
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:
@@ -392,6 +399,7 @@ Vault unlock:
 - no real wallet center migration
 - no richer wallet account-selection implementation
 - no x402 cap-grant, payment-permission, or vault-unlock migration
-- no successful Swarm publish/feed approval migration
+- no successful Swarm feed, file/folder publish, or full publish-center
+  approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

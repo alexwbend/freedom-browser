@@ -2513,7 +2513,7 @@ test('official browser chrome can launch as a local package with transitional we
     await expectActiveWebviewText(
       page,
       '[data-test="swarm-provider-publish"]',
-      'error:4001:shell_trusted_prompt_rejected'
+      'error:4900:node-stopped'
     );
     const swarmPublishPromptDialog = (
       await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
@@ -2526,11 +2526,13 @@ test('official browser chrome can launch as a local package with transitional we
         title: 'Freedom Swarm Publish',
         message: 'Swarm publish request',
         detail:
-          `ipfs://${providerIpfsCid} requested Swarm publish access. ` +
-          'Package chrome cannot approve this request; the shell is rejecting it for now.',
-        buttons: ['Reject'],
-        defaultId: 0,
-        cancelId: 0,
+          `ipfs://${providerIpfsCid} requested to publish data to Swarm. ` +
+          'Type: text/plain. ' +
+          'Size: 5 bytes. ' +
+          'Choose Publish only if you trust this request.',
+        buttons: ['Publish', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
         noLink: true,
       },
     });
