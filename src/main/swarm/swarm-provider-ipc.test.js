@@ -781,6 +781,159 @@ describe('swarm-provider-ipc', () => {
       });
     });
 
+    test('rejects invalid package-hosted swarm_publishChunk before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishChunk',
+        params: { data: '' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'data must not be empty',
+          data: { reason: 'invalid_params' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockPublishChunk).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_publishChunk through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishChunk',
+        params: { data: 'hello', span: 5 },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockPublishChunk).not.toHaveBeenCalled();
+      expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Publish',
+          message: 'Swarm publish request',
+          detail:
+            'ipfs://bafyfixture requested to publish chunk to Swarm. ' +
+            'Size: 5 bytes. ' +
+            'Span: 5. ' +
+            'Choose Publish only if you trust this request.',
+          buttons: ['Publish', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.publish',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          request: {
+            method: 'swarm_publishChunk',
+            details: {
+              target: 'chunk',
+              sizeBytes: 5,
+              span: '5',
+            },
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('publishes package-hosted swarm_publishChunk after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockPublishChunk.mockResolvedValue({
+        reference: 'chunk123',
+        batchIdUsed: 'batch1',
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishChunk',
+        params: { data: 'hello', span: 5 },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockPublishChunk).toHaveBeenCalledWith(Buffer.from('hello'), { span: 5n });
+      expect(mockAddEntry).toHaveBeenCalledWith({
+        type: 'chunk',
+        name: 'CAC chunk',
+        status: 'uploading',
+        origin: 'ipfs://bafyfixture',
+        bytesSize: 5,
+      });
+      expect(mockUpdateEntry).toHaveBeenCalledWith(
+        'test-id',
+        expect.objectContaining({
+          status: 'completed',
+          reference: 'chunk123',
+          batchIdUsed: 'batch1',
+        })
+      );
+      expect(result).toMatchObject({
+        result: { reference: 'chunk123' },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_publishChunk',
+            details: {
+              target: 'chunk',
+              sizeBytes: 5,
+              span: '5',
+            },
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
     test('rejects invalid package-hosted swarm_createFeed before opening a prompt', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);

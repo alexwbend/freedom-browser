@@ -1194,6 +1194,69 @@ describe('trusted-prompt-broker', () => {
     });
   });
 
+  test('routes Swarm chunk publish prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-chunk-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestSwarmPublishPrompt(
+        {
+          method: 'swarm_publishChunk',
+          details: {
+            target: 'chunk',
+            sizeBytes: 5,
+            span: '5',
+          },
+        },
+        {
+          origin: 'ipfs://bafyapp',
+          webContentsId: 52,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-chunk-1',
+      kind: 'swarm.publish',
+      renderedBy: 'shell-native-dialog',
+      request: {
+        method: 'swarm_publishChunk',
+        details: {
+          target: 'chunk',
+          sizeBytes: 5,
+          span: '5',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'trusted-prompt-swarm-chunk-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+        method: 'swarm_publishChunk',
+        details: {
+          target: 'chunk',
+          sizeBytes: 5,
+          span: '5',
+        },
+      }),
+      expect.objectContaining({
+        origin: 'ipfs://bafyapp',
+        webContentsId: 52,
+      })
+    );
+  });
+
   test('returns structured errors when native presentation is unavailable', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'trusted-prompt-native-2',

@@ -289,11 +289,11 @@ If the user rejects the prompt, the page still receives a provider-style
 not expose `window.swarmPermissions`, feed grants, stamp management, or final
 Swarm approval UI to package chrome.
 
-### Package-Hosted Swarm Data And File Publish Approval
+### Package-Hosted Swarm Data, File, And Chunk Publish Approval
 
-Package-hosted guest content can now route `swarm.publishData()` and
-`swarm.publishFiles()` to main without package chrome brokering the provider
-request:
+Package-hosted guest content can now route `swarm.publishData()`,
+`swarm.publishFiles()`, and `swarm.publishChunk()` to main without package
+chrome brokering the provider request:
 
 ```text
 guest webview preload
@@ -308,14 +308,15 @@ Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
 origin claims are not used as final security truth. Payload details are
 validated in main before the prompt opens; the prompt receives display-only
-content type, byte size, optional name, file count, and optional index-document
-metadata.
+content type, byte size, optional name, file count, optional index-document
+metadata, and optional chunk span.
 
-If the user chooses Publish, main executes the existing `swarm_publishData` or
-`swarm_publishFiles` provider path as a shell-owned authorization using the
-derived origin. The publish still depends on the local Bee node and usable
-stamps, so the page can receive normal provider errors such as `4900` with
-`data.reason: "node-stopped"` under the deterministic harness.
+If the user chooses Publish, main executes the existing `swarm_publishData`,
+`swarm_publishFiles`, or `swarm_publishChunk` provider path as a shell-owned
+authorization using the derived origin. The publish still depends on the local
+Bee node and usable stamps, so the page can receive normal provider errors
+such as `4900` with `data.reason: "node-stopped"` under the deterministic
+harness.
 
 Successful data publish returns the normal provider result:
 
@@ -490,6 +491,9 @@ Swarm publish/feed approval:
   publish after shell-owned native approval, subject to normal node/stamp
   readiness
 - current package-hosted `swarm_publishFiles` slice can execute file-set
+  publish after shell-owned native approval, subject to normal node/stamp
+  readiness
+- current package-hosted `swarm_publishChunk` slice can execute CAC chunk
   publish after shell-owned native approval, subject to normal node/stamp
   readiness
 - current package-hosted `swarm_createFeed`, `swarm_updateFeed`, and

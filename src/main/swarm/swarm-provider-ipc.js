@@ -491,12 +491,13 @@ async function presentNativeSwarmPublishPrompt(request, context = {}) {
   const origin = request.origin || context.origin || 'Unknown site';
   const details = request.details || {};
   const isFilePublish = Number.isInteger(details.fileCount);
-  const target = isFilePublish ? 'files' : 'data';
+  const target = details.target || (isFilePublish ? 'files' : 'data');
   const fileCount = isFilePublish ? ` Files: ${details.fileCount}.` : '';
   const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
   const contentType = details.contentType ? ` Type: ${details.contentType}.` : '';
   const name = details.name ? ` Name: ${details.name}.` : '';
   const indexDocument = details.indexDocument ? ` Index: ${details.indexDocument}.` : '';
+  const span = details.span !== undefined && details.span !== null ? ` Span: ${details.span}.` : '';
   const ownerWindow = context.ownerWindow || null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
@@ -507,6 +508,7 @@ async function presentNativeSwarmPublishPrompt(request, context = {}) {
       contentType +
       fileCount +
       size +
+      span +
       name +
       indexDocument +
       ' Choose Publish only if you trust this request.',
@@ -621,6 +623,14 @@ function summarizePublishFilesPrompt(prepared) {
   };
 }
 
+function summarizePublishChunkPrompt(prepared) {
+  return {
+    target: 'chunk',
+    sizeBytes: prepared.sizeBytes,
+    ...(prepared.span !== undefined ? { span: prepared.span.toString() } : {}),
+  };
+}
+
 function prepareCreateFeedParams(params) {
   if (!params || typeof params !== 'object') {
     return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
@@ -718,6 +728,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     method !== 'swarm_requestAccess' &&
     method !== 'swarm_publishData' &&
     method !== 'swarm_publishFiles' &&
+    method !== 'swarm_publishChunk' &&
     method !== 'swarm_createFeed' &&
     method !== 'swarm_updateFeed' &&
     method !== 'swarm_writeFeedEntry'
@@ -961,9 +972,12 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   }
 
   const isFilePublish = method === 'swarm_publishFiles';
+  const isChunkPublish = method === 'swarm_publishChunk';
   const prepared = isFilePublish
     ? preparePublishFilesParams(payload.params)
-    : preparePublishDataParams(payload.params);
+    : isChunkPublish
+      ? preparePublishChunkParams(payload.params)
+      : preparePublishDataParams(payload.params);
   if (prepared.error) {
     return {
       result: null,
@@ -977,7 +991,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       reason: `Swarm publish request from ${normalizedOrigin}`,
       details: isFilePublish
         ? summarizePublishFilesPrompt(prepared)
-        : summarizePublishDataPrompt(prepared),
+        : isChunkPublish
+          ? summarizePublishChunkPrompt(prepared)
+          : summarizePublishDataPrompt(prepared),
     },
     {
       ...trustedContext,
@@ -1003,7 +1019,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   if (prompt.result?.outcome === 'accepted') {
     const publishResult = isFilePublish
       ? await executePublishFiles(prepared, normalizedOrigin)
-      : await executePublishData(prepared, normalizedOrigin);
+      : isChunkPublish
+        ? await executePublishChunk(prepared, normalizedOrigin)
+        : await executePublishData(prepared, normalizedOrigin);
     if (publishResult.result) resetVaultAutoLockTimer();
     return {
       ...publishResult,
@@ -1371,7 +1389,7 @@ function mapChunkReadError(err) {
 /**
  * Handle swarm_publishChunk: validate one CAC payload and publish it.
  */
-async function handlePublishChunk(params, origin) {
+function preparePublishChunkParams(params) {
   if (!params || typeof params !== 'object') {
     return invalidParams('params is required');
   }
@@ -1387,6 +1405,14 @@ async function handlePublishChunk(params, origin) {
     return invalidParams('span must be a non-negative unsigned 64-bit integer', 'invalid_span');
   }
 
+  return {
+    payload,
+    span: span.value,
+    sizeBytes: payload.length,
+  };
+}
+
+async function executePublishChunk(prepared, origin) {
   const preFlight = await checkSwarmPreFlight();
   if (!preFlight.ok) {
     return { error: { ...ERRORS.NODE_UNAVAILABLE, message: `Node not available: ${preFlight.reason}`, data: { reason: preFlight.reason } } };
@@ -1397,11 +1423,11 @@ async function handlePublishChunk(params, origin) {
     name: 'CAC chunk',
     status: 'uploading',
     origin,
-    bytesSize: payload.length,
+    bytesSize: prepared.payload.length,
   });
 
   try {
-    const result = await publishChunk(payload, { span: span.value });
+    const result = await publishChunk(prepared.payload, { span: prepared.span });
     updateEntry(historyEntry.id, {
       status: 'completed',
       reference: result.reference,
@@ -1413,6 +1439,14 @@ async function handlePublishChunk(params, origin) {
     log.error(`[SwarmProvider] publishChunk failed for ${origin}:`, err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
   }
+}
+
+async function handlePublishChunk(params, origin) {
+  const prepared = preparePublishChunkParams(params);
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  return executePublishChunk(prepared, origin);
 }
 
 /**

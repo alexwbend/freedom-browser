@@ -26,7 +26,11 @@ const WALLET_SIGNATURE_METHODS = new Set([
 const X402_APPROVAL_METHODS = new Set(['x402_approval']);
 const X402_VAULT_UNLOCK_METHODS = new Set(['x402_vaultUnlock']);
 const SWARM_CONNECT_METHODS = new Set(['swarm_requestAccess']);
-const SWARM_PUBLISH_METHODS = new Set(['swarm_publishData', 'swarm_publishFiles']);
+const SWARM_PUBLISH_METHODS = new Set([
+  'swarm_publishData',
+  'swarm_publishFiles',
+  'swarm_publishChunk',
+]);
 const SWARM_FEED_METHODS = new Set(['swarm_createFeed', 'swarm_updateFeed', 'swarm_writeFeedEntry']);
 
 function cloneSerializable(value) {
