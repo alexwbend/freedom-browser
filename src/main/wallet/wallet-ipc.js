@@ -38,6 +38,16 @@ const PACKAGE_PROVIDER_REJECTED = Object.freeze({
   message: 'User rejected the request',
   data: { reason: 'shell_trusted_prompt_rejected' },
 });
+const PACKAGE_PROVIDER_CONNECT_METHODS = new Set(['eth_requestAccounts']);
+const PACKAGE_PROVIDER_TRANSACTION_METHODS = new Set(['eth_sendTransaction']);
+const PACKAGE_PROVIDER_SIGNATURE_METHODS = new Set([
+  'eth_sign',
+  'personal_sign',
+  'eth_signTypedData',
+  'eth_signTypedData_v1',
+  'eth_signTypedData_v3',
+  'eth_signTypedData_v4',
+]);
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -135,6 +145,36 @@ function deriveProviderOrigin(event) {
 }
 
 async function presentNativeWalletConnectPrompt(request, context = {}) {
+  return presentNativeWalletPrompt(request, context, {
+    title: 'Freedom Wallet Connection',
+    message: 'Wallet connection request',
+    detail: (origin) =>
+      `${origin} requested wallet account access. ` +
+      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+  });
+}
+
+async function presentNativeWalletTransactionPrompt(request, context = {}) {
+  return presentNativeWalletPrompt(request, context, {
+    title: 'Freedom Wallet Transaction',
+    message: 'Transaction request',
+    detail: (origin) =>
+      `${origin} requested a wallet transaction. ` +
+      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+  });
+}
+
+async function presentNativeWalletSignaturePrompt(request, context = {}) {
+  return presentNativeWalletPrompt(request, context, {
+    title: 'Freedom Wallet Signature',
+    message: 'Signature request',
+    detail: (origin) =>
+      `${origin} requested wallet signing. ` +
+      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+  });
+}
+
+async function presentNativeWalletPrompt(request, context = {}, dialogOptions = {}) {
   if (!dialog || typeof dialog.showMessageBox !== 'function') {
     return {
       ok: false,
@@ -149,11 +189,9 @@ async function presentNativeWalletConnectPrompt(request, context = {}) {
   const ownerWindow = context.ownerWindow || null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
-    title: 'Freedom Wallet Connection',
-    message: 'Wallet connection request',
-    detail:
-      `${origin} requested wallet account access. ` +
-      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+    title: dialogOptions.title,
+    message: dialogOptions.message,
+    detail: dialogOptions.detail(origin),
     buttons: ['Reject'],
     defaultId: 0,
     cancelId: 0,
@@ -164,6 +202,31 @@ async function presentNativeWalletConnectPrompt(request, context = {}) {
     outcome: 'rejected',
     response: result?.response,
   };
+}
+
+function getPackageProviderPrompt(method) {
+  if (PACKAGE_PROVIDER_CONNECT_METHODS.has(method)) {
+    return {
+      reasonPrefix: 'Wallet connection request',
+      brokerMethod: 'requestWalletConnectPrompt',
+      presentNativeDialog: presentNativeWalletConnectPrompt,
+    };
+  }
+  if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
+    return {
+      reasonPrefix: 'Wallet transaction request',
+      brokerMethod: 'requestWalletTransactionPrompt',
+      presentNativeDialog: presentNativeWalletTransactionPrompt,
+    };
+  }
+  if (PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method)) {
+    return {
+      reasonPrefix: 'Wallet signature request',
+      brokerMethod: 'requestWalletSignaturePrompt',
+      presentNativeDialog: presentNativeWalletSignaturePrompt,
+    };
+  }
+  return null;
 }
 
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
@@ -180,7 +243,8 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  if (method !== 'eth_requestAccounts') {
+  const providerPrompt = getPackageProviderPrompt(method);
+  if (!providerPrompt) {
     return {
       result: null,
       error: {
@@ -192,17 +256,17 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
 
   const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
   const origin = deriveProviderOrigin(event);
-  const prompt = await defaultTrustedPromptBroker.requestWalletConnectPrompt(
+  const prompt = await defaultTrustedPromptBroker[providerPrompt.brokerMethod](
     {
       method,
-      reason: origin ? `Wallet connection request from ${origin}` : 'Wallet connection request',
+      reason: origin ? `${providerPrompt.reasonPrefix} from ${origin}` : providerPrompt.reasonPrefix,
     },
     {
       caller: getPackageHostIdentity(hostWebContents),
       origin,
       webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
       ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
-      presentNativeDialog: presentNativeWalletConnectPrompt,
+      presentNativeDialog: providerPrompt.presentNativeDialog,
     }
   );
 

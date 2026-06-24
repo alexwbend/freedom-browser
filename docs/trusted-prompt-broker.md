@@ -169,6 +169,56 @@ This proves a real provider request reaches shell-owned prompt presentation
 with main-derived context. It does not grant accounts, write dApp permissions,
 or migrate transaction/signing approval UI.
 
+### Package-Hosted Wallet Transaction And Signature Denials
+
+Package-hosted guest content can now route these higher-risk Ethereum provider
+requests to main without package chrome brokering them:
+
+- `eth_sendTransaction`
+- `eth_sign`
+- `personal_sign`
+- `eth_signTypedData`
+- `eth_signTypedData_v1`
+- `eth_signTypedData_v3`
+- `eth_signTypedData_v4`
+
+The route is the same main-owned provider prompt path as wallet connect, but it
+uses distinct broker kinds:
+
+```text
+guest webview preload
+  -> dapp:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker wallet.transaction or wallet.signature
+  -> shell-owned native dialog
+  -> page-facing EIP-1193 user rejection
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims and transaction/signature details are not trusted as final
+security truth.
+
+The current result intentionally rejects the transaction or signature request:
+
+```json
+{
+  "result": null,
+  "error": {
+    "code": 4001,
+    "message": "User rejected the request",
+    "data": {
+      "reason": "shell_trusted_prompt_rejected"
+    }
+  }
+}
+```
+
+This proves the package-hosted provider path reaches shell-owned prompt
+presentation for signing-class requests. It does not sign, send transactions,
+select accounts, unlock vault state, write dApp permissions, or migrate the
+final transaction/signature approval UI.
+
 ### Package-Hosted Swarm Publish Denial
 
 Package-hosted guest content can now route `swarm.publishData()` to main
@@ -225,9 +275,12 @@ Transaction and typed-data signing:
 
 - initiated by website provider path
 - main derives origin, chain, account, request id, and tab identity
-- broker opens shell-owned signing prompt
+- broker opens shell-owned transaction or signing prompt
+- current package-hosted slices reject after shell-owned native presentation
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
+- future completion work must add real wallet/account/vault execution handling
+  from main before transaction or signing requests can succeed in package mode
 
 x402 approvals:
 
@@ -258,7 +311,7 @@ Vault unlock:
 ## Non-Goals In This Slice
 
 - no real wallet center migration
-- no account exposure or signing implementation
+- no account exposure, transaction sending, or signing implementation
 - no x402 payment migration
 - no successful Swarm publish/feed approval migration
 - no package-rendered prompt UI

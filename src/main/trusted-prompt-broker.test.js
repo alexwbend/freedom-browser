@@ -209,6 +209,166 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes wallet transaction prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-wallet-transaction-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestWalletTransactionPrompt(
+        {
+          method: 'eth_sendTransaction',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'https://app.example',
+          webContentsId: 43,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-wallet-transaction-1',
+      kind: 'wallet.transaction',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'https://app.example',
+        tabId: null,
+        webContentsId: 43,
+      },
+      request: {
+        method: 'eth_sendTransaction',
+        reason: 'Wallet transaction request from https://app.example',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-wallet-transaction-1',
+        kind: TRUSTED_PROMPT_KINDS.WALLET_TRANSACTION,
+        method: 'eth_sendTransaction',
+        reason: 'Wallet transaction request from https://app.example',
+        origin: 'https://app.example',
+        webContentsId: 43,
+      },
+      {
+        caller,
+        origin: 'https://app.example',
+        webContentsId: 43,
+      }
+    );
+  });
+
+  test('routes wallet signature prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-wallet-signature-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestWalletSignaturePrompt(
+        {
+          method: 'personal_sign',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'https://app.example',
+          webContentsId: 44,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-wallet-signature-1',
+      kind: 'wallet.signature',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'https://app.example',
+        tabId: null,
+        webContentsId: 44,
+      },
+      request: {
+        method: 'personal_sign',
+        reason: 'Wallet signature request from https://app.example',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-wallet-signature-1',
+        kind: TRUSTED_PROMPT_KINDS.WALLET_SIGNATURE,
+        method: 'personal_sign',
+        reason: 'Wallet signature request from https://app.example',
+        origin: 'https://app.example',
+        webContentsId: 44,
+      },
+      {
+        caller,
+        origin: 'https://app.example',
+        webContentsId: 44,
+      }
+    );
+  });
+
   test('routes Swarm publish prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,
@@ -303,6 +463,35 @@ describe('trusted-prompt-broker', () => {
       error: {
         code: 'TRUSTED_PROMPT_UNSUPPORTED',
         message: 'Unsupported wallet trusted prompt method',
+      },
+    });
+  });
+
+  test('rejects unsupported wallet transaction and signature prompt methods', async () => {
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'unused-wallet-specific',
+    });
+
+    await expect(
+      broker.requestWalletTransactionPrompt({
+        method: 'personal_sign',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported wallet transaction trusted prompt method',
+      },
+    });
+    await expect(
+      broker.requestWalletSignaturePrompt({
+        method: 'eth_sendTransaction',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported wallet signature trusted prompt method',
       },
     });
   });

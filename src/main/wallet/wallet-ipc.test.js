@@ -166,6 +166,146 @@ describe('wallet-ipc', () => {
     });
   });
 
+  test('routes package-hosted transaction requests through a shell-owned prompt', async () => {
+    const ownerWindow = { id: 78 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 43,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/tx'),
+        },
+      },
+      {
+        method: 'eth_sendTransaction',
+        params: [{ to: '0x0000000000000000000000000000000000000001' }],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: null,
+      error: {
+        code: 4001,
+        message: 'User rejected the request',
+        data: {
+          reason: 'shell_trusted_prompt_rejected',
+          prompt: {
+            kind: 'wallet.transaction',
+            renderedBy: 'shell-native-dialog',
+            surfaceOwner: 'shell',
+            origin: 'https://app.example',
+            webContentsId: 43,
+          },
+        },
+      },
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.transaction',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 43,
+        },
+      },
+    });
+    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Wallet Transaction',
+      message: 'Transaction request',
+      detail:
+        'https://app.example requested a wallet transaction. ' +
+        'Package chrome cannot approve this request; the shell is rejecting it for now.',
+      buttons: ['Reject'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  });
+
+  test('routes package-hosted signature requests through a shell-owned prompt', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/sign'),
+        },
+      },
+      {
+        method: 'personal_sign',
+        params: ['0x68656c6c6f'],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: null,
+      error: {
+        code: 4001,
+        message: 'User rejected the request',
+        data: {
+          reason: 'shell_trusted_prompt_rejected',
+          prompt: {
+            kind: 'wallet.signature',
+            renderedBy: 'shell-native-dialog',
+            surfaceOwner: 'shell',
+            origin: 'https://app.example',
+            webContentsId: 44,
+          },
+        },
+      },
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 44,
+        },
+      },
+    });
+    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Wallet Signature',
+      message: 'Signature request',
+      detail:
+        'https://app.example requested wallet signing. ' +
+        'Package chrome cannot approve this request; the shell is rejecting it for now.',
+      buttons: ['Reject'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  });
+
   test('keeps unsupported package-hosted provider methods unavailable', async () => {
     const hostWebContents = { id: 20 };
     mockIsPackageWebContents.mockReturnValue(true);
@@ -179,14 +319,14 @@ describe('wallet-ipc', () => {
             getURL: jest.fn(() => 'https://app.example/'),
           },
         },
-        { method: 'eth_sendTransaction' }
+        { method: 'wallet_switchEthereumChain' }
       )
     ).resolves.toEqual({
       result: null,
       error: {
         code: 4100,
         message:
-          'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: eth_sendTransaction',
+          'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: wallet_switchEthereumChain',
         data: { reason: 'trusted_prompt_unavailable' },
       },
     });

@@ -2240,6 +2240,8 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="provider-present">pending</p>
         <p data-test="provider-chain">pending</p>
         <p data-test="provider-accounts">pending</p>
+        <p data-test="provider-transaction">pending</p>
+        <p data-test="provider-signature">pending</p>
         <p data-test="swarm-provider-present">pending</p>
         <p data-test="swarm-provider-capabilities">pending</p>
         <p data-test="swarm-provider-publish">pending</p>
@@ -2282,6 +2284,30 @@ test('official browser chrome can launch as a local package with transitional we
                 } catch (error) {
                   setText(
                     '[data-test="provider-accounts"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  await provider.request({
+                    method: 'eth_sendTransaction',
+                    params: [{ to: '0x0000000000000000000000000000000000000001', value: '0x0' }],
+                  });
+                  setText('[data-test="provider-transaction"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="provider-transaction"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  await provider.request({
+                    method: 'personal_sign',
+                    params: ['0x68656c6c6f', '0x0000000000000000000000000000000000000001'],
+                  });
+                  setText('[data-test="provider-signature"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="provider-signature"]',
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
@@ -2349,6 +2375,16 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="provider-accounts"]',
       'error:4001:shell_trusted_prompt_rejected'
     );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="provider-transaction"]',
+      'error:4001:shell_trusted_prompt_rejected'
+    );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="provider-signature"]',
+      'error:4001:shell_trusted_prompt_rejected'
+    );
     const providerPromptDialogs = await launched.app.evaluate(
       () => globalThis.__freedomProviderPromptDialogs
     );
@@ -2364,6 +2400,44 @@ test('official browser chrome can launch as a local package with transitional we
         message: 'Wallet connection request',
         detail:
           `ipfs://${providerIpfsCid} requested wallet account access. ` +
+          'Package chrome cannot approve this request; the shell is rejecting it for now.',
+        buttons: ['Reject'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      },
+    });
+    const walletTransactionPromptDialog = providerPromptDialogs.find(
+      (dialog) => dialog.options?.title === 'Freedom Wallet Transaction'
+    );
+    expect(walletTransactionPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Wallet Transaction',
+        message: 'Transaction request',
+        detail:
+          `ipfs://${providerIpfsCid} requested a wallet transaction. ` +
+          'Package chrome cannot approve this request; the shell is rejecting it for now.',
+        buttons: ['Reject'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      },
+    });
+    const walletSignaturePromptDialog = providerPromptDialogs.find(
+      (dialog) => dialog.options?.title === 'Freedom Wallet Signature'
+    );
+    expect(walletSignaturePromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Wallet Signature',
+        message: 'Signature request',
+        detail:
+          `ipfs://${providerIpfsCid} requested wallet signing. ` +
           'Package chrome cannot approve this request; the shell is rejecting it for now.',
         buttons: ['Reject'],
         defaultId: 0,
