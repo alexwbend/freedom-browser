@@ -43,6 +43,10 @@ const mockWithVaultPrivateKey = jest.fn();
 jest.mock('./vault-access', () => ({
   withVaultPrivateKey: mockWithVaultPrivateKey,
 }));
+const mockPresentTrustedVaultUnlockPrompt = jest.fn();
+jest.mock('../trusted-vault-unlock-prompt', () => ({
+  presentTrustedVaultUnlockPrompt: mockPresentTrustedVaultUnlockPrompt,
+}));
 
 const mockIsPackageWebContents = jest.fn();
 const mockGetPackageWebContentsIdentity = jest.fn();
@@ -90,6 +94,11 @@ describe('wallet-ipc', () => {
     mockWithVaultPrivateKey.mockImplementation((_walletIndex, callback) =>
       callback('0xprivate-key')
     );
+    mockPresentTrustedVaultUnlockPrompt.mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
   });
 
   test('renderer context cannot override fixed payment-history kind', () => {
@@ -543,6 +552,91 @@ describe('wallet-ipc', () => {
     expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
   });
 
+  test('unlocks and retries accepted package-hosted transactions after vault-locked execution', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 3,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 3,
+        name: 'Transaction Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
+    mockWithVaultPrivateKey
+      .mockRejectedValueOnce(new Error('Vault is locked'))
+      .mockImplementationOnce((_walletIndex, callback) => callback('0xprivate-key'));
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/tx'),
+        },
+      },
+      {
+        method: 'eth_sendTransaction',
+        params: [{
+          from: '0x1111111111111111111111111111111111111111',
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x2a',
+        }],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: '0xtransactionhash',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.transaction',
+      },
+      vaultUnlockPrompt: {
+        ok: true,
+        outcome: 'accepted',
+      },
+    });
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledTimes(2);
+    expect(mockSignAndRecord).toHaveBeenCalledTimes(1);
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledWith(
+      {
+        kind: 'wallet.transaction',
+        method: 'eth_sendTransaction',
+        origin: 'https://app.example',
+        reason: 'Wallet vault unlock request from https://app.example',
+        details: {
+          method: 'eth_sendTransaction',
+          account: '0x1111111111111111111111111111111111111111',
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x2a',
+          chainId: 100,
+        },
+      },
+      expect.objectContaining({
+        origin: 'https://app.example',
+        webContentsId: 44,
+        ownerWindow,
+      })
+    );
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+  });
+
   test('signs package-hosted personal_sign through shell-owned prompt and vault access', async () => {
     const ownerWindow = { id: 79 };
     const hostWebContents = {
@@ -743,10 +837,88 @@ describe('wallet-ipc', () => {
     expect(mockSignPersonalMessage).not.toHaveBeenCalled();
   });
 
-  test('returns structured vault-locked errors for accepted package-hosted signatures', async () => {
+  test('unlocks and retries accepted package-hosted signatures after vault-locked execution', async () => {
+    const ownerWindow = { id: 81 };
     const hostWebContents = {
       id: 20,
-      getOwnerBrowserWindow: jest.fn(() => ({ id: 81 })),
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 0,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
+    mockWithVaultPrivateKey
+      .mockRejectedValueOnce(new Error('Vault is locked'))
+      .mockImplementationOnce((_walletIndex, callback) => callback('0xprivate-key'));
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    await expect(
+      handleProviderTrustedPromptRequest(
+        {
+          sender: {
+            id: 46,
+            hostWebContents,
+            getURL: jest.fn(() => 'https://app.example/sign'),
+          },
+        },
+        {
+          method: 'personal_sign',
+          params: ['0x68656c6c6f', '0x1111111111111111111111111111111111111111'],
+        }
+      )
+    ).resolves.toMatchObject({
+      result: '0xsigned-personal',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+      },
+      vaultUnlockPrompt: {
+        ok: true,
+        outcome: 'accepted',
+      },
+    });
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledTimes(2);
+    expect(mockSignPersonalMessage).toHaveBeenCalledWith('0x68656c6c6f', '0xprivate-key');
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledWith(
+      {
+        kind: 'wallet.signature',
+        method: 'personal_sign',
+        origin: 'https://app.example',
+        reason: 'Wallet vault unlock request from https://app.example',
+        details: {
+          method: 'personal_sign',
+          account: '0x1111111111111111111111111111111111111111',
+        },
+      },
+      expect.objectContaining({
+        origin: 'https://app.example',
+        webContentsId: 46,
+        ownerWindow,
+      })
+    );
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+  });
+
+  test('returns structured rejection when package-hosted signature unlock is rejected', async () => {
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ({ id: 82 })),
     };
     mockIsPackageWebContents.mockReturnValue(true);
     mockGetPackageWebContentsIdentity.mockReturnValue({
@@ -768,13 +940,18 @@ describe('wallet-ipc', () => {
       },
     ]);
     mockWithVaultPrivateKey.mockRejectedValue(new Error('Vault is locked'));
+    mockPresentTrustedVaultUnlockPrompt.mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 1,
+    });
     require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     await expect(
       handleProviderTrustedPromptRequest(
         {
           sender: {
-            id: 46,
+            id: 47,
             hostWebContents,
             getURL: jest.fn(() => 'https://app.example/sign'),
           },
@@ -787,15 +964,31 @@ describe('wallet-ipc', () => {
     ).resolves.toMatchObject({
       result: null,
       error: {
-        code: 4100,
-        message: 'Vault is locked',
-        data: { reason: 'vault_locked' },
+        code: 4001,
+        message: 'User rejected the request',
+        data: {
+          reason: 'shell_trusted_prompt_rejected',
+          prompt: {
+            kind: 'wallet.vaultUnlock',
+            renderedBy: 'trusted-vault-unlock-window',
+            surfaceOwner: 'shell',
+            origin: 'https://app.example',
+            webContentsId: 47,
+            outcome: 'rejected',
+          },
+        },
       },
       trustedPrompt: {
         ok: true,
         kind: 'wallet.signature',
       },
+      vaultUnlockPrompt: {
+        ok: true,
+        outcome: 'rejected',
+      },
     });
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledTimes(1);
+    expect(mockSignPersonalMessage).not.toHaveBeenCalled();
   });
 
   test('keeps unsupported package-hosted provider methods unavailable', async () => {

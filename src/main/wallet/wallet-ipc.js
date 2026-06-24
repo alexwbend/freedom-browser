@@ -34,6 +34,7 @@ const {
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
 const { isVaultLockedError } = require('./vault-errors');
+const { presentTrustedVaultUnlockPrompt } = require('../trusted-vault-unlock-prompt');
 
 const READONLY_PROVIDER_ERRORS = Object.freeze({
   UNSUPPORTED_METHOD: { code: 4200, message: 'Method not supported' },
@@ -728,6 +729,125 @@ function getPackageSignatureRequest(method, params, connectedAccount) {
   };
 }
 
+function getPackageSignatureUnlockDetails(method, account) {
+  return {
+    method,
+    account,
+  };
+}
+
+function getPackageTransactionUnlockDetails(transaction = {}, account) {
+  return {
+    method: 'eth_sendTransaction',
+    account,
+    to: transaction.to,
+    value: transaction.value,
+    chainId: transaction.chainId,
+  };
+}
+
+function getVaultUnlockPromptMetadata(unlockPrompt, context = {}) {
+  return {
+    kind: 'wallet.vaultUnlock',
+    renderedBy: 'trusted-vault-unlock-window',
+    surfaceOwner: 'shell',
+    origin: context.origin || null,
+    webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
+    outcome: unlockPrompt?.outcome || null,
+  };
+}
+
+function getVaultUnlockRejectedError(unlockPrompt, context = {}) {
+  return {
+    ...PACKAGE_PROVIDER_REJECTED,
+    data: {
+      ...PACKAGE_PROVIDER_REJECTED.data,
+      prompt: getVaultUnlockPromptMetadata(unlockPrompt, context),
+    },
+  };
+}
+
+function getVaultUnlockUnavailableError(unlockPrompt) {
+  return {
+    ...PACKAGE_PROVIDER_VAULT_LOCKED,
+    data: {
+      ...PACKAGE_PROVIDER_VAULT_LOCKED.data,
+      promptError: unlockPrompt?.error?.code || 'TRUSTED_VAULT_UNLOCK_UNAVAILABLE',
+    },
+  };
+}
+
+function isVaultLockedProviderResult(result) {
+  return result?.ok === false && result.error?.data?.reason === 'vault_locked';
+}
+
+async function requestPackageProviderVaultUnlock({
+  origin,
+  method,
+  operationResult,
+  promptContext,
+}) {
+  const vaultUnlock = operationResult?.vaultUnlock || {};
+  const request = {
+    kind: vaultUnlock.kind || (
+      PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)
+        ? 'wallet.transaction'
+        : 'wallet.signature'
+    ),
+    method,
+    origin,
+    reason: origin
+      ? `Wallet vault unlock request from ${origin}`
+      : 'Wallet vault unlock request',
+    details: vaultUnlock.details || { method },
+  };
+  return presentTrustedVaultUnlockPrompt(request, promptContext);
+}
+
+async function runPackageProviderOperationWithVaultUnlock({
+  operation,
+  origin,
+  method,
+  promptContext,
+}) {
+  const first = await operation();
+  if (!isVaultLockedProviderResult(first)) {
+    return {
+      operation: first,
+      vaultUnlockPrompt: null,
+    };
+  }
+
+  const unlockPrompt = await requestPackageProviderVaultUnlock({
+    origin,
+    method,
+    operationResult: first,
+    promptContext,
+  });
+  if (unlockPrompt?.ok === true && unlockPrompt.outcome === 'accepted') {
+    return {
+      operation: await operation(),
+      vaultUnlockPrompt: unlockPrompt,
+    };
+  }
+  if (unlockPrompt?.ok === true && unlockPrompt.outcome === 'rejected') {
+    return {
+      operation: {
+        ok: false,
+        error: getVaultUnlockRejectedError(unlockPrompt, promptContext),
+      },
+      vaultUnlockPrompt: unlockPrompt,
+    };
+  }
+  return {
+    operation: {
+      ok: false,
+      error: getVaultUnlockUnavailableError(unlockPrompt),
+    },
+    vaultUnlockPrompt: unlockPrompt || null,
+  };
+}
+
 async function signPackageProviderRequest(origin, method, params) {
   const permission = await getPackageWalletPermission(origin);
   if (permission.ok !== true) {
@@ -756,6 +876,10 @@ async function signPackageProviderRequest(origin, method, params) {
       return {
         ok: false,
         error: PACKAGE_PROVIDER_VAULT_LOCKED,
+        vaultUnlock: {
+          kind: 'wallet.signature',
+          details: getPackageSignatureUnlockDetails(method, permission.account),
+        },
       };
     }
     return {
@@ -801,6 +925,13 @@ async function sendPackageProviderTransaction(origin, params) {
     return {
       ok: false,
       error: PACKAGE_PROVIDER_VAULT_LOCKED,
+      vaultUnlock: {
+        kind: 'wallet.transaction',
+        details: getPackageTransactionUnlockDetails(
+          transactionRequest.transaction,
+          permission.account
+        ),
+      },
     };
   }
   return {
@@ -863,15 +994,16 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
     promptPayload.details = getPackageTransactionPreview(payload.params);
   }
+  const promptContext = {
+    caller: getPackageHostIdentity(hostWebContents),
+    origin,
+    webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
+    ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+    presentNativeDialog: providerPrompt.presentNativeDialog,
+  };
   const prompt = await defaultTrustedPromptBroker[providerPrompt.brokerMethod](
     promptPayload,
-    {
-      caller: getPackageHostIdentity(hostWebContents),
-      origin,
-      webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
-      ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
-      presentNativeDialog: providerPrompt.presentNativeDialog,
-    }
+    promptContext
   );
 
   if (prompt?.ok !== true) {
@@ -912,18 +1044,26 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method) &&
     prompt.result?.outcome === 'accepted'
   ) {
-    const transaction = await sendPackageProviderTransaction(origin, payload.params);
+    const { operation: transaction, vaultUnlockPrompt } =
+      await runPackageProviderOperationWithVaultUnlock({
+        operation: () => sendPackageProviderTransaction(origin, payload.params),
+        origin,
+        method,
+        promptContext,
+      });
     if (transaction.ok === true) {
       return {
         result: transaction.result,
         error: null,
         trustedPrompt: prompt,
+        vaultUnlockPrompt,
       };
     }
     return {
       result: null,
       error: transaction.error,
       trustedPrompt: prompt,
+      vaultUnlockPrompt,
     };
   }
 
@@ -931,18 +1071,26 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method) &&
     prompt.result?.outcome === 'accepted'
   ) {
-    const signature = await signPackageProviderRequest(origin, method, payload.params);
+    const { operation: signature, vaultUnlockPrompt } =
+      await runPackageProviderOperationWithVaultUnlock({
+        operation: () => signPackageProviderRequest(origin, method, payload.params),
+        origin,
+        method,
+        promptContext,
+      });
     if (signature.ok === true) {
       return {
         result: signature.result,
         error: null,
         trustedPrompt: prompt,
+        vaultUnlockPrompt,
       };
     }
     return {
       result: null,
       error: signature.error,
       trustedPrompt: prompt,
+      vaultUnlockPrompt,
     };
   }
 

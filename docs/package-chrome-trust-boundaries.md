@@ -43,10 +43,10 @@ Pre-Swarm hardening checkpoints recorded in
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke opened the node menu but did not prove status/control behavior | `services.*` read API | shell owns node lifecycle and external-node prompts | package delegates read-only service registry/status/binary reads to `freedomShell`; start/stop and raw local endpoints remain shell-owned and unavailable to package chrome; default-port external-node candidate prompts fall back to shell-owned native dialogs for package windows | `services.read`, later narrower write caps only if approved | package smoke for sanitized status reads, broad node API absence, disabled lifecycle controls, and unit coverage for package-window native prompt fallback | read-only status implemented; package windows do not receive legacy external-node prompt IPC |
 | Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skipped sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button requests and mirrors shell-owned surface state and must not initialize package-hosted wallet/identity UI | `surfaces.wallet.control` | official package smoke proving visible shell-owned placeholder behavior and caller-scoped state-event updates; fixture smoke proving placeholder surface control | shell-owned placeholder API and `surfaces.stateChanged` event implemented and exercised by official package smoke; real wallet surface still pending trusted prompt migration |
 | Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | package-hosted `eth_requestAccounts` now reaches a shell-owned native wallet-connect prompt with main-derived context; accepted prompts write main-side dApp permission and return the active account, rejection returns `shell_trusted_prompt_rejected`; `eth_accounts` reads existing main-owned grants |
-| Transaction send/sign | website/dApp or wallet UI | wallet UI and wallet IPC under broad preload | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned transaction/signing prompt | final approval rendered by shell-owned trusted surface; package chrome can only request surface/open state | none for package provider; surface caps only | trusted broker doc/tests and official package smoke before success migration | package-hosted `personal_sign` signs through a shell-owned native prompt plus main/vault execution for connected origins; package-hosted `eth_sendTransaction` now sends through a shell-owned native prompt plus main-side account/chain validation, gas/fee preparation, vault access, and the existing transaction recorder for connected origins; deprecated `eth_sign` still returns structured safe failures pending richer shell-owned approval surfaces |
-| Typed-data sign | website/dApp | wallet/dApp signing UI under bundled renderer | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned signing prompt | same as transaction sign | none for package provider; surface caps only | trusted broker doc/tests before success migration | package-hosted `eth_signTypedData`, `eth_signTypedData_v3`, and `eth_signTypedData_v4` now sign through the shell-owned wallet signature prompt plus main/vault execution for connected origins; unsupported typed-data variants still safe-fail |
+| Transaction send/sign | website/dApp or wallet UI | wallet UI and wallet IPC under broad preload | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned transaction/signing prompt | final approval rendered by shell-owned trusted surface; package chrome can only request surface/open state | none for package provider; surface caps only | trusted broker doc/tests and official package smoke before success migration | package-hosted `personal_sign` signs through a shell-owned native prompt plus main/vault execution for connected origins; if the vault is locked after approval, main opens the shell-owned trusted vault-unlock window and retries only after successful unlock; package-hosted `eth_sendTransaction` now sends through a shell-owned native prompt plus main-side account/chain validation, gas/fee preparation, vault access, trusted vault-unlock retry when needed, and the existing transaction recorder for connected origins; deprecated `eth_sign` still returns structured safe failures pending richer shell-owned approval surfaces |
+| Typed-data sign | website/dApp | wallet/dApp signing UI under bundled renderer | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned signing prompt | same as transaction sign | none for package provider; surface caps only | trusted broker doc/tests before success migration | package-hosted `eth_signTypedData`, `eth_signTypedData_v3`, and `eth_signTypedData_v4` now sign through the shell-owned wallet signature prompt plus main/vault execution for connected origins, including shell-owned vault-unlock retry when signing first finds the vault locked; unsupported typed-data variants still safe-fail |
 | Identity onboarding | user in chrome/sidebar | onboarding and identity UI under bundled renderer with `window.identity` | package mode skips onboarding and lacks identity global | `trusted-surface` | shell-owned identity surface | ordinary package chrome may request open; vault creation/unlock/export remains shell-owned | `surfaces.identity.open` later | smoke for hidden/disabled/request behavior | proposed deferral unless visible |
-| Vault unlock | user or privileged flow | bundled wallet/identity UI and identity IPC | unavailable to package chrome | `trusted-surface` | shell-owned vault prompt | package-hosted x402 signing paths use a shell-owned trusted vault-unlock window with a dedicated preload; broader wallet/general unlock UX stays shell-owned | trusted prompt request cap, not identity raw API | broker unit/integration test plus x402 package-hosted retry coverage | implemented for package-hosted x402 sign/retry; broader/general unlock UX remains proposed deferral |
+| Vault unlock | user or privileged flow | bundled wallet/identity UI and identity IPC | unavailable to package chrome | `trusted-surface` | shell-owned vault prompt | package-hosted x402 signing paths and package-hosted Ethereum signature/transaction paths use a shell-owned trusted vault-unlock window with a dedicated preload; identity/export and wallet-center unlock UX stays shell-owned | trusted prompt request cap, not identity raw API | broker unit/integration test plus x402 and wallet-provider package-hosted retry coverage | implemented for package-hosted x402 sign/retry and wallet-provider signature/transaction retry; identity/export and richer wallet-center unlock UX remain proposed deferrals |
 | Seed/private-key export | user in wallet settings | bundled wallet settings uses identity/wallet IPC | unavailable to package chrome | `trusted-surface` | shell-owned export prompt | must remain shell-owned; never package-rendered | none for package chrome | negative API exposure tests | proposed deferral for full UX |
 | dApp permissions | website provider flow and permissions UI | renderer/provider and permission stores | package lacks dApp permission globals | `provider-path`, `trusted-surface` for grants | shell-owned permission prompt | main derives committed origin and permission key; package can display read-only summaries later | no package provider caps | provider bypass smoke and permission broker tests | provider safety required |
 | Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, direct low-risk capabilities request, shell-owned access grant, and structured package-mode prompt/failure behavior for privileged methods | low-risk `swarm_getCapabilities` bypass implemented; package-hosted `swarm_requestAccess` reaches a shell-owned native connect prompt, writes the main-owned Swarm permission after approval, and returns `shell_trusted_prompt_rejected` on rejection; package-hosted `swarm_publishData`, `swarm_publishFiles`, `swarm_publishChunk`, `swarm_createFeed`, `swarm_updateFeed`, `swarm_writeFeedEntry`, `swarm_getSigningIdentity`, and `swarm_writeSingleOwnerChunk` reach shell-owned native prompts with main-derived context and can execute after approval when grants and normal node/stamp/signer readiness allow; other higher-risk methods fail through main with `trusted_prompt_unavailable` |
@@ -55,7 +55,7 @@ Pre-Swarm hardening checkpoints recorded in
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events were no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt and payments surface | final approval and vault unlock in shell-owned prompts; cap management and history in a shell-owned payments surface; package chrome may request surface state/open only | trusted prompt or `surfaces.payments.control`, not raw x402 IPC | package adapter unit coverage and launched package smoke for shell-owned prompt/no-host-event behavior plus trusted payments surface open path | raw x402 methods return structured `X402_PACKAGE_API_UNAVAILABLE`, raw x402 host events are not delivered to package chrome, and package-hosted payment approvals can now sign/retry through a shell-owned native prompt; recognized EIP-155 token payments can also create the bounded default 10-token/30-day cap through that prompt, with official package smoke covering the cap option plus locked-vault fallback; if signing hits a locked vault, package-hosted x402 now opens a shell-owned trusted vault-unlock window and retries after successful unlock; cap editing/revocation and payment-history review are implemented in a shell-owned trusted payments window gated by `surfaces.payments.control`; richer x402 approval review still needs a real shell-owned review surface |
 | Payment history page | user in chrome/internal page | `freedom://payments` reads unified payment history through internal page `freedomAPI` and can clear the store | package-hosted internal page could read and clear payment history through the transitional webview bridge | `trusted-surface` for sensitive payment history UI | shell-owned trusted payments window; bundled trusted chrome keeps direct page | package-hosted page is visibly unavailable for raw history reads but can request the shell-owned payments surface | `surfaces.payments.control` on the host package | IPC unit coverage plus official package smoke for disabled `freedom://payments` state and trusted-window open button | package-hosted payment-history read/count/by-id/clear IPC remains rejected with `PAYMENTS_UNAVAILABLE`; the page offers an Open trusted payments window action that delegates to the host package's capability-gated `surfaces.open("payments")`; the trusted payments window lists recent history and x402 caps and supports cap update/revoke/revoke-origin plus history clear |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
-| Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works, privileged package-hosted requests safe-fail | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented; package-hosted Ethereum and Swarm privileged methods fail before package chrome can broker them |
+| Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works, brokered privileged methods bypass package chrome, unsupported methods safe-fail | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented; package-hosted Ethereum and Swarm privileged methods use main-derived shell-owned prompt paths where implemented and fail before package chrome can broker them where unsupported |
 
 ## Package Runtime API No-Op Audit
 
@@ -242,16 +242,19 @@ native dialog, writes the dApp permission from main on acceptance, and returns
 the active wallet address to the guest page. Package-hosted `eth_accounts`
 reads existing main-owned grants without prompting. Signature prompts can now
 sign `personal_sign` and modern EIP-712 typed-data requests for connected
-origins when the vault is unlocked; main checks the permission and connected
-account, borrows the key through `withVaultPrivateKey()`, signs in main, and
-returns only the signature. Transaction prompts can now send
-`eth_sendTransaction` for connected origins when the user chooses Send and the
-vault is unlocked: main validates the requested account and chain, fills gas
-and fee fields through shell-owned wallet services, signs/broadcasts through
-the existing transaction recorder, records dApp-send payment history, and
-returns only the transaction hash. This still does not select accounts, unlock
-vault state, or expose raw wallet authority. The Swarm connect prompt path now
-lets package-hosted `swarm_requestAccess` write the main-owned Swarm
+origins; main checks the permission and connected account, borrows the key
+through `withVaultPrivateKey()`, signs in main, and returns only the
+signature. If signing first finds the vault locked after the user accepts the
+shell-owned signing prompt, main opens the shell-owned trusted vault-unlock
+window and retries only after unlock succeeds. Transaction prompts can now send
+`eth_sendTransaction` for connected origins when the user chooses Send: main
+validates the requested account and chain, fills gas and fee fields through
+shell-owned wallet services, signs/broadcasts through the existing transaction
+recorder, records dApp-send payment history, and returns only the transaction
+hash. Locked-vault transaction signing uses the same shell-owned unlock window
+and retry path. This still does not select accounts, expose vault primitives,
+or expose raw wallet authority to package chrome. The Swarm connect prompt
+path now lets package-hosted `swarm_requestAccess` write the main-owned Swarm
 permission after a shell-owned native Allow decision: main derives the guest
 origin and package host identity and ignores payload-supplied origin claims.
 Rejections still return a page-facing `4001`. The Swarm publish prompt path
@@ -286,10 +289,9 @@ receive raw x402 IPC, raw vault state, raw cap-edit APIs, arbitrary payment
 permission APIs, or raw payment-history IPC. Cap editing/revocation and
 payment-history review now live in the shell-owned trusted payments window
 behind `surfaces.payments.control`. File/folder/full publish UX, richer
-account selection/review, richer x402 approval review, and broader
-general vault unlock UX still need main-derived guest/request context and real
-shell-owned prompt surfaces before they can be called complete in package
-mode.
+account selection/review, richer x402 approval review, and identity/export
+vault management UX still need main-derived guest/request context and real
+shell-owned prompt surfaces before they can be called complete in package mode.
 
 ## Ethereum Provider Status
 
@@ -307,12 +309,14 @@ page without sending the request through package chrome. Package-hosted
 `eth_accounts` reads existing main-owned grants. `personal_sign`,
 `eth_signTypedData`, `eth_signTypedData_v3`, and `eth_signTypedData_v4` use the
 shell-owned signature prompt and sign in main through vault access when the
-origin is already connected and the user chooses Sign. `eth_sendTransaction`
-uses the shell-owned transaction prompt and sends in main through vault access
-and the existing transaction recorder when the origin is already connected,
-the account and chain match the grant, and the user chooses Send. Deprecated
-`eth_sign` and unsupported signing variants still return structured provider
-errors until richer shell-owned approval paths exist.
+origin is already connected and the user chooses Sign; if the vault is locked,
+main opens the trusted vault-unlock window and retries after successful unlock.
+`eth_sendTransaction` uses the shell-owned transaction prompt and sends in main
+through vault access and the existing transaction recorder when the origin is
+already connected, the account and chain match the grant, and the user chooses
+Send; locked-vault execution uses the same trusted unlock-and-retry path.
+Deprecated `eth_sign` and unsupported signing variants still return structured
+provider errors until richer shell-owned approval paths exist.
 Other higher-risk methods still return `trusted_prompt_unavailable` until their
 shell-owned prompt paths exist. Bundled trusted chrome keeps the legacy
 renderer prompt path for those methods until the prompt migration is complete.
@@ -321,8 +325,8 @@ This checkpoint does not expose wallet globals, identity globals, raw wallet
 IPC, dApp permission stores, raw signing authority, or final transaction
 approval UI to package chrome. Wallet connect currently shares the active
 account only, and package-hosted signing uses the connected account only;
-richer account selection/review and vault-unlock handling still require the
-trusted prompt/surface migration before they can be called complete in package
+richer account selection/review still requires the trusted prompt/surface
+migration before the wallet approval surface can be called complete in package
 mode.
 
 ## Swarm Provider Status

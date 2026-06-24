@@ -812,13 +812,18 @@ active wallet address. `eth_accounts` reads that existing main-owned
 permission without prompting. Modern signing-class methods now use a
 shell-owned prompt plus main/vault execution path for already connected
 origins: `personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
-`eth_signTypedData_v4` can return signatures when the user chooses Sign and
-the vault is unlocked. `eth_sendTransaction` can return a transaction hash for
-already connected origins when the user chooses Send and the vault is unlocked:
-main validates the requested account and chain against the existing dApp
-permission, fills missing gas and fee fields through wallet services, signs and
-broadcasts through the existing transaction recorder, and updates the
-permission last-used timestamp. Deprecated `eth_sign` and unsupported
+`eth_signTypedData_v4` can return signatures when the user chooses Sign. If
+the vault is locked after that approval, main opens the bundled trusted
+vault-unlock window with wallet-specific, main-derived origin/account/method
+context and retries the same signing operation only after unlock succeeds.
+`eth_sendTransaction` can return a transaction hash for already connected
+origins when the user chooses Send: main validates the requested account and
+chain against the existing dApp permission, fills missing gas and fee fields
+through wallet services, signs and broadcasts through the existing transaction
+recorder, and updates the permission last-used timestamp. Locked-vault
+transaction execution uses the same shell-owned unlock-and-retry path with
+main-derived transaction details. Rejected unlocks return structured provider
+errors instead of silently hanging. Deprecated `eth_sign` and unsupported
 typed-data variants remain structured safe-failure paths. The Swarm path also
 has shell-owned prompt slices for `swarm_requestAccess`, `swarm_publishData`,
 `swarm_publishFiles`, `swarm_publishChunk`, `swarm_createFeed`,
@@ -842,7 +847,7 @@ request/payment context and can unlock through a shell-owned trusted window
 before retrying the x402 sign path, and x402 cap editing/revocation plus
 payment-history review now live in the shell-owned trusted payments window.
 Full Swarm publish/feed UX, richer wallet account selection/review, richer
-x402 approval review, and general vault unlock flows still need real
+x402 approval review, and non-provider vault management flows still need real
 shell-owned prompt UI before they can move fully through the broker.
 
 ## Package Store

@@ -33,24 +33,74 @@ function safeString(value, maxLength = 500) {
   return text.length > maxLength ? `${text.slice(0, maxLength - 1)}...` : text;
 }
 
+function normalizeKind(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function isWalletTransactionRequest(request = {}) {
+  return (
+    normalizeKind(request.kind) === 'wallet.transaction' ||
+    normalizeKind(request.method) === 'eth_sendTransaction'
+  );
+}
+
+function isWalletSignatureRequest(request = {}) {
+  const kind = normalizeKind(request.kind);
+  const method = normalizeKind(request.method);
+  return (
+    kind === 'wallet.signature' ||
+    method === 'personal_sign' ||
+    method === 'eth_signTypedData' ||
+    method === 'eth_signTypedData_v3' ||
+    method === 'eth_signTypedData_v4'
+  );
+}
+
+function getDefaultHeading(request = {}) {
+  if (isWalletTransactionRequest(request)) {
+    return 'Unlock vault for wallet transaction';
+  }
+  if (isWalletSignatureRequest(request)) {
+    return 'Unlock vault for wallet signature';
+  }
+  return 'Unlock vault for x402 payment';
+}
+
 function buildPromptContext(request = {}, context = {}) {
   const details = request.details && typeof request.details === 'object'
     ? request.details
     : {};
   const origin = safeString(request.origin || context.origin || 'Unknown site', 300);
+  let explicitRows = [];
+  if (Array.isArray(request.rows)) {
+    explicitRows = request.rows;
+  } else if (Array.isArray(details.rows)) {
+    explicitRows = details.rows;
+  }
   const rows = [
+    ...explicitRows
+      .filter((row) => row && typeof row === 'object')
+      .map((row) => [row.label, row.value]),
     ['Amount', details.amount],
     ['Asset', details.asset],
     ['Network', details.network],
     ['Pay to', details.payTo],
     ['Resource', details.resource],
+    ['Method', details.method || request.method],
+    ['Account', details.account],
+    ['To', details.to],
+    ['Value', details.value],
+    ['Chain', details.chainId || details.chain],
   ]
-    .map(([label, value]) => ({ label, value: safeString(value, 500) }))
-    .filter((row) => row.value);
+    .map(([label, value]) => ({
+      label: safeString(label, 80),
+      value: safeString(value, 500),
+    }))
+    .filter((row) => row.label && row.value);
 
   return {
-    title: 'Unlock Vault',
-    heading: 'Unlock vault for x402 payment',
+    title: safeString(request.title || context.title, 120) || 'Unlock Vault',
+    heading: safeString(request.heading || context.heading, 160) || getDefaultHeading(request),
     origin,
     reason: safeString(request.reason, 500),
     rows,

@@ -97,6 +97,33 @@ test('buildPromptContext keeps only serializable display details', () => {
   });
 });
 
+test('buildPromptContext describes wallet transaction unlock requests', () => {
+  expect(buildPromptContext({
+    kind: 'wallet.transaction',
+    method: 'eth_sendTransaction',
+    reason: 'Wallet vault unlock request from https://app.example',
+    origin: 'https://app.example',
+    details: {
+      account: '0x1111111111111111111111111111111111111111',
+      to: '0x0000000000000000000000000000000000000001',
+      value: '0x2a',
+      chainId: 100,
+    },
+  })).toEqual({
+    title: 'Unlock Vault',
+    heading: 'Unlock vault for wallet transaction',
+    origin: 'https://app.example',
+    reason: 'Wallet vault unlock request from https://app.example',
+    rows: [
+      { label: 'Method', value: 'eth_sendTransaction' },
+      { label: 'Account', value: '0x1111111111111111111111111111111111111111' },
+      { label: 'To', value: '0x0000000000000000000000000000000000000001' },
+      { label: 'Value', value: '0x2a' },
+      { label: 'Chain', value: '100' },
+    ],
+  });
+});
+
 test('creates a modal shell-owned window with a dedicated preload and prompt channels', async () => {
   const ownerWindow = { id: 42 };
   const promptPromise = presentTrustedVaultUnlockPrompt(request(), { ownerWindow });

@@ -531,16 +531,19 @@ Transaction and typed-data signing:
 - main derives origin, chain, account, request id, and tab identity
 - broker opens shell-owned transaction or signing prompt
 - current package-hosted signature slice can sign `personal_sign` and modern
-  EIP-712 typed-data requests for already connected origins when the vault is
-  unlocked
+  EIP-712 typed-data requests for already connected origins. If signing hits a
+  locked vault after the user accepts the shell-owned signing prompt, main
+  opens the bundled trusted vault-unlock window with main-derived wallet
+  context and retries signing only after unlock succeeds
 - current package-hosted transaction slice can send `eth_sendTransaction` for
-  already connected origins when the vault is unlocked, after account/chain
-  validation and main-owned gas/fee preparation
+  already connected origins after account/chain validation and main-owned
+  gas/fee preparation. If transaction signing hits a locked vault after the
+  user accepts the shell-owned transaction prompt, main uses the same trusted
+  vault-unlock window and retries only after unlock succeeds
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add richer account selection/review and
-  vault-unlock handling before the broader wallet approval surface can be
-  called complete in package mode
+- future completion work must add richer account selection/review before the
+  broader wallet approval surface can be called complete in package mode
 
 x402 approvals:
 
@@ -558,8 +561,8 @@ x402 approvals:
   trusted payments window; package chrome can request only surface open/close
   state through `surfaces.payments.control`
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add richer payment review UI and broader/general
-  vault unlock UX before x402 can be called complete in package mode
+- future completion work must add richer payment review UI before x402 can be
+  called complete in package mode
 
 Swarm publish/feed/signing approval:
 
