@@ -65,7 +65,7 @@ const PACKAGE_PROVIDER_VAULT_LOCKED = Object.freeze({
 });
 const PACKAGE_PROVIDER_INVALID_PARAMS = Object.freeze({
   code: -32602,
-  message: 'Invalid signing request parameters',
+  message: 'Invalid provider request parameters',
   data: { reason: 'invalid_params' },
 });
 const PACKAGE_PROVIDER_SIGNING_FAILED = Object.freeze({
@@ -73,7 +73,13 @@ const PACKAGE_PROVIDER_SIGNING_FAILED = Object.freeze({
   message: 'Wallet signing failed',
   data: { reason: 'wallet_signing_failed' },
 });
+const PACKAGE_PROVIDER_TRANSACTION_FAILED = Object.freeze({
+  code: -32603,
+  message: 'Wallet transaction failed',
+  data: { reason: 'wallet_transaction_failed' },
+});
 const DEFAULT_PROVIDER_CHAIN_ID = 100;
+const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
 const PACKAGE_PROVIDER_ACCOUNT_METHODS = new Set(['eth_accounts']);
 const PACKAGE_PROVIDER_CONNECT_METHODS = new Set(['eth_requestAccounts']);
 const PACKAGE_PROVIDER_TRANSACTION_METHODS = new Set(['eth_sendTransaction']);
@@ -205,9 +211,23 @@ async function presentNativeWalletTransactionPrompt(request, context = {}) {
   return presentNativeWalletPrompt(request, context, {
     title: 'Freedom Wallet Transaction',
     message: 'Transaction request',
-    detail: (origin) =>
-      `${origin} requested a wallet transaction. ` +
-      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+    detail: (origin, promptRequest) => {
+      const details = promptRequest.details || {};
+      const to = details.to ? ` To: ${details.to}.` : '';
+      const value = details.value ? ` Value: ${details.value}.` : '';
+      const chainId = details.chainId ? ` Chain: ${details.chainId}.` : '';
+      return (
+        `${origin} requested a wallet transaction.` +
+        to +
+        value +
+        chainId +
+        ' Choose Send only if you trust this request.'
+      );
+    },
+    buttons: ['Send', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    acceptedResponse: 0,
   });
 }
 
@@ -399,6 +419,253 @@ function getAddressMismatchError(expectedAddress, requestedAddress) {
   };
 }
 
+function getTransactionAccountMismatchError(expectedAddress, requestedAddress) {
+  return {
+    code: 4100,
+    message: 'Requested transaction account is not connected for this origin',
+    data: {
+      reason: 'wallet_account_mismatch',
+      expectedAddress,
+      requestedAddress,
+    },
+  };
+}
+
+function normalizeProviderQuantity(value, fallback = undefined) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^0x[0-9a-fA-F]+$/.test(trimmed) || /^\d+$/.test(trimmed)) {
+      return trimmed;
+    }
+    return null;
+  }
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) {
+    return String(value);
+  }
+  if (typeof value === 'bigint' && value >= 0n) {
+    return value.toString();
+  }
+  return null;
+}
+
+function normalizeProviderChainId(value, fallback = undefined) {
+  const raw = normalizeProviderQuantity(value, fallback);
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (raw === null) {
+    return null;
+  }
+  const parsed = Number(BigInt(raw));
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeProviderData(data) {
+  if (data === undefined || data === null || data === '') {
+    return undefined;
+  }
+  return typeof data === 'string' && /^0x[0-9a-fA-F]*$/.test(data) ? data : null;
+}
+
+function getPackageTransactionPreview(params) {
+  const txParams = Array.isArray(params) ? params[0] : null;
+  if (!txParams || typeof txParams !== 'object') {
+    return null;
+  }
+  const preview = {};
+  if (typeof txParams.to === 'string') {
+    preview.to = txParams.to;
+  }
+  const value = normalizeProviderQuantity(txParams.value, '0');
+  if (value !== null && value !== undefined) {
+    preview.value = value;
+  }
+  const chainId = normalizeProviderChainId(txParams.chainId);
+  if (chainId) {
+    preview.chainId = chainId;
+  }
+  return preview;
+}
+
+function decodePackageErc20Transfer(data) {
+  if (!data || typeof data !== 'string') {
+    return null;
+  }
+  const hex = data.toLowerCase();
+  if (!hex.startsWith(ERC20_TRANSFER_SELECTOR) || hex.length < 138) {
+    return null;
+  }
+  const recipientSlot = hex.slice(10, 74);
+  const amountSlot = hex.slice(74, 138);
+  if (!/^[0-9a-f]{64}$/.test(recipientSlot) || !/^[0-9a-f]{64}$/.test(amountSlot)) {
+    return null;
+  }
+  return {
+    toAddress: `0x${recipientSlot.slice(24)}`,
+    amount: BigInt(`0x${amountSlot}`).toString(10),
+  };
+}
+
+function buildPackageDappTxContext(origin, txParams = {}) {
+  const decoded = decodePackageErc20Transfer(txParams.data);
+  if (!decoded || !txParams.to) {
+    return { origin };
+  }
+  return {
+    origin,
+    asset: String(txParams.to).toLowerCase(),
+    toAddress: decoded.toAddress,
+    amount: decoded.amount,
+    metadata: { erc20Method: 'transfer' },
+  };
+}
+
+async function getPackageTransactionRequest(params, permission, connectedAccount) {
+  const list = Array.isArray(params) ? params : [];
+  const txParams = list[0];
+  const connected = normalizeEthereumAddress(connectedAccount);
+  if (!connected) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
+    };
+  }
+  if (!txParams || typeof txParams !== 'object' || Array.isArray(txParams)) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_INVALID_PARAMS,
+    };
+  }
+
+  const requestedFrom = txParams.from;
+  const normalizedFrom = normalizeEthereumAddress(requestedFrom);
+  if (requestedFrom && normalizedFrom !== connected) {
+    return {
+      ok: false,
+      error: getTransactionAccountMismatchError(connectedAccount, requestedFrom),
+    };
+  }
+
+  const to = normalizeEthereumAddress(txParams.to);
+  const value = normalizeProviderQuantity(txParams.value, '0');
+  const data = normalizeProviderData(txParams.data);
+  const permissionChainId = normalizeProviderChainId(permission.chainId, DEFAULT_PROVIDER_CHAIN_ID);
+  const requestedChainId = normalizeProviderChainId(txParams.chainId, permissionChainId);
+  if (!to || value === null || data === null || !requestedChainId || !permissionChainId) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_INVALID_PARAMS,
+    };
+  }
+  if (requestedChainId !== permissionChainId) {
+    return {
+      ok: false,
+      error: {
+        code: 4901,
+        message: 'Requested transaction chain is not connected for this origin',
+        data: {
+          reason: 'wallet_chain_mismatch',
+          expectedChainId: permissionChainId,
+          requestedChainId,
+        },
+      },
+    };
+  }
+
+  const gasLimit = normalizeProviderQuantity(txParams.gasLimit ?? txParams.gas);
+  const gasPrice = normalizeProviderQuantity(txParams.gasPrice);
+  const maxFeePerGas = normalizeProviderQuantity(txParams.maxFeePerGas);
+  const maxPriorityFeePerGas = normalizeProviderQuantity(txParams.maxPriorityFeePerGas);
+  if (
+    gasLimit === null ||
+    gasPrice === null ||
+    maxFeePerGas === null ||
+    maxPriorityFeePerGas === null ||
+    (gasPrice && (maxFeePerGas || maxPriorityFeePerGas)) ||
+    ((maxFeePerGas || maxPriorityFeePerGas) && !(maxFeePerGas && maxPriorityFeePerGas))
+  ) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_INVALID_PARAMS,
+    };
+  }
+
+  const transaction = {
+    to,
+    value,
+    chainId: requestedChainId,
+  };
+  if (data) {
+    transaction.data = data;
+  }
+
+  try {
+    if (gasLimit) {
+      transaction.gasLimit = gasLimit;
+    } else {
+      const gasEstimate = await estimateGas({
+        from: connectedAccount,
+        to,
+        value,
+        data,
+        chainId: requestedChainId,
+      });
+      if (!gasEstimate?.gasLimit) {
+        return {
+          ok: false,
+          error: {
+            code: -32603,
+            message: 'Gas estimation failed',
+            data: { reason: 'gas_estimation_failed' },
+          },
+        };
+      }
+      transaction.gasLimit = gasEstimate.gasLimit;
+    }
+
+    if (maxFeePerGas && maxPriorityFeePerGas) {
+      transaction.maxFeePerGas = maxFeePerGas;
+      transaction.maxPriorityFeePerGas = maxPriorityFeePerGas;
+    } else if (gasPrice) {
+      transaction.gasPrice = gasPrice;
+    } else {
+      const prices = await getGasPrices(requestedChainId);
+      if (prices?.type === 'eip1559' && prices.maxFeePerGas && prices.maxPriorityFeePerGas) {
+        transaction.maxFeePerGas = prices.maxFeePerGas;
+        transaction.maxPriorityFeePerGas = prices.maxPriorityFeePerGas;
+      } else if (prices?.gasPrice) {
+        transaction.gasPrice = prices.gasPrice;
+      } else {
+        return {
+          ok: false,
+          error: {
+            code: -32603,
+            message: 'Gas price lookup failed',
+            data: { reason: 'gas_price_lookup_failed' },
+          },
+        };
+      }
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: -32603,
+        message: err?.message || 'Transaction preparation failed',
+        data: { reason: 'transaction_preparation_failed' },
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    transaction,
+  };
+}
+
 function getPackageSignatureRequest(method, params, connectedAccount) {
   const list = Array.isArray(params) ? params : [];
   const connected = normalizeEthereumAddress(connectedAccount);
@@ -501,6 +768,50 @@ async function signPackageProviderRequest(origin, method, params) {
   }
 }
 
+async function sendPackageProviderTransaction(origin, params) {
+  const permission = await getPackageWalletPermission(origin);
+  if (permission.ok !== true) {
+    return permission;
+  }
+
+  const transactionRequest = await getPackageTransactionRequest(
+    params,
+    permission.permission,
+    permission.account
+  );
+  if (transactionRequest.ok !== true) {
+    return transactionRequest;
+  }
+
+  const txResult = await handleSendTransaction(
+    permission.permission.walletIndex,
+    transactionRequest.transaction,
+    PAYMENT_KINDS.DAPP_SEND,
+    buildPackageDappTxContext(origin, transactionRequest.transaction)
+  );
+  if (txResult.success === true && txResult.hash) {
+    updateLastUsed(origin, permission.permission.chainId);
+    return {
+      ok: true,
+      result: txResult.hash,
+    };
+  }
+
+  if (txResult.reason === 'vault_locked') {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_VAULT_LOCKED,
+    };
+  }
+  return {
+    ok: false,
+    error: {
+      ...PACKAGE_PROVIDER_TRANSACTION_FAILED,
+      message: txResult.error || PACKAGE_PROVIDER_TRANSACTION_FAILED.message,
+    },
+  };
+}
+
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
   const method = typeof payload.method === 'string' ? payload.method : '';
   const hostWebContents = getPackageHostWebContents(event);
@@ -545,11 +856,15 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       };
     }
   }
+  const promptPayload = {
+    method,
+    reason: origin ? `${providerPrompt.reasonPrefix} from ${origin}` : providerPrompt.reasonPrefix,
+  };
+  if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
+    promptPayload.details = getPackageTransactionPreview(payload.params);
+  }
   const prompt = await defaultTrustedPromptBroker[providerPrompt.brokerMethod](
-    {
-      method,
-      reason: origin ? `${providerPrompt.reasonPrefix} from ${origin}` : providerPrompt.reasonPrefix,
-    },
+    promptPayload,
     {
       caller: getPackageHostIdentity(hostWebContents),
       origin,
@@ -589,6 +904,25 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     return {
       result: null,
       error: grant.error,
+      trustedPrompt: prompt,
+    };
+  }
+
+  if (
+    PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method) &&
+    prompt.result?.outcome === 'accepted'
+  ) {
+    const transaction = await sendPackageProviderTransaction(origin, payload.params);
+    if (transaction.ok === true) {
+      return {
+        result: transaction.result,
+        error: null,
+        trustedPrompt: prompt,
+      };
+    }
+    return {
+      result: null,
+      error: transaction.error,
       trustedPrompt: prompt,
     };
   }
@@ -648,6 +982,9 @@ async function handleSendTransaction(walletIndex, params, kind, context = {}) {
     return { success: true, ...result };
   } catch (err) {
     console.error(`[WalletIPC] ${kind} transaction failed:`, err);
+    if (isVaultLockedError(err)) {
+      return { success: false, error: 'Vault is locked', reason: 'vault_locked' };
+    }
     return { success: false, error: err.message };
   }
 }

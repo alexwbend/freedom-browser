@@ -118,17 +118,19 @@ async function requestNativeProviderPrompt({
     };
   }
 
-  const presentationResult = await presentNativeDialog(
-    {
-      requestId,
-      kind,
-      method,
-      reason,
-      origin: context.origin || null,
-      webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
-    },
-    context
-  );
+  const details = cloneSerializable(payload.details || null);
+  const nativeRequest = {
+    requestId,
+    kind,
+    method,
+    reason,
+    origin: context.origin || null,
+    webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
+  };
+  if (details) {
+    nativeRequest.details = details;
+  }
+  const presentationResult = await presentNativeDialog(nativeRequest, context);
   if (presentationResult?.ok !== true) {
     return {
       ok: false,
@@ -144,6 +146,15 @@ async function requestNativeProviderPrompt({
     };
   }
 
+  const request = {
+    method,
+    reason,
+    presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+  };
+  if (details) {
+    request.details = details;
+  }
+
   return {
     ok: true,
     requestId,
@@ -152,11 +163,7 @@ async function requestNativeProviderPrompt({
     surfaceOwner: 'shell',
     renderedBy: 'shell-native-dialog',
     context: describeTrustedContext(context),
-    request: {
-      method,
-      reason,
-      presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
-    },
+    request,
     result: describeNativeDialogResult({
       ...presentationResult,
       outcome: presentationResult.outcome || 'rejected',

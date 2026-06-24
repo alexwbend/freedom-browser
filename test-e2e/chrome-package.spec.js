@@ -2414,7 +2414,10 @@ test('official browser chrome can launch as a local package with transitional we
           ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
           options,
         });
-        if (options?.title === 'Freedom Wallet Signature') {
+        if (
+          options?.title === 'Freedom Wallet Transaction' ||
+          options?.title === 'Freedom Wallet Signature'
+        ) {
           return { response: 1 };
         }
         return { response: 0 };
@@ -2472,10 +2475,12 @@ test('official browser chrome can launch as a local package with transitional we
         message: 'Transaction request',
         detail:
           `ipfs://${providerIpfsCid} requested a wallet transaction. ` +
-          'Package chrome cannot approve this request; the shell is rejecting it for now.',
-        buttons: ['Reject'],
-        defaultId: 0,
-        cancelId: 0,
+          'To: 0x0000000000000000000000000000000000000001. ' +
+          'Value: 0x0. ' +
+          'Choose Send only if you trust this request.',
+        buttons: ['Send', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
         noLink: true,
       },
     });

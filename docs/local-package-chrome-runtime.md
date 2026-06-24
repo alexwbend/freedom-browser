@@ -333,9 +333,11 @@ The official package smoke currently proves:
   reach shell-owned native wallet signature prompts with main-derived guest
   context; accepted prompts sign through main/vault access for already
   connected origins, while rejected prompts return page-facing `4001`
-- package-hosted `eth_sendTransaction` still reaches a shell-owned native
-  wallet transaction prompt and returns page-facing `4001` rejection instead
-  of being brokered by package chrome
+- package-hosted `eth_sendTransaction` reaches a shell-owned native wallet
+  transaction prompt with main-derived guest context; accepted prompts for
+  already connected origins validate account/chain, fill gas and fee data in
+  main, sign/broadcast through main/vault access, and return the transaction
+  hash, while rejected prompts return page-facing `4001`
 - guest content receives the page-facing Swarm provider in package mode and a
   low-risk `swarm_getCapabilities` request bypasses package chrome through main
   with a deterministic `not-connected` result under the harness
@@ -761,22 +763,27 @@ permission without prompting. Modern signing-class methods now use a
 shell-owned prompt plus main/vault execution path for already connected
 origins: `personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
 `eth_signTypedData_v4` can return signatures when the user chooses Sign and
-the vault is unlocked. `eth_sendTransaction`, deprecated `eth_sign`, and
-unsupported typed-data variants remain structured safe-failure paths. The
-Swarm path also has a denial-only prompt slice for
+the vault is unlocked. `eth_sendTransaction` can return a transaction hash for
+already connected origins when the user chooses Send and the vault is unlocked:
+main validates the requested account and chain against the existing dApp
+permission, fills missing gas and fee fields through wallet services, signs and
+broadcasts through the existing transaction recorder, and updates the
+permission last-used timestamp. Deprecated `eth_sign` and unsupported
+typed-data variants remain structured safe-failure paths. The Swarm path also
+has a denial-only prompt slice for
 `swarm_publishData`: package-hosted guests ask main for host context, main
 derives the guest origin and package host identity, the broker presents a
 shell-owned native dialog, and the page receives a structured `4001` user
-rejection. These slices do not send transactions, publish data, write feed
-permissions, or spend stamps. Other higher-risk Ethereum and Swarm methods
-still fail with structured
+rejection. These slices do not publish data, write feed permissions, spend
+stamps, expose account selection, or unlock vault state. Other higher-risk
+Ethereum and Swarm methods still fail with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
 them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. Successful transaction execution, x402, successful Swarm
-publish/feed, richer wallet account selection/review, and vault unlock flows
-still need main-derived request context and shell-owned prompt UI before they
-can move fully through the broker.
+approval UI. x402, successful Swarm publish/feed, richer wallet account
+selection/review, and vault unlock flows still need main-derived request
+context and shell-owned prompt UI before they can move fully through the
+broker.
 
 ## Package Store
 

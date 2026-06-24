@@ -212,7 +212,25 @@ the signature to the guest page:
 }
 ```
 
-If the user rejects the shell-owned signature prompt, the page still receives:
+For connected origins, `eth_sendTransaction` can now succeed when the user
+chooses Send and the vault is unlocked. Main checks the existing dApp
+permission, verifies the requested `from` account against the connected
+account, requires the transaction chain to match the granted chain, fills
+missing gas and fee fields through the shell-owned wallet services, borrows the
+private key through `withVaultPrivateKey()`, signs/broadcasts through the
+existing transaction recorder, records dApp-send payment history, updates the
+permission last-used timestamp, and returns only the transaction hash to the
+guest page:
+
+```json
+{
+  "result": "0x...",
+  "error": null
+}
+```
+
+If the user rejects the shell-owned transaction or signature prompt, the page
+still receives:
 
 ```json
 {
@@ -229,11 +247,10 @@ If the user rejects the shell-owned signature prompt, the page still receives:
 
 If the origin is not connected, the requested account is not connected, the
 parameters are invalid, or the vault is locked, main returns structured
-provider errors without falling back to package chrome. `eth_sendTransaction`
-and deprecated/unsupported signing methods such as `eth_sign` remain safe
-failure paths for now. This does not send transactions, select accounts,
-unlock vault state, expose raw wallet authority, or migrate the full wallet
-center UI.
+provider errors without falling back to package chrome. Deprecated/unsupported
+signing methods such as `eth_sign` remain safe failure paths for now. This
+does not select accounts, unlock vault state, expose raw wallet authority, or
+migrate the full wallet center UI.
 
 ### Package-Hosted Swarm Publish Denial
 
@@ -322,12 +339,14 @@ Transaction and typed-data signing:
 - current package-hosted signature slice can sign `personal_sign` and modern
   EIP-712 typed-data requests for already connected origins when the vault is
   unlocked
-- transaction sending still rejects after shell-owned native presentation
+- current package-hosted transaction slice can send `eth_sendTransaction` for
+  already connected origins when the vault is unlocked, after account/chain
+  validation and main-owned gas/fee preparation
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add richer account selection/review, transaction
-  fee/chain validation, and vault-unlock handling before the broader wallet
-  approval surface can be called complete in package mode
+- future completion work must add richer account selection/review and
+  vault-unlock handling before the broader wallet approval surface can be
+  called complete in package mode
 
 x402 approvals:
 
@@ -363,7 +382,7 @@ Vault unlock:
 ## Non-Goals In This Slice
 
 - no real wallet center migration
-- no transaction sending implementation
+- no richer wallet account-selection implementation
 - no successful x402 payment, cap-grant, or vault-unlock migration
 - no successful Swarm publish/feed approval migration
 - no package-rendered prompt UI

@@ -7,14 +7,19 @@ jest.mock('qrcode', () => ({}));
 jest.mock('./balance-service', () => ({}));
 jest.mock('./chains', () => ({}));
 jest.mock('./provider-manager', () => ({}));
+const mockEstimateGas = jest.fn();
+const mockGetGasPrices = jest.fn();
 const mockSignPersonalMessage = jest.fn();
 const mockSignTypedData = jest.fn();
 jest.mock('./transaction-service', () => ({
+  estimateGas: mockEstimateGas,
+  getGasPrices: mockGetGasPrices,
   signPersonalMessage: mockSignPersonalMessage,
   signTypedData: mockSignTypedData,
 }));
+const mockSignAndRecord = jest.fn();
 jest.mock('./tx-recorder', () => ({
-  signAndRecord: jest.fn(),
+  signAndRecord: mockSignAndRecord,
   KINDS: { WALLET_SEND: 'wallet-send', DAPP_SEND: 'dapp-send' },
 }));
 const mockGetActiveWalletAddress = jest.fn();
@@ -64,6 +69,22 @@ describe('wallet-ipc', () => {
     mockGetPermission.mockReturnValue(null);
     mockGrantPermission.mockReturnValue(null);
     mockUpdateLastUsed.mockReturnValue(true);
+    mockEstimateGas.mockResolvedValue({ gasLimit: '25200' });
+    mockGetGasPrices.mockResolvedValue({
+      type: 'legacy',
+      gasPrice: '1000000000',
+      effectiveGasPrice: '1000000000',
+    });
+    mockSignAndRecord.mockResolvedValue({
+      hash: '0xtransactionhash',
+      nonce: 7,
+      from: '0x1111111111111111111111111111111111111111',
+      to: '0x0000000000000000000000000000000000000001',
+      value: '0',
+      chainId: 100,
+      recorded: true,
+      paymentId: 'payment-1',
+    });
     mockSignPersonalMessage.mockResolvedValue('0xsigned-personal');
     mockSignTypedData.mockResolvedValue('0xsigned-typed');
     mockWithVaultPrivateKey.mockImplementation((_walletIndex, callback) =>
@@ -369,7 +390,7 @@ describe('wallet-ipc', () => {
       packageId: 'baby.freedom.chrome.official',
       packageType: 'browser-chrome',
     });
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -381,7 +402,7 @@ describe('wallet-ipc', () => {
       },
       {
         method: 'eth_sendTransaction',
-        params: [{ to: '0x0000000000000000000000000000000000000001' }],
+        params: [{ to: '0x0000000000000000000000000000000000000001', value: '0x0' }],
       }
     );
 
@@ -418,12 +439,108 @@ describe('wallet-ipc', () => {
       message: 'Transaction request',
       detail:
         'https://app.example requested a wallet transaction. ' +
-        'Package chrome cannot approve this request; the shell is rejecting it for now.',
-      buttons: ['Reject'],
-      defaultId: 0,
-      cancelId: 0,
+        'To: 0x0000000000000000000000000000000000000001. ' +
+        'Value: 0x0. ' +
+        'Choose Send only if you trust this request.',
+      buttons: ['Send', 'Reject'],
+      defaultId: 1,
+      cancelId: 1,
       noLink: true,
     });
+    expect(mockWithVaultPrivateKey).not.toHaveBeenCalled();
+    expect(mockSignAndRecord).not.toHaveBeenCalled();
+  });
+
+  test('sends package-hosted transactions through shell-owned prompt and main wallet execution', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 3,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 3,
+        name: 'Transaction Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/tx'),
+        },
+      },
+      {
+        method: 'eth_sendTransaction',
+        params: [{
+          from: '0x1111111111111111111111111111111111111111',
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x2a',
+        }],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: '0xtransactionhash',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.transaction',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 44,
+        },
+        result: {
+          outcome: 'accepted',
+          response: 0,
+        },
+      },
+    });
+    expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
+    expect(mockEstimateGas).toHaveBeenCalledWith({
+      from: '0x1111111111111111111111111111111111111111',
+      to: '0x0000000000000000000000000000000000000001',
+      value: '0x2a',
+      data: undefined,
+      chainId: 100,
+    });
+    expect(mockGetGasPrices).toHaveBeenCalledWith(100);
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(3, expect.any(Function));
+    expect(mockSignAndRecord).toHaveBeenCalledWith(
+      {
+        to: '0x0000000000000000000000000000000000000001',
+        value: '0x2a',
+        gasLimit: '25200',
+        maxFeePerGas: undefined,
+        maxPriorityFeePerGas: undefined,
+        gasPrice: '1000000000',
+        chainId: 100,
+      },
+      '0xprivate-key',
+      {
+        kind: 'dapp-send',
+        origin: 'https://app.example',
+      }
+    );
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
   });
 
   test('signs package-hosted personal_sign through shell-owned prompt and vault access', async () => {
