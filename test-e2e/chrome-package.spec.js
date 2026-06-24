@@ -206,6 +206,7 @@ function writeOfficialChromePackage(root) {
           'chrome.ui.commands',
           'clipboard.write',
           'downloads.saveImage',
+          'surfaces.wallet.control',
           'windows.control',
           'windows.open',
           'app.about',
@@ -1576,9 +1577,38 @@ test('official browser chrome can launch as a local package with transitional we
 
     await expect(page.locator('[data-test="address-input"]')).toBeVisible();
     await expect(page.locator('[data-test="new-tab-btn"]')).toBeVisible();
-    await expect(page.locator('#wallet-toggle-btn')).toBeHidden();
     await expect(page.locator('[data-test="tab"]')).toHaveCount(1);
     await expectHomeReady(page);
+
+    const initialWalletSurface = await page.evaluate(() =>
+      window.freedomShell.getSurfaceState('wallet')
+    );
+    expect(initialWalletSurface).toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+      trusted: true,
+    });
+    await expect(page.locator('#wallet-toggle-btn')).toBeVisible();
+    await page.locator('#wallet-toggle-btn').click();
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
+    ).toBe(true);
+    await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#sidebar')).toHaveAttribute(
+      'data-surface-mode',
+      'shell-owned-placeholder'
+    );
+    await expect(page.locator('#package-wallet-surface-placeholder')).toContainText(
+      'shell-owned'
+    );
+    await page.locator('#sidebar-close').click();
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
+    ).toBe(false);
+    await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
 
     const settingsWriteResult = await page.evaluate(async () => {
       const before = await window.freedomShell.getSettings();

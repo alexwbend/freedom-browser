@@ -693,10 +693,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   initChromeInputContextMenu({ onOpening: onAnyMenuOpening }); // Address bar edit menu
   if (!isPackageChromeRuntime()) {
     initOnboarding(); // Identity onboarding wizard
-    initSidebar(); // Identity & wallet sidebar
+  }
+  initSidebar(); // Identity & wallet sidebar or package surface-control placeholder
+  if (!isPackageChromeRuntime()) {
     initWalletUi(); // Wallet & identity display in sidebar
-  } else {
-    document.getElementById('wallet-toggle-btn')?.classList.add('hidden');
   }
   loadBookmarks();
   initExternalNodeCandidatesModal();

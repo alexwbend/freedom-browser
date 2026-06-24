@@ -331,8 +331,9 @@ The official package smoke currently proves:
 - higher-risk Swarm provider requests from package-hosted guests fail directly
   through main with a structured `trusted_prompt_unavailable` error instead of
   being brokered by package chrome
-- the wallet/sidebar control is intentionally hidden in package mode until it
-  is backed by a shell-owned surface path
+- the wallet/sidebar control opens a shell-owned placeholder surface in
+  package mode through `surfaces.wallet.control` without exposing wallet or
+  identity APIs to package chrome
 - the main menu opens, and the node menu opens with sanitized service status
   available through `services.read`
 - package chrome does not receive broad node globals such as `ant`, `ipfs`,
@@ -567,9 +568,9 @@ caller-scoped placeholder state with `owner: "shell"` and
 toggle that placeholder state only when it declares `surfaces.wallet.control`.
 This does not expose wallet, identity, provider, signing, or vault APIs, and it
 does not mean the real wallet center has been migrated. The official package
-smoke still keeps the wallet/sidebar affordance hidden until a real
-shell-owned trusted surface is available, while the fixture package smoke
-exercises the placeholder control path.
+smoke exercises the visible wallet/sidebar affordance against this shell-owned
+placeholder state. The fixture package smoke also exercises the placeholder
+control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
 documented in `docs/trusted-prompt-broker.md`. It proves package chrome can

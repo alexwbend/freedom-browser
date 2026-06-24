@@ -2103,6 +2103,57 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 21: Official Wallet Surface Placeholder
+
+Current checkpoint: the official package chrome wallet/sidebar affordance is
+no longer hidden after the shell-owned surface-control path exists. In package
+mode the button now requests caller-scoped `wallet` surface state through the
+renderer adapter and `freedomShell`, opens only a package placeholder that
+identifies the shell-owned boundary, and still does not initialize the bundled
+wallet/identity UI.
+
+Implemented in this checkpoint:
+
+- added package adapter methods for `getSurfaceState`, `openSurface`,
+  `closeSurface`, and `toggleSurface` so package renderer modules use the
+  same `freedomShell` surface-control API instead of reaching around the
+  adapter
+- initialized the lightweight sidebar controller in package mode while still
+  skipping `initWalletUi()` and `initOnboarding()`
+- added package-mode sidebar behavior that hides the real wallet panels,
+  shows a shell-owned placeholder message, and mirrors main-owned
+  `shell-owned-placeholder` state for the `wallet` surface
+- added `surfaces.wallet.control` to the generated official package manifest
+  used by launched smoke
+- expanded official package smoke so the visible wallet button must toggle the
+  shell-owned placeholder state while package chrome still lacks wallet,
+  identity, provider, permission, Node, Electron, and broad preload globals
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js` passed:
+  1 suite, 5 tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2180 passed, 17 skipped.
+
+Known remaining gaps after this checkpoint:
+
+- this remains a placeholder surface; the real wallet center, wallet connect,
+  transaction signing, typed-data signing, identity, vault, x402
+  approval/unlock, Swarm publish/feed, seed/private-key export, and payment
+  history trusted surfaces still need shell-owned UI before they can be called
+  complete in package mode
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 18: ENS Wallet Lookup Adapter Boundary
 
 Current checkpoint: package-mode `resolveEnsAddress()` and

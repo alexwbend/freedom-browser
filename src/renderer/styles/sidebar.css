@@ -197,6 +197,30 @@
   text-align: center;
 }
 
+.package-wallet-surface-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px;
+  margin: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.package-wallet-surface-title {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.package-wallet-surface-placeholder p {
+  margin: 0;
+}
+
 .sidebar-close {
   display: flex;
   align-items: center;

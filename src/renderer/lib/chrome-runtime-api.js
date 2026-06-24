@@ -196,6 +196,30 @@ const createPackageRuntimeApi = () =>
         unavailableResult('IMAGE_COPY_UNAVAILABLE', 'Image copy is unavailable'),
         imageUrl
       ),
+    getSurfaceState: (surface) =>
+      callFreedomShell(
+        'getSurfaceState',
+        unavailableResult('SURFACE_CONTROL_UNAVAILABLE', 'Surface control is unavailable'),
+        surface
+      ),
+    openSurface: (surface) =>
+      callFreedomShell(
+        'openSurface',
+        unavailableResult('SURFACE_CONTROL_UNAVAILABLE', 'Surface control is unavailable'),
+        surface
+      ),
+    closeSurface: (surface) =>
+      callFreedomShell(
+        'closeSurface',
+        unavailableResult('SURFACE_CONTROL_UNAVAILABLE', 'Surface control is unavailable'),
+        surface
+      ),
+    toggleSurface: (surface) =>
+      callFreedomShell(
+        'toggleSurface',
+        unavailableResult('SURFACE_CONTROL_UNAVAILABLE', 'Surface control is unavailable'),
+        surface
+      ),
     getFavicon: (url) => callFreedomShell('getFavicon', null, url),
     getCachedFavicon: (url) => callFreedomShell('getCachedFavicon', null, url),
     fetchFavicon: (url) => callFreedomShell('fetchFavicon', null, url),

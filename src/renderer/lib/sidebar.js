@@ -5,9 +5,15 @@
  * Fixed width (320px), toggle open/closed.
  */
 
+import { getChromeRuntimeApi, isPackageChromeRuntime } from './chrome-runtime-api.js';
+
+const WALLET_SURFACE = 'wallet';
+
 // State
 let isOpen = false;
 let featureEnabled = false;
+let packageSurfaceMode = false;
+let runtimeApi;
 
 // DOM references
 let sidebar;
@@ -27,25 +33,35 @@ export function initSidebar() {
     return;
   }
 
-  // Load initial feature flag state
-  window.electronAPI.getSettings().then((settings) => {
-    featureEnabled = settings?.enableIdentityWallet === true;
-    applyFeatureVisibility();
-  }).catch(() => {
-    featureEnabled = false;
-    applyFeatureVisibility();
-  });
+  runtimeApi = getChromeRuntimeApi();
+  packageSurfaceMode = isPackageChromeRuntime();
 
-  // React to settings changes
-  window.addEventListener('settings:updated', (event) => {
-    const wasEnabled = featureEnabled;
-    featureEnabled = event.detail?.enableIdentityWallet === true;
+  if (packageSurfaceMode) {
+    featureEnabled = true;
+    configurePackageSurfacePlaceholder();
     applyFeatureVisibility();
-    // Close sidebar if feature was just disabled while open
-    if (wasEnabled && !featureEnabled && isOpen) {
-      close();
-    }
-  });
+    syncPackageSurfaceState();
+  } else {
+    // Load initial feature flag state
+    runtimeApi.getSettings().then((settings) => {
+      featureEnabled = settings?.enableIdentityWallet === true;
+      applyFeatureVisibility();
+    }).catch(() => {
+      featureEnabled = false;
+      applyFeatureVisibility();
+    });
+
+    // React to settings changes
+    window.addEventListener('settings:updated', (event) => {
+      const wasEnabled = featureEnabled;
+      featureEnabled = event.detail?.enableIdentityWallet === true;
+      applyFeatureVisibility();
+      // Close sidebar if feature was just disabled while open
+      if (wasEnabled && !featureEnabled && isOpen) {
+        close();
+      }
+    });
+  }
 
   // Apply initial state (sidebar starts closed)
   applyState();
@@ -82,15 +98,14 @@ function applyFeatureVisibility() {
  */
 export function toggle() {
   if (!featureEnabled) return;
+  if (packageSurfaceMode) {
+    togglePackageSurface();
+    return;
+  }
   const wasOpen = isOpen;
   isOpen = !isOpen;
   applyState();
-  // Dispatch events so other modules can react
-  if (wasOpen && !isOpen) {
-    document.dispatchEvent(new CustomEvent('sidebar-closed'));
-  } else if (!wasOpen && isOpen) {
-    document.dispatchEvent(new CustomEvent('sidebar-opened'));
-  }
+  dispatchVisibilityEvent(wasOpen);
 }
 
 /**
@@ -98,10 +113,15 @@ export function toggle() {
  */
 export function open() {
   if (!featureEnabled) return;
+  if (packageSurfaceMode) {
+    openPackageSurface();
+    return;
+  }
   if (!isOpen) {
+    const wasOpen = isOpen;
     isOpen = true;
     applyState();
-    document.dispatchEvent(new CustomEvent('sidebar-opened'));
+    dispatchVisibilityEvent(wasOpen);
   }
 }
 
@@ -109,11 +129,15 @@ export function open() {
  * Close the sidebar
  */
 export function close() {
+  if (packageSurfaceMode) {
+    closePackageSurface();
+    return;
+  }
   if (isOpen) {
+    const wasOpen = isOpen;
     isOpen = false;
     applyState();
-    // Dispatch event so other modules can clean up
-    document.dispatchEvent(new CustomEvent('sidebar-closed'));
+    dispatchVisibilityEvent(wasOpen);
   }
 }
 
@@ -146,4 +170,97 @@ function applyState() {
     toggleBtn.classList.remove('active');
     toggleBtn.setAttribute('aria-expanded', 'false');
   }
+}
+
+function dispatchVisibilityEvent(wasOpen) {
+  if (wasOpen && !isOpen) {
+    document.dispatchEvent(new CustomEvent('sidebar-closed'));
+  } else if (!wasOpen && isOpen) {
+    document.dispatchEvent(new CustomEvent('sidebar-opened'));
+  }
+}
+
+function configurePackageSurfacePlaceholder() {
+  sidebar.dataset.surfaceMode = 'shell-owned-placeholder';
+
+  const tabs = sidebar.querySelector('.sidebar-tabs');
+  if (tabs) {
+    tabs.hidden = true;
+  }
+
+  document.getElementById('sidebar-setup-cta')?.classList.add('hidden');
+  document.getElementById('sidebar-identity')?.classList.add('hidden');
+
+  const content = sidebar.querySelector('.sidebar-content');
+  if (!content || document.getElementById('package-wallet-surface-placeholder')) {
+    return;
+  }
+
+  const placeholder = document.createElement('div');
+  placeholder.id = 'package-wallet-surface-placeholder';
+  placeholder.className = 'package-wallet-surface-placeholder';
+  placeholder.setAttribute('role', 'status');
+
+  const title = document.createElement('div');
+  title.className = 'package-wallet-surface-title';
+  title.textContent = 'Wallet surface';
+
+  const body = document.createElement('p');
+  body.textContent =
+    'Wallet UI remains shell-owned in package mode. This package can only request the surface state.';
+
+  placeholder.append(title, body);
+  content.prepend(placeholder);
+}
+
+async function syncPackageSurfaceState() {
+  const state = await callPackageSurface('getSurfaceState');
+  if (state?.ok !== true || state.surface !== WALLET_SURFACE) {
+    featureEnabled = false;
+    isOpen = false;
+    applyFeatureVisibility();
+    applyState();
+    return;
+  }
+
+  isOpen = state.open === true;
+  applyState();
+}
+
+async function togglePackageSurface() {
+  const wasOpen = isOpen;
+  const state = await callPackageSurface('toggleSurface');
+  if (state?.ok === true && state.surface === WALLET_SURFACE) {
+    isOpen = state.open === true;
+    applyState();
+    dispatchVisibilityEvent(wasOpen);
+  }
+}
+
+async function openPackageSurface() {
+  const wasOpen = isOpen;
+  const state = await callPackageSurface('openSurface');
+  if (state?.ok === true && state.surface === WALLET_SURFACE) {
+    isOpen = state.open === true;
+    applyState();
+    dispatchVisibilityEvent(wasOpen);
+  }
+}
+
+async function closePackageSurface() {
+  const wasOpen = isOpen;
+  const state = await callPackageSurface('closeSurface');
+  if (state?.ok === true && state.surface === WALLET_SURFACE) {
+    isOpen = state.open === true;
+    applyState();
+    dispatchVisibilityEvent(wasOpen);
+  }
+}
+
+async function callPackageSurface(methodName) {
+  const method = runtimeApi?.[methodName];
+  if (typeof method !== 'function') {
+    return null;
+  }
+  return method(WALLET_SURFACE).catch(() => null);
 }

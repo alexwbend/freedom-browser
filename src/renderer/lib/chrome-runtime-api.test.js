@@ -85,6 +85,34 @@ describe('chrome-runtime-api', () => {
       copyText: jest.fn().mockResolvedValue({ success: true }),
       copyImageFromUrl: jest.fn().mockResolvedValue({ success: true }),
       saveImage: jest.fn().mockResolvedValue({ success: true }),
+      getSurfaceState: jest.fn().mockResolvedValue({
+        ok: true,
+        surface: 'wallet',
+        open: false,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      }),
+      openSurface: jest.fn().mockResolvedValue({
+        ok: true,
+        surface: 'wallet',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      }),
+      closeSurface: jest.fn().mockResolvedValue({
+        ok: true,
+        surface: 'wallet',
+        open: false,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      }),
+      toggleSurface: jest.fn().mockResolvedValue({
+        ok: true,
+        surface: 'wallet',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-placeholder',
+      }),
       onCloseMenusRequested: jest.fn(() => 'cleanup-close-menus'),
       onFocusAddressBarRequested: jest.fn(() => 'cleanup-focus-address-bar'),
       onToggleDevToolsRequested: jest.fn(() => 'cleanup-toggle-devtools'),
@@ -216,6 +244,34 @@ describe('chrome-runtime-api', () => {
     await expect(api.saveImage('https://example.com/image.png')).resolves.toEqual({
       success: true,
     });
+    await expect(api.getSurfaceState('wallet')).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
+    await expect(api.openSurface('wallet')).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
+    await expect(api.closeSurface('wallet')).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
+    await expect(api.toggleSurface('wallet')).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+    });
     await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
     const x402Unavailable = {
       success: false,
@@ -300,6 +356,10 @@ describe('chrome-runtime-api', () => {
     expect(freedomShell.copyText).toHaveBeenCalledWith('https://example.com/copied');
     expect(freedomShell.copyImageFromUrl).toHaveBeenCalledWith('https://example.com/image.png');
     expect(freedomShell.saveImage).toHaveBeenCalledWith('https://example.com/image.png');
+    expect(freedomShell.getSurfaceState).toHaveBeenCalledWith('wallet');
+    expect(freedomShell.openSurface).toHaveBeenCalledWith('wallet');
+    expect(freedomShell.closeSurface).toHaveBeenCalledWith('wallet');
+    expect(freedomShell.toggleSurface).toHaveBeenCalledWith('wallet');
     expect(freedomShell.saveSettings).toHaveBeenCalledWith({ showBookmarkBar: false });
     expect(freedomShell.addBookmark).toHaveBeenCalledWith({
       label: 'Added',
@@ -397,6 +457,22 @@ describe('chrome-runtime-api', () => {
     await expect(api.saveImage('https://example.com/image.png')).resolves.toMatchObject({
       success: false,
       error: { code: 'IMAGE_SAVE_UNAVAILABLE' },
+    });
+    await expect(api.getSurfaceState('wallet')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SURFACE_CONTROL_UNAVAILABLE' },
+    });
+    await expect(api.openSurface('wallet')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SURFACE_CONTROL_UNAVAILABLE' },
+    });
+    await expect(api.closeSurface('wallet')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SURFACE_CONTROL_UNAVAILABLE' },
+    });
+    await expect(api.toggleSurface('wallet')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'SURFACE_CONTROL_UNAVAILABLE' },
     });
     await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
     await expect(api.x402GetDetails('payment-1')).resolves.toMatchObject({
