@@ -800,6 +800,41 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     });
   });
 
+  test('package-hosted accepted payment with locked vault shows the detailed shell-owned unlock prompt', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockDialogShowMessageBox
+      .mockResolvedValueOnce({ response: 0 })
+      .mockResolvedValueOnce({ response: 0 });
+    mockSignAndQueueRetry.mockReset().mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE));
+
+    const result = await detectPaymentRequiredHandler(detail());
+
+    expect(result).toBeNull();
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingApproval('req-1001')).toBe(false);
+    expect(getDetectedPayment(7)).toBeNull();
+    expect(mockSignAndQueueRetry).toHaveBeenCalledWith(7, expect.objectContaining({
+      authorizedBy: 'manual',
+    }));
+    expect(mockDialogShowMessageBox).toHaveBeenNthCalledWith(2, null, {
+      type: 'info',
+      title: 'Freedom x402 Vault Unlock',
+      message: 'Vault unlock request',
+      detail:
+        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
+        'Amount: 10000. ' +
+        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+        'Network: eip155:8453. ' +
+        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+        'Resource: https://api.example/article. ' +
+        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
+      buttons: ['Dismiss'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  });
+
   test('on approve: signs with MANUAL authorization, returns 307, and fires approval-result success event', async () => {
     const handlerPromise = detectPaymentRequiredHandler(detail());
     await Promise.resolve();

@@ -3925,3 +3925,42 @@ Known remaining gaps after this checkpoint:
   Swarm publish/feed UX, and richer wallet account/review surfaces still need
   shell-owned UI before the broader package runtime can be called complete;
   these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 21: Package x402 Locked Approval Regression Coverage
+
+Current checkpoint: package-hosted x402 one-time payment approval now has
+explicit regression coverage for the path where the user chooses Pay from the
+shell-owned native payment prompt but the vault is locked when signing begins.
+The covered behavior remains intentionally conservative: main shows the
+shell-owned vault-unlock prompt with main-derived payment review details, then
+passes the original 402 through without exposing raw x402, wallet, vault,
+payment-history, cap-grant, or payment-permission authority to package chrome.
+
+Implemented in this checkpoint:
+
+- added `src/main/x402/intercept.test.js` coverage for an accepted
+  package-hosted x402 approval whose sign attempt fails with the locked-vault
+  error
+- asserted the second shell-owned native dialog is the detailed x402
+  vault-unlock prompt with amount, asset, network, recipient, and resource URL
+- asserted no raw `x402:*` host events are sent to package chrome, no pending
+  approval remains, and the detection is cleared after the pass-through path
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js` passed:
+  1 suite, 107 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2257 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- this is coverage for the current conservative locked-vault fallback, not a
+  vault-unlock implementation
+- x402 cap grants, payment permission management, payment history UI, full
+  payment review, and actual vault unlock still need a real shell-owned x402 or
+  wallet surface before x402 can be called complete in package mode
