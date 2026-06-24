@@ -4,7 +4,7 @@
  * Registers IPC handlers for wallet operations.
  */
 
-const { dialog, ipcMain } = require('electron');
+const { ipcMain } = require('electron');
 const QRCode = require('qrcode');
 const IPC = require('../../shared/ipc-channels');
 const { getAllBalances, getBalancesWithCache, clearBalanceCache } = require('./balance-service');
@@ -35,6 +35,7 @@ const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
 const { isVaultLockedError } = require('./vault-errors');
 const { presentTrustedVaultUnlockPrompt } = require('../trusted-vault-unlock-prompt');
+const trustedWalletApprovalPrompt = require('../trusted-wallet-approval-prompt');
 
 const READONLY_PROVIDER_ERRORS = Object.freeze({
   UNSUPPORTED_METHOD: { code: 4200, message: 'Method not supported' },
@@ -194,97 +195,16 @@ function deriveProviderOrigin(event) {
   return null;
 }
 
-async function presentNativeWalletConnectPrompt(request, context = {}) {
-  return presentNativeWalletPrompt(request, context, {
-    title: 'Freedom Wallet Connection',
-    message: 'Wallet connection request',
-    detail: (origin) =>
-      `${origin} requested wallet account access. ` +
-      'Choose Connect to share the active wallet address through the shell-owned provider broker.',
-    buttons: ['Connect', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    acceptedResponse: 0,
-  });
+async function presentTrustedWalletConnectPrompt(request, context = {}) {
+  return trustedWalletApprovalPrompt.presentTrustedWalletApprovalPrompt(request, context);
 }
 
-async function presentNativeWalletTransactionPrompt(request, context = {}) {
-  return presentNativeWalletPrompt(request, context, {
-    title: 'Freedom Wallet Transaction',
-    message: 'Transaction request',
-    detail: (origin, promptRequest) => {
-      const details = promptRequest.details || {};
-      const to = details.to ? ` To: ${details.to}.` : '';
-      const value = details.value ? ` Value: ${details.value}.` : '';
-      const chainId = details.chainId ? ` Chain: ${details.chainId}.` : '';
-      return (
-        `${origin} requested a wallet transaction.` +
-        to +
-        value +
-        chainId +
-        ' Choose Send only if you trust this request.'
-      );
-    },
-    buttons: ['Send', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    acceptedResponse: 0,
-  });
+async function presentTrustedWalletTransactionPrompt(request, context = {}) {
+  return trustedWalletApprovalPrompt.presentTrustedWalletApprovalPrompt(request, context);
 }
 
-async function presentNativeWalletSignaturePrompt(request, context = {}) {
-  return presentNativeWalletPrompt(request, context, {
-    title: 'Freedom Wallet Signature',
-    message: 'Signature request',
-    detail: (origin, promptRequest) =>
-      `${origin} requested wallet signing. ` +
-      `Method: ${promptRequest.method}. ` +
-      'Choose Sign only if you trust this request.',
-    buttons: ['Sign', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    acceptedResponse: 0,
-  });
-}
-
-async function presentNativeWalletPrompt(request, context = {}, dialogOptions = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native wallet trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const ownerWindow = context.ownerWindow || null;
-  const buttons = Array.isArray(dialogOptions.buttons) && dialogOptions.buttons.length > 0
-    ? dialogOptions.buttons
-    : ['Reject'];
-  const defaultId = Number.isInteger(dialogOptions.defaultId) ? dialogOptions.defaultId : 0;
-  const cancelId = Number.isInteger(dialogOptions.cancelId) ? dialogOptions.cancelId : defaultId;
-  const acceptedResponse = Number.isInteger(dialogOptions.acceptedResponse)
-    ? dialogOptions.acceptedResponse
-    : null;
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: dialogOptions.title,
-    message: dialogOptions.message,
-    detail: dialogOptions.detail(origin, request),
-    buttons,
-    defaultId,
-    cancelId,
-    noLink: true,
-  });
-  return {
-    ok: true,
-    outcome: acceptedResponse !== null && result?.response === acceptedResponse
-      ? 'accepted'
-      : 'rejected',
-    response: result?.response,
-  };
+async function presentTrustedWalletSignaturePrompt(request, context = {}) {
+  return trustedWalletApprovalPrompt.presentTrustedWalletApprovalPrompt(request, context);
 }
 
 function getPackageProviderPrompt(method) {
@@ -292,21 +212,21 @@ function getPackageProviderPrompt(method) {
     return {
       reasonPrefix: 'Wallet connection request',
       brokerMethod: 'requestWalletConnectPrompt',
-      presentNativeDialog: presentNativeWalletConnectPrompt,
+      presentTrustedPrompt: presentTrustedWalletConnectPrompt,
     };
   }
   if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
     return {
       reasonPrefix: 'Wallet transaction request',
       brokerMethod: 'requestWalletTransactionPrompt',
-      presentNativeDialog: presentNativeWalletTransactionPrompt,
+      presentTrustedPrompt: presentTrustedWalletTransactionPrompt,
     };
   }
   if (PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method)) {
     return {
       reasonPrefix: 'Wallet signature request',
       brokerMethod: 'requestWalletSignaturePrompt',
-      presentNativeDialog: presentNativeWalletSignaturePrompt,
+      presentTrustedPrompt: presentTrustedWalletSignaturePrompt,
     };
   }
   return null;
@@ -489,6 +409,87 @@ function getPackageTransactionPreview(params) {
     preview.chainId = chainId;
   }
   return preview;
+}
+
+function getPackageSignaturePreview(method, params) {
+  const list = Array.isArray(params) ? params : [];
+  const preview = { method };
+  if (method === 'personal_sign') {
+    if (typeof list[1] === 'string') {
+      preview.account = list[1];
+    }
+    if (typeof list[0] === 'string') {
+      preview.messagePreview = list[0];
+      preview.payloadSize = `${list[0].length} chars`;
+    }
+    return preview;
+  }
+  if (PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method)) {
+    if (typeof list[0] === 'string') {
+      preview.account = list[0];
+    }
+    const typedData = list[1];
+    if (typedData !== undefined) {
+      let typedDataText;
+      try {
+        typedDataText = typeof typedData === 'string'
+          ? typedData
+          : JSON.stringify(typedData);
+      } catch {
+        typedDataText = '[unserializable typed data]';
+      }
+      preview.typedDataPreview = typedDataText;
+      preview.payloadSize = `${typedDataText.length} chars`;
+    }
+  }
+  return preview;
+}
+
+async function getConnectedWalletReviewDetails(origin) {
+  const permission = origin ? getPermission(origin) : null;
+  if (!permission) {
+    return {};
+  }
+  const accounts = await getAccountsForWalletIndex(permission.walletIndex);
+  return {
+    account: accounts[0],
+    walletIndex: permission.walletIndex,
+    chainId: permission.chainId,
+  };
+}
+
+async function getPackageWalletApprovalDetails(method, params, origin) {
+  if (PACKAGE_PROVIDER_CONNECT_METHODS.has(method)) {
+    const walletIndex = getActiveWalletIndex();
+    const address = await getActiveWalletAddress();
+    const details = {
+      method,
+      chainId: DEFAULT_PROVIDER_CHAIN_ID,
+    };
+    if (Number.isInteger(walletIndex)) {
+      details.walletIndex = walletIndex;
+    }
+    if (typeof address === 'string' && address) {
+      details.activeAccount = address;
+    }
+    return details;
+  }
+
+  const connected = await getConnectedWalletReviewDetails(origin);
+  if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
+    return {
+      method,
+      ...connected,
+      ...(getPackageTransactionPreview(params) || {}),
+    };
+  }
+  if (PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method)) {
+    return {
+      ...connected,
+      ...getPackageSignaturePreview(method, params),
+    };
+  }
+  return null;
 }
 
 function decodePackageErc20Transfer(data) {
@@ -991,15 +992,16 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     method,
     reason: origin ? `${providerPrompt.reasonPrefix} from ${origin}` : providerPrompt.reasonPrefix,
   };
-  if (PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method)) {
-    promptPayload.details = getPackageTransactionPreview(payload.params);
+  const promptDetails = await getPackageWalletApprovalDetails(method, payload.params, origin);
+  if (promptDetails) {
+    promptPayload.details = promptDetails;
   }
   const promptContext = {
     caller: getPackageHostIdentity(hostWebContents),
     origin,
     webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
     ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
-    presentNativeDialog: providerPrompt.presentNativeDialog,
+    presentNativeDialog: providerPrompt.presentTrustedPrompt,
   };
   const prompt = await defaultTrustedPromptBroker[providerPrompt.brokerMethod](
     promptPayload,

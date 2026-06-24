@@ -369,6 +369,58 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('propagates shell-owned trusted window metadata for wallet prompts', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+      renderedBy: 'trusted-wallet-approval-window',
+      presentation: 'trusted-window',
+      source: 'trusted-wallet-approval-window',
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-wallet-window-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestWalletSignaturePrompt(
+        {
+          method: 'personal_sign',
+          reason: 'Wallet signature request from https://app.example',
+          details: {
+            account: '0x1111111111111111111111111111111111111111',
+            messagePreview: '0x68656c6c6f',
+          },
+        },
+        {
+          origin: 'https://app.example',
+          webContentsId: 44,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      requestId: 'trusted-prompt-wallet-window-1',
+      kind: TRUSTED_PROMPT_KINDS.WALLET_SIGNATURE,
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'trusted-wallet-approval-window',
+      request: {
+        method: 'personal_sign',
+        presentation: 'trusted-window',
+        details: {
+          account: '0x1111111111111111111111111111111111111111',
+          messagePreview: '0x68656c6c6f',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'trusted-wallet-approval-window',
+        response: 0,
+      },
+    });
+  });
+
   test('routes x402 approval prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,

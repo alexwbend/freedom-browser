@@ -2742,6 +2742,51 @@ test('official browser chrome can launch as a local package with transitional we
         </script>`,
     });
     await launched.app.evaluate(({ dialog }) => {
+      const nodeRequire =
+        (typeof require === 'function' && require) ||
+        globalThis.require ||
+        process.mainModule?.require?.bind(process.mainModule);
+      if (!nodeRequire) {
+        throw new Error('Node require is unavailable in Electron main evaluation context');
+      }
+      const pathModule = nodeRequire('path');
+      const trustedWalletApprovalPrompt = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'trusted-wallet-approval-prompt.js')
+      );
+      trustedWalletApprovalPrompt.presentTrustedWalletApprovalPrompt = async (
+        request,
+        context = {}
+      ) => {
+        globalThis.__freedomWalletTrustedApprovalPrompts.push({
+          request,
+          context: {
+            origin: context.origin || null,
+            webContentsId: context.webContentsId ?? null,
+            hasOwnerWindow: !!context.ownerWindow,
+            ownerWindowDestroyed: context.ownerWindow?.isDestroyed?.() ?? null,
+            caller: context.caller || null,
+          },
+        });
+        if (request?.kind === 'wallet.transaction' || request?.kind === 'wallet.signature') {
+          return {
+            ok: true,
+            outcome: 'rejected',
+            response: 1,
+            renderedBy: 'trusted-wallet-approval-window',
+            presentation: 'trusted-window',
+            source: 'trusted-wallet-approval-window',
+          };
+        }
+        return {
+          ok: true,
+          outcome: 'accepted',
+          response: 0,
+          renderedBy: 'trusted-wallet-approval-window',
+          presentation: 'trusted-window',
+          source: 'trusted-wallet-approval-window',
+        };
+      };
+      globalThis.__freedomWalletTrustedApprovalPrompts = [];
       globalThis.__freedomProviderPromptDialogs = [];
       dialog.showMessageBox = async (ownerWindow, options) => {
         globalThis.__freedomProviderPromptDialogs.push({
@@ -2749,12 +2794,6 @@ test('official browser chrome can launch as a local package with transitional we
           ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
           options,
         });
-        if (
-          options?.title === 'Freedom Wallet Transaction' ||
-          options?.title === 'Freedom Wallet Signature'
-        ) {
-          return { response: 1 };
-        }
         return { response: 0 };
       };
     });
@@ -2776,67 +2815,77 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="provider-signature"]',
       'error:4001:shell_trusted_prompt_rejected'
     );
-    const providerPromptDialogs = await launched.app.evaluate(
-      () => globalThis.__freedomProviderPromptDialogs
+    const walletApprovalPrompts = await launched.app.evaluate(
+      () => globalThis.__freedomWalletTrustedApprovalPrompts
     );
-    const walletConnectPromptDialog = providerPromptDialogs.find(
-      (dialog) => dialog.options?.title === 'Freedom Wallet Connection'
+    const walletConnectApprovalPrompt = walletApprovalPrompts.find(
+      (prompt) => prompt.request?.kind === 'wallet.connect'
     );
-    expect(walletConnectPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Wallet Connection',
-        message: 'Wallet connection request',
-        detail:
-          `ipfs://${providerIpfsCid} requested wallet account access. ` +
-          'Choose Connect to share the active wallet address through the shell-owned provider broker.',
-        buttons: ['Connect', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(walletConnectApprovalPrompt).toMatchObject({
+      context: {
+        hasOwnerWindow: true,
+        ownerWindowDestroyed: false,
+        origin: `ipfs://${providerIpfsCid}`,
+        webContentsId: expect.any(Number),
+      },
+      request: {
+        kind: 'wallet.connect',
+        method: 'eth_requestAccounts',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          method: 'eth_requestAccounts',
+          chainId: 100,
+          walletIndex: 0,
+          activeAccount: packageSmokeWalletAddress,
+        },
       },
     });
-    const walletTransactionPromptDialog = providerPromptDialogs.find(
-      (dialog) => dialog.options?.title === 'Freedom Wallet Transaction'
+    const walletTransactionApprovalPrompt = walletApprovalPrompts.find(
+      (prompt) => prompt.request?.kind === 'wallet.transaction'
     );
-    expect(walletTransactionPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Wallet Transaction',
-        message: 'Transaction request',
-        detail:
-          `ipfs://${providerIpfsCid} requested a wallet transaction. ` +
-          'To: 0x0000000000000000000000000000000000000001. ' +
-          'Value: 0x0. ' +
-          'Choose Send only if you trust this request.',
-        buttons: ['Send', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(walletTransactionApprovalPrompt).toMatchObject({
+      context: {
+        hasOwnerWindow: true,
+        ownerWindowDestroyed: false,
+        origin: `ipfs://${providerIpfsCid}`,
+        webContentsId: expect.any(Number),
+      },
+      request: {
+        kind: 'wallet.transaction',
+        method: 'eth_sendTransaction',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          method: 'eth_sendTransaction',
+          account: packageSmokeWalletAddress,
+          walletIndex: 0,
+          chainId: 100,
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x0',
+        },
       },
     });
-    const walletSignaturePromptDialog = providerPromptDialogs.find(
-      (dialog) => dialog.options?.title === 'Freedom Wallet Signature'
+    const walletSignatureApprovalPrompt = walletApprovalPrompts.find(
+      (prompt) => prompt.request?.kind === 'wallet.signature'
     );
-    expect(walletSignaturePromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Wallet Signature',
-        message: 'Signature request',
-        detail:
-          `ipfs://${providerIpfsCid} requested wallet signing. ` +
-          'Method: personal_sign. ' +
-          'Choose Sign only if you trust this request.',
-        buttons: ['Sign', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(walletSignatureApprovalPrompt).toMatchObject({
+      context: {
+        hasOwnerWindow: true,
+        ownerWindowDestroyed: false,
+        origin: `ipfs://${providerIpfsCid}`,
+        webContentsId: expect.any(Number),
+      },
+      request: {
+        kind: 'wallet.signature',
+        method: 'personal_sign',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          method: 'personal_sign',
+          account: packageSmokeWalletAddress,
+          walletIndex: 0,
+          chainId: 100,
+          messagePreview: '0x68656c6c6f',
+          payloadSize: '12 chars',
+        },
       },
     });
     await expectActiveWebviewText(page, '[data-test="swarm-provider-present"]', 'present');

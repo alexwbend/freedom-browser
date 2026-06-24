@@ -4402,3 +4402,64 @@ Known remaining gaps after this checkpoint:
   center management, and non-provider vault management flows still need
   shell-owned UI before the broader package runtime can be called complete;
   these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 29: Trusted Wallet Approval Window
+
+Current checkpoint: package-hosted Ethereum wallet connect, transaction, and
+signature approvals now use a shell-owned trusted wallet approval window
+instead of Electron native wallet dialogs. The window is bundled shell code
+with a dedicated preload and per-request IPC channels. It shows main-derived
+origin and account context plus bounded transaction, message, or typed-data
+review details before the existing main-owned permission/sign/send paths run.
+Package chrome still does not receive wallet APIs, identity APIs, dApp
+permission stores, vault primitives, signing authority, provider globals,
+Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-wallet-approval-prompt.js` plus bundled HTML,
+  renderer, and dedicated preload assets for a shell-owned wallet approval
+  prompt
+- scoped wallet approval IPC channels by trusted prompt request id and rejected
+  context/decision calls from any sender other than the trusted approval window
+- changed package-hosted `eth_requestAccounts`, `eth_sendTransaction`,
+  `personal_sign`, and modern `eth_signTypedData*` approval prompts to render
+  through the trusted wallet approval window while keeping execution, account
+  validation, chain validation, permission writes, signing, sending, and
+  vault-unlock retry in main
+- added main-derived display details for the approval surface: active account
+  for wallet connect, connected account/wallet index/chain for connected
+  origins, transaction recipient/value previews, and bounded message or
+  typed-data previews
+- kept rejected wallet approvals as page-facing `4001`
+  `shell_trusted_prompt_rejected` errors and kept unsupported wallet provider
+  methods on structured safe-failure paths
+- updated the official package smoke harness to stub and assert the trusted
+  wallet approval presenter rather than native wallet dialogs
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-wallet-approval-prompt.test.js src/main/wallet/wallet-ipc.test.js src/main/trusted-prompt-broker.test.js` passed:
+  3 suites, 47 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  121 suites passed, 5 skipped; 2294 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- wallet provider approvals now have a trusted-window review surface, but full
+  account selection, full wallet-center management, seed/private-key export,
+  identity onboarding, and non-provider vault management flows still need
+  shell-owned UI before broader wallet UX can be called complete; these are not
+  user-approved completion deferrals
+- full Swarm publish/feed UX still needs shell-owned review surfaces before the
+  broader package runtime can be called complete; this is not a user-approved
+  completion deferral

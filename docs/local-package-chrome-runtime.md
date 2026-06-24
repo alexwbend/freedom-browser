@@ -324,21 +324,23 @@ The official package smoke currently proves:
   through the page controls
 - guest content receives the page-facing Ethereum provider in package mode and
   a low-risk `eth_chainId` request bypasses package chrome through main
-- package-hosted `eth_requestAccounts` reaches a shell-owned native wallet
-  connect prompt with main-derived guest context; approval writes a main-side
-  dApp permission and returns the active wallet address, while rejection
-  returns page-facing `4001`
+- package-hosted `eth_requestAccounts` reaches a shell-owned trusted wallet
+  approval window with main-derived guest context and active-account review
+  details; approval writes a main-side dApp permission and returns the active
+  wallet address, while rejection returns page-facing `4001`
 - package-hosted `eth_accounts` reads existing main-owned dApp permissions and
   returns the granted account without opening package chrome authority
 - package-hosted `personal_sign` and modern `eth_signTypedData*` requests
-  reach shell-owned native wallet signature prompts with main-derived guest
-  context; accepted prompts sign through main/vault access for already
-  connected origins, while rejected prompts return page-facing `4001`
-- package-hosted `eth_sendTransaction` reaches a shell-owned native wallet
-  transaction prompt with main-derived guest context; accepted prompts for
-  already connected origins validate account/chain, fill gas and fee data in
-  main, sign/broadcast through main/vault access, and return the transaction
-  hash, while rejected prompts return page-facing `4001`
+  reach shell-owned trusted wallet approval windows with main-derived guest
+  context plus account/message or typed-data review details; accepted prompts
+  sign through main/vault access for already connected origins, while rejected
+  prompts return page-facing `4001`
+- package-hosted `eth_sendTransaction` reaches a shell-owned trusted wallet
+  approval window with main-derived guest context plus account/chain/recipient
+  review details; accepted prompts for already connected origins validate
+  account/chain, fill gas and fee data in main, sign/broadcast through
+  main/vault access, and return the transaction hash, while rejected prompts
+  return page-facing `4001`
 - guest content receives the page-facing Swarm provider in package mode and a
   low-risk `swarm_getCapabilities` request bypasses package chrome through main
   with a deterministic `not-connected` result under the harness
@@ -810,21 +812,25 @@ shell-owned trusted prompt path that writes the Swarm permission in main after
 approval. The Ethereum path accepts low-risk `eth_chainId` directly
 and handles wallet account reads/grants from main-owned dApp permissions:
 `eth_requestAccounts` asks main for its host context, main derives the guest
-origin and package host identity, the broker presents a shell-owned native
-dialog, and an accepted prompt writes the dApp permission and returns the
-active wallet address. `eth_accounts` reads that existing main-owned
-permission without prompting. Modern signing-class methods now use a
-shell-owned prompt plus main/vault execution path for already connected
-origins: `personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
-`eth_signTypedData_v4` can return signatures when the user chooses Sign. If
-the vault is locked after that approval, main opens the bundled trusted
-vault-unlock window with wallet-specific, main-derived origin/account/method
-context and retries the same signing operation only after unlock succeeds.
-`eth_sendTransaction` can return a transaction hash for already connected
-origins when the user chooses Send: main validates the requested account and
-chain against the existing dApp permission, fills missing gas and fee fields
-through wallet services, signs and broadcasts through the existing transaction
-recorder, and updates the permission last-used timestamp. Locked-vault
+origin and package host identity, the broker presents the bundled trusted
+wallet approval window with the active account it would share, and an accepted
+prompt writes the dApp permission and returns the active wallet address.
+`eth_accounts` reads that existing main-owned permission without prompting.
+Modern signing-class methods now use the shell-owned trusted wallet approval
+window plus main/vault execution path for already connected origins:
+`personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
+`eth_signTypedData_v4` can return signatures when the user chooses Sign. The
+window shows the connected account plus bounded message or typed-data review
+details. If the vault is locked after that approval, main opens the bundled
+trusted vault-unlock window with wallet-specific, main-derived
+origin/account/method context and retries the same signing operation only
+after unlock succeeds. `eth_sendTransaction` can return a transaction hash for
+already connected origins when the user chooses Send: main validates the
+requested account and chain against the existing dApp permission, fills
+missing gas and fee fields through wallet services, signs and broadcasts
+through the existing transaction recorder, and updates the permission
+last-used timestamp. The trusted wallet approval window shows the connected
+account, chain, recipient, and value preview before approval. Locked-vault
 transaction execution uses the same shell-owned unlock-and-retry path with
 main-derived transaction details. Rejected unlocks return structured provider
 errors instead of silently hanging. Deprecated `eth_sign` and unsupported
@@ -851,8 +857,8 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX, richer wallet account selection/signing review, and non-provider vault
-management flows still need real shell-owned prompt UI before they can move
+UX, full wallet account selection, wallet-center management, and non-provider
+vault management flows still need real shell-owned UI before they can move
 fully through the broker.
 
 ## Package Store

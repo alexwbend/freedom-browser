@@ -142,17 +142,20 @@ guest webview preload
   -> dapp:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker wallet.connect
-  -> shell-owned native dialog
+  -> shell-owned trusted wallet approval window
   -> main-side dApp permission grant and page-facing account result
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
-origin claims are not used as final security truth.
+origin claims are not used as final security truth. The approval window is
+bundled shell code with a dedicated preload and per-request scoped IPC
+channels; package chrome cannot render or style the final approval moment.
 
 If the user chooses Connect and the shell has an active wallet address,
 main writes the dApp permission with the derived origin and active wallet index
-and returns the active wallet address to the guest page:
+and returns the active wallet address to the guest page. The approval window
+shows the active account that will be shared before the user decides:
 
 ```json
 {
@@ -164,8 +167,8 @@ and returns the active wallet address to the guest page:
 If the user rejects the prompt, the page still receives an EIP-1193 `4001`
 user rejection. Package-hosted `eth_accounts` reads existing main-owned dApp
 permissions and returns the granted account without opening a prompt. This
-does not migrate transaction approval UI, expose wallet management, or give
-package chrome dApp permission-store authority.
+does not expose wallet management or give package chrome dApp
+permission-store authority.
 
 ### Package-Hosted Wallet Transaction And Signature Prompts
 
@@ -188,22 +191,25 @@ guest webview preload
   -> dapp:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker wallet.transaction or wallet.signature
-  -> shell-owned native dialog
+  -> shell-owned trusted wallet approval window
   -> shell-owned execution or page-facing provider error
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
 origin claims and transaction/signature details are not trusted as final
-security truth.
+security truth. Main supplies bounded display details to the approval window:
+connected account, wallet index, chain id, transaction recipient/value, and
+message or typed-data previews where available.
 
 For connected origins, `personal_sign`, `eth_signTypedData`,
 `eth_signTypedData_v3`, and `eth_signTypedData_v4` can now succeed when the
 user chooses Sign and the vault is unlocked. Main checks the existing dApp
 permission, verifies the requested signing account against the connected
-account, borrows the private key through `withVaultPrivateKey()`, performs the
-signature in main, updates the permission last-used timestamp, and returns only
-the signature to the guest page:
+account, shows the trusted wallet approval window, borrows the private key
+through `withVaultPrivateKey()`, performs the signature in main, updates the
+permission last-used timestamp, and returns only the signature to the guest
+page:
 
 ```json
 {
@@ -215,12 +221,12 @@ the signature to the guest page:
 For connected origins, `eth_sendTransaction` can now succeed when the user
 chooses Send and the vault is unlocked. Main checks the existing dApp
 permission, verifies the requested `from` account against the connected
-account, requires the transaction chain to match the granted chain, fills
-missing gas and fee fields through the shell-owned wallet services, borrows the
-private key through `withVaultPrivateKey()`, signs/broadcasts through the
-existing transaction recorder, records dApp-send payment history, updates the
-permission last-used timestamp, and returns only the transaction hash to the
-guest page:
+account, requires the transaction chain to match the granted chain, shows the
+trusted wallet approval window, fills missing gas and fee fields through the
+shell-owned wallet services, borrows the private key through
+`withVaultPrivateKey()`, signs/broadcasts through the existing transaction
+recorder, records dApp-send payment history, updates the permission last-used
+timestamp, and returns only the transaction hash to the guest page:
 
 ```json
 {
@@ -520,18 +526,18 @@ Wallet connect:
 
 - initiated by website provider path, not package chrome
 - main derives committed origin and permission key from the guest WebContents
-- broker opens shell-owned wallet-connect prompt
-- current package-hosted slice can grant the active account after shell-owned
-  native presentation and writes the dApp permission from main
-- future completion work should replace the native connect dialog with the
-  full shell-owned wallet-connect surface when account selection or richer
-  permission review is needed
+- broker opens the shell-owned trusted wallet approval window
+- current package-hosted slice can grant the active account after trusted-window
+  presentation and writes the dApp permission from main
+- future completion work should add account selection and broader wallet-center
+  management in shell-owned surfaces
 
 Transaction and typed-data signing:
 
 - initiated by website provider path
 - main derives origin, chain, account, request id, and tab identity
-- broker opens shell-owned transaction or signing prompt
+- broker opens the shell-owned trusted wallet approval window for transaction
+  or signing prompts
 - current package-hosted signature slice can sign `personal_sign` and modern
   EIP-712 typed-data requests for already connected origins. If signing hits a
   locked vault after the user accepts the shell-owned signing prompt, main
@@ -544,8 +550,9 @@ Transaction and typed-data signing:
   vault-unlock window and retries only after unlock succeeds
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add richer account selection/review before the
-  broader wallet approval surface can be called complete in package mode
+- future completion work must add full account selection, wallet-center
+  management, and secret-management UX before wallet UX can be called complete
+  in package mode
 
 x402 approvals:
 
@@ -602,7 +609,7 @@ Vault unlock:
 ## Non-Goals In This Slice
 
 - no full wallet center or secret-management migration
-- no richer wallet account-selection implementation
+- no full wallet account-selection implementation
 - no general vault-unlock migration outside the current x402 and wallet-provider retry paths
 - no full publish-center approval migration
 - no package-rendered prompt UI

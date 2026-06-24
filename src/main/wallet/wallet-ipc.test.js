@@ -1,5 +1,4 @@
 jest.mock('electron', () => ({
-  dialog: { showMessageBox: jest.fn() },
   ipcMain: { handle: jest.fn() },
 }));
 
@@ -47,6 +46,10 @@ const mockPresentTrustedVaultUnlockPrompt = jest.fn();
 jest.mock('../trusted-vault-unlock-prompt', () => ({
   presentTrustedVaultUnlockPrompt: mockPresentTrustedVaultUnlockPrompt,
 }));
+const mockPresentTrustedWalletApprovalPrompt = jest.fn();
+jest.mock('../trusted-wallet-approval-prompt', () => ({
+  presentTrustedWalletApprovalPrompt: mockPresentTrustedWalletApprovalPrompt,
+}));
 
 const mockIsPackageWebContents = jest.fn();
 const mockGetPackageWebContentsIdentity = jest.fn();
@@ -63,6 +66,17 @@ const {
   handleReadonlyProviderRequest,
   registerWalletIpc,
 } = require('./wallet-ipc');
+
+function trustedWalletPromptResult(outcome = 'accepted', response = 0) {
+  return {
+    ok: true,
+    outcome,
+    response,
+    renderedBy: 'trusted-wallet-approval-window',
+    presentation: 'trusted-window',
+    source: 'trusted-wallet-approval-window',
+  };
+}
 
 describe('wallet-ipc', () => {
   beforeEach(() => {
@@ -99,6 +113,7 @@ describe('wallet-ipc', () => {
       outcome: 'accepted',
       response: 0,
     });
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(trustedWalletPromptResult());
   });
 
   test('renderer context cannot override fixed payment-history kind', () => {
@@ -184,7 +199,7 @@ describe('wallet-ipc', () => {
     });
     expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
     expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
-    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(mockPresentTrustedWalletApprovalPrompt).not.toHaveBeenCalled();
     expect(hostWebContents.getOwnerBrowserWindow).not.toHaveBeenCalled();
   });
 
@@ -225,7 +240,7 @@ describe('wallet-ipc', () => {
       'ipfs://bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
       100
     );
-    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(mockPresentTrustedWalletApprovalPrompt).not.toHaveBeenCalled();
     expect(hostWebContents.getOwnerBrowserWindow).not.toHaveBeenCalled();
   });
 
@@ -251,7 +266,6 @@ describe('wallet-ipc', () => {
     });
     mockGetActiveWalletIndex.mockReturnValue(0);
     mockGetActiveWalletAddress.mockResolvedValue('0x1111111111111111111111111111111111111111');
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     const result = await handleProviderTrustedPromptRequest(
       { sender },
@@ -267,7 +281,7 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.connect',
-        renderedBy: 'shell-native-dialog',
+        renderedBy: 'trusted-wallet-approval-window',
         context: {
           source: 'main',
           origin: 'https://app.example',
@@ -279,27 +293,36 @@ describe('wallet-ipc', () => {
         },
         result: {
           outcome: 'accepted',
-          source: 'shell-native-dialog',
+          source: 'trusted-wallet-approval-window',
           response: 0,
         },
       },
     });
     expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
-    expect(mockGetActiveWalletIndex).toHaveBeenCalledTimes(1);
-    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(1);
+    expect(mockGetActiveWalletIndex).toHaveBeenCalledTimes(2);
+    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(2);
     expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 0, 100);
-    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
-      type: 'info',
-      title: 'Freedom Wallet Connection',
-      message: 'Wallet connection request',
-      detail:
-        'https://app.example requested wallet account access. ' +
-        'Choose Connect to share the active wallet address through the shell-owned provider broker.',
-      buttons: ['Connect', 'Reject'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      {
+        requestId: expect.any(String),
+        kind: 'wallet.connect',
+        method: 'eth_requestAccounts',
+        reason: 'Wallet connection request from https://app.example',
+        origin: 'https://app.example',
+        webContentsId: 42,
+        details: {
+          method: 'eth_requestAccounts',
+          chainId: 100,
+          walletIndex: 0,
+          activeAccount: '0x1111111111111111111111111111111111111111',
+        },
+      },
+      expect.objectContaining({
+        origin: 'https://app.example',
+        webContentsId: 42,
+        ownerWindow,
+      })
+    );
   });
 
   test('rejects package-hosted wallet connect through a shell-owned prompt without granting accounts', async () => {
@@ -322,7 +345,9 @@ describe('wallet-ipc', () => {
       name: 'Freedom Official Chrome',
       version: '0.7.5',
     });
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('rejected', 1)
+    );
 
     const result = await handleProviderTrustedPromptRequest(
       { sender },
@@ -341,7 +366,7 @@ describe('wallet-ipc', () => {
           reason: 'shell_trusted_prompt_rejected',
           prompt: {
             kind: 'wallet.connect',
-            renderedBy: 'shell-native-dialog',
+            renderedBy: 'trusted-wallet-approval-window',
             surfaceOwner: 'shell',
             origin: 'https://app.example',
             webContentsId: 42,
@@ -351,7 +376,7 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.connect',
-        renderedBy: 'shell-native-dialog',
+        renderedBy: 'trusted-wallet-approval-window',
         context: {
           source: 'main',
           origin: 'https://app.example',
@@ -368,22 +393,25 @@ describe('wallet-ipc', () => {
       },
     });
     expect(mockGrantPermission).not.toHaveBeenCalled();
-    expect(mockGetActiveWalletAddress).not.toHaveBeenCalled();
+    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(1);
     expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
     expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(hostWebContents);
     expect(hostWebContents.getOwnerBrowserWindow).toHaveBeenCalledTimes(1);
-    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
-      type: 'info',
-      title: 'Freedom Wallet Connection',
-      message: 'Wallet connection request',
-      detail:
-        'https://app.example requested wallet account access. ' +
-        'Choose Connect to share the active wallet address through the shell-owned provider broker.',
-      buttons: ['Connect', 'Reject'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.connect',
+        method: 'eth_requestAccounts',
+        details: expect.objectContaining({
+          method: 'eth_requestAccounts',
+          chainId: 100,
+          walletIndex: 0,
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
   });
 
   test('routes package-hosted transaction requests through a shell-owned prompt', async () => {
@@ -399,7 +427,9 @@ describe('wallet-ipc', () => {
       packageId: 'baby.freedom.chrome.official',
       packageType: 'browser-chrome',
     });
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('rejected', 1)
+    );
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -424,7 +454,7 @@ describe('wallet-ipc', () => {
           reason: 'shell_trusted_prompt_rejected',
           prompt: {
             kind: 'wallet.transaction',
-            renderedBy: 'shell-native-dialog',
+            renderedBy: 'trusted-wallet-approval-window',
             surfaceOwner: 'shell',
             origin: 'https://app.example',
             webContentsId: 43,
@@ -434,7 +464,7 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.transaction',
-        renderedBy: 'shell-native-dialog',
+        renderedBy: 'trusted-wallet-approval-window',
         context: {
           source: 'main',
           origin: 'https://app.example',
@@ -442,20 +472,21 @@ describe('wallet-ipc', () => {
         },
       },
     });
-    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
-      type: 'info',
-      title: 'Freedom Wallet Transaction',
-      message: 'Transaction request',
-      detail:
-        'https://app.example requested a wallet transaction. ' +
-        'To: 0x0000000000000000000000000000000000000001. ' +
-        'Value: 0x0. ' +
-        'Choose Send only if you trust this request.',
-      buttons: ['Send', 'Reject'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.transaction',
+        method: 'eth_sendTransaction',
+        details: {
+          method: 'eth_sendTransaction',
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x0',
+        },
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
     expect(mockWithVaultPrivateKey).not.toHaveBeenCalled();
     expect(mockSignAndRecord).not.toHaveBeenCalled();
   });
@@ -485,7 +516,6 @@ describe('wallet-ipc', () => {
         address: '0x1111111111111111111111111111111111111111',
       },
     ]);
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -511,7 +541,7 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.transaction',
-        renderedBy: 'shell-native-dialog',
+        renderedBy: 'trusted-wallet-approval-window',
         context: {
           source: 'main',
           origin: 'https://app.example',
@@ -523,6 +553,24 @@ describe('wallet-ipc', () => {
         },
       },
     });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.transaction',
+        method: 'eth_sendTransaction',
+        details: {
+          method: 'eth_sendTransaction',
+          account: '0x1111111111111111111111111111111111111111',
+          walletIndex: 3,
+          chainId: 100,
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x2a',
+        },
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
     expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
     expect(mockEstimateGas).toHaveBeenCalledWith({
       from: '0x1111111111111111111111111111111111111111',
@@ -580,7 +628,6 @@ describe('wallet-ipc', () => {
     mockWithVaultPrivateKey
       .mockRejectedValueOnce(new Error('Vault is locked'))
       .mockImplementationOnce((_walletIndex, callback) => callback('0xprivate-key'));
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -662,7 +709,6 @@ describe('wallet-ipc', () => {
         address: '0x1111111111111111111111111111111111111111',
       },
     ]);
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -684,7 +730,7 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.signature',
-        renderedBy: 'shell-native-dialog',
+        renderedBy: 'trusted-wallet-approval-window',
         context: {
           source: 'main',
           origin: 'https://app.example',
@@ -700,19 +746,24 @@ describe('wallet-ipc', () => {
     expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(3, expect.any(Function));
     expect(mockSignPersonalMessage).toHaveBeenCalledWith('0x68656c6c6f', '0xprivate-key');
     expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
-    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
-      type: 'info',
-      title: 'Freedom Wallet Signature',
-      message: 'Signature request',
-      detail:
-        'https://app.example requested wallet signing. ' +
-        'Method: personal_sign. ' +
-        'Choose Sign only if you trust this request.',
-      buttons: ['Sign', 'Reject'],
-      defaultId: 1,
-      cancelId: 1,
-      noLink: true,
-    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.signature',
+        method: 'personal_sign',
+        details: {
+          method: 'personal_sign',
+          account: '0x1111111111111111111111111111111111111111',
+          walletIndex: 3,
+          chainId: 100,
+          messagePreview: '0x68656c6c6f',
+          payloadSize: '12 chars',
+        },
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
   });
 
   test('signs package-hosted typed data through shell-owned prompt and vault access', async () => {
@@ -747,7 +798,6 @@ describe('wallet-ipc', () => {
       },
       message: { contents: 'hello' },
     };
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     await expect(
       handleProviderTrustedPromptRequest(
@@ -777,6 +827,23 @@ describe('wallet-ipc', () => {
     expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(1, expect.any(Function));
     expect(mockSignTypedData).toHaveBeenCalledWith(typedData, '0xprivate-key');
     expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.signature',
+        method: 'eth_signTypedData_v4',
+        details: expect.objectContaining({
+          method: 'eth_signTypedData_v4',
+          account: '0x2222222222222222222222222222222222222222',
+          walletIndex: 1,
+          chainId: 100,
+          typedDataPreview: JSON.stringify(typedData),
+          payloadSize: `${JSON.stringify(typedData).length} chars`,
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+      })
+    );
   });
 
   test('rejects package-hosted signature requests when the shell prompt is rejected', async () => {
@@ -792,7 +859,9 @@ describe('wallet-ipc', () => {
       packageId: 'baby.freedom.chrome.official',
       packageType: 'browser-chrome',
     });
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('rejected', 1)
+    );
 
     const result = await handleProviderTrustedPromptRequest(
       {
@@ -817,7 +886,7 @@ describe('wallet-ipc', () => {
           reason: 'shell_trusted_prompt_rejected',
           prompt: {
             kind: 'wallet.signature',
-            renderedBy: 'shell-native-dialog',
+            renderedBy: 'trusted-wallet-approval-window',
             surfaceOwner: 'shell',
             origin: 'https://app.example',
             webContentsId: 44,
@@ -865,7 +934,6 @@ describe('wallet-ipc', () => {
     mockWithVaultPrivateKey
       .mockRejectedValueOnce(new Error('Vault is locked'))
       .mockImplementationOnce((_walletIndex, callback) => callback('0xprivate-key'));
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     await expect(
       handleProviderTrustedPromptRequest(
@@ -945,7 +1013,6 @@ describe('wallet-ipc', () => {
       outcome: 'rejected',
       response: 1,
     });
-    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     await expect(
       handleProviderTrustedPromptRequest(
@@ -1015,6 +1082,6 @@ describe('wallet-ipc', () => {
         data: { reason: 'trusted_prompt_unavailable' },
       },
     });
-    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(mockPresentTrustedWalletApprovalPrompt).not.toHaveBeenCalled();
   });
 });
