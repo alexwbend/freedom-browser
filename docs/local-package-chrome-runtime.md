@@ -362,6 +362,11 @@ The official package smoke currently proves:
   only through the existing main-owned signing/SOC paths after existing Swarm
   permission and feed-grant checks, while deterministic smoke proves vault
   signing material failures surface as structured provider errors
+- package-hosted x402 approval reaches the shell-owned native payment prompt
+  under launched official package smoke; recognized EIP-155 token prompts show
+  the bounded 10-token/30-day cap option, choosing it under the locked harness
+  vault reaches the shell-owned vault-unlock prompt, and no raw `x402:*` host
+  events are delivered to package chrome
 - the wallet/sidebar control opens a shell-owned placeholder surface in
   package mode through `surfaces.wallet.control` without exposing wallet or
   identity APIs to package chrome

@@ -3922,6 +3922,51 @@ Known remaining gaps after this checkpoint:
   payment review, and actual vault unlock still need a real shell-owned x402 or
   wallet surface before x402 can be called complete in package mode
 
+### Trusted Prompt Broker Checkpoint 21: Package x402 Locked Approval Regression Coverage
+
+Current checkpoint: package-hosted x402 one-time payment approval now has
+explicit regression coverage for the path where the user chooses Pay from the
+shell-owned native payment prompt but the vault is locked when signing begins.
+The covered behavior remains intentionally conservative: main shows the
+shell-owned vault-unlock prompt with main-derived payment review details, then
+passes the original 402 through without exposing raw x402, wallet, vault,
+payment-history, cap-grant, or payment-permission authority to package chrome.
+
+Implemented in this checkpoint:
+
+- added `src/main/x402/intercept.test.js` coverage for an accepted
+  package-hosted x402 approval whose sign attempt fails with the locked-vault
+  error
+- asserted the second shell-owned native dialog is the detailed x402
+  vault-unlock prompt with amount, asset, network, recipient, and resource URL
+- asserted no raw `x402:*` host events are sent to package chrome, no pending
+  approval remains, and the detection is cleared after the pass-through path
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js` passed:
+  1 suite, 107 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2257 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `00b6d8b` (`test(chrome): cover package x402 locked approval
+  fallback`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28089501886`, job `test` (`83163676466`), passed for
+  `00b6d8b`.
+- GitHub Actions run `28089501886`, job `e2e-chrome-runtime`
+  (`83163676394`), passed for `00b6d8b`.
+
+Known remaining gaps after this checkpoint:
+
+- this is coverage for the current conservative locked-vault fallback, not a
+  vault-unlock implementation
+- x402 cap grants, payment permission management, payment history UI, full
+  payment review, and actual vault unlock still need a real shell-owned x402 or
+  wallet surface before x402 can be called complete in package mode
+
 ### Trusted Prompt Broker Checkpoint 22: Package x402 Bounded Cap Grant
 
 Current checkpoint: package-hosted x402 payment approval can now create the
@@ -3978,47 +4023,57 @@ Known remaining gaps after this checkpoint:
   shell-owned UI before the broader package runtime can be called complete;
   these are not user-approved completion deferrals
 
-### Trusted Prompt Broker Checkpoint 21: Package x402 Locked Approval Regression Coverage
+### Trusted Prompt Broker Checkpoint 23: Package x402 Cap Prompt Smoke
 
-Current checkpoint: package-hosted x402 one-time payment approval now has
-explicit regression coverage for the path where the user chooses Pay from the
-shell-owned native payment prompt but the vault is locked when signing begins.
-The covered behavior remains intentionally conservative: main shows the
-shell-owned vault-unlock prompt with main-derived payment review details, then
-passes the original 402 through without exposing raw x402, wallet, vault,
-payment-history, cap-grant, or payment-permission authority to package chrome.
+Current checkpoint: the launched official package smoke now exercises the
+package-hosted x402 approval prompt path against a real package host and active
+guest WebContents. The smoke chooses the bounded-cap payment option, proves
+the shell-owned native payment prompt includes the 10 USDC / 30 day cap
+choice, proves the locked harness vault reaches the shell-owned vault-unlock
+prompt, and asserts no raw `x402:*` host events are delivered to package
+chrome.
 
 Implemented in this checkpoint:
 
-- added `src/main/x402/intercept.test.js` coverage for an accepted
-  package-hosted x402 approval whose sign attempt fails with the locked-vault
-  error
-- asserted the second shell-owned native dialog is the detailed x402
-  vault-unlock prompt with amount, asset, network, recipient, and resource URL
-- asserted no raw `x402:*` host events are sent to package chrome, no pending
-  approval remains, and the detection is cleared after the pass-through path
+- added a deterministic Base USDC x402 requirement fixture to the official
+  package Playwright smoke
+- added a smoke helper that invokes the real x402 capture/detect handlers from
+  the launched Electron main process using the active package-hosted guest
+  WebContents id
+- recorded shell-owned native dialog options and raw host `x402:*` event sends
+  during that launched smoke slice
+- asserted the x402 payment prompt is attached to an owner window, includes
+  main-derived amount, asset, network, recipient, and resource details, and
+  exposes Pay once / bounded-cap / Reject choices
+- asserted the bounded-cap choice under the locked test vault reaches the
+  shell-owned vault-unlock prompt with the same main-derived payment context
+- asserted no raw `x402:*` host events reach package chrome and no detection
+  remains after the pass-through fallback
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+- corrected the progress-ledger ordering so Checkpoint 21 precedes Checkpoint
+  22
 
 Verification in this checkpoint:
 
-- `npm test -- src/main/x402/intercept.test.js` passed:
-  1 suite, 107 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
 - `git diff --check` passed.
 - `npm run lint` passed.
 - `npm test` passed:
-  116 suites passed, 5 skipped; 2257 passed, 17 skipped.
+  116 suites passed, 5 skipped; 2258 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
-- committed as `00b6d8b` (`test(chrome): cover package x402 locked approval
-  fallback`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
-- GitHub Actions run `28089501886`, job `test` (`83163676466`), passed for
-  `00b6d8b`.
-- GitHub Actions run `28089501886`, job `e2e-chrome-runtime`
-  (`83163676394`), passed for `00b6d8b`.
 
 Known remaining gaps after this checkpoint:
 
-- this is coverage for the current conservative locked-vault fallback, not a
-  vault-unlock implementation
-- x402 cap grants, payment permission management, payment history UI, full
-  payment review, and actual vault unlock still need a real shell-owned x402 or
-  wallet surface before x402 can be called complete in package mode
+- this is launched smoke coverage for the shell-owned package x402 prompt
+  boundary, not a full x402 approval surface migration
+- actual vault unlock, x402 cap editing/revocation, payment permission
+  management, payment history UI, and richer payment review still need a real
+  shell-owned x402 or wallet surface before x402 can be called complete in
+  package mode
+- identity onboarding, general vault unlock, seed/private-key export, full
+  Swarm publish/feed UX, and richer wallet account/review surfaces still need
+  shell-owned UI before the broader package runtime can be called complete;
+  these are not user-approved completion deferrals

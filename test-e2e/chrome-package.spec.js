@@ -17,6 +17,22 @@ const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 const pasteModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 const faviconFixtureBytes = Buffer.from('package-favicon-fixture', 'utf8');
 const packageSmokeWalletAddress = '0x1111111111111111111111111111111111111111';
+const sampleX402PaymentUrl = 'https://api.example/segment/0';
+const sampleX402Requirements = {
+  x402Version: 2,
+  resource: { url: 'https://api.example/article' },
+  accepts: [
+    {
+      scheme: 'exact',
+      network: 'eip155:8453',
+      amount: '10000',
+      asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+      maxTimeoutSeconds: 60,
+      extra: { name: 'USD Coin', version: '2' },
+    },
+  ],
+};
 
 function hashFileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -590,6 +606,112 @@ async function expectActiveWebviewText(page, selector, expectedText) {
       timeout: 10_000,
     })
     .toBe(expectedText);
+}
+
+async function getActiveWebviewWebContentsId(page) {
+  return page.evaluate(() => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.getWebContentsId !== 'function') {
+      throw new Error('No active webview with a WebContents id');
+    }
+    return webview.getWebContentsId();
+  });
+}
+
+async function triggerPackageHostedX402Approval(app, webContentsId) {
+  return app.evaluate(
+    async ({ BrowserWindow, dialog }, payload) => {
+      const nodeRequire =
+        (typeof require === 'function' && require) ||
+        globalThis.require ||
+        process.mainModule?.require?.bind(process.mainModule);
+      if (!nodeRequire) {
+        throw new Error('Node require is unavailable in Electron main evaluation context');
+      }
+      const pathModule = nodeRequire('path');
+      const intercept = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'x402', 'intercept.js')
+      );
+
+      intercept.clearAllDetectedPayments();
+      intercept.clearAllPendingApprovals();
+      intercept.clearAllPendingUnlockResume();
+      intercept.clearAllPendingUnlockWaits();
+      intercept.clearAllRequestContext();
+
+      globalThis.__freedomX402PromptDialogs = [];
+      globalThis.__freedomX402HostEvents = [];
+      for (const window of BrowserWindow.getAllWindows()) {
+        const wc = window.webContents;
+        if (!wc || wc.isDestroyed?.()) continue;
+        if (!wc.__freedomX402OriginalSend) {
+          Object.defineProperty(wc, '__freedomX402OriginalSend', {
+            configurable: false,
+            enumerable: false,
+            value: wc.send.bind(wc),
+          });
+          wc.send = (channel, ...args) => {
+            if (String(channel).startsWith('x402:')) {
+              globalThis.__freedomX402HostEvents.push({
+                channel,
+                args,
+                webContentsId: wc.id,
+                windowId: window.id,
+              });
+            }
+            return wc.__freedomX402OriginalSend(channel, ...args);
+          };
+        }
+      }
+
+      dialog.showMessageBox = async (ownerWindow, options) => {
+        globalThis.__freedomX402PromptDialogs.push({
+          hasOwnerWindow: !!ownerWindow,
+          ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
+          options,
+        });
+        if (options?.title === 'Freedom x402 Payment') {
+          return { response: 1 };
+        }
+        return { response: 0 };
+      };
+
+      const header = Buffer.from(JSON.stringify(payload.requirements)).toString('base64');
+      const requestDetails = {
+        id: payload.requestId,
+        webContentsId: payload.webContentsId,
+        url: payload.url,
+        method: 'GET',
+        requestHeaders: {},
+        resourceType: 'xhr',
+      };
+      intercept.captureRequestContextHandler(requestDetails);
+      const result = await intercept.detectPaymentRequiredHandler({
+        ...requestDetails,
+        statusLine: 'HTTP/1.1 402 Payment Required',
+        responseHeaders: { 'PAYMENT-REQUIRED': [header] },
+      });
+      const summary = {
+        result,
+        detectedAfter: intercept.getDetectedPayment(payload.webContentsId),
+        hostEvents: globalThis.__freedomX402HostEvents,
+        prompts: globalThis.__freedomX402PromptDialogs,
+      };
+
+      intercept.clearRequestContextHandler({ id: payload.requestId });
+      intercept.clearAllDetectedPayments();
+      intercept.clearAllPendingApprovals();
+      intercept.clearAllPendingUnlockResume();
+      intercept.clearAllPendingUnlockWaits();
+      return summary;
+    },
+    {
+      requestId: 40201,
+      requirements: sampleX402Requirements,
+      url: sampleX402PaymentUrl,
+      webContentsId,
+    }
+  );
 }
 
 async function readShellInfo(page) {
@@ -2802,6 +2924,62 @@ test('official browser chrome can launch as a local package with transitional we
         buttons: ['Allow', 'Reject'],
         defaultId: 1,
         cancelId: 1,
+        noLink: true,
+      },
+    });
+
+    const x402SmokeResult = await triggerPackageHostedX402Approval(
+      launched.app,
+      await getActiveWebviewWebContentsId(page)
+    );
+    expect(x402SmokeResult.result).toBeNull();
+    expect(x402SmokeResult.detectedAfter).toBeNull();
+    expect(x402SmokeResult.hostEvents).toEqual([]);
+    const x402PaymentPromptDialog = x402SmokeResult.prompts.find(
+      (dialog) => dialog.options?.title === 'Freedom x402 Payment'
+    );
+    expect(x402PaymentPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom x402 Payment',
+        message: 'Payment approval request',
+        detail:
+          'https://api.example requested an x402 payment. ' +
+          'Amount: 10000. ' +
+          'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+          'Network: eip155:8453. ' +
+          'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+          'Resource: https://api.example/article. ' +
+          'Choose Pay only if you trust this request.',
+        buttons: ['Pay once', 'Pay and allow 10 USDC for 30 days', 'Reject'],
+        defaultId: 2,
+        cancelId: 2,
+        noLink: true,
+      },
+    });
+    const x402VaultUnlockPromptDialog = x402SmokeResult.prompts.find(
+      (dialog) => dialog.options?.title === 'Freedom x402 Vault Unlock'
+    );
+    expect(x402VaultUnlockPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom x402 Vault Unlock',
+        message: 'Vault unlock request',
+        detail:
+          'https://api.example needs vault unlock before x402 payment signing can continue. ' +
+          'Amount: 10000. ' +
+          'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+          'Network: eip155:8453. ' +
+          'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+          'Resource: https://api.example/article. ' +
+          'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
+        buttons: ['Dismiss'],
+        defaultId: 0,
+        cancelId: 0,
         noLink: true,
       },
     });
