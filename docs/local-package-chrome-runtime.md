@@ -847,21 +847,27 @@ Modern signing-class methods now use the shell-owned trusted wallet approval
 window plus main/vault execution path for already connected origins:
 `personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
 `eth_signTypedData_v4` can return signatures when the user chooses Sign. The
-window shows the connected account plus bounded message or typed-data review
-details. If the vault is locked after that approval, main opens the bundled
-trusted vault-unlock window with wallet-specific, main-derived
-origin/account/method context and retries the same signing operation only
-after unlock succeeds. `eth_sendTransaction` can return a transaction hash for
+window shows main-derived account choices, the connected account, any
+requested account, and bounded message or typed-data review details. Main
+revalidates the selected wallet index against the current wallet list before
+signing. If the selected account satisfies the request, main signs with that
+wallet and persists the switched dApp grant only after the signature succeeds.
+If the vault is locked after approval, main opens the bundled trusted
+vault-unlock window with wallet-specific, main-derived origin/account/method
+context and retries the same selected-account signing operation only after
+unlock succeeds. `eth_sendTransaction` can return a transaction hash for
 already connected origins when the user chooses Send: main validates the
-requested account and chain against the existing dApp permission, fills
-missing gas and fee fields through wallet services, signs and broadcasts
-through the existing transaction recorder, and updates the permission
-last-used timestamp. The trusted wallet approval window shows the connected
-account, chain, recipient, and value preview before approval. Locked-vault
-transaction execution uses the same shell-owned unlock-and-retry path with
-main-derived transaction details. Rejected unlocks return structured provider
-errors instead of silently hanging. Deprecated `eth_sign` and unsupported
-typed-data variants remain structured safe-failure paths. The Swarm path also
+selected/requested account and chain, fills missing gas and fee fields through
+wallet services, signs and broadcasts through the existing transaction
+recorder, and updates the permission last-used timestamp. The trusted wallet
+approval window shows main-derived account choices plus account, chain,
+recipient, and value preview before approval. If a transaction includes an
+explicit `from`, main still requires it to match the selected account before
+execution. Locked-vault transaction execution uses the same shell-owned
+unlock-and-retry path with main-derived transaction details. Rejected unlocks
+return structured provider errors instead of silently hanging. Deprecated
+`eth_sign` and unsupported typed-data variants remain structured safe-failure
+paths. The Swarm path also
 has shell-owned prompt slices for `swarm_requestAccess`, `swarm_publishData`,
 `swarm_publishFiles`, `swarm_publishChunk`, `swarm_createFeed`,
 `swarm_updateFeed`, `swarm_writeFeedEntry`, `swarm_getSigningIdentity`, and
@@ -885,9 +891,8 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX, identity onboarding, richer wallet signing/account review and switching,
-and broader non-provider vault management flows still need real shell-owned UI
-before they can move fully through the broker.
+UX, identity onboarding, and broader non-provider vault management flows still
+need real shell-owned UI before they can move fully through the broker.
 
 ## Package Store
 

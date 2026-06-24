@@ -1279,7 +1279,7 @@ Implemented in this checkpoint:
 - updated `docs/local-package-chrome-runtime.md` and
   `docs/package-chrome-trust-boundaries.md`
 
-Verification in this checkpoint so far:
+Verification in this checkpoint:
 
 - `npm test -- src/shared/shell-api-policy.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js src/main/menu.test.js src/main/windows/mainWindow.test.js` passed: 6 suites, 55 tests.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed because the new bookmark-bar assertion assumed the renderer's local bookmark-bar override had been updated by a direct settings write; the smoke was corrected to drive the native toggle from the actual hidden non-home state.
@@ -4881,6 +4881,62 @@ Known remaining gaps after this checkpoint:
   mode
 - richer wallet signing/account review and switching still need shell-owned
   UX before the broader wallet experience can be called complete in package
+  mode
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path
+
+### Trusted Prompt Broker Checkpoint 37: Trusted Wallet Signing Account Switching
+
+Current checkpoint: package-hosted Ethereum signing and transaction prompts can
+now show main-derived account choices in the shell-owned trusted wallet
+approval window and can execute with a selected account only after main
+revalidates the selected wallet index against the current wallet list. Package
+chrome still receives no wallet, identity, vault, dApp permission-store,
+signing, Node, Electron, or arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- extended trusted wallet approval account-choice handling from wallet-connect
+  prompts to signature and transaction prompts
+- kept requested account review separate from connected account review so the
+  trusted prompt can show both values without letting request parameters
+  overwrite the connected-account context
+- changed package-hosted `personal_sign`, modern `eth_signTypedData*`, and
+  `eth_sendTransaction` execution to accept only a selected wallet index from
+  the trusted prompt result, ignore any selected account string as authority,
+  re-read the current wallet list, and execute with the revalidated selected
+  account
+- preserved transaction safety: when a request supplies an explicit `from`,
+  main still requires that address to match the selected account before
+  signing or broadcasting
+- persisted a changed dApp wallet grant only after the selected-account
+  signature or transaction succeeds; rejected prompts, invalid selections,
+  mismatches, and failed vault unlocks do not grant package chrome authority
+- fixed selected-wallet normalization so `null` or missing prompt selections
+  remain "no selection" instead of becoming wallet index `0`
+- updated the official package smoke assertion so package-hosted transaction
+  and signature prompts must include main-derived account choices
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/trusted-wallet-approval-prompt.test.js src/main/wallet/wallet-ipc.test.js src/main/trusted-prompt-broker.test.js`
+  passed: 3 suites, 54 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `git diff --check` passed.
+- `npm test` passed: 124 suites passed, 5 skipped; 2335 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
+- identity onboarding and broader non-provider vault management remain
+  shell-owned future work before wallet UX can be called complete in package
   mode
 - richer feed-review UX remains pending as a separate shell-owned surface or
   trusted prompt path

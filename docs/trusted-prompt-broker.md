@@ -573,8 +573,8 @@ Wallet connect:
   revoked, and export the vault seed phrase or a selected wallet private key
   after password verification through scoped trusted-window IPC
 - future completion work should add identity onboarding, broader non-provider
-  vault management, and richer account review/switching in shell-owned
-  surfaces
+  vault management, and any non-provider account-management surfaces that need
+  shell-owned UI
 
 Transaction and typed-data signing:
 
@@ -583,20 +583,30 @@ Transaction and typed-data signing:
 - broker opens the shell-owned trusted wallet approval window for transaction
   or signing prompts
 - current package-hosted signature slice can sign `personal_sign` and modern
-  EIP-712 typed-data requests for already connected origins. If signing hits a
-  locked vault after the user accepts the shell-owned signing prompt, main
-  opens the bundled trusted vault-unlock window with main-derived wallet
-  context and retries signing only after unlock succeeds
+  EIP-712 typed-data requests for already connected origins. The shell-owned
+  signing prompt shows main-derived account choices, the connected account,
+  any requested account, and bounded message or typed-data review details.
+  Main revalidates the selected wallet index against the current wallet list
+  before signing. If the selected account satisfies the request, main signs
+  with that wallet and persists a switched dApp grant only after signing
+  succeeds. If signing hits a locked vault after the user accepts the
+  shell-owned signing prompt, main opens the bundled trusted vault-unlock
+  window with main-derived wallet context and retries the same selected-account
+  signing operation only after unlock succeeds
 - current package-hosted transaction slice can send `eth_sendTransaction` for
-  already connected origins after account/chain validation and main-owned
-  gas/fee preparation. If transaction signing hits a locked vault after the
+  already connected origins after selected/requested account validation,
+  chain validation, and main-owned gas/fee preparation. The shell-owned
+  transaction prompt shows main-derived account choices and review details.
+  Transactions with an explicit `from` still fail unless that address matches
+  the selected account. Main persists a switched dApp grant only after the
+  transaction succeeds. If transaction signing hits a locked vault after the
   user accepts the shell-owned transaction prompt, main uses the same trusted
-  vault-unlock window and retries only after unlock succeeds
+  vault-unlock window and retries the same selected-account operation only
+  after unlock succeeds
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add richer signing account review/switching,
-  identity onboarding, and broader non-provider vault management before wallet
-  UX can be called complete in package mode
+- future completion work must add identity onboarding and broader non-provider
+  vault management before wallet UX can be called complete in package mode
 
 x402 approvals:
 
@@ -655,7 +665,6 @@ Vault unlock:
 - no identity onboarding or general secret-management migration beyond scoped
   wallet management, trusted wallet create unlock, and password-gated
   seed/private-key export in the trusted wallet surface
-- no full signing account-review/switching implementation
 - no general vault-unlock migration outside the current x402, wallet-provider,
   and trusted wallet create paths
 - no full publish-center approval migration

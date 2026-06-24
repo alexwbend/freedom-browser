@@ -3027,6 +3027,13 @@ test('official browser chrome can launch as a local package with transitional we
           account: packageSmokeWalletAddress,
           walletIndex: 0,
           chainId: 100,
+          accountChoices: [
+            {
+              walletIndex: 0,
+              account: packageSmokeWalletAddress,
+              active: true,
+            },
+          ],
           to: '0x0000000000000000000000000000000000000001',
           value: '0x0',
         },
@@ -3049,8 +3056,16 @@ test('official browser chrome can launch as a local package with transitional we
         details: {
           method: 'personal_sign',
           account: packageSmokeWalletAddress,
+          requestedAccount: packageSmokeWalletAddress,
           walletIndex: 0,
           chainId: 100,
+          accountChoices: [
+            {
+              walletIndex: 0,
+              account: packageSmokeWalletAddress,
+              active: true,
+            },
+          ],
           messagePreview: '0x68656c6c6f',
           payloadSize: '12 chars',
         },

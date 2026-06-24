@@ -583,11 +583,11 @@ describe('wallet-ipc', () => {
       expect.objectContaining({
         kind: 'wallet.transaction',
         method: 'eth_sendTransaction',
-        details: {
+        details: expect.objectContaining({
           method: 'eth_sendTransaction',
           to: '0x0000000000000000000000000000000000000001',
           value: '0x0',
-        },
+        }),
       }),
       expect.objectContaining({
         origin: 'https://app.example',
@@ -664,14 +664,15 @@ describe('wallet-ipc', () => {
       expect.objectContaining({
         kind: 'wallet.transaction',
         method: 'eth_sendTransaction',
-        details: {
+        details: expect.objectContaining({
           method: 'eth_sendTransaction',
           account: '0x1111111111111111111111111111111111111111',
           walletIndex: 3,
           chainId: 100,
+          requestedAccount: '0x1111111111111111111111111111111111111111',
           to: '0x0000000000000000000000000000000000000001',
           value: '0x2a',
-        },
+        }),
       }),
       expect.objectContaining({
         origin: 'https://app.example',
@@ -704,6 +705,113 @@ describe('wallet-ipc', () => {
         origin: 'https://app.example',
       }
     );
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+  });
+
+  test('sends package-hosted transactions with a selected shell-owned account', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 0,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+      {
+        index: 1,
+        name: 'Savings',
+        address: '0x2222222222222222222222222222222222222222',
+      },
+    ]);
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('accepted', 0, {
+        selectedWalletIndex: 1,
+        selectedAccount: '0x2222222222222222222222222222222222222222',
+      })
+    );
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/tx'),
+        },
+      },
+      {
+        method: 'eth_sendTransaction',
+        params: [{
+          from: '0x2222222222222222222222222222222222222222',
+          to: '0x0000000000000000000000000000000000000001',
+          value: '0x2a',
+        }],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: '0xtransactionhash',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.transaction',
+        result: {
+          selectedWalletIndex: 1,
+        },
+      },
+    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.transaction',
+        method: 'eth_sendTransaction',
+        details: expect.objectContaining({
+          account: '0x1111111111111111111111111111111111111111',
+          requestedAccount: '0x2222222222222222222222222222222222222222',
+          walletIndex: 0,
+          accountChoices: [
+            {
+              walletIndex: 0,
+              name: 'Main Wallet',
+              account: '0x1111111111111111111111111111111111111111',
+              active: true,
+            },
+            {
+              walletIndex: 1,
+              name: 'Savings',
+              account: '0x2222222222222222222222222222222222222222',
+              active: false,
+            },
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
+    expect(mockEstimateGas).toHaveBeenCalledWith({
+      from: '0x2222222222222222222222222222222222222222',
+      to: '0x0000000000000000000000000000000000000001',
+      value: '0x2a',
+      data: undefined,
+      chainId: 100,
+    });
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 1, 100);
     expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
   });
 
@@ -857,20 +965,120 @@ describe('wallet-ipc', () => {
       expect.objectContaining({
         kind: 'wallet.signature',
         method: 'personal_sign',
-        details: {
+        details: expect.objectContaining({
           method: 'personal_sign',
           account: '0x1111111111111111111111111111111111111111',
           walletIndex: 3,
           chainId: 100,
+          requestedAccount: '0x1111111111111111111111111111111111111111',
           messagePreview: '0x68656c6c6f',
           payloadSize: '12 chars',
-        },
+        }),
       }),
       expect.objectContaining({
         origin: 'https://app.example',
         ownerWindow,
       })
     );
+  });
+
+  test('signs package-hosted personal_sign with a selected shell-owned account', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 0,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+      {
+        index: 1,
+        name: 'Savings',
+        address: '0x2222222222222222222222222222222222222222',
+      },
+    ]);
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('accepted', 0, {
+        selectedWalletIndex: 1,
+        selectedAccount: '0xffffffffffffffffffffffffffffffffffffffff',
+      })
+    );
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/sign'),
+        },
+      },
+      {
+        method: 'personal_sign',
+        params: ['0x68656c6c6f', '0x2222222222222222222222222222222222222222'],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: '0xsigned-personal',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+        result: {
+          selectedWalletIndex: 1,
+        },
+      },
+    });
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.signature',
+        method: 'personal_sign',
+        details: expect.objectContaining({
+          account: '0x1111111111111111111111111111111111111111',
+          requestedAccount: '0x2222222222222222222222222222222222222222',
+          walletIndex: 0,
+          chainId: 100,
+          messagePreview: '0x68656c6c6f',
+          accountChoices: [
+            {
+              walletIndex: 0,
+              name: 'Main Wallet',
+              account: '0x1111111111111111111111111111111111111111',
+              active: true,
+            },
+            {
+              walletIndex: 1,
+              name: 'Savings',
+              account: '0x2222222222222222222222222222222222222222',
+              active: false,
+            },
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
+        ownerWindow,
+      })
+    );
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(mockSignPersonalMessage).toHaveBeenCalledWith('0x68656c6c6f', '0xprivate-key');
+    expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 1, 100);
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
   });
 
   test('signs package-hosted typed data through shell-owned prompt and vault access', async () => {

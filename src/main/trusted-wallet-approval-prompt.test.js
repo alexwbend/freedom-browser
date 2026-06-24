@@ -259,6 +259,74 @@ test('trusted wallet connect decision returns a selected main-provided account c
   });
 });
 
+test('trusted wallet signature decision returns a selected main-provided account choice', async () => {
+  const promptPromise = presentTrustedWalletApprovalPrompt(
+    request({
+      kind: 'wallet.signature',
+      method: 'personal_sign',
+      details: {
+        method: 'personal_sign',
+        account: '0x1111111111111111111111111111111111111111',
+        requestedAccount: '0x2222222222222222222222222222222222222222',
+        messagePreview: '0x68656c6c6f',
+        accountChoices: [
+          {
+            walletIndex: 0,
+            name: 'Main Wallet',
+            account: '0x1111111111111111111111111111111111111111',
+            active: true,
+          },
+          {
+            walletIndex: 1,
+            name: 'Savings',
+            account: '0x2222222222222222222222222222222222222222',
+          },
+        ],
+      },
+    }),
+    {}
+  );
+  const promptWindow = mockWindows[0];
+
+  const contextResult = await mockHandlers.get(channelFor('context', 'wallet-approval-request-1'))({
+    sender: promptWindow.webContents,
+  });
+  expect(contextResult.context).toMatchObject({
+    accountChoices: [
+      {
+        walletIndex: 0,
+        account: '0x1111111111111111111111111111111111111111',
+        active: true,
+      },
+      {
+        walletIndex: 1,
+        account: '0x2222222222222222222222222222222222222222',
+        active: false,
+      },
+    ],
+    rows: expect.arrayContaining([
+      { label: 'Account', value: '0x1111111111111111111111111111111111111111' },
+      { label: 'Requested account', value: '0x2222222222222222222222222222222222222222' },
+    ]),
+  });
+
+  const decisionResult = await mockHandlers.get(channelFor('decision', 'wallet-approval-request-1'))(
+    { sender: promptWindow.webContents },
+    { action: 'accept', selectedWalletIndex: 1 }
+  );
+  expect(decisionResult).toEqual({ ok: true });
+  await expect(promptPromise).resolves.toEqual({
+    ok: true,
+    outcome: 'accepted',
+    response: 0,
+    renderedBy: 'trusted-wallet-approval-window',
+    presentation: 'trusted-window',
+    source: 'trusted-wallet-approval-window',
+    selectedWalletIndex: 1,
+    selectedAccount: '0x2222222222222222222222222222222222222222',
+  });
+});
+
 test('rejects decisions from unexpected senders without settling the prompt', async () => {
   const promptPromise = presentTrustedWalletApprovalPrompt(request(), {});
   const promptWindow = mockWindows[0];

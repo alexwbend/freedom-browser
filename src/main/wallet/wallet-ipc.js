@@ -250,12 +250,22 @@ function normalizeEthereumAddress(address) {
     : null;
 }
 
-async function getPackageWalletAccountChoices() {
-  let activeWalletIndex = null;
-  try {
-    activeWalletIndex = getActiveWalletIndex();
-  } catch {
-    activeWalletIndex = null;
+function normalizePackageWalletIndex(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  const index = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+async function getPackageWalletAccountChoices(activeWalletIndexOverride = null) {
+  let activeWalletIndex = normalizePackageWalletIndex(activeWalletIndexOverride);
+  if (activeWalletIndex === null) {
+    try {
+      activeWalletIndex = getActiveWalletIndex();
+    } catch {
+      activeWalletIndex = null;
+    }
   }
 
   let wallets;
@@ -306,8 +316,9 @@ async function getPackageWalletAccountChoices() {
 
 async function getPackageWalletChoice(walletIndex) {
   const choices = await getPackageWalletAccountChoices();
-  if (Number.isInteger(walletIndex) && walletIndex >= 0) {
-    return choices.find((choice) => choice.walletIndex === walletIndex) || null;
+  const selectedWalletIndex = normalizePackageWalletIndex(walletIndex);
+  if (selectedWalletIndex !== null) {
+    return choices.find((choice) => choice.walletIndex === selectedWalletIndex) || null;
   }
   return choices.find((choice) => choice.active) || choices[0] || null;
 }
@@ -327,7 +338,7 @@ async function getExistingPackageWalletAccounts(origin) {
   return accounts;
 }
 
-async function getPackageWalletPermission(origin) {
+async function getPackageWalletPermission(origin, options = {}) {
   if (!origin) {
     return {
       ok: false,
@@ -347,6 +358,27 @@ async function getPackageWalletPermission(origin) {
     };
   }
 
+  const selectedWalletIndex = normalizePackageWalletIndex(options.walletIndex);
+  if (selectedWalletIndex !== null) {
+    const selected = await getPackageWalletChoice(selectedWalletIndex);
+    if (!selected) {
+      return {
+        ok: false,
+        error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
+      };
+    }
+    return {
+      ok: true,
+      permission: {
+        ...permission,
+        walletIndex: selected.walletIndex,
+      },
+      account: selected.account,
+      originalWalletIndex: permission.walletIndex,
+      selectedWalletIndex: selected.walletIndex,
+    };
+  }
+
   const accounts = await getAccountsForWalletIndex(permission.walletIndex);
   if (accounts.length === 0) {
     return {
@@ -359,6 +391,8 @@ async function getPackageWalletPermission(origin) {
     ok: true,
     permission,
     account: accounts[0],
+    originalWalletIndex: permission.walletIndex,
+    selectedWalletIndex: permission.walletIndex,
   };
 }
 
@@ -458,6 +492,9 @@ function getPackageTransactionPreview(params) {
     return null;
   }
   const preview = {};
+  if (typeof txParams.from === 'string') {
+    preview.requestedAccount = txParams.from;
+  }
   if (typeof txParams.to === 'string') {
     preview.to = txParams.to;
   }
@@ -512,10 +549,12 @@ async function getConnectedWalletReviewDetails(origin) {
     return {};
   }
   const accounts = await getAccountsForWalletIndex(permission.walletIndex);
+  const accountChoices = await getPackageWalletAccountChoices(permission.walletIndex);
   return {
     account: accounts[0],
     walletIndex: permission.walletIndex,
     chainId: permission.chainId,
+    accountChoices,
   };
 }
 
@@ -544,9 +583,13 @@ async function getPackageWalletApprovalDetails(method, params, origin) {
     };
   }
   if (PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method)) {
+    const signaturePreview = getPackageSignaturePreview(method, params);
+    const requestedAccount = signaturePreview.account;
+    delete signaturePreview.account;
     return {
       ...connected,
-      ...getPackageSignaturePreview(method, params),
+      ...signaturePreview,
+      requestedAccount,
     };
   }
   return null;
@@ -842,6 +885,20 @@ function isVaultLockedProviderResult(result) {
   return result?.ok === false && result.error?.data?.reason === 'vault_locked';
 }
 
+function commitPackageWalletSelection(origin, permissionResult) {
+  if (
+    permissionResult.selectedWalletIndex !== null &&
+    permissionResult.selectedWalletIndex !== permissionResult.originalWalletIndex
+  ) {
+    grantPermission(
+      origin,
+      permissionResult.selectedWalletIndex,
+      permissionResult.permission.chainId
+    );
+  }
+  updateLastUsed(origin, permissionResult.permission.chainId);
+}
+
 async function requestPackageProviderVaultUnlock({
   origin,
   method,
@@ -909,8 +966,8 @@ async function runPackageProviderOperationWithVaultUnlock({
   };
 }
 
-async function signPackageProviderRequest(origin, method, params) {
-  const permission = await getPackageWalletPermission(origin);
+async function signPackageProviderRequest(origin, method, params, options = {}) {
+  const permission = await getPackageWalletPermission(origin, options);
   if (permission.ok !== true) {
     return permission;
   }
@@ -927,7 +984,7 @@ async function signPackageProviderRequest(origin, method, params) {
       }
       return signTypedData(signatureRequest.typedData, privateKey);
     });
-    updateLastUsed(origin, permission.permission.chainId);
+    commitPackageWalletSelection(origin, permission);
     return {
       ok: true,
       result: signature,
@@ -953,8 +1010,8 @@ async function signPackageProviderRequest(origin, method, params) {
   }
 }
 
-async function sendPackageProviderTransaction(origin, params) {
-  const permission = await getPackageWalletPermission(origin);
+async function sendPackageProviderTransaction(origin, params, options = {}) {
+  const permission = await getPackageWalletPermission(origin, options);
   if (permission.ok !== true) {
     return permission;
   }
@@ -975,7 +1032,7 @@ async function sendPackageProviderTransaction(origin, params) {
     buildPackageDappTxContext(origin, transactionRequest.transaction)
   );
   if (txResult.success === true && txResult.hash) {
-    updateLastUsed(origin, permission.permission.chainId);
+    commitPackageWalletSelection(origin, permission);
     return {
       ok: true,
       result: txResult.hash,
@@ -1109,9 +1166,12 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     PACKAGE_PROVIDER_TRANSACTION_METHODS.has(method) &&
     prompt.result?.outcome === 'accepted'
   ) {
+    const selectedWalletIndex = normalizePackageWalletIndex(prompt.result?.selectedWalletIndex);
     const { operation: transaction, vaultUnlockPrompt } =
       await runPackageProviderOperationWithVaultUnlock({
-        operation: () => sendPackageProviderTransaction(origin, payload.params),
+        operation: () => sendPackageProviderTransaction(origin, payload.params, {
+          walletIndex: selectedWalletIndex,
+        }),
         origin,
         method,
         promptContext,
@@ -1136,9 +1196,12 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method) &&
     prompt.result?.outcome === 'accepted'
   ) {
+    const selectedWalletIndex = normalizePackageWalletIndex(prompt.result?.selectedWalletIndex);
     const { operation: signature, vaultUnlockPrompt } =
       await runPackageProviderOperationWithVaultUnlock({
-        operation: () => signPackageProviderRequest(origin, method, payload.params),
+        operation: () => signPackageProviderRequest(origin, method, payload.params, {
+          walletIndex: selectedWalletIndex,
+        }),
         origin,
         method,
         promptContext,

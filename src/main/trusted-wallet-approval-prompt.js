@@ -43,6 +43,9 @@ function addRow(rows, label, value, maxLength) {
 }
 
 function normalizeWalletIndex(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
   const index = typeof value === 'number' ? value : Number(value);
   return Number.isInteger(index) && index >= 0 ? index : null;
 }
@@ -108,12 +111,11 @@ function buildPromptContext(request = {}, context = {}) {
   const labels = labelsForKind(kind);
   const origin = safeString(request.origin || context.origin || 'Unknown site', 300);
   const rows = [];
-  const accountChoices = kind === 'wallet.connect'
-    ? normalizeAccountChoices(details.accountChoices || details.accounts)
-    : [];
+  const accountChoices = normalizeAccountChoices(details.accountChoices || details.accounts);
 
   addRow(rows, 'Method', method);
   addRow(rows, 'Account', details.account || details.activeAccount);
+  addRow(rows, 'Requested account', details.requestedAccount);
   addRow(rows, 'Wallet index', details.walletIndex);
   addRow(rows, 'Chain', details.chainId);
   addRow(rows, 'To', details.to);
