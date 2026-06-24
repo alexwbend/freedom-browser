@@ -1,5 +1,9 @@
 const ipcHandlers = {};
+const mockShowMessageBox = jest.fn();
 jest.mock('electron', () => ({
+  dialog: {
+    showMessageBox: mockShowMessageBox,
+  },
   ipcMain: {
     handle: (channel, handler) => {
       ipcHandlers[channel] = handler;
@@ -24,8 +28,10 @@ jest.mock('../service-registry', () => ({
 }));
 
 const mockIsPackageWebContents = jest.fn();
+const mockGetPackageWebContentsIdentity = jest.fn();
 jest.mock('../shell-api', () => ({
   isPackageWebContents: mockIsPackageWebContents,
+  getPackageWebContentsIdentity: mockGetPackageWebContentsIdentity,
 }));
 
 const mockPublishData = jest.fn();
@@ -111,6 +117,7 @@ const {
   registerSwarmProviderIpc,
   handleReadonlyProviderRequest,
   handleProviderHostContext,
+  handleProviderTrustedPromptRequest,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,
@@ -175,6 +182,10 @@ describe('swarm-provider-ipc', () => {
     expect(ipcHandlers['swarm:provider-host-context']).toBeDefined();
   });
 
+  test('registers swarm:provider-trusted-prompt-request handler', () => {
+    expect(ipcHandlers['swarm:provider-trusted-prompt-request']).toBeDefined();
+  });
+
   describe('provider host context handler', () => {
     test('reports package-hosted guest webviews from the main-owned host sender', () => {
       const hostWebContents = { id: 20 };
@@ -229,6 +240,123 @@ describe('swarm-provider-ipc', () => {
         },
       });
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('trusted prompt provider handler', () => {
+    function buildPackageHostedEvent(url = 'ipfs://bafyfixture/') {
+      return {
+        sender: {
+          id: 42,
+          hostWebContents: {
+            id: 20,
+            getOwnerBrowserWindow: jest.fn(() => ({ id: 5 })),
+          },
+          getURL: jest.fn(() => url),
+        },
+      };
+    }
+
+    test('routes package-hosted swarm_publishData through a shell-owned rejection prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPackageWebContentsIdentity.mockReturnValue({
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.official',
+        packageType: 'browser-chrome',
+        name: 'Freedom Official Chrome',
+        version: '0.7.5',
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishData',
+        params: { data: 'hello', contentType: 'text/plain' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockPublishData).not.toHaveBeenCalled();
+      expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Publish',
+          message: 'Swarm publish request',
+          detail:
+            'ipfs://bafyfixture requested Swarm publish access. ' +
+            'Package chrome cannot approve this request; the shell is rejecting it for now.',
+          buttons: ['Reject'],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.publish',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          renderedBy: 'shell-native-dialog',
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('keeps unsupported package-hosted privileged swarm methods unavailable', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      await expect(
+        handleProviderTrustedPromptRequest(event, { method: 'swarm_updateFeed' })
+      ).resolves.toEqual({
+        result: null,
+        error: {
+          code: 4200,
+          message:
+            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_updateFeed',
+          data: { reason: 'trusted_prompt_unavailable' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+    });
+
+    test('rejects trusted prompt requests without a package host', async () => {
+      const result = await handleProviderTrustedPromptRequest(
+        { sender: { id: 7, getURL: jest.fn(() => 'https://app.example/') } },
+        { method: 'swarm_publishData' }
+      );
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4100,
+          message: 'Trusted Swarm provider prompt is only available for package-hosted guests',
+          data: { reason: 'not_package_hosted' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
     });
   });
 

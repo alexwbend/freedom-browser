@@ -2331,13 +2331,13 @@ test('official browser chrome can launch as a local package with transitional we
         </script>`,
     });
     await launched.app.evaluate(({ dialog }) => {
-      globalThis.__freedomWalletConnectPromptDialog = null;
+      globalThis.__freedomProviderPromptDialogs = [];
       dialog.showMessageBox = async (ownerWindow, options) => {
-        globalThis.__freedomWalletConnectPromptDialog = {
+        globalThis.__freedomProviderPromptDialogs.push({
           hasOwnerWindow: !!ownerWindow,
           ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
           options,
-        };
+        });
         return { response: 0 };
       };
     });
@@ -2349,8 +2349,11 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="provider-accounts"]',
       'error:4001:shell_trusted_prompt_rejected'
     );
-    const walletConnectPromptDialog = await launched.app.evaluate(
-      () => globalThis.__freedomWalletConnectPromptDialog
+    const providerPromptDialogs = await launched.app.evaluate(
+      () => globalThis.__freedomProviderPromptDialogs
+    );
+    const walletConnectPromptDialog = providerPromptDialogs.find(
+      (dialog) => dialog.options?.title === 'Freedom Wallet Connection'
     );
     expect(walletConnectPromptDialog).toMatchObject({
       hasOwnerWindow: true,
@@ -2377,8 +2380,27 @@ test('official browser chrome can launch as a local package with transitional we
     await expectActiveWebviewText(
       page,
       '[data-test="swarm-provider-publish"]',
-      'error:4200:trusted_prompt_unavailable'
+      'error:4001:shell_trusted_prompt_rejected'
     );
+    const swarmPublishPromptDialog = (
+      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
+    ).find((dialog) => dialog.options?.title === 'Freedom Swarm Publish');
+    expect(swarmPublishPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Swarm Publish',
+        message: 'Swarm publish request',
+        detail:
+          `ipfs://${providerIpfsCid} requested Swarm publish access. ` +
+          'Package chrome cannot approve this request; the shell is rejecting it for now.',
+        buttons: ['Reject'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      },
+    });
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
 

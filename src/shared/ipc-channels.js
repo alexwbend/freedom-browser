@@ -243,6 +243,7 @@ module.exports = {
   SWARM_PROVIDER_EXECUTE: 'swarm:provider-execute',
   SWARM_PROVIDER_READONLY_REQUEST: 'swarm:provider-readonly-request',
   SWARM_PROVIDER_HOST_CONTEXT: 'swarm:provider-host-context',
+  SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST: 'swarm:provider-trusted-prompt-request',
 
   // Swarm Feed Store
   SWARM_GET_ALL_ORIGINS: 'swarm:get-all-origins',

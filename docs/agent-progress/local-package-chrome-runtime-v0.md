@@ -2814,3 +2814,60 @@ Known remaining gaps after this checkpoint:
   approval/unlock, Swarm publish/feed, and seed/private-key export prompt
   surfaces still need shell-owned UI before they can be called complete in
   package mode; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 4: Package Swarm Publish Denial Prompt
+
+Current checkpoint: package-hosted `swarm.publishData()` / `swarm_publishData`
+now reaches a shell-owned native Swarm publish prompt with main-derived guest
+context and returns a page-facing user rejection. This still does not publish
+data, grant Swarm access, write feed permissions, spend stamps, or migrate the
+full Swarm publish/feed approval UI.
+
+Implemented in this checkpoint:
+
+- added `swarm:provider-trusted-prompt-request` as a main-owned provider IPC
+  path for package-hosted Swarm publish requests
+- changed the guest webview preload so package-hosted `swarm_publishData`
+  requests go to main trusted-prompt handling instead of returning an immediate
+  package-mode unavailable error
+- added a `swarm.publish` trusted prompt kind in
+  `src/main/trusted-prompt-broker.js`
+- derived the provider prompt origin from the requesting guest WebContents URL
+  and the package host identity from the registered host WebContents in main
+- presented `swarm_publishData` through a shell-owned native dialog attached to
+  the package BrowserWindow
+- returned provider-style `4001` with
+  `data.reason: "shell_trusted_prompt_rejected"` to the page
+- kept unsupported package-hosted Swarm methods on structured
+  `trusted_prompt_unavailable`
+- kept package chrome without Swarm provider globals, raw Swarm IPC, publish
+  authority, feed-signing authority, stamp authority, wallet, identity, Node,
+  Electron, or arbitrary IPC authority
+- expanded official package smoke to prove the Swarm publish prompt is
+  shell-owned and attached to the package BrowserWindow
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/trusted-prompt-broker.test.js src/main/swarm/swarm-provider-ipc.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 177 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2194 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- `swarm_publishData` still cannot succeed in package mode because the real
+  publish approval, stamp/batch selection, feed authority, and publish
+  execution path have not moved to a shell-owned trusted surface
+- transaction signing, typed-data signing, identity, vault, x402
+  approval/unlock, successful Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals

@@ -209,6 +209,86 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes Swarm publish prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestSwarmPublishPrompt(
+        {
+          method: 'swarm_publishData',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'ipfs://bafyapp',
+          webContentsId: 52,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-1',
+      kind: 'swarm.publish',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'ipfs://bafyapp',
+        tabId: null,
+        webContentsId: 52,
+      },
+      request: {
+        method: 'swarm_publishData',
+        reason: 'Swarm publish request from ipfs://bafyapp',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-swarm-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+        method: 'swarm_publishData',
+        reason: 'Swarm publish request from ipfs://bafyapp',
+        origin: 'ipfs://bafyapp',
+        webContentsId: 52,
+      },
+      {
+        caller,
+        origin: 'ipfs://bafyapp',
+        webContentsId: 52,
+      }
+    );
+  });
+
   test('rejects unsupported wallet prompt methods', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'unused-wallet',
@@ -223,6 +303,24 @@ describe('trusted-prompt-broker', () => {
       error: {
         code: 'TRUSTED_PROMPT_UNSUPPORTED',
         message: 'Unsupported wallet trusted prompt method',
+      },
+    });
+  });
+
+  test('rejects unsupported Swarm prompt methods', async () => {
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'unused-swarm',
+    });
+
+    await expect(
+      broker.requestSwarmPublishPrompt({
+        method: 'swarm_updateFeed',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported Swarm trusted prompt method',
       },
     });
   });

@@ -1,6 +1,7 @@
 const TRUSTED_PROMPT_KINDS = Object.freeze({
   TEST_CONFIRMATION: 'test.confirmation',
   WALLET_CONNECT: 'wallet.connect',
+  SWARM_PUBLISH: 'swarm.publish',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
   SYNTHETIC: 'synthetic',
@@ -224,11 +225,86 @@ function createTrustedPromptBroker(options = {}) {
     };
   }
 
+  async function requestSwarmPublishPrompt(payload = {}, context = {}) {
+    const method = typeof payload?.method === 'string' ? payload.method : '';
+    if (method !== 'swarm_publishData') {
+      return {
+        ok: false,
+        error: {
+          code: 'TRUSTED_PROMPT_UNSUPPORTED',
+          message: 'Unsupported Swarm trusted prompt method',
+        },
+      };
+    }
+
+    const requestId = createRequestId();
+    const reason =
+      normalizeReason(payload.reason) ||
+      `Swarm publish request from ${context.origin || 'unknown origin'}`;
+    const presentNativeDialog = context.presentNativeDialog || defaultPresentNativeDialog;
+    if (typeof presentNativeDialog !== 'function') {
+      return {
+        ok: false,
+        error: {
+          code: 'TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE',
+          message: 'Native trusted prompt presentation is unavailable',
+        },
+      };
+    }
+
+    const presentationResult = await presentNativeDialog(
+      {
+        requestId,
+        kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+        method,
+        reason,
+        origin: context.origin || null,
+        webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
+      },
+      context
+    );
+    if (presentationResult?.ok !== true) {
+      return {
+        ok: false,
+        requestId,
+        kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+        trusted: true,
+        surfaceOwner: 'shell',
+        renderedBy: 'shell-native-dialog',
+        error: presentationResult?.error || {
+          code: 'TRUSTED_PROMPT_PRESENTATION_FAILED',
+          message: 'Native trusted prompt presentation failed',
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      requestId,
+      kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: describeTrustedContext(context),
+      request: {
+        method,
+        reason,
+        presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+      },
+      result: describeNativeDialogResult({
+        ...presentationResult,
+        outcome: presentationResult.outcome || 'rejected',
+      }),
+    };
+  }
+
   return Object.freeze({
     requestTestPrompt: async (payload, context) =>
       cloneSerializable(await requestTestPrompt(payload, context)),
     requestWalletConnectPrompt: async (payload, context) =>
       cloneSerializable(await requestWalletConnectPrompt(payload, context)),
+    requestSwarmPublishPrompt: async (payload, context) =>
+      cloneSerializable(await requestSwarmPublishPrompt(payload, context)),
   });
 }
 

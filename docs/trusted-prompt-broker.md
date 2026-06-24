@@ -169,6 +169,43 @@ This proves a real provider request reaches shell-owned prompt presentation
 with main-derived context. It does not grant accounts, write dApp permissions,
 or migrate transaction/signing approval UI.
 
+### Package-Hosted Swarm Publish Denial
+
+Package-hosted guest content can now route `swarm.publishData()` to main
+without package chrome brokering the provider request:
+
+```text
+guest webview preload
+  -> swarm:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker swarm.publish
+  -> shell-owned native dialog
+  -> page-facing user rejection
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims are not used as final security truth.
+
+The current result intentionally rejects the publish request:
+
+```json
+{
+  "result": null,
+  "error": {
+    "code": 4001,
+    "message": "User rejected the request",
+    "data": {
+      "reason": "shell_trusted_prompt_rejected"
+    }
+  }
+}
+```
+
+This proves a Swarm provider request reaches shell-owned prompt presentation
+with main-derived context. It does not publish data, write feed permissions,
+spend stamps, or migrate the full Swarm publish/feed approval UI.
+
 ## Future Real Prompt Paths
 
 Real prompt paths should use the same broker shape, but with main-derived
@@ -206,6 +243,8 @@ Swarm publish/feed approval:
 - main derives origin, feed identity, stamp/batch constraints, and publish
   target
 - broker opens shell-owned publish/feed prompt
+- current package-hosted `swarm_publishData` slice rejects after shell-owned
+  native presentation
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:
@@ -221,6 +260,6 @@ Vault unlock:
 - no real wallet center migration
 - no account exposure or signing implementation
 - no x402 payment migration
-- no Swarm publish migration
+- no successful Swarm publish/feed approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

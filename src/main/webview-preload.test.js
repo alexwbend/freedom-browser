@@ -549,7 +549,7 @@ describe('webview-preload', () => {
     });
   });
 
-  test('fails higher-risk swarm provider requests before package chrome can broker them', async () => {
+  test('routes package-hosted swarm publish requests to main trusted-prompt handling', async () => {
     const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
       location: {
         href: 'https://app.example/',
@@ -559,6 +559,14 @@ describe('webview-preload', () => {
       },
       invokeResponses: {
         [IPC.SWARM_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+        [IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST]: {
+          result: null,
+          error: {
+            code: 4001,
+            message: 'User rejected the request',
+            data: { reason: 'shell_trusted_prompt_rejected' },
+          },
+        },
       },
     });
     const messageHandlers = global.window.addEventListener.mock.calls
@@ -579,6 +587,11 @@ describe('webview-preload', () => {
     await flushMicrotasks();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, {
+      method: 'swarm_publishData',
+      params: { data: 'hello', contentType: 'text/plain' },
+      origin: 'https://app.example',
+    });
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
       'swarm:provider-request',
       expect.anything()
@@ -589,9 +602,62 @@ describe('webview-preload', () => {
         id: 11,
         result: null,
         error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: { reason: 'shell_trusted_prompt_rejected' },
+        },
+      },
+      origin: 'https://app.example',
+    });
+  });
+
+  test('fails unsupported privileged swarm provider requests before package chrome can broker them', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.SWARM_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+      },
+    });
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 12,
+          method: 'swarm_updateFeed',
+          params: { topic: 'demo' },
+        },
+      });
+    }
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).not.toHaveBeenCalledWith(
+      IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST,
+      expect.anything()
+    );
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'swarm:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id: 12,
+        result: null,
+        error: {
           code: 4200,
           message:
-            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_publishData',
+            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_updateFeed',
           data: { reason: 'trusted_prompt_unavailable' },
         },
       },

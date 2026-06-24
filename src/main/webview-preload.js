@@ -12,6 +12,7 @@ const DAPP_PROVIDER_HOST_CONTEXT = 'dapp:provider-host-context';
 const DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST = 'dapp:provider-trusted-prompt-request';
 const SWARM_PROVIDER_READONLY_REQUEST = 'swarm:provider-readonly-request';
 const SWARM_PROVIDER_HOST_CONTEXT = 'swarm:provider-host-context';
+const SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST = 'swarm:provider-trusted-prompt-request';
 
 // The webview preload runs in a sandbox — require() is restricted to a small
 // whitelist (electron, events, timers, url), so we cannot read provider
@@ -731,6 +732,7 @@ try {
 }
 
 const MAIN_READONLY_SWARM_METHODS = new Set(['swarm_getCapabilities']);
+const MAIN_TRUSTED_PROMPT_SWARM_METHODS = new Set(['swarm_publishData']);
 const sendSwarmResponseToPage = (id, result, error) => {
   window.postMessage({
     type: 'FREEDOM_SWARM_RESPONSE',
@@ -774,6 +776,20 @@ window.addEventListener('message', (event) => {
       .invoke(SWARM_PROVIDER_HOST_CONTEXT)
       .then(({ packageHosted = false } = {}) => {
         if (packageHosted) {
+          if (MAIN_TRUSTED_PROMPT_SWARM_METHODS.has(method)) {
+            ipcRenderer
+              .invoke(SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, { method, params, origin })
+              .then(({ result = null, error = null } = {}) => {
+                sendSwarmResponseToPage(id, result, error);
+              })
+              .catch((error) => {
+                sendSwarmResponseToPage(id, null, {
+                  code: -32603,
+                  message: error?.message || 'Swarm trusted prompt request failed',
+                });
+              });
+            return;
+          }
           sendSwarmResponseToPage(id, null, buildPackageSwarmUnavailableError(method));
           return;
         }

@@ -16,6 +16,9 @@
  *   Tells guest preloads whether their host is registered package chrome so
  *   higher-risk methods can fail safely instead of routing through package
  *   chrome.
+ * - swarm:provider-trusted-prompt-request
+ *   Handles package-hosted privileged Swarm provider prompt requests after
+ *   main derives host package identity and guest origin.
  *
  * Trust model for origin:
  *   The main process trusts the origin string from the renderer because:
@@ -34,7 +37,7 @@
  *   authority.
  */
 
-const { ipcMain } = require('electron');
+const { dialog, ipcMain } = require('electron');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
 const { getPermission } = require('./swarm-permissions');
@@ -88,6 +91,16 @@ const ERRORS = {
   INVALID_PARAMS: { code: -32602, message: 'Invalid parameters' },
   INTERNAL_ERROR: { code: -32603, message: 'Internal error' },
 };
+const PACKAGE_SWARM_PROVIDER_UNAVAILABLE = Object.freeze({
+  code: 4200,
+  message: 'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists',
+  data: { reason: 'trusted_prompt_unavailable' },
+});
+const PACKAGE_SWARM_PROVIDER_REJECTED = Object.freeze({
+  code: 4001,
+  message: 'User rejected the request',
+  data: { reason: 'shell_trusted_prompt_rejected' },
+});
 
 const KNOWN_METHODS = [
   'swarm_requestAccess',
@@ -420,6 +433,146 @@ function isPackageHostedProviderRequest(event) {
 
   const { isPackageWebContents } = require('../shell-api');
   return isPackageWebContents(hostWebContents) === true;
+}
+
+function getPackageHostWebContents(event) {
+  return event?.sender?.hostWebContents || null;
+}
+
+function getPackageHostIdentity(hostWebContents) {
+  if (!hostWebContents) {
+    return null;
+  }
+  const { getPackageWebContentsIdentity } = require('../shell-api');
+  return typeof getPackageWebContentsIdentity === 'function'
+    ? getPackageWebContentsIdentity(hostWebContents)
+    : null;
+}
+
+function deriveProviderOrigin(event) {
+  const url = event?.sender?.getURL?.();
+  if (typeof url !== 'string' || !url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin && parsed.origin !== 'null') {
+      return parsed.origin;
+    }
+    if (parsed.protocol && parsed.host) {
+      return `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function presentNativeSwarmPublishPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native Swarm trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Swarm Publish',
+    message: 'Swarm publish request',
+    detail:
+      `${origin} requested Swarm publish access. ` +
+      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+    buttons: ['Reject'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: 'rejected',
+    response: result?.response,
+  };
+}
+
+async function handleProviderTrustedPromptRequest(event, payload = {}) {
+  const method = typeof payload.method === 'string' ? payload.method : '';
+  const hostWebContents = getPackageHostWebContents(event);
+  if (!hostWebContents || !isPackageHostedProviderRequest(event)) {
+    return {
+      result: null,
+      error: {
+        code: 4100,
+        message: 'Trusted Swarm provider prompt is only available for package-hosted guests',
+        data: { reason: 'not_package_hosted' },
+      },
+    };
+  }
+
+  if (method !== 'swarm_publishData') {
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
+        message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method || 'unknown'}`,
+      },
+    };
+  }
+
+  const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
+  const origin = deriveProviderOrigin(event);
+  const prompt = await defaultTrustedPromptBroker.requestSwarmPublishPrompt(
+    {
+      method,
+      reason: origin ? `Swarm publish request from ${origin}` : 'Swarm publish request',
+    },
+    {
+      caller: getPackageHostIdentity(hostWebContents),
+      origin,
+      webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
+      ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+      presentNativeDialog: presentNativeSwarmPublishPrompt,
+    }
+  );
+
+  if (prompt?.ok !== true) {
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
+        message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method}`,
+        data: {
+          reason: 'trusted_prompt_unavailable',
+          promptError: prompt?.error?.code || 'TRUSTED_PROMPT_UNAVAILABLE',
+        },
+      },
+      trustedPrompt: prompt || null,
+    };
+  }
+
+  return {
+    result: null,
+    error: {
+      ...PACKAGE_SWARM_PROVIDER_REJECTED,
+      data: {
+        ...PACKAGE_SWARM_PROVIDER_REJECTED.data,
+        prompt: {
+          requestId: prompt.requestId,
+          kind: prompt.kind,
+          renderedBy: prompt.renderedBy,
+          surfaceOwner: prompt.surfaceOwner,
+          origin: prompt.context?.origin || null,
+          webContentsId: prompt.context?.webContentsId || null,
+        },
+      },
+    },
+    trustedPrompt: prompt,
+  };
 }
 
 function handleRequestAccess(origin) {
@@ -1535,6 +1688,7 @@ function registerSwarmProviderIpc() {
   });
   ipcMain.handle(IPC.SWARM_PROVIDER_READONLY_REQUEST, handleReadonlyProviderRequest);
   ipcMain.handle(IPC.SWARM_PROVIDER_HOST_CONTEXT, handleProviderHostContext);
+  ipcMain.handle(IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, handleProviderTrustedPromptRequest);
 
   log.info('[SwarmProvider] IPC handler registered');
 }
@@ -1544,6 +1698,7 @@ module.exports = {
   executeSwarmMethod,
   handleReadonlyProviderRequest,
   handleProviderHostContext,
+  handleProviderTrustedPromptRequest,
   checkSwarmPreFlight,
   checkBeeReachable,
   validateVirtualPath,
