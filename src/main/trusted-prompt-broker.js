@@ -84,11 +84,18 @@ function describeTrustedContext(context = {}) {
 }
 
 function describeNativeDialogResult(presentationResult = {}) {
-  return {
+  const result = {
     outcome: presentationResult.outcome || 'accepted',
     source: 'shell-native-dialog',
     response: Number.isInteger(presentationResult.response) ? presentationResult.response : null,
   };
+  if (presentationResult.grant && typeof presentationResult.grant === 'object') {
+    result.grant = cloneSerializable(presentationResult.grant);
+  }
+  if (Number.isInteger(presentationResult.selectedAcceptIndex)) {
+    result.selectedAcceptIndex = presentationResult.selectedAcceptIndex;
+  }
+  return result;
 }
 
 function unsupportedPrompt(message) {

@@ -461,13 +461,18 @@ recipient, and resource URL when present. Main signs through the existing
 vault-backed x402 client, queues the payment header for the retry, returns a
 same-URL 307 for subresources, and re-navigates main-frame requests through
 the existing sign-flow path. Rejected prompts pass the original 402 through.
+For recognized EIP-155 token requirements, the same shell-owned native prompt
+also offers an explicit bounded cap action: Pay once, or Pay and allow 10
+tokens for 30 days. The cap decision is returned as a broker result and
+threaded into the existing main-owned x402 sign-flow, which writes the
+permission store; package chrome still receives no raw x402 permission API.
 
 Package-hosted vault-unlock prompts now receive the same main-derived payment
 review details when available, including amount, asset, network, recipient,
 and resource URL. They still intentionally dismiss and pass the original 402
-through when signing needs an unlock. Package-hosted x402 still does not grant
-caps, unlock vault state, write payment permissions, expose payment history,
-or migrate the full x402 approval UI.
+through when signing needs an unlock. Package-hosted x402 still does not
+unlock vault state, expose payment history, expose cap edit/revoke APIs, or
+migrate the full x402 approval UI.
 
 ## Future Real Prompt Paths
 
@@ -509,15 +514,16 @@ x402 approvals:
 - main derives URL, charge, origin, payment network, and existing permission
   state
 - broker opens shell-owned payment approval or unlock prompt
-- current package-hosted approval slice can sign one-time payments after
-  shell-owned native presentation when the vault is unlocked
+- current package-hosted approval slice can sign one-time payments, and can
+  create the bounded default 10-token/30-day cap for recognized EIP-155
+  assets, after shell-owned native presentation when the vault is unlocked
 - package-hosted vault-unlock prompts show main-derived payment details after
   shell-owned native presentation, then dismiss and pass the original 402
   through
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add cap grants, vault unlock, payment
-  permission management, and richer review UI before x402 can be called
-  complete in package mode
+- future completion work must add vault unlock, payment permission management,
+  cap editing/revocation surfaces, and richer review UI before x402 can be
+  called complete in package mode
 
 Swarm publish/feed/signing approval:
 

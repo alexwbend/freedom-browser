@@ -40,8 +40,9 @@ const { parsePaymentRequired } = require('@x402/core/schemas');
 const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const paymentHistory = require('../payment-history');
 const { KINDS: PAYMENT_KINDS, STATUSES: PAYMENT_STATUSES } = paymentHistory;
+const { getToken, getTokenKey } = require('../token-registry');
 const { getPackageWebContentsIdentity, isPackageWebContents } = require('../shell-api');
-const { findCoveringPermission } = require('./payment-utils');
+const { findCoveringPermission, tupleFromAccept } = require('./payment-utils');
 const { tryConsume } = require('./permissions');
 const { isVaultLockedError } = require('../wallet/vault-errors');
 const { normalizeOrigin } = require('../../shared/origin-utils');
@@ -68,6 +69,9 @@ const AUTHORIZED_BY = Object.freeze({
   CAP: 'cap',
   MANUAL: 'manual',
 });
+
+const DEFAULT_PACKAGE_X402_GRANT_UNITS = 10n;
+const DEFAULT_PACKAGE_X402_GRANT_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 
 const VALID_SIGNATURE_HEADERS = new Set([
   X402_HEADERS.SIGNATURE_V2,
@@ -660,6 +664,11 @@ function sendToHost(webviewWebContentsId, channel, payload) {
 }
 
 async function presentNativeX402ApprovalPrompt(request, context = {}) {
+  const grant = request.details?.defaultGrant || null;
+  const buttons = grant
+    ? ['Pay once', `Pay and allow ${grant.label}`, 'Reject']
+    : ['Pay', 'Reject'];
+  const rejectResponse = buttons.length - 1;
   return presentNativeX402Prompt(request, context, {
     title: 'Freedom x402 Payment',
     message: 'Payment approval request',
@@ -680,10 +689,23 @@ async function presentNativeX402ApprovalPrompt(request, context = {}) {
         ' Choose Pay only if you trust this request.'
       );
     },
-    buttons: ['Pay', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    acceptedResponse: 0,
+    buttons,
+    defaultId: rejectResponse,
+    cancelId: rejectResponse,
+    acceptedResponses: grant ? [0, 1] : [0],
+    resultForResponse: (response, promptRequest) => {
+      if (response !== 1 || !promptRequest.details?.defaultGrant) {
+        return null;
+      }
+      const approvedGrant = promptRequest.details.defaultGrant;
+      return {
+        grant: {
+          capAmount: approvedGrant.capAmount,
+          windowSeconds: approvedGrant.windowSeconds,
+        },
+        selectedAcceptIndex: approvedGrant.selectedAcceptIndex,
+      };
+    },
   });
 }
 
@@ -732,9 +754,13 @@ async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}
     : ['Reject'];
   const defaultId = Number.isInteger(dialogOptions.defaultId) ? dialogOptions.defaultId : 0;
   const cancelId = Number.isInteger(dialogOptions.cancelId) ? dialogOptions.cancelId : defaultId;
-  const acceptedResponse = Number.isInteger(dialogOptions.acceptedResponse)
-    ? dialogOptions.acceptedResponse
-    : null;
+  const acceptedResponses = Array.isArray(dialogOptions.acceptedResponses)
+    ? new Set(dialogOptions.acceptedResponses.filter(Number.isInteger))
+    : new Set(
+      Number.isInteger(dialogOptions.acceptedResponse)
+        ? [dialogOptions.acceptedResponse]
+        : []
+    );
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
     title: dialogOptions.title,
@@ -745,28 +771,59 @@ async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}
     cancelId,
     noLink: true,
   });
+  const response = result?.response;
+  const accepted = acceptedResponses.has(response);
+  const extra =
+    typeof dialogOptions.resultForResponse === 'function'
+      ? dialogOptions.resultForResponse(response, request)
+      : null;
   return {
     ok: true,
-    outcome: acceptedResponse !== null && result?.response === acceptedResponse
-      ? 'accepted'
-      : 'rejected',
-    response: result?.response,
+    outcome: accepted ? 'accepted' : 'rejected',
+    response,
+    ...(extra && typeof extra === 'object' ? extra : {}),
   };
 }
 
 function getX402PaymentPromptDetails(requirements) {
-  const accept = Array.isArray(requirements?.accepts) ? requirements.accepts[0] : null;
+  const selectedAcceptIndex = 0;
+  const accept = Array.isArray(requirements?.accepts)
+    ? requirements.accepts[selectedAcceptIndex]
+    : null;
   if (!accept || typeof accept !== 'object') {
     return null;
   }
   const resource = getX402ResourceForPrompt(requirements, accept);
+  const defaultGrant = getDefaultPackageX402Grant(accept, selectedAcceptIndex);
   return {
     x402Version: requirements.x402Version,
     network: accept.network,
     amount: accept.amount ?? accept.maxAmountRequired,
     asset: accept.asset,
     payTo: accept.payTo,
+    ...(defaultGrant ? { defaultGrant } : {}),
     ...(resource ? { resource } : {}),
+  };
+}
+
+function getDefaultPackageX402Grant(accept, selectedAcceptIndex) {
+  const tuple = tupleFromAccept(accept);
+  if (!tuple) {
+    return null;
+  }
+  const token = getToken(getTokenKey(tuple.chainId, tuple.asset));
+  if (!token || typeof token.decimals !== 'number' || !token.symbol) {
+    return null;
+  }
+  const capAmount = (
+    DEFAULT_PACKAGE_X402_GRANT_UNITS *
+    (10n ** BigInt(token.decimals))
+  ).toString();
+  return {
+    capAmount,
+    windowSeconds: DEFAULT_PACKAGE_X402_GRANT_WINDOW_SECONDS,
+    selectedAcceptIndex,
+    label: `${DEFAULT_PACKAGE_X402_GRANT_UNITS.toString()} ${token.symbol} for 30 days`,
   };
 }
 
@@ -840,9 +897,13 @@ async function signPackageHostedX402Approval({
   requirements,
   resourceType,
   requestShape,
+  grant,
+  selectedAcceptIndex,
 }) {
   const { signAndQueueRetry } = require('./sign-flow');
-  const selectedAccept = Array.isArray(requirements?.accepts) ? requirements.accepts[0] : null;
+  const selectedAccept = Array.isArray(requirements?.accepts)
+    ? requirements.accepts[selectedAcceptIndex ?? 0]
+    : null;
   await signAndQueueRetry(webContentsId, {
     detection: {
       url,
@@ -852,6 +913,7 @@ async function signPackageHostedX402Approval({
     },
     selectedAccept,
     authorizedBy: AUTHORIZED_BY.MANUAL,
+    ...(grant ? { grant } : {}),
   });
   clearDetectedPayment(webContentsId);
 }
@@ -1150,6 +1212,8 @@ async function detectPaymentRequiredHandler(details) {
           requirements,
           resourceType: details.resourceType,
           requestShape,
+          grant: prompt.result?.grant,
+          selectedAcceptIndex: prompt.result?.selectedAcceptIndex,
         });
         log.info(`[x402:approval] package-hosted ${sanitizeUrlForLog(details.url)} signed through shell-owned prompt`);
         if (details.resourceType && details.resourceType !== 'mainFrame') {

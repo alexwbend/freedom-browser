@@ -622,21 +622,23 @@ capabilities and are not declared by the official package smoke.
 Raw x402 approval and vault-unlock events remain bundled-trusted-renderer UI,
 not package chrome APIs. The x402 interceptor refuses to deliver `x402:*`
 host-renderer events to registered package windows. If a package-hosted guest
-hits a non-cap-covered x402 paywall, main presents a shell-owned native Pay /
-Reject prompt instead of waiting for package chrome to render an approval card.
-Main derives display-only review details from parsed x402 requirements and
-shows amount, asset, network, recipient, and resource URL when present. When
-the user chooses Pay and the vault is unlocked, main signs through the existing
-vault-backed x402 client, queues the payment header for the retry, and returns
-the same shell-owned retry behavior as bundled approval. Rejected prompts pass
-the original 402 through. If an auto-pay flow needs vault unlock, main presents
-a shell-owned native vault-unlock prompt with the same main-derived payment
-review details when available, then dismisses and passes the original 402
-through. This keeps package mode from silently hanging while preserving the
+hits a non-cap-covered x402 paywall, main presents a shell-owned native prompt
+instead of waiting for package chrome to render an approval card. Main derives
+display-only review details from parsed x402 requirements and shows amount,
+asset, network, recipient, and resource URL when present. When the user chooses
+Pay and the vault is unlocked, main signs through the existing vault-backed
+x402 client, queues the payment header for the retry, and returns the same
+shell-owned retry behavior as bundled approval. For recognized EIP-155 token
+requirements, the prompt can also create the bounded default 10-token/30-day
+cap through the existing main-owned x402 permission store. Rejected prompts
+pass the original 402 through. If an auto-pay flow needs vault unlock, main
+presents a shell-owned native vault-unlock prompt with the same main-derived
+payment review details when available, then dismisses and passes the original
+402 through. This keeps package mode from silently hanging while preserving the
 boundary that final payment approval and vault unlock must stay shell-owned.
-The native x402 path does not grant caps, unlock vault state, write payment
-permissions, expose payment history, or migrate the full payment review UI.
-Raw package runtime x402 adapter methods also return structured
+The native x402 path does not unlock vault state, expose payment history,
+expose cap edit/revoke APIs, or migrate the full payment review UI. Raw package
+runtime x402 adapter methods also return structured
 `X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or
 empty-array defaults.
 
@@ -814,11 +816,12 @@ with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
 them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. Package-hosted x402 vault-unlock prompts now have main-derived
-request/payment context, but x402 cap grants, actual vault unlock, full Swarm
-publish/feed UX, richer wallet account selection/review, and general vault
-unlock flows still need real shell-owned prompt UI before they can move fully
-through the broker.
+approval UI. Package-hosted x402 approval prompts can now create the bounded
+default cap for recognized tokens, and vault-unlock prompts now have
+main-derived request/payment context, but x402 cap editing/revocation, actual
+vault unlock, full Swarm publish/feed UX, richer wallet account
+selection/review, and general vault unlock flows still need real shell-owned
+prompt UI before they can move fully through the broker.
 
 ## Package Store
 

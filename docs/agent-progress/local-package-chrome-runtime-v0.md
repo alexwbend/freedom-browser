@@ -3921,6 +3921,52 @@ Known remaining gaps after this checkpoint:
 - x402 cap grants, payment permission management, payment history UI, full
   payment review, and actual vault unlock still need a real shell-owned x402 or
   wallet surface before x402 can be called complete in package mode
+
+### Trusted Prompt Broker Checkpoint 22: Package x402 Bounded Cap Grant
+
+Current checkpoint: package-hosted x402 payment approval can now create the
+same bounded default cap used by the bundled approval card, but only through a
+shell-owned native prompt and only for recognized EIP-155 token requirements.
+Package chrome still does not receive raw x402 events, raw payment-history IPC,
+cap edit/revoke APIs, vault unlock primitives, wallet APIs, Node, Electron, or
+arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- extended the trusted prompt broker result shape so a shell-owned native
+  prompt can return a serializable x402 cap grant decision
+- changed the package-hosted x402 native payment prompt for recognized tokens
+  to offer explicit Pay once, Pay and allow 10-token/30-day cap, and Reject
+  choices
+- threaded the accepted cap decision into the existing main-owned
+  `signAndQueueRetry()` path, where x402 permission persistence already lives
+- kept unsupported or unrecognized token requirements on the conservative
+  one-time Pay / Reject path
+- covered the package-hosted cap-grant choice in
+  `src/main/x402/intercept.test.js` and asserted no raw `x402:*` host events
+  are sent to package chrome
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js src/main/trusted-prompt-broker.test.js` passed:
+  2 suites, 130 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2258 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted x402 cap creation is a bounded native prompt action, not the
+  full bundled x402 approval surface
+- cap editing/revocation, payment permission management, payment history UI,
+  actual vault unlock, and richer payment review still need a real shell-owned
+  x402 or wallet surface before x402 can be called complete in package mode
 - identity onboarding, general vault unlock, seed/private-key export, full
   Swarm publish/feed UX, and richer wallet account/review surfaces still need
   shell-owned UI before the broader package runtime can be called complete;

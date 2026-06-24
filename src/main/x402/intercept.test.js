@@ -37,6 +37,23 @@ jest.mock('../shell-api', () => ({
   isPackageWebContents: (...args) => mockIsPackageWebContents(...args),
 }));
 
+const mockGetToken = jest.fn((key) => {
+  if (key === '8453:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913') {
+    return {
+      chainId: 8453,
+      address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      symbol: 'USDC',
+      decimals: 6,
+    };
+  }
+  return null;
+});
+jest.mock('../token-registry', () => ({
+  getToken: (...args) => mockGetToken(...args),
+  getTokenKey: (chainId, address) =>
+    address ? `${chainId}:${String(address).toLowerCase()}` : `${chainId}:native`,
+}));
+
 // Auto-pay branch dispatches signAndQueueRetry via a lazy require —
 // mock it so detector tests don't drag the whole sign flow in.
 const mockSignAndQueueRetry = jest.fn();
@@ -105,6 +122,7 @@ beforeEach(() => {
   mockSignAndQueueRetry.mockReset().mockResolvedValue(undefined);
   mockGetPermission.mockReset().mockReturnValue(null);
   mockTryConsume.mockReset().mockReturnValue(true);
+  mockGetToken.mockClear();
   mockIsPackageWebContents.mockReset().mockReturnValue(false);
   mockGetPackageWebContentsIdentity.mockReset().mockReturnValue({
     runtimeMode: 'local-package',
@@ -722,7 +740,7 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
 
   test('package-hosted approval UI shows a shell-owned rejection prompt and passes the 402 through without pending approval', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 2 });
 
     const result = await detectPaymentRequiredHandler(detail());
 
@@ -742,9 +760,9 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
         'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
         'Resource: https://api.example/article. ' +
         'Choose Pay only if you trust this request.',
-      buttons: ['Pay', 'Reject'],
-      defaultId: 1,
-      cancelId: 1,
+      buttons: ['Pay once', 'Pay and allow 10 USDC for 30 days', 'Reject'],
+      defaultId: 2,
+      cancelId: 2,
       noLink: true,
     });
   });
@@ -797,6 +815,35 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
       },
       selectedAccept: sampleRequirements.accepts[0],
       authorizedBy: 'manual',
+    });
+  });
+
+  test('package-hosted approval can grant a bounded x402 cap through the shell-owned prompt', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+
+    const result = await detectPaymentRequiredHandler(detail());
+
+    expect(result).toEqual({
+      statusLine: 'HTTP/1.1 307 Temporary Redirect',
+      responseHeaders: { Location: ['https://api.example/segment/0'] },
+    });
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingApproval('req-1001')).toBe(false);
+    expect(getDetectedPayment(7)).toBeNull();
+    expect(mockSignAndQueueRetry).toHaveBeenCalledWith(7, {
+      detection: {
+        url: 'https://api.example/segment/0',
+        requirements: sampleRequirements,
+        resourceType: 'xhr',
+        requestShape: {
+          method: 'GET',
+          range: null,
+        },
+      },
+      selectedAccept: sampleRequirements.accepts[0],
+      authorizedBy: 'manual',
+      grant: { capAmount: '10000000', windowSeconds: 30 * 24 * 60 * 60 },
     });
   });
 
