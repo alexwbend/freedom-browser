@@ -4209,3 +4209,64 @@ Known remaining gaps after this checkpoint:
   export, full Swarm publish/feed UX, and richer wallet account/review
   surfaces still need shell-owned UI before the broader package runtime can be
   called complete; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 26: Package Wallet Provider Vault Unlock
+
+Current checkpoint: package-hosted Ethereum signature and transaction provider
+flows can now recover from a locked vault after the shell-owned Sign/Send
+approval. Main presents the bundled trusted vault-unlock window with
+wallet-specific, main-derived origin/account/method or transaction context,
+submits the password only to the shell-owned identity unlock path, and retries
+the same main-owned signing or transaction operation only after unlock
+succeeds. Package chrome still does not receive wallet APIs, identity APIs,
+vault primitives, private keys, dApp permission stores, provider authority,
+Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- generalized `src/main/trusted-vault-unlock-prompt.js` so the existing
+  shell-owned trusted vault-unlock window can describe wallet signature and
+  transaction unlock requests as well as x402 payment unlock requests
+- changed package-hosted `personal_sign`, `eth_signTypedData`,
+  `eth_signTypedData_v3`, and `eth_signTypedData_v4` so an accepted
+  shell-owned signature prompt catches the canonical `vault_locked` result,
+  opens the trusted vault-unlock window, and retries signing after successful
+  unlock
+- changed package-hosted `eth_sendTransaction` so an accepted shell-owned
+  transaction prompt catches the canonical `vault_locked` result, opens the
+  trusted vault-unlock window with main-derived transaction details, and
+  retries the same main-owned transaction send path after successful unlock
+- kept rejected unlocks structured and visible with a page-facing `4001`
+  `shell_trusted_prompt_rejected` error instead of hanging
+- kept unsupported wallet provider methods on their existing structured
+  `trusted_prompt_unavailable` path
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/wallet/wallet-ipc.test.js src/main/trusted-vault-unlock-prompt.test.js` passed:
+  2 suites, 24 tests.
+- `npm run lint` passed.
+- `npm test` passed:
+  118 suites passed, 5 skipped; 2275 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `1bdd474` (`feat(chrome): unlock package wallet provider
+  prompts`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28095613318`, job `test` (`83184227595`), passed for
+  `1bdd474`.
+- GitHub Actions run `28095613318`, job `e2e-chrome-runtime`
+  (`83184227607`), passed for `1bdd474`.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted wallet provider signing and transaction execution now recover
+  from locked vaults through a shell-owned unlock prompt, but richer wallet
+  account selection/review and a full wallet-center surface remain pending
+- identity onboarding, seed/private-key export, full Swarm publish/feed UX, and
+  richer x402 approval review still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals
