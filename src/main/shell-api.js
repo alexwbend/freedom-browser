@@ -8,6 +8,7 @@ const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
 const trustedPaymentsSurface = require('./trusted-payments-surface');
+const trustedWalletSurface = require('./trusted-wallet-surface');
 const {
   SHELL_API_CAPABILITIES,
   SHELL_API_EVENTS,
@@ -35,7 +36,7 @@ const SURFACE_CONTROL_CAPABILITIES = Object.freeze({
 const SUPPORTED_SERVICES = new Set(['ant', 'ipfs', 'radicle']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODES = Object.freeze({
-  wallet: 'shell-owned-placeholder',
+  wallet: 'shell-owned-trusted-window',
   payments: 'shell-owned-trusted-window',
 });
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
@@ -564,6 +565,40 @@ async function openTrustedPaymentsSurfaceForCaller(caller, event) {
   });
 }
 
+async function openTrustedWalletSurfaceForCaller(caller, event) {
+  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  return trustedWalletSurface.openTrustedWalletSurface({
+    ownerWindow,
+    caller: caller.identity,
+    onClosed: () => {
+      const previousOpen = caller.surfaces.get('wallet') === true;
+      caller.surfaces.set('wallet', false);
+      const state = describeSurfaceState(caller, 'wallet');
+      emitSurfaceStateChanged(event, caller, state, previousOpen);
+    },
+  });
+}
+
+async function openTrustedSurfaceForCaller(surface, caller, event) {
+  if (surface === 'wallet') {
+    return openTrustedWalletSurfaceForCaller(caller, event);
+  }
+  if (surface === 'payments') {
+    return openTrustedPaymentsSurfaceForCaller(caller, event);
+  }
+  return null;
+}
+
+function closeTrustedSurface(surface) {
+  if (surface === 'wallet') {
+    return trustedWalletSurface.closeTrustedWalletSurface();
+  }
+  if (surface === 'payments') {
+    return trustedPaymentsSurface.closeTrustedPaymentsSurface();
+  }
+  return null;
+}
+
 async function setSurfaceOpen(caller, payload, open, event) {
   const surface = getSurfaceName(payload);
   if (!SUPPORTED_SURFACES.has(surface)) {
@@ -571,10 +606,10 @@ async function setSurfaceOpen(caller, payload, open, event) {
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
-  if (surface === 'payments') {
+  if (getSurfaceMode(surface) === 'shell-owned-trusted-window') {
     const result = open
-      ? await openTrustedPaymentsSurfaceForCaller(caller, event)
-      : trustedPaymentsSurface.closeTrustedPaymentsSurface();
+      ? await openTrustedSurfaceForCaller(surface, caller, event)
+      : closeTrustedSurface(surface);
     if (result?.ok !== true) {
       return {
         ok: false,
@@ -584,7 +619,7 @@ async function setSurfaceOpen(caller, payload, open, event) {
         trusted: true,
         error: result?.error || {
           code: 'SURFACE_OPEN_FAILED',
-          message: 'Failed to update trusted payments surface',
+          message: `Failed to update trusted ${surface} surface`,
         },
       };
     }
@@ -603,10 +638,10 @@ async function toggleSurfaceOpen(caller, payload, event) {
 
   const previousOpen = caller.surfaces.get(surface) === true;
   const nextOpen = !previousOpen;
-  if (surface === 'payments') {
+  if (getSurfaceMode(surface) === 'shell-owned-trusted-window') {
     const result = nextOpen
-      ? await openTrustedPaymentsSurfaceForCaller(caller, event)
-      : trustedPaymentsSurface.closeTrustedPaymentsSurface();
+      ? await openTrustedSurfaceForCaller(surface, caller, event)
+      : closeTrustedSurface(surface);
     if (result?.ok !== true) {
       return {
         ok: false,
@@ -616,7 +651,7 @@ async function toggleSurfaceOpen(caller, payload, event) {
         trusted: true,
         error: result?.error || {
           code: 'SURFACE_OPEN_FAILED',
-          message: 'Failed to update trusted payments surface',
+          message: `Failed to update trusted ${surface} surface`,
         },
       };
     }

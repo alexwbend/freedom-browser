@@ -35,6 +35,8 @@ const mockRadicleGetStatus = jest.fn();
 const mockRadicleCheckBinary = jest.fn();
 const mockFetchBuffer = jest.fn();
 const mockFetchToFile = jest.fn();
+const mockOpenTrustedWalletSurface = jest.fn();
+const mockCloseTrustedWalletSurface = jest.fn();
 const mockOpenTrustedPaymentsSurface = jest.fn();
 const mockCloseTrustedPaymentsSurface = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
@@ -49,6 +51,7 @@ const ANT_MANAGER_MODULE = require.resolve('./ant-manager');
 const IPFS_MANAGER_MODULE = require.resolve('./ipfs-manager');
 const RADICLE_MANAGER_MODULE = require.resolve('./radicle-manager');
 const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
+const TRUSTED_WALLET_SURFACE_MODULE = require.resolve('./trusted-wallet-surface');
 const TRUSTED_PAYMENTS_SURFACE_MODULE = require.resolve('./trusted-payments-surface');
 
 function makeSender(overrides = {}) {
@@ -135,6 +138,10 @@ function loadShellApi(options = {}) {
         fetchBuffer: mockFetchBuffer,
         fetchToFile: mockFetchToFile,
       }),
+      [TRUSTED_WALLET_SURFACE_MODULE]: () => ({
+        openTrustedWalletSurface: (...args) => mockOpenTrustedWalletSurface(...args),
+        closeTrustedWalletSurface: (...args) => mockCloseTrustedWalletSurface(...args),
+      }),
       [TRUSTED_PAYMENTS_SURFACE_MODULE]: () => ({
         openTrustedPaymentsSurface: (...args) => mockOpenTrustedPaymentsSurface(...args),
         closeTrustedPaymentsSurface: (...args) => mockCloseTrustedPaymentsSurface(...args),
@@ -181,6 +188,8 @@ describe('shell-api', () => {
     mockRadicleCheckBinary.mockReset();
     mockFetchBuffer.mockReset();
     mockFetchToFile.mockReset();
+    mockOpenTrustedWalletSurface.mockReset();
+    mockCloseTrustedWalletSurface.mockReset();
     mockOpenTrustedPaymentsSurface.mockReset();
     mockCloseTrustedPaymentsSurface.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
@@ -1258,8 +1267,25 @@ describe('shell-api', () => {
   });
 
   test('handles capability-gated shell-owned surface requests per caller', async () => {
+    mockOpenTrustedWalletSurface.mockResolvedValue({
+      ok: true,
+      surface: 'wallet',
+      owner: 'shell',
+      trusted: true,
+    });
+    mockCloseTrustedWalletSurface.mockReturnValue({
+      ok: true,
+      surface: 'wallet',
+      owner: 'shell',
+      trusted: true,
+    });
+
     const { mod } = loadShellApi();
-    const firstSender = makeSender({ id: 106 });
+    const ownerWindow = { id: 502 };
+    const firstSender = makeSender({
+      id: 106,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
     const secondSender = makeSender({ id: 107 });
     const packageWithSurfaceControl = makePackage({
       capabilities: ['surfaces.wallet.control'],
@@ -1277,7 +1303,7 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: false,
       owner: 'shell',
-      mode: 'shell-owned-placeholder',
+      mode: 'shell-owned-trusted-window',
       trusted: true,
       capabilities: ['open', 'close', 'toggle'],
     });
@@ -1292,7 +1318,14 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: true,
       owner: 'shell',
-      mode: 'shell-owned-placeholder',
+      mode: 'shell-owned-trusted-window',
+    });
+    expect(mockOpenTrustedWalletSurface).toHaveBeenCalledWith({
+      ownerWindow,
+      caller: expect.objectContaining({
+        packageId: 'baby.freedom.chrome.fixture',
+      }),
+      onClosed: expect.any(Function),
     });
     expect(firstSender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
@@ -1301,7 +1334,7 @@ describe('shell-api', () => {
         surface: 'wallet',
         open: true,
         owner: 'shell',
-        mode: 'shell-owned-placeholder',
+        mode: 'shell-owned-trusted-window',
       }),
     });
     expect(secondSender.send).not.toHaveBeenCalled();
@@ -1329,6 +1362,7 @@ describe('shell-api', () => {
       surface: 'wallet',
       open: false,
     });
+    expect(mockCloseTrustedWalletSurface).toHaveBeenCalledTimes(1);
     expect(firstSender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
       event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
       data: expect.objectContaining({

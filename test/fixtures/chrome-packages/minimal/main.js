@@ -219,7 +219,7 @@
         initial.ok === true &&
         initial.open === false &&
         initial.owner === 'shell' &&
-        initial.mode === 'shell-owned-placeholder' &&
+        initial.mode === 'shell-owned-trusted-window' &&
         opened.ok === true &&
         opened.open === true &&
         toggled.ok === true &&

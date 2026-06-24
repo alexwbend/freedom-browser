@@ -245,12 +245,13 @@ still receives:
 }
 ```
 
-If the origin is not connected, the requested account is not connected, the
-parameters are invalid, or the vault is locked, main returns structured
-provider errors without falling back to package chrome. Deprecated/unsupported
-signing methods such as `eth_sign` remain safe failure paths for now. This
-does not select accounts, unlock vault state, expose raw wallet authority, or
-migrate the full wallet center UI.
+If the origin is not connected, the requested account is not connected, or the
+parameters are invalid, main returns structured provider errors without
+falling back to package chrome. If the vault is locked after an accepted
+signing or transaction prompt, main opens the shell-owned trusted vault-unlock
+window and retries only after unlock succeeds. Deprecated/unsupported signing
+methods such as `eth_sign` remain safe failure paths for now. This does not
+select accounts, expose raw wallet authority, or migrate secret-management UI.
 
 ### Package-Hosted Swarm Connection Approval
 
@@ -601,7 +602,7 @@ Vault unlock:
 
 ## Non-Goals In This Slice
 
-- no real wallet center migration
+- no full wallet center or secret-management migration
 - no richer wallet account-selection implementation
 - no richer x402 approval-review surface or general vault-unlock migration
 - no full publish-center approval migration

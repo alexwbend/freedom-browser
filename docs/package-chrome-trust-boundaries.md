@@ -41,7 +41,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Profile settings page | user in `freedom://settings/profiles` | internal settings page uses raw profile IPC for reads, creation/import, switching, delete, rename, and node configuration | transitional package-hosted internal page could call bundled profile management IPC through `freedomAPI` | `trusted-surface` for management, `browser-state-api` for display only | bundled trusted settings page until a shell-owned profile management surface exists | package-hosted page shows deterministic unavailable state; main rejects raw profile reads/mutations/node config with `PROFILE_MANAGEMENT_UNAVAILABLE` and does not broadcast raw `profile:updated` events into package chrome or package-hosted internal pages | none beyond `browserState.profiles.read` display APIs | IPC unit coverage plus official package smoke for disabled `freedom://settings/profiles` state | implemented |
 | Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls call narrow owner-window methods or are hidden in test environment | `windows.control` | unit coverage for method/capability plus package smoke for visible fullscreen control | implemented for owner-window title/close/minimize/maximize/fullscreen |
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke opened the node menu but did not prove status/control behavior | `services.*` read API | shell owns node lifecycle and external-node prompts | package delegates read-only service registry/status/binary reads to `freedomShell`; start/stop and raw local endpoints remain shell-owned and unavailable to package chrome; default-port external-node candidate prompts fall back to shell-owned native dialogs for package windows | `services.read`, later narrower write caps only if approved | package smoke for sanitized status reads, broad node API absence, disabled lifecycle controls, and unit coverage for package-window native prompt fallback | read-only status implemented; package windows do not receive legacy external-node prompt IPC |
-| Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skipped sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button requests and mirrors shell-owned surface state and must not initialize package-hosted wallet/identity UI | `surfaces.wallet.control` | official package smoke proving visible shell-owned placeholder behavior and caller-scoped state-event updates; fixture smoke proving placeholder surface control | shell-owned placeholder API and `surfaces.stateChanged` event implemented and exercised by official package smoke; real wallet surface still pending trusted prompt migration |
+| Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skipped sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button requests and mirrors shell-owned surface state and must not initialize package-hosted wallet/identity UI | `surfaces.wallet.control` | official package smoke proving visible shell-owned trusted-window behavior and caller-scoped state-event updates; fixture smoke proving surface control | shell-owned trusted wallet window implemented and exercised by official package smoke; it displays public wallet accounts and dApp wallet permissions and can revoke dApp permissions, while account selection, secret export, identity onboarding, and full wallet-center management remain shell-owned future work |
 | Wallet connect | website provider request | page/provider code coordinates with renderer wallet UI and main permission stores | package chrome has no wallet globals; low-risk `eth_chainId` now bypasses package chrome | `provider-path`, then `trusted-surface` | shell-owned trusted prompt | guest content talks to main provider broker; package chrome does not broker or render final approval | provider capabilities are not package chrome caps | deterministic package provider-flow smoke | package-hosted `eth_requestAccounts` now reaches a shell-owned native wallet-connect prompt with main-derived context; accepted prompts write main-side dApp permission and return the active account, rejection returns `shell_trusted_prompt_rejected`; `eth_accounts` reads existing main-owned grants |
 | Transaction send/sign | website/dApp or wallet UI | wallet UI and wallet IPC under broad preload | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned transaction/signing prompt | final approval rendered by shell-owned trusted surface; package chrome can only request surface/open state | none for package provider; surface caps only | trusted broker doc/tests and official package smoke before success migration | package-hosted `personal_sign` signs through a shell-owned native prompt plus main/vault execution for connected origins; if the vault is locked after approval, main opens the shell-owned trusted vault-unlock window and retries only after successful unlock; package-hosted `eth_sendTransaction` now sends through a shell-owned native prompt plus main-side account/chain validation, gas/fee preparation, vault access, trusted vault-unlock retry when needed, and the existing transaction recorder for connected origins; deprecated `eth_sign` still returns structured safe failures pending richer shell-owned approval surfaces |
 | Typed-data sign | website/dApp | wallet/dApp signing UI under bundled renderer | unavailable to package chrome | `provider-path`, `trusted-surface` | shell-owned signing prompt | same as transaction sign | none for package provider; surface caps only | trusted broker doc/tests before success migration | package-hosted `eth_signTypedData`, `eth_signTypedData_v3`, and `eth_signTypedData_v4` now sign through the shell-owned wallet signature prompt plus main/vault execution for connected origins, including shell-owned vault-unlock retry when signing first finds the vault locked; unsupported typed-data variants still safe-fail |
@@ -97,7 +97,7 @@ by this document.
 | `onX402ApprovalNeeded`, `onX402ApprovalResult`, `onX402UnlockNeeded`, `onX402CapConsumed`, `onX402BalancesUpdated` | no-op subscriptions | x402 UI can silently miss events | package chrome no longer receives raw x402 host events; broker/surface only |
 | `getWebviewPreloadPath` | returns `null` | package must not choose guest preload | keep unavailable; main enforces guest preload in `will-attach-webview` |
 | `saveImage`, `copyText`, `readClipboardText`, `copyImageFromUrl` | false/failure defaults | context menu and clipboard/image controls can fail silently | `copyText`, `copyImageFromUrl`, and `saveImage` now delegate to narrow `freedomShell` APIs gated by `clipboard.write` / `downloads.saveImage`; `saveImage` does not return the selected file path to package chrome; `readClipboardText` remains unavailable in package mode, the custom address-bar Paste item is disabled, and keyboard paste remains browser/input-mediated with package smoke coverage |
-| `getSurfaceState`, `openSurface`, `closeSurface`, `toggleSurface`, `onSurfaceStateChanged` | unavailable through the renderer adapter while direct `freedomShell` methods existed | wallet/sidebar control could stay hidden, reach around the adapter, or fail to mirror shell-owned state changes | now delegate to `freedomShell` surface-control methods; `wallet` is gated by `surfaces.wallet.control`, `payments` is gated by `surfaces.payments.control`, and `surfaces.stateChanged` derives its required capability from the event surface; official package smoke proves wallet placeholder behavior and the visible package-hosted payments page can open the shell-owned payments window |
+| `getSurfaceState`, `openSurface`, `closeSurface`, `toggleSurface`, `onSurfaceStateChanged` | unavailable through the renderer adapter while direct `freedomShell` methods existed | wallet/sidebar control could stay hidden, reach around the adapter, or fail to mirror shell-owned state changes | now delegate to `freedomShell` surface-control methods; `wallet` is gated by `surfaces.wallet.control`, `payments` is gated by `surfaces.payments.control`, and `surfaces.stateChanged` derives its required capability from the event surface; official package smoke proves wallet trusted-window behavior and the visible package-hosted payments page can open the shell-owned payments window |
 | `getCachedFavicon` | now delegates to `freedomShell.getCachedFavicon()` with `null` only if unavailable | tabs/bookmarks/autocomplete can lack cached icons | implemented through `browserState.favicons.read` |
 | `getFavicon`, `fetchFavicon`, `fetchFaviconWithKey` | now delegate to `freedomShell` favicon write/fetch methods with `null` only if unavailable | newly visited pages may not fetch/cache fresh icons in package mode | implemented through scoped `browserState.favicons.write`; main still owns network fetch and cache writes |
 
@@ -142,24 +142,27 @@ guest content talks to main without package chrome in the path.
 
 ## Surface-Control Status
 
-The first `surface-control-api` slice implements `surfaces.wallet.control` for
-the wallet placeholder state. The payments slice adds `surfaces.payments.control`
-for `getSurfaceState("payments")`, `openSurface("payments")`,
-`closeSurface("payments")`, `toggleSurface("payments")`, and the
+The first `surface-control-api` slice implemented `surfaces.wallet.control` for
+the wallet placeholder state. The current wallet slice promotes it to a real
+shell-owned trusted window with `mode: "shell-owned-trusted-window"`. The
+payments slice adds `surfaces.payments.control` for the shell-owned trusted
+payments window. Both surfaces use `getSurfaceState(...)`,
+`openSurface(...)`, `closeSurface(...)`, `toggleSurface(...)`, and the
 surface-scoped `surfaces.stateChanged` event through the sender-checked
 `window.freedomShell` bridge. Unsupported surfaces return a structured
 `SURFACE_UNSUPPORTED` result, and callers without the surface-specific
 capability are denied by the shell API policy for both methods and events.
 
-Wallet remains a caller-scoped shell-owned placeholder with
-`mode: "shell-owned-placeholder"`. Payments opens a real shell-owned trusted
-window with `mode: "shell-owned-trusted-window"`. That window is bundled shell
-code with a dedicated preload; only its WebContents can call its scoped IPC
-channels. It reads recent payment history and x402 caps in main and supports
-cap update, cap revoke, revoke all caps for an origin, and payment-history
-clear without exposing those operations to package chrome. This checkpoint
-still does not migrate wallet, identity, provider, signing, vault, richer x402
-review, or Swarm approval UI into package mode.
+Wallet and payments windows are bundled shell code with dedicated preloads;
+only each trusted WebContents can call its scoped IPC channels. The wallet
+window reads public wallet rows and dApp wallet permissions in main and can
+revoke dApp wallet permissions without exposing wallet, identity, vault, or
+dApp permission-store APIs to package chrome. The payments window reads recent
+payment history and x402 caps in main and supports cap update, cap revoke,
+revoke all caps for an origin, and payment-history clear without exposing
+those operations to package chrome. This checkpoint still does not migrate
+identity onboarding, seed/private-key export, richer account selection,
+richer x402 review, or full Swarm approval UI into package mode.
 
 ## Window-Control Status
 
@@ -289,9 +292,10 @@ receive raw x402 IPC, raw vault state, raw cap-edit APIs, arbitrary payment
 permission APIs, or raw payment-history IPC. Cap editing/revocation and
 payment-history review now live in the shell-owned trusted payments window
 behind `surfaces.payments.control`. File/folder/full publish UX, richer
-account selection/review, richer x402 approval review, and identity/export
-vault management UX still need main-derived guest/request context and real
-shell-owned prompt surfaces before they can be called complete in package mode.
+account selection/signing review, richer x402 approval review, and
+identity/export vault management UX still need main-derived guest/request
+context and real shell-owned prompt surfaces before they can be called
+complete in package mode.
 
 ## Ethereum Provider Status
 
@@ -325,9 +329,9 @@ This checkpoint does not expose wallet globals, identity globals, raw wallet
 IPC, dApp permission stores, raw signing authority, or final transaction
 approval UI to package chrome. Wallet connect currently shares the active
 account only, and package-hosted signing uses the connected account only;
-richer account selection/review still requires the trusted prompt/surface
-migration before the wallet approval surface can be called complete in package
-mode.
+richer account selection/signing review still requires additional trusted
+prompt/surface migration before the wallet approval surface can be called
+complete in package mode.
 
 ## Swarm Provider Status
 

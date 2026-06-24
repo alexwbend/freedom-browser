@@ -280,7 +280,7 @@ The launched package smoke now builds a temporary official chrome package from
 `guestContent.transitionalWebviews: true` and declares only the shell
 capabilities needed for startup readiness, deterministic navigation coverage,
 the ordinary browser-state reads/writes used by the bookmarks bar and
-autocomplete, and the shell-owned wallet surface placeholder.
+autocomplete, and the shell-owned wallet/payments trusted surfaces.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
@@ -368,9 +368,9 @@ The official package smoke currently proves:
   the bounded 10-token/30-day cap option, choosing it under the locked harness
   vault reaches the shell-owned vault-unlock prompt, and no raw `x402:*` host
   events are delivered to package chrome
-- the wallet/sidebar control opens a shell-owned placeholder surface in
-  package mode through `surfaces.wallet.control` without exposing wallet or
-  identity APIs to package chrome
+- the wallet/sidebar control opens a shell-owned trusted wallet window in
+  package mode through `surfaces.wallet.control` without exposing wallet,
+  identity, vault, provider, or permission-store APIs to package chrome
 - the main menu opens, and the node menu opens with sanitized service status
   available through `services.read`
 - package chrome does not receive broad node globals such as `ant`, `ipfs`,
@@ -601,19 +601,21 @@ local file/folder picker UI, stamp management, or the full publish/feed
 approval UX.
 
 The surface-control methods expose a narrow shell-owned request path for
-trusted surfaces. `surfaces.wallet.control` controls the caller-scoped wallet
-placeholder state with `owner: "shell"` and
-`mode: "shell-owned-placeholder"`. `surfaces.payments.control` controls the
-shell-owned trusted payments window with `mode:
-"shell-owned-trusted-window"`. Package chrome can read, open, close, or toggle
-only the surfaces it declares. The caller-scoped `surfaces.stateChanged` event
-is gated by the requested surface capability, so payment surface events do not
-grant wallet control and wallet events do not grant payment control. This does
-not expose wallet, identity, provider, signing, vault, x402 permission-store,
-or payment-history APIs to package chrome. The official package smoke exercises
-the visible wallet/sidebar affordance against the shell-owned placeholder and
+trusted surfaces. `surfaces.wallet.control` controls the shell-owned trusted
+wallet window with `owner: "shell"` and `mode:
+"shell-owned-trusted-window"`. It can display public wallet account rows and
+connected dApp permission rows, and it can revoke dApp wallet permissions from
+trusted bundled code. `surfaces.payments.control` controls the shell-owned
+trusted payments window with the same trusted-window mode. Package chrome can
+read, open, close, or toggle only the surfaces it declares. The caller-scoped
+`surfaces.stateChanged` event is gated by the requested surface capability, so
+payment surface events do not grant wallet control and wallet events do not
+grant payment control. This does not expose wallet, identity, provider,
+signing, vault, x402 permission-store, payment-history, or dApp permission
+store APIs to package chrome. The official package smoke exercises the visible
+wallet/sidebar affordance against the shell-owned wallet window and
 opens/closes the trusted payments surface from package mode. The fixture
-package smoke also exercises the placeholder wallet control path.
+package smoke also exercises the wallet surface control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
 documented in `docs/trusted-prompt-broker.md`. It proves package chrome can
@@ -846,9 +848,9 @@ default cap for recognized tokens, vault-unlock prompts now have main-derived
 request/payment context and can unlock through a shell-owned trusted window
 before retrying the x402 sign path, and x402 cap editing/revocation plus
 payment-history review now live in the shell-owned trusted payments window.
-Full Swarm publish/feed UX, richer wallet account selection/review, richer
-x402 approval review, and non-provider vault management flows still need real
-shell-owned prompt UI before they can move fully through the broker.
+Full Swarm publish/feed UX, richer wallet account selection/signing review,
+richer x402 approval review, and non-provider vault management flows still
+need real shell-owned prompt UI before they can move fully through the broker.
 
 ## Package Store
 

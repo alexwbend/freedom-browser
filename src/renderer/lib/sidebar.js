@@ -40,7 +40,7 @@ export function initSidebar() {
 
   if (packageSurfaceMode) {
     featureEnabled = true;
-    configurePackageSurfacePlaceholder();
+    configurePackageSurfaceChrome();
     applyFeatureVisibility();
     packageSurfaceDisposer = subscribePackageSurfaceState();
     syncPackageSurfaceState();
@@ -183,9 +183,7 @@ function dispatchVisibilityEvent(wasOpen) {
   }
 }
 
-function configurePackageSurfacePlaceholder() {
-  sidebar.dataset.surfaceMode = 'shell-owned-placeholder';
-
+function configurePackageSurfaceChrome() {
   const tabs = sidebar.querySelector('.sidebar-tabs');
   if (tabs) {
     tabs.hidden = true;
@@ -193,9 +191,22 @@ function configurePackageSurfacePlaceholder() {
 
   document.getElementById('sidebar-setup-cta')?.classList.add('hidden');
   document.getElementById('sidebar-identity')?.classList.add('hidden');
+  updatePackageSurfacePresentation({ mode: 'shell-owned-placeholder' });
+}
 
+function updatePackageSurfacePresentation(state = {}) {
+  const mode = state.mode || 'shell-owned-placeholder';
+  sidebar.dataset.surfaceMode = mode;
   const content = sidebar.querySelector('.sidebar-content');
-  if (!content || document.getElementById('package-wallet-surface-placeholder')) {
+  if (!content) {
+    return;
+  }
+  const existingPlaceholder = document.getElementById('package-wallet-surface-placeholder');
+  if (mode !== 'shell-owned-placeholder') {
+    existingPlaceholder?.remove();
+    return;
+  }
+  if (existingPlaceholder) {
     return;
   }
 
@@ -264,6 +275,18 @@ function cleanupPackageSurfaceSubscription() {
 function applyPackageSurfaceState(state, { dispatch = true } = {}) {
   if (state?.ok !== true || state.surface !== WALLET_SURFACE) {
     return false;
+  }
+  updatePackageSurfacePresentation(state);
+  if (state.mode === 'shell-owned-trusted-window') {
+    const wasOpen = isOpen;
+    isOpen = false;
+    applyState();
+    toggleBtn.classList.toggle('active', state.open === true);
+    toggleBtn.setAttribute('aria-expanded', state.open === true ? 'true' : 'false');
+    if (dispatch && wasOpen) {
+      dispatchVisibilityEvent(wasOpen);
+    }
+    return wasOpen !== isOpen;
   }
   const wasOpen = isOpen;
   isOpen = state.open === true;

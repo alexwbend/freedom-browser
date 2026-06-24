@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Freedom Wallet</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f8f7f3;
+        color: #171717;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f8f7f3;
+      }
+
+      main {
+        display: grid;
+        gap: 24px;
+        padding: 28px;
+      }
+
+      header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        border-bottom: 1px solid #dedbd2;
+        padding-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 700;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 15px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      p {
+        margin: 4px 0 0;
+        color: #5d5a52;
+        font-size: 13px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: minmax(260px, 0.8fr) minmax(340px, 1.2fr);
+        gap: 20px;
+      }
+
+      section {
+        min-width: 0;
+      }
+
+      ul {
+        display: grid;
+        gap: 10px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .item-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border: 1px solid #dedbd2;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 14px;
+      }
+
+      .item-row.active {
+        border-color: #2f7d59;
+      }
+
+      .item-title {
+        font-size: 14px;
+        font-weight: 650;
+        overflow-wrap: anywhere;
+      }
+
+      .item-meta {
+        margin-top: 4px;
+        color: #68645c;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      }
+
+      .badge {
+        flex: none;
+        border-radius: 999px;
+        background: #e6f2ec;
+        color: #1c5d3f;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 5px 9px;
+      }
+
+      .secondary-button,
+      .close-button {
+        border: 1px solid #c8c3b8;
+        border-radius: 7px;
+        background: #ffffff;
+        color: #171717;
+        cursor: pointer;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 650;
+        padding: 8px 12px;
+      }
+
+      .secondary-button:hover,
+      .close-button:hover {
+        background: #efede7;
+      }
+
+      .secondary-button:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+
+      .empty {
+        border: 1px dashed #c8c3b8;
+        border-radius: 8px;
+        color: #68645c;
+        padding: 16px;
+      }
+
+      .error {
+        border: 1px solid #d8a39b;
+        border-radius: 8px;
+        background: #fff3f1;
+        color: #8f2f24;
+        padding: 12px;
+      }
+
+      @media (max-width: 760px) {
+        main {
+          padding: 20px;
+        }
+
+        header,
+        .grid,
+        .item-row {
+          grid-template-columns: 1fr;
+        }
+
+        header,
+        .item-row {
+          align-items: stretch;
+        }
+
+        .grid {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1 id="heading">Wallet Accounts</h1>
+          <p id="package-label">Shell-owned trusted surface</p>
+        </div>
+        <button type="button" class="close-button" id="close">Close</button>
+      </header>
+
+      <div class="error" id="error" hidden></div>
+
+      <div class="grid">
+        <section aria-labelledby="wallets-title">
+          <h2 id="wallets-title">Accounts</h2>
+          <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
+          <ul id="wallet-list"></ul>
+        </section>
+
+        <section aria-labelledby="permissions-title">
+          <h2 id="permissions-title">Connected Sites</h2>
+          <div class="empty" id="permission-empty" hidden>No sites have wallet access.</div>
+          <ul id="permission-list"></ul>
+        </section>
+      </div>
+    </main>
+    <script src="./trusted-wallet-renderer.js"></script>
+  </body>
+</html>
