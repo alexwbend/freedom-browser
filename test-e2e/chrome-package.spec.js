@@ -333,7 +333,7 @@ async function getActiveWebviewText(page, selector) {
   }, selector);
 }
 
-async function getActiveWebviewPublishSetupState(page) {
+async function getActiveWebviewPackageSettingsBoundaryState(page) {
   return page.evaluate(async () => {
     const webview = document.querySelector('webview:not(.hidden)');
     if (!webview || typeof webview.executeJavaScript !== 'function') {
@@ -342,14 +342,22 @@ async function getActiveWebviewPublishSetupState(page) {
     try {
       return await webview.executeJavaScript(`
         (() => {
-          const button = document.getElementById('swarm-mode-action-btn');
-          const help = document.getElementById('swarm-mode-help');
+          const byId = (id) => document.getElementById(id);
           return {
-            exists: Boolean(button),
-            hidden: button ? button.hidden : null,
-            disabled: button ? button.disabled : null,
-            text: button ? button.textContent : null,
-            help: help ? help.textContent : null,
+            exists: true,
+            url: location.href,
+            packageMode: document.body.dataset.packageSettingsMode || '',
+            startAntDisabled: byId('start-ant-at-launch')?.disabled ?? null,
+            startIpfsDisabled: byId('start-ipfs-at-launch')?.disabled ?? null,
+            enableIdentityDisabled: byId('enable-identity-wallet')?.disabled ?? null,
+            autoUpdateDisabled: byId('auto-update')?.disabled ?? null,
+            swarmModeHelp: byId('swarm-mode-help')?.textContent || '',
+            swarmModeHidden: byId('swarm-mode-action-btn')?.hidden ?? null,
+            chainsText: byId('chains-view')?.textContent || '',
+            rpcText: byId('rpc-view')?.textContent || '',
+            ensHelp: byId('ens-lens-help')?.textContent || '',
+            ensMethodDisabled: byId('ens-lens-method')?.disabled ?? null,
+            ensProverDisabled: byId('ens-prover-url')?.disabled ?? null,
           };
         })()
       `);
@@ -512,18 +520,6 @@ async function removeFirstActiveWebviewHistoryResult(page, query = '') {
       })(${JSON.stringify(searchQuery)})
     `);
   }, query);
-}
-
-async function clickActiveWebviewPublishSetup(page) {
-  await page.evaluate(async () => {
-    const webview = document.querySelector('webview:not(.hidden)');
-    if (!webview || typeof webview.executeJavaScript !== 'function') {
-      throw new Error('No active webview');
-    }
-    await webview.executeJavaScript(`
-      document.getElementById('swarm-mode-action-btn')?.click()
-    `);
-  });
 }
 
 async function showActiveWebviewContextMenu(page, context) {
@@ -2382,29 +2378,55 @@ test('official browser chrome can launch as a local package with transitional we
       })
       .toContain('/pages/settings.html');
     await expect
-      .poll(() => getActiveWebviewPublishSetupState(page), {
-        message: 'Waiting for package settings publish setup action',
+      .poll(() => getActiveWebviewPackageSettingsBoundaryState(page), {
+        message: 'Waiting for package settings restricted mode',
         timeout: 10_000,
       })
       .toMatchObject({
         exists: true,
-        hidden: false,
-        disabled: false,
-        text: 'Set up publishing →',
-        help: 'Ultra-light — read-only. Set up publishing to switch to light mode.',
+        packageMode: 'restricted',
+        startAntDisabled: true,
+        startIpfsDisabled: true,
+        enableIdentityDisabled: true,
+        autoUpdateDisabled: true,
+        swarmModeHidden: true,
+        swarmModeHelp: 'Swarm node mode is shell-owned and unavailable in package mode.',
       });
-    await clickActiveWebviewPublishSetup(page);
+
+    await navigateAddress(page, 'freedom://settings/chains');
     await expect
-      .poll(() => getActiveWebviewPublishSetupState(page), {
-        message: 'Waiting for package settings publish setup unavailable state',
+      .poll(() => getActiveWebviewPackageSettingsBoundaryState(page), {
+        message: 'Waiting for package chains settings unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({ exists: true, packageMode: 'restricted' });
+    expect((await getActiveWebviewPackageSettingsBoundaryState(page)).chainsText).toContain(
+      'Network and RPC provider settings are shell-owned and unavailable in package mode'
+    );
+
+    await navigateAddress(page, 'freedom://settings/rpc');
+    await expect
+      .poll(() => getActiveWebviewPackageSettingsBoundaryState(page), {
+        message: 'Waiting for package RPC settings unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({ exists: true, packageMode: 'restricted' });
+    expect((await getActiveWebviewPackageSettingsBoundaryState(page)).rpcText).toContain(
+      'Network and RPC provider settings are shell-owned and unavailable in package mode'
+    );
+
+    await navigateAddress(page, 'freedom://settings/ens');
+    await expect
+      .poll(() => getActiveWebviewPackageSettingsBoundaryState(page), {
+        message: 'Waiting for package ENS settings unavailable state',
         timeout: 10_000,
       })
       .toMatchObject({
         exists: true,
-        hidden: false,
-        disabled: true,
-        text: 'Publishing setup unavailable',
-        help: 'Publish setup is shell-owned and unavailable in package mode',
+        packageMode: 'restricted',
+        ensMethodDisabled: true,
+        ensProverDisabled: true,
+        ensHelp: 'Network and RPC provider settings are shell-owned and unavailable in package mode',
       });
 
     await navigateAddress(page, 'freedom://settings/profiles');

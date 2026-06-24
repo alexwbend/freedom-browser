@@ -13,6 +13,11 @@ const PROFILE_MANAGEMENT_UNAVAILABLE = Object.freeze({
   message: 'Profile management is shell-owned and unavailable in package mode',
 });
 
+const NETWORK_SETTINGS_UNAVAILABLE = Object.freeze({
+  code: 'NETWORK_SETTINGS_UNAVAILABLE',
+  message: 'Network and RPC provider settings are shell-owned and unavailable in package mode',
+});
+
 function isPackageHostedInternalPage(event) {
   const hostWebContents = event?.sender?.hostWebContents;
   if (!hostWebContents) {
@@ -44,11 +49,20 @@ function packageHostedProfileManagementUnavailable() {
   };
 }
 
+function packageHostedNetworkSettingsUnavailable() {
+  return {
+    success: false,
+    error: { ...NETWORK_SETTINGS_UNAVAILABLE },
+  };
+}
+
 module.exports = {
+  NETWORK_SETTINGS_UNAVAILABLE,
   PAYMENTS_UNAVAILABLE,
   PROFILE_MANAGEMENT_UNAVAILABLE,
   SWARM_PUBLISH_UNAVAILABLE,
   isPackageHostedInternalPage,
+  packageHostedNetworkSettingsUnavailable,
   packageHostedPaymentsUnavailable,
   packageHostedProfileManagementUnavailable,
   packageHostedSwarmPublishUnavailable,

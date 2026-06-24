@@ -2010,6 +2010,57 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 19: Package-Hosted Settings Boundary
+
+Current checkpoint: package-hosted internal settings pages no longer use raw
+settings, network, or RPC provider IPC to mutate shell-owned provider/node
+configuration. Package-hosted settings writes are filtered through the same
+package-safe browser UI subset as `freedomShell.saveSettings()`, while visible
+node startup, identity/wallet, Radicle startup, updater, Chains, RPC Providers,
+and ENS network-configuration controls are disabled or rendered unavailable.
+
+Implemented in this checkpoint:
+
+- moved the package-safe settings write filter into `src/main/settings-store.js`
+  so both `freedomShell.saveSettings()` and package-hosted internal
+  `settings:save` requests use the same allowed key set
+- added package-hosted settings metadata to `settings:get` so
+  `freedom://settings` can render restricted package-mode behavior
+- blocked package-hosted network/RPC IPC before registry, RPC-provider,
+  token-registry, ENS-cache, or provider-cache mutations can run
+- added structured `NETWORK_SETTINGS_UNAVAILABLE` results for package-hosted
+  Chains, RPC Providers, and ENS network-configuration settings
+- changed `freedom://settings` so package-hosted startup/experimental unsafe
+  toggles are disabled, Swarm node mode shows a shell-owned unavailable state,
+  and Chains/RPC/ENS sections render deterministic unavailable states
+- expanded official package smoke coverage for the restricted settings state
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/settings-store.test.js src/main/networks/network-ipc.test.js src/main/shell-api.test.js` passed:
+  3 suites, 52 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2180 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `xvfb-run -a npm run test:e2e` passed:
+  27 tests.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+
 ### Chrome UI Checkpoint 18: ENS Wallet Lookup Adapter Boundary
 
 Current checkpoint: package-mode `resolveEnsAddress()` and

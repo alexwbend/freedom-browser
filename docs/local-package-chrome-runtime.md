@@ -298,6 +298,10 @@ The official package smoke currently proves:
   browser-state shell API in package mode
 - package-safe settings writes persist through the browser-state shell API
   without allowing package chrome to mutate service/provider settings
+- package-hosted `freedom://settings` uses the same package-safe settings
+  write subset, disables node startup, identity/wallet, Radicle startup, and
+  updater toggles, and renders Chains, RPC Providers, and ENS network
+  configuration as shell-owned unavailable states
 - `freedom://settings/startup` and `freedom://publish` expose intentional
   package-mode unavailable states for shell-owned Swarm publish flows instead
   of leaving visible publish controls clickable
@@ -492,7 +496,12 @@ sender-checked shell bridge. `getSettings()` provides settings needed by
 package chrome initialization. `saveSettings(settings)` persists only
 package-safe browser UI settings such as theme, bookmark-bar visibility, ENS
 interstitial gating, and sidebar dimensions; service/node/provider-oriented
-settings in the same payload are ignored by main. The bookmark methods provide
+settings in the same payload are ignored by main. Package-hosted internal
+settings pages use that same package-safe filter for raw `settings:save`
+requests. Startup/node, identity/wallet, Radicle startup, updater, network/RPC
+provider, and ENS network-configuration controls remain shell-owned in package
+mode; the visible controls are disabled or rendered unavailable instead of
+mutating those stores through package-hosted internal pages. The bookmark methods provide
 read/write access to the existing bookmark store so the official package
 bookmarks bar, add, edit, and remove controls do not rely on no-op shims.
 `getHistory()`, `addHistory()`, `removeHistory()`, and `clearHistory()` expose

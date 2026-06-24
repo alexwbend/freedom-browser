@@ -197,6 +197,75 @@ describe('settings-store', () => {
     expect(persisted).not.toHaveProperty('extra');
   });
 
+  test('savePackageSettings persists only package-safe browser UI keys', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(
+      mod.savePackageSettings({
+        theme: 'dark',
+        showBookmarkBar: true,
+        blockUnverifiedEns: false,
+        sidebarWidth: 512.7,
+        antNodeMode: 'light',
+        enableIdentityWallet: false,
+        autoUpdate: false,
+      })
+    ).toBe(true);
+
+    expect(mod.loadSettings()).toEqual(
+      expect.objectContaining({
+        theme: 'dark',
+        showBookmarkBar: true,
+        blockUnverifiedEns: false,
+        sidebarWidth: 512,
+        antNodeMode: 'ultraLight',
+        enableIdentityWallet: true,
+        autoUpdate: true,
+      })
+    );
+  });
+
+  test('package-hosted settings IPC reports restricted mode and filters saves', async () => {
+    const ipcMain = createIpcMainMock();
+    const packageEvent = { sender: { hostWebContents: { id: 10 } } };
+    const { mod } = loadSettingsStore({
+      userDataDir,
+      ipcMain,
+      extraMocks: {
+        [require.resolve('./package-hosted-internal-page')]: () => ({
+          isPackageHostedInternalPage: jest.fn((event) => event === packageEvent),
+        }),
+      },
+    });
+
+    mod.registerSettingsIpc();
+
+    expect(ipcMain.handlers.get(IPC.SETTINGS_GET)(packageEvent)).toEqual(
+      expect.objectContaining({
+        packageHosted: true,
+        packageWritableSettings: expect.arrayContaining(['theme', 'showBookmarkBar']),
+      })
+    );
+
+    expect(
+      ipcMain.handlers.get(IPC.SETTINGS_SAVE)(packageEvent, {
+        theme: 'light',
+        showBookmarkBar: true,
+        antNodeMode: 'light',
+        enableIdentityWallet: false,
+      })
+    ).toBe(true);
+
+    expect(mod.loadSettings()).toEqual(
+      expect.objectContaining({
+        theme: 'light',
+        showBookmarkBar: true,
+        antNodeMode: 'ultraLight',
+        enableIdentityWallet: true,
+      })
+    );
+  });
+
   test('saveSettings swallows send errors from destroyed webContents', () => {
     const webContents = {
       getAllWebContents: jest.fn(() => [

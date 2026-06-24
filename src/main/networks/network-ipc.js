@@ -15,6 +15,10 @@ const chainCatalog = require('./chain-catalog');
 const tokenRegistry = require('../token-registry');
 const rpcManager = require('../wallet/rpc-manager');
 const { loadSettings } = require('../settings-store');
+const {
+  isPackageHostedInternalPage,
+  packageHostedNetworkSettingsUnavailable,
+} = require('../package-hosted-internal-page');
 
 function broadcastNetworkConfigUpdated() {
   if (!webContents?.getAllWebContents) return;
@@ -74,30 +78,43 @@ function nativeTokenForChain(chain, chainId) {
 }
 
 function registerNetworkConfigIpc() {
-  ipcMain.handle('networks:get-config', () => {
+  const unavailableForPackageHosted = (event) =>
+    isPackageHostedInternalPage(event) ? packageHostedNetworkSettingsUnavailable() : null;
+
+  ipcMain.handle('networks:get-config', (event) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return { success: true, ...getConfig() };
   });
 
-  ipcMain.handle('networks:update-network', (_event, chainId, patch) => {
+  ipcMain.handle('networks:update-network', (event, chainId, patch) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     registry.updateNetwork(chainId, patch);
     refreshDownstream();
     return { success: true };
   });
 
-  ipcMain.handle('networks:upsert-source', (_event, id, source) => {
+  ipcMain.handle('networks:upsert-source', (event, id, source) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     const result = registry.upsertEndpointSource(id, source);
     if (result?.success === false) return result;
     refreshDownstream();
     return { success: true };
   });
 
-  ipcMain.handle('networks:remove-source', (_event, id) => {
+  ipcMain.handle('networks:remove-source', (event, id) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     registry.removeEndpointSource(id);
     refreshDownstream();
     return { success: true };
   });
 
-  ipcMain.handle('networks:restore-source', (_event, id) => {
+  ipcMain.handle('networks:restore-source', (event, id) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     registry.restoreEndpointSource(id);
     refreshDownstream();
     return { success: true };
@@ -106,22 +123,30 @@ function registerNetworkConfigIpc() {
   // API keys for keyed providers. rpc-manager clears wallet providers;
   // refreshDownstream also drops ENS caches so trust state follows the
   // effective endpoint list immediately.
-  ipcMain.handle('networks:set-api-key', (_event, providerId, apiKey) => {
+  ipcMain.handle('networks:set-api-key', (event, providerId, apiKey) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return refreshAfterRpcManagerMutation(rpcManager.setApiKey(providerId, apiKey));
   });
 
-  ipcMain.handle('networks:remove-api-key', (_event, providerId) => {
+  ipcMain.handle('networks:remove-api-key', (event, providerId) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return refreshAfterRpcManagerMutation(rpcManager.removeApiKey(providerId));
   });
 
-  ipcMain.handle('networks:test-api-key', (_event, providerId, apiKey) => {
+  ipcMain.handle('networks:test-api-key', (event, providerId, apiKey) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return rpcManager.testApiKey(providerId, apiKey);
   });
 
   // The chainlist.org catalog backing the add-chain search. Both handlers
   // can hit the network, so they report failure as { success: false }
   // rather than rejecting.
-  ipcMain.handle('networks:search-chains', async (_event, query) => {
+  ipcMain.handle('networks:search-chains', async (event, query) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     try {
       return { success: true, chains: await chainCatalog.searchChains(query) };
     } catch (err) {
@@ -129,7 +154,9 @@ function registerNetworkConfigIpc() {
     }
   });
 
-  ipcMain.handle('networks:get-catalog-chain', async (_event, chainId) => {
+  ipcMain.handle('networks:get-catalog-chain', async (event, chainId) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     try {
       const chain = await chainCatalog.getCatalogChain(chainId);
       return chain
@@ -141,24 +168,34 @@ function registerNetworkConfigIpc() {
   });
 
   // The chain set — the wallet and dapp provider read chains from here.
-  ipcMain.handle('networks:get-chains', () => {
+  ipcMain.handle('networks:get-chains', (event) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return { success: true, chains: registry.getAllNetworks() };
   });
 
-  ipcMain.handle('networks:get-chain', (_event, chainId) => {
+  ipcMain.handle('networks:get-chain', (event, chainId) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     const chain = registry.getNetwork(chainId);
     return chain ? { success: true, chain } : { success: false, error: 'Chain not found' };
   });
 
-  ipcMain.handle('networks:get-available-chains', () => {
+  ipcMain.handle('networks:get-available-chains', (event) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return { success: true, chains: registry.getAvailableChains() };
   });
 
-  ipcMain.handle('networks:is-chain-available', (_event, chainId) => {
+  ipcMain.handle('networks:is-chain-available', (event, chainId) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     return { success: true, available: registry.isChainAvailable(chainId) };
   });
 
-  ipcMain.handle('networks:add-chain', (_event, chain, rpcUrls) => {
+  ipcMain.handle('networks:add-chain', (event, chain, rpcUrls) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     const normalizedChain = normalizeChainForStorage(chain);
     const result = registry.addCustomChain(normalizedChain, rpcUrls || []);
     if (result.success) {
@@ -173,7 +210,9 @@ function registerNetworkConfigIpc() {
     return result;
   });
 
-  ipcMain.handle('networks:remove-chain', (_event, chainId) => {
+  ipcMain.handle('networks:remove-chain', (event, chainId) => {
+    const unavailable = unavailableForPackageHosted(event);
+    if (unavailable) return unavailable;
     const result = registry.removeCustomChain(chainId);
     if (result.success) {
       tokenRegistry.removeCustomToken(tokenRegistry.getTokenKey(Number(chainId), null));

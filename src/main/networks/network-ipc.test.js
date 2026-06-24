@@ -38,6 +38,17 @@ function loadNetworkIpc(options = {}) {
     removeApiKey: jest.fn(() => ({ success: true })),
     testApiKey: jest.fn(() => ({ success: true })),
   };
+  const packageHostedInternalPage = {
+    isPackageHostedInternalPage: jest.fn(() => false),
+    packageHostedNetworkSettingsUnavailable: jest.fn(() => ({
+      success: false,
+      error: {
+        code: 'NETWORK_SETTINGS_UNAVAILABLE',
+        message: 'Network and RPC provider settings are shell-owned and unavailable in package mode',
+      },
+    })),
+    ...(options.packageHostedInternalPage || {}),
+  };
 
   const loaded = loadMainModule(require.resolve('./network-ipc'), {
     ipcMain,
@@ -53,6 +64,7 @@ function loadNetworkIpc(options = {}) {
       [require.resolve('../wallet/provider-manager')]: () => providerManager,
       [require.resolve('../ens-resolver')]: () => ensResolver,
       [require.resolve('../settings-store')]: () => settingsStore,
+      [require.resolve('../package-hosted-internal-page')]: () => packageHostedInternalPage,
     },
   });
 
@@ -66,6 +78,7 @@ function loadNetworkIpc(options = {}) {
     ensResolver,
     settingsStore,
     rpcManager,
+    packageHostedInternalPage,
   };
 }
 
@@ -129,5 +142,44 @@ describe('network-ipc', () => {
     expect(ctx.providerManager.clearProviderCache).not.toHaveBeenCalled();
     expect(ctx.ensResolver.invalidateCachedProvider).not.toHaveBeenCalled();
     expect(ctx.send).not.toHaveBeenCalled();
+  });
+
+  test('package-hosted internal pages cannot read or mutate network settings', async () => {
+    const packageEvent = { sender: { hostWebContents: { id: 5 } } };
+    const ctx = loadNetworkIpc({
+      packageHostedInternalPage: {
+        isPackageHostedInternalPage: jest.fn((event) => event === packageEvent),
+      },
+    });
+    const unavailable = {
+      success: false,
+      error: {
+        code: 'NETWORK_SETTINGS_UNAVAILABLE',
+        message: 'Network and RPC provider settings are shell-owned and unavailable in package mode',
+      },
+    };
+
+    expect(ctx.ipcMain.handlers.get('networks:get-config')(packageEvent)).toEqual(unavailable);
+    expect(
+      ctx.ipcMain.handlers.get('networks:update-network')(packageEvent, '1', {
+        verification: { primary: 'direct' },
+      })
+    ).toEqual(unavailable);
+    expect(
+      ctx.ipcMain.handlers.get('networks:set-api-key')(
+        packageEvent,
+        'alchemy',
+        'secret'
+      )
+    ).toEqual(unavailable);
+    expect(
+      ctx.ipcMain.handlers.get('networks:add-chain')(packageEvent, { chainId: 777 }, [])
+    ).toEqual(unavailable);
+
+    expect(ctx.registry.updateNetwork).not.toHaveBeenCalled();
+    expect(ctx.rpcManager.setApiKey).not.toHaveBeenCalled();
+    expect(ctx.registry.addCustomChain).not.toHaveBeenCalled();
+    expect(ctx.providerManager.clearProviderCache).not.toHaveBeenCalled();
+    expect(ctx.ensResolver.invalidateCachedProvider).not.toHaveBeenCalled();
   });
 });

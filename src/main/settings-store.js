@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const IPC = require('../shared/ipc-channels');
 const { broadcastToAllWebContents } = require('./lib/broadcast-to-all-webcontents');
+const { isPackageHostedInternalPage } = require('./package-hosted-internal-page');
 
 // Apply theme to nativeTheme so webviews get correct prefers-color-scheme
 function applyNativeTheme(theme) {
@@ -45,6 +46,17 @@ const DEFAULT_SETTINGS = {
   sidebarOpen: false,
   sidebarWidth: 320,
 };
+
+const PACKAGE_WRITABLE_SETTINGS = Object.freeze({
+  theme: (value) => (['system', 'light', 'dark'].includes(value) ? value : undefined),
+  showBookmarkBar: (value) => (typeof value === 'boolean' ? value : undefined),
+  blockUnverifiedEns: (value) => (typeof value === 'boolean' ? value : undefined),
+  sidebarOpen: (value) => (typeof value === 'boolean' ? value : undefined),
+  sidebarWidth: (value) => {
+    const width = Number(value);
+    return Number.isFinite(width) && width > 0 ? Math.floor(width) : undefined;
+  },
+});
 
 let cachedSettings = null;
 
@@ -143,18 +155,63 @@ function saveSettings(newSettings) {
   }
 }
 
+function filterPackageWritableSettings(newSettings) {
+  if (!newSettings || typeof newSettings !== 'object' || Array.isArray(newSettings)) {
+    return null;
+  }
+
+  const nextSettings = {};
+  for (const [key, normalize] of Object.entries(PACKAGE_WRITABLE_SETTINGS)) {
+    if (!Object.prototype.hasOwnProperty.call(newSettings, key)) {
+      continue;
+    }
+    const value = normalize(newSettings[key]);
+    if (value !== undefined) {
+      nextSettings[key] = value;
+    }
+  }
+
+  return Object.keys(nextSettings).length ? nextSettings : null;
+}
+
+function savePackageSettings(newSettings) {
+  const safeSettings = filterPackageWritableSettings(newSettings);
+  if (!safeSettings) {
+    return false;
+  }
+  return saveSettings(safeSettings);
+}
+
+function getSettingsForIpc(event) {
+  const settings = loadSettings();
+  if (!isPackageHostedInternalPage(event)) {
+    return settings;
+  }
+  return {
+    ...settings,
+    packageHosted: true,
+    packageWritableSettings: Object.keys(PACKAGE_WRITABLE_SETTINGS),
+  };
+}
+
 function registerSettingsIpc() {
-  ipcMain.handle(IPC.SETTINGS_GET, () => {
-    return loadSettings();
+  ipcMain.handle(IPC.SETTINGS_GET, (event) => {
+    return getSettingsForIpc(event);
   });
 
-  ipcMain.handle(IPC.SETTINGS_SAVE, (_event, newSettings) => {
+  ipcMain.handle(IPC.SETTINGS_SAVE, (event, newSettings) => {
+    if (isPackageHostedInternalPage(event)) {
+      return savePackageSettings(newSettings);
+    }
     return saveSettings(newSettings);
   });
 }
 
 module.exports = {
+  filterPackageWritableSettings,
+  getSettingsForIpc,
   loadSettings,
+  savePackageSettings,
   saveSettings,
   registerSettingsIpc,
 };

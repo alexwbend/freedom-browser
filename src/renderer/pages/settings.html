@@ -1227,6 +1227,44 @@
 
       const isProfileManagementUnavailable = (result) =>
         resultErrorCode(result) === 'PROFILE_MANAGEMENT_UNAVAILABLE';
+      const isNetworkSettingsUnavailable = (result) =>
+        resultErrorCode(result) === 'NETWORK_SETTINGS_UNAVAILABLE';
+      const isPackageHostedSettings = (settings) => settings?.packageHosted === true;
+
+      let packageHostedSettings = false;
+
+      const showUnavailableView = (container, title, message) => {
+        if (!container) return;
+        container.innerHTML = `
+          <h2 class="section-title">${esc(title)}</h2>
+          <div class="card">
+            <div class="rpc-block" style="border-top: none">
+              <p class="rpc-hint">${esc(message)}</p>
+            </div>
+          </div>`;
+      };
+
+      const applyPackageSettingsBoundary = (settings) => {
+        packageHostedSettings = isPackageHostedSettings(settings);
+        if (document.body?.dataset) {
+          if (packageHostedSettings) {
+            document.body.dataset.packageSettingsMode = 'restricted';
+          } else {
+            delete document.body.dataset.packageSettingsMode;
+          }
+        }
+        const shellOwnedControls = [
+          fields.startAnt,
+          fields.startIpfs,
+          fields.enableRadicle,
+          fields.startRadicle,
+          fields.enableIdentity,
+          fields.autoUpdate,
+        ];
+        shellOwnedControls.forEach((control) => {
+          if (control) control.disabled = packageHostedSettings;
+        });
+      };
 
       const setProfileManagementControlsDisabled = (disabled) => {
         if (profileFields.createName) profileFields.createName.disabled = disabled;
@@ -1670,13 +1708,17 @@
 
       const currentFormState = () => ({
         theme: fields.themeMode.value || 'system',
-        startAntAtLaunch: fields.startAnt.checked,
-        startIpfsAtLaunch: fields.startIpfs.checked,
-        enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
-        startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
-        enableIdentityWallet: fields.enableIdentity.checked,
-        autoUpdate: fields.autoUpdate.checked,
         blockUnverifiedEns: fields.blockUnverifiedEns.checked,
+        ...(packageHostedSettings
+          ? {}
+          : {
+              startAntAtLaunch: fields.startAnt.checked,
+              startIpfsAtLaunch: fields.startIpfs.checked,
+              enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
+              startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
+              enableIdentityWallet: fields.enableIdentity.checked,
+              autoUpdate: fields.autoUpdate.checked,
+            }),
       });
 
       const applyFormState = (settings) => {
@@ -1690,6 +1732,7 @@
         fields.autoUpdate.checked = settings.autoUpdate !== false;
         fields.blockUnverifiedEns.checked = settings.blockUnverifiedEns !== false;
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
+        applyPackageSettingsBoundary(settings);
       };
 
       let cachedSettings = null;
@@ -1718,6 +1761,13 @@
           swarmModeBtn.hidden = true;
           swarmModeBtn.onclick = null;
         };
+
+        if (packageHostedSettings) {
+          swarmModeHelp.textContent =
+            'Swarm node mode is shell-owned and unavailable in package mode.';
+          hideAction();
+          return;
+        }
 
         if (registryMode === 'reused' || registryMode === 'external') {
           swarmModeHelp.textContent =
@@ -1821,9 +1871,12 @@
       // and a flip changes the registry too.
       freedomAPI.onSettingsUpdated?.((settings) => {
         if (!settings) return;
-        cachedSettings = settings;
-        if (!formStateMatches(settings)) {
-          applyFormState(settings);
+        const nextSettings = packageHostedSettings
+          ? { ...settings, packageHosted: true }
+          : settings;
+        cachedSettings = nextSettings;
+        if (!formStateMatches(nextSettings)) {
+          applyFormState(nextSettings);
         }
         refreshSwarmModeRow();
       });
@@ -1876,6 +1929,9 @@
         let config = { networks: {}, sources: [] };
         let endpointForm = null; // null | { mode, id, url } — chain is the open detail; role is always rpc
         let addState = null;     // null | { mode: 'search'|'manual', results, picked } — the add-chain flow
+        let networkSettingsUnavailable = false;
+        let networkUnavailableMessage =
+          'Network and RPC provider settings are unavailable in this browser mode.';
 
         const setStatus = (msg, kind) => {
           if (!statusEl) return;
@@ -2130,6 +2186,10 @@
         };
 
         const render = () => {
+          if (networkSettingsUnavailable) {
+            showUnavailableView(view, 'Chains', networkUnavailableMessage);
+            return;
+          }
           if (addState) { renderAdd(); return; }
           const cid = openChainId();
           if (cid && config.networks[cid]) renderDetail(cid);
@@ -2139,10 +2199,21 @@
         const reload = async () => {
           try {
             const res = await freedomAPI.getNetworkConfig();
+            if (isNetworkSettingsUnavailable(res)) {
+              networkSettingsUnavailable = true;
+              networkUnavailableMessage = resultErrorMessage(
+                res,
+                'Network and RPC provider settings are unavailable in this browser mode.'
+              );
+              render();
+              setStatus('', '');
+              return;
+            }
             if (!res || !res.success) {
               setStatus('Failed to load network configuration', 'error');
               return;
             }
+            networkSettingsUnavailable = false;
             config = { networks: res.networks || {}, sources: res.sources || [] };
             render();
           } catch {
@@ -2155,7 +2226,7 @@
           try {
             const res = await fn();
             if (res && res.success === false) {
-              setStatus(res.error || 'Change failed', 'error');
+              setStatus(resultErrorMessage(res, 'Change failed'), 'error');
               return;
             }
             setStatus('', '');
@@ -2175,6 +2246,13 @@
             const res = await freedomAPI.searchChains(query);
             if (seq !== searchSeq) return;  // a newer search has superseded this one
             if (!addState || addState.mode !== 'search' || addState.picked) return;
+            if (isNetworkSettingsUnavailable(res)) {
+              networkSettingsUnavailable = true;
+              networkUnavailableMessage = resultErrorMessage(res, networkUnavailableMessage);
+              addState = null;
+              render();
+              return;
+            }
             addState.results = res && res.success ? res.chains : [];
           } catch {
             if (seq !== searchSeq || !addState) return;
@@ -2189,7 +2267,7 @@
           try {
             const res = await freedomAPI.addChain(def, rpcUrls);
             if (res && res.success === false) {
-              setStatus(res.error || 'Could not add chain', 'error');
+              setStatus(resultErrorMessage(res, 'Could not add chain'), 'error');
               return;
             }
             setStatus('', '');
@@ -2220,6 +2298,7 @@
         section.addEventListener('click', async (e) => {
           const btn = e.target.closest('button[data-action]');
           if (!btn) return;
+          if (networkSettingsUnavailable) return;
           const action = btn.dataset.action;
           const id = btn.dataset.id;
 
@@ -2268,7 +2347,7 @@
             try {
               const res = await freedomAPI.removeChain(cid);
               if (res && res.success === false) {
-                setStatus(res.error || 'Could not remove chain', 'error');
+                setStatus(resultErrorMessage(res, 'Could not remove chain'), 'error');
                 return;
               }
               setStatus('', '');
@@ -2303,8 +2382,15 @@
             setStatus('Loading chain…', 'testing');
             try {
               const res = await freedomAPI.getCatalogChain(btn.dataset.chainId);
+              if (isNetworkSettingsUnavailable(res)) {
+                networkSettingsUnavailable = true;
+                networkUnavailableMessage = resultErrorMessage(res, networkUnavailableMessage);
+                addState = null;
+                render();
+                return;
+              }
               if (!res || !res.success) {
-                setStatus(res?.error || 'Could not load chain', 'error');
+                setStatus(resultErrorMessage(res, 'Could not load chain'), 'error');
                 return;
               }
               setStatus('', '');
@@ -2393,7 +2479,19 @@
         const refresh = async () => {
           try {
             const res = await freedomAPI.getNetworkConfig();
+            if (isNetworkSettingsUnavailable(res)) {
+              methodSelect.disabled = true;
+              if (proverInput) proverInput.disabled = true;
+              helpEl.textContent = resultErrorMessage(
+                res,
+                'Network and RPC provider settings are unavailable in this browser mode.'
+              );
+              showProverRow('colibri');
+              return;
+            }
             if (!res || !res.success) return;
+            methodSelect.disabled = false;
+            if (proverInput) proverInput.disabled = false;
             const primary = res.networks?.['1']?.verification?.primary || 'colibri';
             methodSelect.value = primary;
             helpEl.textContent = HELP[primary] || '';
@@ -2413,6 +2511,7 @@
         };
 
         methodSelect.addEventListener('change', async () => {
+          if (methodSelect.disabled) return;
           const primary = methodSelect.value;
           helpEl.textContent = HELP[primary] || '';
           showProverRow(primary);
@@ -2426,6 +2525,7 @@
         // Blur, not input — avoid persisting a half-typed URL. A non-empty
         // value overrides the prover; clearing it reverts to the builtin.
         proverInput?.addEventListener('blur', async () => {
+          if (proverInput.disabled) return;
           const url = proverInput.value.trim();
           if (url === currentProverUrl) return;
           try {
@@ -2466,6 +2566,9 @@
 
         let config = { networks: {}, sources: [] };
         let keyFor = null;  // null | provider id whose key is being edited
+        let networkSettingsUnavailable = false;
+        let networkUnavailableMessage =
+          'Network and RPC provider settings are unavailable in this browser mode.';
 
         const setStatus = (msg, kind) => {
           if (!statusEl) return;
@@ -2512,6 +2615,10 @@
         };
 
         const render = () => {
+          if (networkSettingsUnavailable) {
+            showUnavailableView(view, 'RPC Providers', networkUnavailableMessage);
+            return;
+          }
           const providers = config.sources.filter((s) => s.keyed);
           const body = providers.length
             ? `<div class="card">${providers.map(providerRow).join('')}</div>`
@@ -2529,10 +2636,21 @@
         const reload = async () => {
           try {
             const res = await freedomAPI.getNetworkConfig();
+            if (isNetworkSettingsUnavailable(res)) {
+              networkSettingsUnavailable = true;
+              networkUnavailableMessage = resultErrorMessage(
+                res,
+                'Network and RPC provider settings are unavailable in this browser mode.'
+              );
+              render();
+              setStatus('', '');
+              return;
+            }
             if (!res || !res.success) {
               setStatus('Failed to load provider configuration', 'error');
               return;
             }
+            networkSettingsUnavailable = false;
             config = { networks: res.networks || {}, sources: res.sources || [] };
             render();
           } catch {
@@ -2544,7 +2662,7 @@
           try {
             const res = await fn();
             if (res && res.success === false) {
-              setStatus(res.error || 'Change failed', 'error');
+              setStatus(resultErrorMessage(res, 'Change failed'), 'error');
               return;
             }
             setStatus('', '');
@@ -2557,6 +2675,7 @@
         section.addEventListener('click', async (e) => {
           const btn = e.target.closest('button[data-action]');
           if (!btn) return;
+          if (networkSettingsUnavailable) return;
           const action = btn.dataset.action;
           const id = btn.dataset.id;
 
@@ -2577,7 +2696,7 @@
             try {
               const r = await freedomAPI.testNetworkApiKey(id, key);
               if (line) {
-                line.textContent = r?.success ? 'Key works' : (r?.error || 'Key test failed');
+                line.textContent = r?.success ? 'Key works' : resultErrorMessage(r, 'Key test failed');
                 line.className = 'rpc-status ' + (r?.success ? 'success' : 'error');
               }
             } catch (err) {
