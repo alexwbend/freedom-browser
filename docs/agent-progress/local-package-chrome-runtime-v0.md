@@ -3370,6 +3370,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2219 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `2ae6f0b` (`feat(chrome): grant package swarm access through
+  shell`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28079880991`, job `test` (`83132147281`), passed for
+  `2ae6f0b`.
+- GitHub Actions run `28079880991`, job `e2e-chrome-runtime`
+  (`83132147199`), passed for `2ae6f0b`.
 
 Known remaining gaps after this checkpoint:
 
