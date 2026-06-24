@@ -2976,7 +2976,7 @@ Implemented in this checkpoint:
   `docs/local-package-chrome-runtime.md`, and
   `docs/package-chrome-trust-boundaries.md`
 
-Verification in this checkpoint so far:
+Verification in this checkpoint:
 
 - `npm test -- src/main/trusted-prompt-broker.test.js src/main/x402/intercept.test.js` passed:
   2 suites, 118 tests.
@@ -2986,6 +2986,12 @@ Verification in this checkpoint so far:
   116 suites passed, 5 skipped; 2202 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `1966faf` (`feat(chrome): route package x402 prompts through
+  shell`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28074664916`, job `test` (`83116306196`), passed for
+  `1966faf`.
+- GitHub Actions run `28074664916`, job `e2e-chrome-runtime`
+  (`83116306204`), passed for `1966faf`.
 
 Known remaining gaps after this checkpoint:
 
