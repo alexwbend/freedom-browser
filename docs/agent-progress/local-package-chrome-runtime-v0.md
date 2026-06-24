@@ -2050,6 +2050,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2177 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `200b02c` (`fix(chrome): disable package profile settings
+  page`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28066259829`, job `test` (`83091113684`), passed for
+  `200b02c`.
+- GitHub Actions run `28066259829`, job `e2e-chrome-runtime`
+  (`83091113692`), passed for `200b02c`.
 
 Known remaining gaps after this checkpoint:
 
