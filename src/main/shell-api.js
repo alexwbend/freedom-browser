@@ -558,9 +558,40 @@ function toggleSurfaceOpen(caller, payload, event) {
   return state;
 }
 
-function requestTestTrustedPromptForShell(payload, caller) {
+async function presentNativeTestTrustedPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Trusted Prompt',
+    message: 'Freedom trusted prompt',
+    detail: request.reason || 'Test trusted prompt request',
+    buttons: ['OK'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: 'accepted',
+    response: result?.response,
+  };
+}
+
+function requestTestTrustedPromptForShell(payload, caller, event) {
   return defaultTrustedPromptBroker.requestTestPrompt(payload, {
     caller: caller.identity,
+    ownerWindow: event?.sender?.getOwnerBrowserWindow?.() || null,
+    presentNativeDialog: presentNativeTestTrustedPrompt,
   });
 }
 
@@ -1154,7 +1185,7 @@ const METHODS = Object.freeze({
     handler: ([payload], event, caller) => toggleSurfaceOpen(caller, payload, event),
   },
   [SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST]: {
-    handler: ([payload], _event, caller) => requestTestTrustedPromptForShell(payload, caller),
+    handler: ([payload], event, caller) => requestTestTrustedPromptForShell(payload, caller, event),
   },
   [SHELL_API_METHODS.APP_SHOW_ABOUT]: {
     handler: showAboutForShell,

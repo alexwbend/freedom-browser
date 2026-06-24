@@ -74,6 +74,7 @@ function makePackage(overrides = {}) {
 function loadShellApi(options = {}) {
   const context = loadMainModule(require.resolve('./shell-api'), {
     ipcMain: options.ipcMain,
+    dialog: options.dialog,
     app: {
       getVersion: jest.fn(() => appVersion),
       showAboutPanel: jest.fn(),
@@ -1427,6 +1428,79 @@ describe('shell-api', () => {
         outcome: 'accepted',
         source: 'test-only-broker',
       },
+    });
+  });
+
+  test('routes test trusted prompts through a shell-owned native dialog', async () => {
+    const ownerWindow = { id: 777 };
+    const dialog = {
+      showErrorBox: jest.fn(),
+      showMessageBox: jest.fn().mockResolvedValue({ response: 0 }),
+      showSaveDialog: jest.fn(),
+    };
+    const { mod } = loadShellApi({ dialog });
+    const sender = makeSender({
+      id: 1091,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({
+        capabilities: ['trustedPrompts.test'],
+      })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        {
+          method: SHELL_API_METHODS.TRUSTED_PROMPTS_REQUEST_TEST,
+          args: [
+            {
+              kind: 'test.confirmation',
+              reason: ' Native prompt from package chrome ',
+              presentation: 'native-dialog',
+              origin: 'https://spoofed.example',
+              tabId: 42,
+            },
+          ],
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: 'test.confirmation',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        origin: null,
+        tabId: null,
+        caller: {
+          packageId: 'baby.freedom.chrome.fixture',
+          packageType: 'browser-chrome',
+        },
+      },
+      request: {
+        reason: 'Native prompt from package chrome',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(sender.getOwnerBrowserWindow).toHaveBeenCalledTimes(1);
+    expect(dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Trusted Prompt',
+      message: 'Freedom trusted prompt',
+      detail: 'Native prompt from package chrome',
+      buttons: ['OK'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
     });
   });
 

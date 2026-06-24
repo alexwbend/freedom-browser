@@ -2691,3 +2691,57 @@ Known remaining gaps after this checkpoint:
   vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 2: Native Dialog Presentation Path
+
+Current checkpoint: the test-only trusted prompt broker now has a
+shell-presented native-dialog path in addition to the synthetic broker result.
+This is still not a production wallet/payment/publish/vault/signing prompt
+capability.
+
+Implemented in this checkpoint:
+
+- added an explicit `native-dialog` test presentation to
+  `src/main/trusted-prompt-broker.js`
+- kept the default synthetic test path and result shape intact for existing
+  package smoke coverage
+- changed the broker request path to async so shell-owned prompt presentation
+  can complete before returning a cloned serializable result
+- added a shell-owned native dialog presenter in `src/main/shell-api.js` that
+  resolves the owning BrowserWindow from the registered package sender and
+  calls `dialog.showMessageBox()`
+- returned native-dialog results with `surfaceOwner: "shell"` and
+  `renderedBy: "shell-native-dialog"`
+- kept package-supplied `origin`, `tabId`, URL, label, and permission-key
+  claims out of final security truth; the current test path still reports
+  `origin: null` and `tabId: null`
+- kept the entire path gated by `trustedPrompts.test`; no wallet, identity,
+  provider, x402, Swarm, vault, signing, Node, Electron, or arbitrary IPC
+  authority is exposed to package chrome
+- expanded fixture package smoke to prove the native dialog is shell-owned and
+  attached to the package BrowserWindow
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/trusted-prompt-broker.test.js src/main/shell-api.test.js src/main/package-preload.test.js` passed:
+  3 suites, 45 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "local package chrome loads through freedomShell"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2183 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+- the native-dialog test path proves shell-owned prompt presentation wiring
+  only; it does not bind a real guest WebContents origin or provider request
+  context yet

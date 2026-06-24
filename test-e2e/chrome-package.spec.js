@@ -1148,6 +1148,69 @@ test('local package chrome loads through freedomShell without broad preload APIs
         source: 'test-only-broker',
       },
     });
+
+    await launched.app.evaluate(({ dialog }) => {
+      globalThis.__freedomTrustedPromptDialog = null;
+      dialog.showMessageBox = async (ownerWindow, options) => {
+        globalThis.__freedomTrustedPromptDialog = {
+          hasOwnerWindow: !!ownerWindow,
+          ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
+          options,
+        };
+        return { response: 0 };
+      };
+    });
+    const nativeTrustedPrompt = await page.evaluate(() =>
+      window.freedomShell.requestTestTrustedPrompt({
+        kind: 'test.confirmation',
+        reason: 'Fixture native prompt check',
+        presentation: 'native-dialog',
+        origin: 'https://spoofed.example',
+        tabId: 999,
+      })
+    );
+    const nativeTrustedPromptDialog = await launched.app.evaluate(
+      () => globalThis.__freedomTrustedPromptDialog
+    );
+    expect(nativeTrustedPrompt).toMatchObject({
+      ok: true,
+      kind: 'test.confirmation',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        origin: null,
+        tabId: null,
+        caller: {
+          packageId: 'baby.freedom.chrome.fixture',
+          packageType: 'browser-chrome',
+        },
+      },
+      request: {
+        reason: 'Fixture native prompt check',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(nativeTrustedPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Trusted Prompt',
+        message: 'Freedom trusted prompt',
+        detail: 'Fixture native prompt check',
+        buttons: ['OK'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      },
+    });
   } finally {
     await launched.close();
   }

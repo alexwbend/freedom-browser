@@ -26,9 +26,17 @@ Accepted payload:
 ```json
 {
   "kind": "test.confirmation",
-  "reason": "Fixture package broker check"
+  "reason": "Fixture package broker check",
+  "presentation": "synthetic"
 }
 ```
+
+`presentation` is optional. The default is `synthetic`, which is the original
+test-only broker result path. Tests may also request `native-dialog`, which
+asks main to present the prompt through a shell-owned Electron native dialog
+attached to the package window. That path is still test-only and still requires
+`trustedPrompts.test`; it is not a production wallet, payment, publish, vault,
+or signing prompt capability.
 
 Result shape:
 
@@ -63,6 +71,42 @@ Result shape:
 }
 ```
 
+The native-dialog presentation returns the same shell-owned result shape, but
+the renderer is the native shell dialog:
+
+```json
+{
+  "ok": true,
+  "requestId": "trusted-prompt-...",
+  "kind": "test.confirmation",
+  "trusted": true,
+  "surfaceOwner": "shell",
+  "renderedBy": "shell-native-dialog",
+  "context": {
+    "source": "main",
+    "caller": {
+      "runtimeMode": "local-package",
+      "source": "local",
+      "packageId": "baby.freedom.chrome.fixture",
+      "packageType": "browser-chrome",
+      "name": "Freedom Fixture Chrome",
+      "version": "0.0.1"
+    },
+    "origin": null,
+    "tabId": null
+  },
+  "request": {
+    "reason": "Fixture native prompt check",
+    "presentation": "native-dialog"
+  },
+  "result": {
+    "outcome": "accepted",
+    "source": "shell-native-dialog",
+    "response": 0
+  }
+}
+```
+
 Package-supplied `origin`, `tabId`, URL, label, or permission-key claims are not
 trusted. The current package-chrome test path intentionally returns
 `origin: null` and `tabId: null` because no main-owned guest WebContents
@@ -79,6 +123,11 @@ Unsupported prompt kinds return:
   }
 }
 ```
+
+If a test requests the native-dialog presentation in an environment where main
+cannot present it, the broker returns
+`TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE`. Package chrome cannot provide its own
+native presenter or fall back to package-rendered prompt UI.
 
 ## Future Real Prompt Paths
 

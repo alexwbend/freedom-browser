@@ -1,15 +1,16 @@
 const {
   TRUSTED_PROMPT_KINDS,
+  TRUSTED_PROMPT_PRESENTATIONS,
   createTrustedPromptBroker,
 } = require('./trusted-prompt-broker');
 
 describe('trusted-prompt-broker', () => {
-  test('returns a shell-owned test prompt result from main-derived context', () => {
+  test('returns a shell-owned test prompt result from main-derived context', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'trusted-prompt-test-1',
     });
 
-    expect(
+    await expect(
       broker.requestTestPrompt(
         {
           kind: TRUSTED_PROMPT_KINDS.TEST_CONFIRMATION,
@@ -28,7 +29,7 @@ describe('trusted-prompt-broker', () => {
           },
         }
       )
-    ).toEqual({
+    ).resolves.toEqual({
       ok: true,
       requestId: 'trusted-prompt-test-1',
       kind: 'test.confirmation',
@@ -58,16 +59,105 @@ describe('trusted-prompt-broker', () => {
     });
   });
 
-  test('returns structured errors for unsupported prompt kinds', () => {
+  test('routes test prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-native-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.fixture',
+      packageType: 'browser-chrome',
+      name: 'Fixture Chrome',
+      version: '0.0.1',
+      capabilities: ['trustedPrompts.test'],
+    };
+
+    await expect(
+      broker.requestTestPrompt(
+        {
+          kind: TRUSTED_PROMPT_KINDS.TEST_CONFIRMATION,
+          reason: ' Native prompt from package chrome ',
+          presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+          origin: 'https://spoofed.example',
+        },
+        { caller }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-native-1',
+      kind: 'test.confirmation',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.fixture',
+          packageType: 'browser-chrome',
+          name: 'Fixture Chrome',
+          version: '0.0.1',
+        },
+        origin: null,
+        tabId: null,
+      },
+      request: {
+        reason: 'Native prompt from package chrome',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-native-1',
+        kind: 'test.confirmation',
+        reason: 'Native prompt from package chrome',
+      },
+      { caller }
+    );
+  });
+
+  test('returns structured errors when native presentation is unavailable', async () => {
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-native-2',
+    });
+
+    await expect(
+      broker.requestTestPrompt({
+        kind: TRUSTED_PROMPT_KINDS.TEST_CONFIRMATION,
+        presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE',
+        message: 'Native trusted prompt presentation is unavailable',
+      },
+    });
+  });
+
+  test('returns structured errors for unsupported prompt kinds', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'unused',
     });
 
-    expect(
+    await expect(
       broker.requestTestPrompt({
         kind: 'wallet.sign',
       })
-    ).toEqual({
+    ).resolves.toEqual({
       ok: false,
       error: {
         code: 'TRUSTED_PROMPT_UNSUPPORTED',
@@ -76,23 +166,23 @@ describe('trusted-prompt-broker', () => {
     });
   });
 
-  test('clones prompt results before returning them', () => {
+  test('clones prompt results before returning them', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'trusted-prompt-test-2',
     });
 
-    const result = broker.requestTestPrompt({
+    const result = await broker.requestTestPrompt({
       kind: TRUSTED_PROMPT_KINDS.TEST_CONFIRMATION,
       reason: 'first',
     });
     result.context.source = 'mutated';
 
-    expect(
+    await expect(
       broker.requestTestPrompt({
         kind: TRUSTED_PROMPT_KINDS.TEST_CONFIRMATION,
         reason: 'second',
       })
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       context: {
         source: 'main',
       },

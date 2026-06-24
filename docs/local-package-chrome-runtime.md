@@ -582,8 +582,11 @@ documented in `docs/trusted-prompt-broker.md`. It proves package chrome can
 request a shell-owned trusted prompt result without rendering the prompt or
 supplying final origin/security truth. The method requires
 `trustedPrompts.test`, ignores package-supplied origin/tab claims, and does not
-expose wallet, identity, x402, Swarm, vault, or signing APIs. It is not a
-production prompt capability and is not declared by the official package smoke.
+expose wallet, identity, x402, Swarm, vault, or signing APIs. The test slice
+supports a synthetic broker result and a `presentation: "native-dialog"` path
+that presents a shell-owned Electron dialog attached to the package
+BrowserWindow. Both paths are test-only. They are not production prompt
+capabilities and are not declared by the official package smoke.
 
 Raw x402 approval and vault-unlock events remain bundled-trusted-renderer UI,
 not package chrome APIs. The x402 interceptor refuses to deliver `x402:*`

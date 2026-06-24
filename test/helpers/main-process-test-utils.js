@@ -159,6 +159,7 @@ function loadMainModule(modulePath, options = {}) {
   };
   const dialog = options.dialog || {
     showErrorBox: jest.fn(),
+    showMessageBox: jest.fn(),
     showSaveDialog: jest.fn(),
   };
   const clipboard = options.clipboard || {

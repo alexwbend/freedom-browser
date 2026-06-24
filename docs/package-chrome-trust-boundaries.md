@@ -222,7 +222,10 @@ The test broker proves the required boundary shape:
   `window.freedomShell`
 - the request is sender-checked and capability-gated
 - the result says the surface owner is `shell` and the renderer is
-  `trusted-prompt-broker`
+  either `trusted-prompt-broker` for the synthetic test path or
+  `shell-native-dialog` for the native-dialog test presentation
+- the native-dialog test presentation is owned by main and attached to the
+  package BrowserWindow; package chrome cannot render or supply that prompt UI
 - package-supplied `origin`, `tabId`, URL, label, and permission-key claims are
   not trusted as final security truth
 - package chrome still receives no wallet, identity, provider, x402, Swarm,
