@@ -3245,7 +3245,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2210 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
-- commit and GitHub Actions verification are still pending for this checkpoint.
+- committed as `0d0321d` (`feat(chrome): approve package x402 payments
+  through shell`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28077380100`, job `test` (`83124391348`), passed for
+  `0d0321d`.
+- GitHub Actions run `28077380100`, job `e2e-chrome-runtime`
+  (`83124391342`), passed for `0d0321d`.
 
 Known remaining gaps after this checkpoint:
 
