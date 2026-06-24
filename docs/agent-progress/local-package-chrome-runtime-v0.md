@@ -4708,3 +4708,61 @@ Known remaining gaps after this checkpoint:
   management flows, richer wallet account selection/review, and richer
   feed-review UX still need shell-owned UI before the broader package runtime
   can be called complete; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 34: Trusted Wallet Account Selection
+
+Current checkpoint: package-hosted `eth_requestAccounts` can now present
+main-derived wallet account choices in the shell-owned trusted wallet approval
+window, return the selected wallet index through the trusted prompt broker,
+and grant dApp permission only after main revalidates that selected wallet
+against the current wallet list. Package chrome still receives no wallet,
+identity, vault, dApp permission-store, signing, Node, Electron, or arbitrary
+IPC authority.
+
+Implemented in this checkpoint:
+
+- added display-safe account-choice normalization to the trusted wallet
+  approval prompt context for `wallet.connect` requests
+- updated the trusted wallet approval window to render account choices as
+  radio-button rows and submit only the selected wallet index over the scoped
+  trusted-window decision channel
+- taught the trusted prompt broker to preserve `selectedWalletIndex` /
+  `selectedAccount` fields returned by the shell-owned presenter
+- changed package-hosted wallet-connect grants so main re-reads the current
+  derived wallet list and grants the selected wallet index only if it is still
+  valid, ignoring any selected account string as authority
+- updated the official package smoke harness to return the first
+  main-derived account choice from the stubbed trusted wallet prompt and assert
+  the prompt request includes account choices
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-wallet-approval-prompt.test.js src/main/trusted-prompt-broker.test.js src/main/wallet/wallet-ipc.test.js`
+  passed: 3 suites, 51 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm test` passed: 124 suites passed, 5 skipped; 2323 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- committed as `791ff14` (`feat(chrome): select wallet account in trusted
+  connect prompt`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28108904682`, job `test` (`83230608861`), passed for
+  `791ff14`.
+- GitHub Actions run `28108904682`, job `e2e-chrome-runtime`
+  (`83230609030`), passed for `791ff14`.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted wallet connect selection is implemented, but richer
+  signing/account review and switching still need shell-owned UX before the
+  broader wallet experience can be called complete in package mode
+- identity onboarding, full wallet-center management, non-provider vault
+  management flows, and richer feed-review UX still need shell-owned UI before
+  the broader package runtime can be called complete; these are not
+  user-approved completion deferrals
