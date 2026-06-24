@@ -4144,3 +4144,68 @@ Known remaining gaps after this checkpoint:
   Swarm publish/feed UX, and richer wallet account/review surfaces still need
   shell-owned UI before the broader package runtime can be called complete;
   these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 25: Trusted Payments Surface
+
+Current checkpoint: package mode now has a shell-owned trusted payments surface
+for payment-history review and x402 cap management. Package chrome still does
+not receive raw payment-history IPC, raw x402 permission-store APIs, raw
+`x402:*` host events, wallet APIs, vault APIs, Node, Electron, or arbitrary
+IPC. It can only request the `payments` surface through the existing
+sender-checked surface-control API when the manifest declares
+`surfaces.payments.control`.
+
+Implemented in this checkpoint:
+
+- added `surfaces.payments.control` as a separate shell capability from
+  `surfaces.wallet.control`
+- changed surface-control capability checks so `wallet` and `payments` derive
+  their required capabilities from the requested surface for both methods and
+  `surfaces.stateChanged` events
+- added `src/main/trusted-payments-surface.js` plus bundled HTML, renderer,
+  and dedicated preload files for a shell-owned trusted payments window
+- scoped trusted payments IPC channels by per-window surface id and rejected
+  context, snapshot, cap update/revoke, revoke-origin, clear-history, and close
+  calls from any sender other than the trusted payments window
+- let the trusted payments surface list recent payment history, list active
+  x402 caps, update cap amount/window, revoke one cap, revoke every cap for an
+  origin, and clear payment history from shell-owned code
+- kept package-hosted `freedom://payments` raw history reads unavailable with
+  `PAYMENTS_UNAVAILABLE`, but added a visible Open trusted payments window
+  action that delegates to the host package WebContents'
+  `surfaces.open("payments")` capability path
+- added official package smoke coverage for direct payments-surface open/close
+  and the visible `freedom://payments` trusted-window button
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/shell-api.test.js src/main/trusted-payments-surface.test.js src/main/payment-history.test.js src/main/webview-preload.test.js src/renderer/pages/payments.test.js` passed:
+  6 suites, 118 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm test` passed:
+  118 suites passed, 5 skipped; 2272 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `7994a6d` (`feat(chrome): open trusted payments surface`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28094473062`, job `test` (`83180362333`), passed for
+  `7994a6d`.
+- GitHub Actions run `28094473062`, job `e2e-chrome-runtime`
+  (`83180362376`), passed for `7994a6d`.
+
+Known remaining gaps after this checkpoint:
+
+- the trusted payments surface closes the x402 cap editing/revocation,
+  payment permission management, and payment-history review gap for package
+  mode, but richer x402 approval review remains a native prompt slice rather
+  than the full bundled payment review surface
+- identity onboarding, broader/general vault unlock UX, seed/private-key
+  export, full Swarm publish/feed UX, and richer wallet account/review
+  surfaces still need shell-owned UI before the broader package runtime can be
+  called complete; these are not user-approved completion deferrals
