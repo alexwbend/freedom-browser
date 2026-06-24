@@ -52,7 +52,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, direct low-risk capabilities request, shell-owned access grant, and structured package-mode prompt/failure behavior for privileged methods | low-risk `swarm_getCapabilities` bypass implemented; package-hosted `swarm_requestAccess` reaches a shell-owned native connect prompt, writes the main-owned Swarm permission after approval, and returns `shell_trusted_prompt_rejected` on rejection; package-hosted `swarm_publishData`, `swarm_publishFiles`, `swarm_publishChunk`, `swarm_createFeed`, `swarm_updateFeed`, `swarm_writeFeedEntry`, `swarm_getSigningIdentity`, and `swarm_writeSingleOwnerChunk` reach shell-owned native prompts with main-derived context and can execute after approval when grants and normal node/stamp/signer readiness allow; other higher-risk methods fail through main with `trusted_prompt_unavailable` |
 | Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow and `freedom://publish` internal page | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | provider `swarm_publishData`, `swarm_publishFiles`, `swarm_publishChunk`, and `swarm_writeSingleOwnerChunk` may execute after shell-owned approval; package-hosted publish/setup entry points remain visibly unavailable until the full shell-owned publish/feed surface exists | surface or trusted prompt cap | broker doc/tests plus official package smoke for disabled `freedom://publish` controls and provider publish/signing prompt behavior | package-hosted direct publish page disabled with `SWARM_PUBLISH_UNAVAILABLE`; provider data, file, CAC chunk, signing identity, and SOC signing approval paths implemented with main-side validation; stamp management, feed publish UI, and full publish UX remain proposed deferrals pending a real shell-owned approval surface |
 | Swarm feed create/update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests plus official package smoke for create/update/write-feed prompt behavior | package-hosted feed creation, existing-feed update, and feed-entry write now reach shell-owned native prompts with main-derived context; accepted creation establishes an app-scoped feed grant in main and executes `swarm_createFeed`, while accepted update/write require an existing feed grant/feed record and execute `swarm_updateFeed` / `swarm_writeFeedEntry`; full publish/feed UX remains proposed deferral pending a real shell-owned review surface |
-| x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events were no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt and payments surface | final approval and vault unlock in shell-owned prompts; cap management and history in a shell-owned payments surface; package chrome may request surface state/open only | trusted prompt or `surfaces.payments.control`, not raw x402 IPC | package adapter unit coverage and launched package smoke for shell-owned prompt/no-host-event behavior plus trusted payments surface open path | raw x402 methods return structured `X402_PACKAGE_API_UNAVAILABLE`, raw x402 host events are not delivered to package chrome, and package-hosted payment approvals can now sign/retry through a shell-owned native prompt; recognized EIP-155 token payments can also create the bounded default 10-token/30-day cap through that prompt, with official package smoke covering the cap option plus locked-vault fallback; if signing hits a locked vault, package-hosted x402 now opens a shell-owned trusted vault-unlock window and retries after successful unlock; cap editing/revocation and payment-history review are implemented in a shell-owned trusted payments window gated by `surfaces.payments.control`; richer x402 approval review still needs a real shell-owned review surface |
+| x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events were no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt and payments surface | final approval and vault unlock in shell-owned prompts; cap management and history in a shell-owned payments surface; package chrome may request surface state/open only | trusted prompt or `surfaces.payments.control`, not raw x402 IPC | package adapter unit coverage and launched package smoke for shell-owned prompt/no-host-event behavior plus trusted payments surface open path | raw x402 methods return structured `X402_PACKAGE_API_UNAVAILABLE`, raw x402 host events are not delivered to package chrome, and package-hosted payment approvals now sign/retry through a shell-owned trusted payment review window with a dedicated preload and main-derived payment details; recognized EIP-155 token payments can also create the bounded default 10-token/30-day cap through that prompt, with main using parsed grant details instead of renderer-supplied cap values and official package smoke covering the cap option plus locked-vault fallback; if signing hits a locked vault, package-hosted x402 opens a shell-owned trusted vault-unlock window and retries after successful unlock; cap editing/revocation and payment-history review are implemented in a shell-owned trusted payments window gated by `surfaces.payments.control` |
 | Payment history page | user in chrome/internal page | `freedom://payments` reads unified payment history through internal page `freedomAPI` and can clear the store | package-hosted internal page could read and clear payment history through the transitional webview bridge | `trusted-surface` for sensitive payment history UI | shell-owned trusted payments window; bundled trusted chrome keeps direct page | package-hosted page is visibly unavailable for raw history reads but can request the shell-owned payments surface | `surfaces.payments.control` on the host package | IPC unit coverage plus official package smoke for disabled `freedom://payments` state and trusted-window open button | package-hosted payment-history read/count/by-id/clear IPC remains rejected with `PAYMENTS_UNAVAILABLE`; the page offers an Open trusted payments window action that delegates to the host package's capability-gated `surfaces.open("payments")`; the trusted payments window lists recent history and x402 caps and supports cap update/revoke/revoke-origin plus history clear |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
 | Provider injection into guest content | guest webview content | guest preload/provider bridges plus main handlers | transitional package webviews are manifest-gated and hardened | `provider-path` | shell/main owns preload and identity | package cannot choose guest preload/prefs; guest content still receives provider globals where supported | not package chrome capabilities | package smoke: no package provider globals, guest provider present, low-risk request works, brokered privileged methods bypass package chrome, unsupported methods safe-fail | low-risk `eth_chainId` and `swarm_getCapabilities` bypasses implemented; package-hosted Ethereum and Swarm privileged methods use main-derived shell-owned prompt paths where implemented and fail before package chrome can broker them where unsupported |
@@ -161,8 +161,8 @@ dApp permission-store APIs to package chrome. The payments window reads recent
 payment history and x402 caps in main and supports cap update, cap revoke,
 revoke all caps for an origin, and payment-history clear without exposing
 those operations to package chrome. This checkpoint still does not migrate
-identity onboarding, seed/private-key export, richer account selection,
-richer x402 review, or full Swarm approval UI into package mode.
+identity onboarding, seed/private-key export, richer account selection, or full
+Swarm approval UI into package mode.
 
 ## Window-Control Status
 
@@ -277,25 +277,26 @@ details, and writes through the existing main-owned provider path after
 approval. These paths do not expose stamp management, enable the full publish
 center, or expose raw Swarm IPC.
 Package-hosted x402 approval and vault-unlock needs now also reach shell-owned
-native prompts. x402 payment approval can sign and queue the retry through the
+trusted windows. x402 payment approval can sign and queue the retry through the
 existing main sign-flow when the user chooses Pay and the vault is unlocked.
-For recognized EIP-155 token requirements, the prompt can also create the
-bounded default 10-token/30-day cap by returning a broker result that main
-threads into the existing x402 permission store. Main derives payment-review
-details from parsed x402 requirements and shows amount, asset, network,
-recipient, and resource URL when present. Vault-unlock prompts now receive
-those same parsed payment-review details when signing needs an unlock. The
-trusted vault-unlock window is bundled shell code with its own preload; it
-submits the password to main, calls the identity vault unlock path, and only
-then lets x402 retry the existing sign/retry flow. Package chrome still cannot
-receive raw x402 IPC, raw vault state, raw cap-edit APIs, arbitrary payment
-permission APIs, or raw payment-history IPC. Cap editing/revocation and
-payment-history review now live in the shell-owned trusted payments window
-behind `surfaces.payments.control`. File/folder/full publish UX, richer
-account selection/signing review, richer x402 approval review, and
-identity/export vault management UX still need main-derived guest/request
-context and real shell-owned prompt surfaces before they can be called
-complete in package mode.
+For recognized EIP-155 token requirements, the trusted approval window can also
+create the bounded default 10-token/30-day cap by returning a broker result
+that main threads into the existing x402 permission store. Main derives
+payment-review details from parsed x402 requirements and shows amount, asset,
+network, recipient, and resource URL when present; cap values come from those
+parsed requirements, not from renderer-supplied payload. Vault-unlock prompts
+now receive those same parsed payment-review details when signing needs an
+unlock. The approval and vault-unlock windows are bundled shell code with
+dedicated preloads and scoped IPC; the vault prompt submits the password to
+main, calls the identity vault unlock path, and only then lets x402 retry the
+existing sign/retry flow. Package chrome still cannot receive raw x402 IPC,
+raw vault state, raw cap-edit APIs, arbitrary payment permission APIs, or raw
+payment-history IPC. Cap editing/revocation and payment-history review now
+live in the shell-owned trusted payments window behind
+`surfaces.payments.control`. File/folder/full publish UX, richer account
+selection/signing review, and identity/export vault management UX still need
+main-derived guest/request context and real shell-owned prompt surfaces before
+they can be called complete in package mode.
 
 ## Ethereum Provider Status
 

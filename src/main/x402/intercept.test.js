@@ -66,6 +66,11 @@ jest.mock('../trusted-vault-unlock-prompt', () => ({
   presentTrustedVaultUnlockPrompt: (...args) => mockPresentTrustedVaultUnlockPrompt(...args),
 }));
 
+const mockPresentTrustedX402ApprovalPrompt = jest.fn();
+jest.mock('../trusted-x402-approval-prompt', () => ({
+  presentTrustedX402ApprovalPrompt: (...args) => mockPresentTrustedX402ApprovalPrompt(...args),
+}));
+
 const mockGetPermission = jest.fn(() => null);
 const mockTryConsume = jest.fn(() => true);
 jest.mock('./permissions', () => ({
@@ -111,6 +116,16 @@ const flushRetryMicrotasks = async () => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
+const trustedX402ApprovalResult = (overrides = {}) => ({
+  ok: true,
+  outcome: 'accepted',
+  response: 0,
+  renderedBy: 'trusted-x402-approval-window',
+  presentation: 'trusted-window',
+  source: 'trusted-x402-approval-window',
+  ...overrides,
+});
+
 beforeEach(() => {
   clearAllPendingPayments();
   clearAllDetectedPayments();
@@ -129,6 +144,9 @@ beforeEach(() => {
     outcome: 'accepted',
     response: 0,
   });
+  mockPresentTrustedX402ApprovalPrompt.mockReset().mockResolvedValue(
+    trustedX402ApprovalResult()
+  );
   mockGetPermission.mockReset().mockReturnValue(null);
   mockTryConsume.mockReset().mockReturnValue(true);
   mockGetToken.mockClear();
@@ -779,7 +797,9 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
 
   test('package-hosted approval UI shows a shell-owned rejection prompt and passes the 402 through without pending approval', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 2 });
+    mockPresentTrustedX402ApprovalPrompt.mockResolvedValueOnce(
+      trustedX402ApprovalResult({ outcome: 'rejected', response: 2 })
+    );
 
     const result = await detectPaymentRequiredHandler(detail());
 
@@ -787,28 +807,35 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingApproval('req-1001')).toBe(false);
     expect(getDetectedPayment(7)).toBeNull();
-    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
-      type: 'info',
-      title: 'Freedom x402 Payment',
-      message: 'Payment approval request',
-      detail:
-        'https://api.example requested an x402 payment. ' +
-        'Amount: 10000. ' +
-        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-        'Network: eip155:8453. ' +
-        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-        'Resource: https://api.example/article. ' +
-        'Choose Pay only if you trust this request.',
-      buttons: ['Pay once', 'Pay and allow 10 USDC for 30 days', 'Reject'],
-      defaultId: 2,
-      cancelId: 2,
-      noLink: true,
-    });
+    expect(mockPresentTrustedX402ApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'x402.approval',
+        method: 'x402_approval',
+        origin: 'https://api.example',
+        webContentsId: 7,
+        details: expect.objectContaining({
+          amount: '10000',
+          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          network: 'eip155:8453',
+          payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+          resource: 'https://api.example/article',
+          defaultGrant: expect.objectContaining({
+            label: '10 USDC for 30 days',
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://api.example',
+        webContentsId: 7,
+      })
+    );
   });
 
   test('package-hosted approval prompt includes V1 accept resource review details', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+    mockPresentTrustedX402ApprovalPrompt.mockResolvedValueOnce(
+      trustedX402ApprovalResult({ outcome: 'rejected', response: 1 })
+    );
 
     const result = await detectPaymentRequiredHandler(detail({
       responseHeaders: { 'X-PAYMENT-REQUIRED': [sampleRequirementsV1B64] },
@@ -817,21 +844,28 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     expect(result).toBeNull();
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingApproval('req-1001')).toBe(false);
-    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, expect.objectContaining({
-      detail:
-        'https://api.example requested an x402 payment. ' +
-        'Amount: 10000. ' +
-        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-        'Network: base. ' +
-        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-        'Resource: https://api.example/article. ' +
-        'Choose Pay only if you trust this request.',
-    }));
+    expect(mockPresentTrustedX402ApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({
+          amount: '10000',
+          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          network: 'base',
+          payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+          resource: 'https://api.example/article',
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://api.example',
+        webContentsId: 7,
+      })
+    );
   });
 
   test('package-hosted approval accepted in shell signs with MANUAL authorization and returns 307 for subresources', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 0 });
+    mockPresentTrustedX402ApprovalPrompt.mockResolvedValueOnce(
+      trustedX402ApprovalResult({ outcome: 'accepted', response: 0 })
+    );
 
     const result = await detectPaymentRequiredHandler(detail());
 
@@ -859,7 +893,14 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
 
   test('package-hosted approval can grant a bounded x402 cap through the shell-owned prompt', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+    mockPresentTrustedX402ApprovalPrompt.mockResolvedValueOnce(
+      trustedX402ApprovalResult({
+        outcome: 'accepted',
+        response: 1,
+        grant: { capAmount: '10000000', windowSeconds: 30 * 24 * 60 * 60 },
+        selectedAcceptIndex: 0,
+      })
+    );
 
     const result = await detectPaymentRequiredHandler(detail());
 
@@ -888,7 +929,9 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
 
   test('package-hosted accepted payment with locked vault unlocks through a shell-owned prompt and retries signing', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 0 });
+    mockPresentTrustedX402ApprovalPrompt.mockResolvedValueOnce(
+      trustedX402ApprovalResult({ outcome: 'accepted', response: 0 })
+    );
     mockSignAndQueueRetry.mockReset()
       .mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE))
       .mockResolvedValueOnce(undefined);

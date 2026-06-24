@@ -13,6 +13,7 @@ const TRUSTED_PROMPT_KINDS = Object.freeze({
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
   SYNTHETIC: 'synthetic',
   NATIVE_DIALOG: 'native-dialog',
+  TRUSTED_WINDOW: 'trusted-window',
 });
 const WALLET_CONNECT_METHODS = new Set(['eth_requestAccounts']);
 const WALLET_TRANSACTION_METHODS = new Set(['eth_sendTransaction']);
@@ -84,9 +85,13 @@ function describeTrustedContext(context = {}) {
 }
 
 function describeNativeDialogResult(presentationResult = {}) {
+  const source =
+    typeof presentationResult.source === 'string' && presentationResult.source
+      ? presentationResult.source
+      : 'shell-native-dialog';
   const result = {
     outcome: presentationResult.outcome || 'accepted',
-    source: 'shell-native-dialog',
+    source,
     response: Number.isInteger(presentationResult.response) ? presentationResult.response : null,
   };
   if (presentationResult.grant && typeof presentationResult.grant === 'object') {
@@ -149,6 +154,14 @@ async function requestNativeProviderPrompt({
     nativeRequest.details = details;
   }
   const presentationResult = await presentNativeDialog(nativeRequest, context);
+  const renderedBy =
+    typeof presentationResult?.renderedBy === 'string' && presentationResult.renderedBy
+      ? presentationResult.renderedBy
+      : 'shell-native-dialog';
+  const presentation =
+    presentationResult?.presentation === TRUSTED_PROMPT_PRESENTATIONS.TRUSTED_WINDOW
+      ? TRUSTED_PROMPT_PRESENTATIONS.TRUSTED_WINDOW
+      : TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG;
   if (presentationResult?.ok !== true) {
     return {
       ok: false,
@@ -156,7 +169,7 @@ async function requestNativeProviderPrompt({
       kind,
       trusted: true,
       surfaceOwner: 'shell',
-      renderedBy: 'shell-native-dialog',
+      renderedBy,
       error: presentationResult?.error || {
         code: 'TRUSTED_PROMPT_PRESENTATION_FAILED',
         message: 'Native trusted prompt presentation failed',
@@ -167,7 +180,7 @@ async function requestNativeProviderPrompt({
   const request = {
     method,
     reason,
-    presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+    presentation,
   };
   if (details) {
     request.details = details;
@@ -179,7 +192,7 @@ async function requestNativeProviderPrompt({
     kind,
     trusted: true,
     surfaceOwner: 'shell',
-    renderedBy: 'shell-native-dialog',
+    renderedBy,
     context: describeTrustedContext(context),
     request,
     result: describeNativeDialogResult({

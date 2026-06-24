@@ -449,6 +449,66 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('propagates shell-owned trusted window metadata for x402 approval prompts', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 1,
+      renderedBy: 'trusted-x402-approval-window',
+      presentation: 'trusted-window',
+      source: 'trusted-x402-approval-window',
+      grant: {
+        capAmount: '10000000',
+        windowSeconds: 2592000,
+      },
+      selectedAcceptIndex: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-x402-approval-window-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestX402ApprovalPrompt(
+        {
+          method: 'x402_approval',
+          reason: 'x402 payment approval request from https://pay.example',
+          details: {
+            amount: '10000',
+          },
+        },
+        {
+          origin: 'https://pay.example',
+          webContentsId: 45,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      requestId: 'trusted-prompt-x402-approval-window-1',
+      kind: TRUSTED_PROMPT_KINDS.X402_APPROVAL,
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'trusted-x402-approval-window',
+      request: {
+        method: 'x402_approval',
+        presentation: 'trusted-window',
+        details: {
+          amount: '10000',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'trusted-x402-approval-window',
+        response: 1,
+        grant: {
+          capAmount: '10000000',
+          windowSeconds: 2592000,
+        },
+        selectedAcceptIndex: 0,
+      },
+    });
+  });
+
   test('routes x402 vault unlock prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,

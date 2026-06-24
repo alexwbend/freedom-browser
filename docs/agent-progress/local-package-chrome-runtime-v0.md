@@ -4335,3 +4335,64 @@ Known remaining gaps after this checkpoint:
   richer x402 approval review still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 28: Trusted x402 Approval Window
+
+Current checkpoint: package-hosted x402 payment approval now uses a real
+shell-owned trusted payment review window instead of the Electron native
+payment dialog. The window is bundled shell code with a dedicated preload and
+per-request IPC channels. It shows main-derived payment review details and can
+return the existing Pay once, Reject, and bounded cap approval outcomes.
+Package chrome still does not receive raw `x402:*` events, raw payment-history
+IPC, raw x402 permission-store APIs, vault primitives, wallet APIs, Node,
+Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-x402-approval-prompt.js` plus bundled HTML,
+  renderer, and dedicated preload assets for a shell-owned x402 approval
+  prompt
+- scoped x402 approval IPC channels by trusted prompt request id and rejected
+  context/decision requests from any sender other than the trusted approval
+  window
+- kept one-time payment, rejection, and bounded-cap approval result shapes
+  compatible with the existing x402 sign/retry path
+- made bounded-cap approval values main-derived from parsed x402 payment
+  requirements; the trusted window cannot supply or spoof cap amounts,
+  windows, or accept indexes
+- changed package-hosted x402 approval prompts to render through the trusted
+  approval window while keeping x402 vault unlock on the existing trusted
+  vault-unlock window
+- extended the trusted prompt broker to preserve presenter metadata for
+  `presentation: "trusted-window"` and `renderedBy:
+  "trusted-x402-approval-window"` instead of forcing every provider prompt to
+  report `shell-native-dialog`
+- updated the official package smoke harness to stub and assert the trusted
+  approval presenter rather than the old native-dialog path
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-x402-approval-prompt.test.js src/main/trusted-prompt-broker.test.js src/main/x402/intercept.test.js` passed:
+  3 suites, 138 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  120 suites passed, 5 skipped; 2288 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- after the smoke harness fix, `git diff --check`, `npm run lint`, and the
+  focused x402 unit command passed again.
+
+Known remaining gaps after this checkpoint:
+
+- the richer x402 approval-review gap is closed for package-hosted x402
+  approvals, but identity onboarding, seed/private-key export, full Swarm
+  publish/feed UX, richer wallet account selection/signing review, full wallet
+  center management, and non-provider vault management flows still need
+  shell-owned UI before the broader package runtime can be called complete;
+  these are not user-approved completion deferrals

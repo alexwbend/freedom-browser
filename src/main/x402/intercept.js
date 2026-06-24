@@ -32,7 +32,7 @@
  * All stores expose `clear*` helpers for test isolation.
  */
 
-const { dialog, webContents } = require('electron');
+const { webContents } = require('electron');
 const crypto = require('crypto');
 
 const log = require('../logger');
@@ -663,104 +663,14 @@ function sendToHost(webviewWebContentsId, channel, payload) {
   return { delivered: true };
 }
 
-async function presentNativeX402ApprovalPrompt(request, context = {}) {
-  const grant = request.details?.defaultGrant || null;
-  const buttons = grant
-    ? ['Pay once', `Pay and allow ${grant.label}`, 'Reject']
-    : ['Pay', 'Reject'];
-  const rejectResponse = buttons.length - 1;
-  return presentNativeX402Prompt(request, context, {
-    title: 'Freedom x402 Payment',
-    message: 'Payment approval request',
-    detail: (origin, promptRequest) => {
-      const details = promptRequest.details || {};
-      const amount = details.amount ? ` Amount: ${details.amount}.` : '';
-      const asset = details.asset ? ` Asset: ${details.asset}.` : '';
-      const network = details.network ? ` Network: ${details.network}.` : '';
-      const payTo = details.payTo ? ` Pay to: ${details.payTo}.` : '';
-      const resource = details.resource ? ` Resource: ${details.resource}.` : '';
-      return (
-        `${origin} requested an x402 payment.` +
-        amount +
-        asset +
-        network +
-        payTo +
-        resource +
-        ' Choose Pay only if you trust this request.'
-      );
-    },
-    buttons,
-    defaultId: rejectResponse,
-    cancelId: rejectResponse,
-    acceptedResponses: grant ? [0, 1] : [0],
-    resultForResponse: (response, promptRequest) => {
-      if (response !== 1 || !promptRequest.details?.defaultGrant) {
-        return null;
-      }
-      const approvedGrant = promptRequest.details.defaultGrant;
-      return {
-        grant: {
-          capAmount: approvedGrant.capAmount,
-          windowSeconds: approvedGrant.windowSeconds,
-        },
-        selectedAcceptIndex: approvedGrant.selectedAcceptIndex,
-      };
-    },
-  });
+async function presentShellX402ApprovalPrompt(request, context = {}) {
+  const { presentTrustedX402ApprovalPrompt } = require('../trusted-x402-approval-prompt');
+  return presentTrustedX402ApprovalPrompt(request, context);
 }
 
 async function presentNativeX402VaultUnlockPrompt(request, context = {}) {
   const { presentTrustedVaultUnlockPrompt } = require('../trusted-vault-unlock-prompt');
   return presentTrustedVaultUnlockPrompt(request, context);
-}
-
-async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native x402 trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const ownerWindow = context.ownerWindow || null;
-  const buttons = Array.isArray(dialogOptions.buttons) && dialogOptions.buttons.length > 0
-    ? dialogOptions.buttons
-    : ['Reject'];
-  const defaultId = Number.isInteger(dialogOptions.defaultId) ? dialogOptions.defaultId : 0;
-  const cancelId = Number.isInteger(dialogOptions.cancelId) ? dialogOptions.cancelId : defaultId;
-  const acceptedResponses = Array.isArray(dialogOptions.acceptedResponses)
-    ? new Set(dialogOptions.acceptedResponses.filter(Number.isInteger))
-    : new Set(
-      Number.isInteger(dialogOptions.acceptedResponse)
-        ? [dialogOptions.acceptedResponse]
-        : []
-    );
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: dialogOptions.title,
-    message: dialogOptions.message,
-    detail: dialogOptions.detail(origin, request),
-    buttons,
-    defaultId,
-    cancelId,
-    noLink: true,
-  });
-  const response = result?.response;
-  const accepted = acceptedResponses.has(response);
-  const extra =
-    typeof dialogOptions.resultForResponse === 'function'
-      ? dialogOptions.resultForResponse(response, request)
-      : null;
-  return {
-    ok: true,
-    outcome: accepted ? 'accepted' : 'rejected',
-    response,
-    ...(extra && typeof extra === 'object' ? extra : {}),
-  };
 }
 
 function getX402PaymentPromptDetails(requirements) {
@@ -860,7 +770,7 @@ async function requestPackageHostedX402Prompt({
         presentNativeDialog:
           promptType === 'vault-unlock'
             ? presentNativeX402VaultUnlockPrompt
-            : presentNativeX402ApprovalPrompt,
+            : presentShellX402ApprovalPrompt,
       }
     );
   } catch (err) {

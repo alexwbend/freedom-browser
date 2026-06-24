@@ -438,14 +438,14 @@ surface to package chrome.
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
 Package-hosted guest content can now surface x402 payment approval and
-vault-unlock needs through shell-owned native prompts instead of package chrome
-approval cards:
+vault-unlock needs through shell-owned trusted windows instead of package
+chrome approval cards:
 
 ```text
 guest webContents x402 interception
   -> main-owned package host/context derivation
   -> trusted prompt broker x402.approval or x402.vaultUnlock
-  -> shell-owned native dialog or trusted vault-unlock window
+  -> shell-owned trusted approval or vault-unlock window
   -> shell-owned signing/retry or original 402 remains visible to the page
 ```
 
@@ -454,19 +454,21 @@ identity from the host WebContents registration. Package chrome does not receive
 raw x402 approval events, raw payment-history IPC, vault-unlock primitives, or
 payment signing authority.
 
-For non-cap-covered package-hosted paywalls, the shell-owned payment prompt can
-now succeed for a one-time payment when the user chooses Pay and the vault is
-unlocked. Main derives display-only payment review details from the parsed
-x402 requirements before prompting, including amount, asset, network,
-recipient, and resource URL when present. Main signs through the existing
-vault-backed x402 client, queues the payment header for the retry, returns a
-same-URL 307 for subresources, and re-navigates main-frame requests through
-the existing sign-flow path. Rejected prompts pass the original 402 through.
-For recognized EIP-155 token requirements, the same shell-owned native prompt
-also offers an explicit bounded cap action: Pay once, or Pay and allow 10
-tokens for 30 days. The cap decision is returned as a broker result and
-threaded into the existing main-owned x402 sign-flow, which writes the
-permission store; package chrome still receives no raw x402 permission API.
+For non-cap-covered package-hosted paywalls, the shell-owned payment review
+window can now succeed for a one-time payment when the user chooses Pay and
+the vault is unlocked. Main derives display-only payment review details from
+the parsed x402 requirements before prompting, including amount, asset,
+network, recipient, and resource URL when present. Main signs through the
+existing vault-backed x402 client, queues the payment header for the retry,
+returns a same-URL 307 for subresources, and re-navigates main-frame requests
+through the existing sign-flow path. Rejected prompts pass the original 402
+through. For recognized EIP-155 token requirements, the same shell-owned
+trusted window also offers an explicit bounded cap action: Pay once, or Pay
+and allow 10 tokens for 30 days. The cap decision is returned as a broker
+result and threaded into the existing main-owned x402 sign-flow, which writes
+the permission store; main uses the parsed grant details rather than trusting
+renderer-supplied cap values, and package chrome still receives no raw x402
+permission API.
 
 Package-hosted vault-unlock prompts now receive the same main-derived payment
 review details when available, including amount, asset, network, recipient,
@@ -478,9 +480,8 @@ the existing main-owned x402 sign/retry path for package-hosted cap-covered
 auto-pay and accepted manual payment flows; rejected or failed unlocks pass the
 original 402 through. Package-hosted x402 still does not expose payment
 history or cap edit/revoke APIs to package chrome. Cap editing/revocation and
-payment-history review now live in the separate shell-owned trusted payments
-surface opened through `surfaces.payments.control`; the full x402 approval UI
-and richer payment review still are not migrated into package chrome.
+payment-history review live in the separate shell-owned trusted payments
+surface opened through `surfaces.payments.control`.
 
 ### Package-Hosted Trusted Payments Surface
 
@@ -554,7 +555,7 @@ x402 approvals:
 - broker opens shell-owned payment approval or unlock prompt
 - current package-hosted approval slice can sign one-time payments, and can
   create the bounded default 10-token/30-day cap for recognized EIP-155
-  assets, after shell-owned native presentation
+  assets, after shell-owned trusted-window presentation
 - package-hosted vault-unlock prompts show main-derived payment details in a
   shell-owned trusted window, unlock through main on accepted passwords, and
   retry x402 signing without exposing vault APIs to package chrome
@@ -562,8 +563,6 @@ x402 approvals:
   trusted payments window; package chrome can request only surface open/close
   state through `surfaces.payments.control`
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add richer payment review UI before x402 can be
-  called complete in package mode
 
 Swarm publish/feed/signing approval:
 
@@ -604,7 +603,7 @@ Vault unlock:
 
 - no full wallet center or secret-management migration
 - no richer wallet account-selection implementation
-- no richer x402 approval-review surface or general vault-unlock migration
+- no general vault-unlock migration outside the current x402 and wallet-provider retry paths
 - no full publish-center approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome
