@@ -3906,6 +3906,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2256 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `f5f323c` (`feat(chrome): show package x402 vault unlock
+  details`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28088863706`, job `test` (`83161539319`), passed for
+  `f5f323c`.
+- GitHub Actions run `28088863706`, job `e2e-chrome-runtime`
+  (`83161538820`), passed for `f5f323c`.
 
 Known remaining gaps after this checkpoint:
 
