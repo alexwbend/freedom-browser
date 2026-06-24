@@ -7,7 +7,12 @@ jest.mock('qrcode', () => ({}));
 jest.mock('./balance-service', () => ({}));
 jest.mock('./chains', () => ({}));
 jest.mock('./provider-manager', () => ({}));
-jest.mock('./transaction-service', () => ({}));
+const mockSignPersonalMessage = jest.fn();
+const mockSignTypedData = jest.fn();
+jest.mock('./transaction-service', () => ({
+  signPersonalMessage: mockSignPersonalMessage,
+  signTypedData: mockSignTypedData,
+}));
 jest.mock('./tx-recorder', () => ({
   signAndRecord: jest.fn(),
   KINDS: { WALLET_SEND: 'wallet-send', DAPP_SEND: 'dapp-send' },
@@ -29,7 +34,10 @@ jest.mock('./dapp-permissions', () => ({
   updateLastUsed: mockUpdateLastUsed,
 }));
 jest.mock('./rpc-manager', () => ({}));
-jest.mock('./vault-access', () => ({}));
+const mockWithVaultPrivateKey = jest.fn();
+jest.mock('./vault-access', () => ({
+  withVaultPrivateKey: mockWithVaultPrivateKey,
+}));
 
 const mockIsPackageWebContents = jest.fn();
 const mockGetPackageWebContentsIdentity = jest.fn();
@@ -56,6 +64,11 @@ describe('wallet-ipc', () => {
     mockGetPermission.mockReturnValue(null);
     mockGrantPermission.mockReturnValue(null);
     mockUpdateLastUsed.mockReturnValue(true);
+    mockSignPersonalMessage.mockResolvedValue('0xsigned-personal');
+    mockSignTypedData.mockResolvedValue('0xsigned-typed');
+    mockWithVaultPrivateKey.mockImplementation((_walletIndex, callback) =>
+      callback('0xprivate-key')
+    );
   });
 
   test('renderer context cannot override fixed payment-history kind', () => {
@@ -413,7 +426,7 @@ describe('wallet-ipc', () => {
     });
   });
 
-  test('routes package-hosted signature requests through a shell-owned prompt', async () => {
+  test('signs package-hosted personal_sign through shell-owned prompt and vault access', async () => {
     const ownerWindow = { id: 79 };
     const hostWebContents = {
       id: 20,
@@ -426,6 +439,18 @@ describe('wallet-ipc', () => {
       packageId: 'baby.freedom.chrome.official',
       packageType: 'browser-chrome',
     });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 3,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 3,
+        name: 'Signing Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
     require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
 
     const result = await handleProviderTrustedPromptRequest(
@@ -438,7 +463,137 @@ describe('wallet-ipc', () => {
       },
       {
         method: 'personal_sign',
-        params: ['0x68656c6c6f'],
+        params: ['0x68656c6c6f', '0x1111111111111111111111111111111111111111'],
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: '0xsigned-personal',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 44,
+        },
+        result: {
+          outcome: 'accepted',
+          response: 0,
+        },
+      },
+    });
+    expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(3, expect.any(Function));
+    expect(mockSignPersonalMessage).toHaveBeenCalledWith('0x68656c6c6f', '0xprivate-key');
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Wallet Signature',
+      message: 'Signature request',
+      detail:
+        'https://app.example requested wallet signing. ' +
+        'Method: personal_sign. ' +
+        'Choose Sign only if you trust this request.',
+      buttons: ['Sign', 'Reject'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+  });
+
+  test('signs package-hosted typed data through shell-owned prompt and vault access', async () => {
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ({ id: 80 })),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 1,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 1,
+        name: 'Typed Wallet',
+        address: '0x2222222222222222222222222222222222222222',
+      },
+    ]);
+    const typedData = {
+      domain: { name: 'Freedom Test' },
+      types: {
+        EIP712Domain: [{ name: 'name', type: 'string' }],
+        Mail: [{ name: 'contents', type: 'string' }],
+      },
+      message: { contents: 'hello' },
+    };
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    await expect(
+      handleProviderTrustedPromptRequest(
+        {
+          sender: {
+            id: 45,
+            hostWebContents,
+            getURL: jest.fn(() => 'https://app.example/typed'),
+          },
+        },
+        {
+          method: 'eth_signTypedData_v4',
+          params: ['0x2222222222222222222222222222222222222222', typedData],
+        }
+      )
+    ).resolves.toMatchObject({
+      result: '0xsigned-typed',
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+        result: {
+          outcome: 'accepted',
+        },
+      },
+    });
+    expect(mockWithVaultPrivateKey).toHaveBeenCalledWith(1, expect.any(Function));
+    expect(mockSignTypedData).toHaveBeenCalledWith(typedData, '0xprivate-key');
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+  });
+
+  test('rejects package-hosted signature requests when the shell prompt is rejected', async () => {
+    const ownerWindow = { id: 79 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      {
+        sender: {
+          id: 44,
+          hostWebContents,
+          getURL: jest.fn(() => 'https://app.example/sign'),
+        },
+      },
+      {
+        method: 'personal_sign',
+        params: ['0x68656c6c6f', '0x1111111111111111111111111111111111111111'],
       }
     );
 
@@ -461,25 +616,68 @@ describe('wallet-ipc', () => {
       trustedPrompt: {
         ok: true,
         kind: 'wallet.signature',
-        renderedBy: 'shell-native-dialog',
-        context: {
-          source: 'main',
-          origin: 'https://app.example',
-          webContentsId: 44,
+        result: {
+          outcome: 'rejected',
+          response: 1,
         },
       },
     });
-    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
-      type: 'info',
-      title: 'Freedom Wallet Signature',
-      message: 'Signature request',
-      detail:
-        'https://app.example requested wallet signing. ' +
-        'Package chrome cannot approve this request; the shell is rejecting it for now.',
-      buttons: ['Reject'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
+    expect(mockWithVaultPrivateKey).not.toHaveBeenCalled();
+    expect(mockSignPersonalMessage).not.toHaveBeenCalled();
+  });
+
+  test('returns structured vault-locked errors for accepted package-hosted signatures', async () => {
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ({ id: 81 })),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+    });
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 0,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
+    mockWithVaultPrivateKey.mockRejectedValue(new Error('Vault is locked'));
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    await expect(
+      handleProviderTrustedPromptRequest(
+        {
+          sender: {
+            id: 46,
+            hostWebContents,
+            getURL: jest.fn(() => 'https://app.example/sign'),
+          },
+        },
+        {
+          method: 'personal_sign',
+          params: ['0x68656c6c6f', '0x1111111111111111111111111111111111111111'],
+        }
+      )
+    ).resolves.toMatchObject({
+      result: null,
+      error: {
+        code: 4100,
+        message: 'Vault is locked',
+        data: { reason: 'vault_locked' },
+      },
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.signature',
+      },
     });
   });
 

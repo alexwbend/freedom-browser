@@ -2352,7 +2352,7 @@ test('official browser chrome can launch as a local package with transitional we
                 try {
                   await provider.request({
                     method: 'personal_sign',
-                    params: ['0x68656c6c6f', '0x0000000000000000000000000000000000000001'],
+                    params: ['0x68656c6c6f', '${packageSmokeWalletAddress}'],
                   });
                   setText('[data-test="provider-signature"]', 'unexpected-success');
                 } catch (error) {
@@ -2414,6 +2414,9 @@ test('official browser chrome can launch as a local package with transitional we
           ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
           options,
         });
+        if (options?.title === 'Freedom Wallet Signature') {
+          return { response: 1 };
+        }
         return { response: 0 };
       };
     });
@@ -2488,10 +2491,11 @@ test('official browser chrome can launch as a local package with transitional we
         message: 'Signature request',
         detail:
           `ipfs://${providerIpfsCid} requested wallet signing. ` +
-          'Package chrome cannot approve this request; the shell is rejecting it for now.',
-        buttons: ['Reject'],
-        defaultId: 0,
-        cancelId: 0,
+          'Method: personal_sign. ' +
+          'Choose Sign only if you trust this request.',
+        buttons: ['Sign', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
         noLink: true,
       },
     });

@@ -164,10 +164,10 @@ and returns the active wallet address to the guest page:
 If the user rejects the prompt, the page still receives an EIP-1193 `4001`
 user rejection. Package-hosted `eth_accounts` reads existing main-owned dApp
 permissions and returns the granted account without opening a prompt. This
-does not migrate transaction/signing approval UI, expose wallet management, or
-give package chrome dApp permission-store authority.
+does not migrate transaction approval UI, expose wallet management, or give
+package chrome dApp permission-store authority.
 
-### Package-Hosted Wallet Transaction And Signature Denials
+### Package-Hosted Wallet Transaction And Signature Prompts
 
 Package-hosted guest content can now route these higher-risk Ethereum provider
 requests to main without package chrome brokering them:
@@ -189,7 +189,7 @@ guest webview preload
   -> main-owned package host/context derivation
   -> trusted prompt broker wallet.transaction or wallet.signature
   -> shell-owned native dialog
-  -> page-facing EIP-1193 user rejection
+  -> shell-owned execution or page-facing provider error
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
@@ -197,7 +197,22 @@ package identity from the host WebContents registration. Payload-supplied
 origin claims and transaction/signature details are not trusted as final
 security truth.
 
-The current result intentionally rejects the transaction or signature request:
+For connected origins, `personal_sign`, `eth_signTypedData`,
+`eth_signTypedData_v3`, and `eth_signTypedData_v4` can now succeed when the
+user chooses Sign and the vault is unlocked. Main checks the existing dApp
+permission, verifies the requested signing account against the connected
+account, borrows the private key through `withVaultPrivateKey()`, performs the
+signature in main, updates the permission last-used timestamp, and returns only
+the signature to the guest page:
+
+```json
+{
+  "result": "0x...",
+  "error": null
+}
+```
+
+If the user rejects the shell-owned signature prompt, the page still receives:
 
 ```json
 {
@@ -212,10 +227,13 @@ The current result intentionally rejects the transaction or signature request:
 }
 ```
 
-This proves the package-hosted provider path reaches shell-owned prompt
-presentation for signing-class requests. It does not sign, send transactions,
-select accounts, unlock vault state, write dApp permissions, or migrate the
-final transaction/signature approval UI.
+If the origin is not connected, the requested account is not connected, the
+parameters are invalid, or the vault is locked, main returns structured
+provider errors without falling back to package chrome. `eth_sendTransaction`
+and deprecated/unsupported signing methods such as `eth_sign` remain safe
+failure paths for now. This does not send transactions, select accounts,
+unlock vault state, expose raw wallet authority, or migrate the full wallet
+center UI.
 
 ### Package-Hosted Swarm Publish Denial
 
@@ -301,11 +319,15 @@ Transaction and typed-data signing:
 - initiated by website provider path
 - main derives origin, chain, account, request id, and tab identity
 - broker opens shell-owned transaction or signing prompt
-- current package-hosted slices reject after shell-owned native presentation
+- current package-hosted signature slice can sign `personal_sign` and modern
+  EIP-712 typed-data requests for already connected origins when the vault is
+  unlocked
+- transaction sending still rejects after shell-owned native presentation
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add real wallet/account/vault execution handling
-  from main before transaction or signing requests can succeed in package mode
+- future completion work must add richer account selection/review, transaction
+  fee/chain validation, and vault-unlock handling before the broader wallet
+  approval surface can be called complete in package mode
 
 x402 approvals:
 
@@ -341,7 +363,7 @@ Vault unlock:
 ## Non-Goals In This Slice
 
 - no real wallet center migration
-- no account exposure, transaction sending, or signing implementation
+- no transaction sending implementation
 - no successful x402 payment, cap-grant, or vault-unlock migration
 - no successful Swarm publish/feed approval migration
 - no package-rendered prompt UI

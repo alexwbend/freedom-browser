@@ -33,6 +33,7 @@ const {
 } = require('./dapp-permissions');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
+const { isVaultLockedError } = require('./vault-errors');
 
 const READONLY_PROVIDER_ERRORS = Object.freeze({
   UNSUPPORTED_METHOD: { code: 4200, message: 'Method not supported' },
@@ -52,10 +53,36 @@ const PACKAGE_PROVIDER_WALLET_UNAVAILABLE = Object.freeze({
   message: 'No active wallet account is available for this origin',
   data: { reason: 'wallet_account_unavailable' },
 });
+const PACKAGE_PROVIDER_UNAUTHORIZED = Object.freeze({
+  code: 4100,
+  message: 'Wallet is not connected. Call eth_requestAccounts first.',
+  data: { reason: 'wallet_not_connected' },
+});
+const PACKAGE_PROVIDER_VAULT_LOCKED = Object.freeze({
+  code: 4100,
+  message: 'Vault is locked',
+  data: { reason: 'vault_locked' },
+});
+const PACKAGE_PROVIDER_INVALID_PARAMS = Object.freeze({
+  code: -32602,
+  message: 'Invalid signing request parameters',
+  data: { reason: 'invalid_params' },
+});
+const PACKAGE_PROVIDER_SIGNING_FAILED = Object.freeze({
+  code: -32603,
+  message: 'Wallet signing failed',
+  data: { reason: 'wallet_signing_failed' },
+});
 const DEFAULT_PROVIDER_CHAIN_ID = 100;
 const PACKAGE_PROVIDER_ACCOUNT_METHODS = new Set(['eth_accounts']);
 const PACKAGE_PROVIDER_CONNECT_METHODS = new Set(['eth_requestAccounts']);
 const PACKAGE_PROVIDER_TRANSACTION_METHODS = new Set(['eth_sendTransaction']);
+const PACKAGE_PROVIDER_SIGNABLE_METHODS = new Set([
+  'personal_sign',
+  'eth_signTypedData',
+  'eth_signTypedData_v3',
+  'eth_signTypedData_v4',
+]);
 const PACKAGE_PROVIDER_SIGNATURE_METHODS = new Set([
   'eth_sign',
   'personal_sign',
@@ -188,9 +215,14 @@ async function presentNativeWalletSignaturePrompt(request, context = {}) {
   return presentNativeWalletPrompt(request, context, {
     title: 'Freedom Wallet Signature',
     message: 'Signature request',
-    detail: (origin) =>
+    detail: (origin, promptRequest) =>
       `${origin} requested wallet signing. ` +
-      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+      `Method: ${promptRequest.method}. ` +
+      'Choose Sign only if you trust this request.',
+    buttons: ['Sign', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    acceptedResponse: 0,
   });
 }
 
@@ -219,7 +251,7 @@ async function presentNativeWalletPrompt(request, context = {}, dialogOptions = 
     type: 'info',
     title: dialogOptions.title,
     message: dialogOptions.message,
-    detail: dialogOptions.detail(origin),
+    detail: dialogOptions.detail(origin, request),
     buttons,
     defaultId,
     cancelId,
@@ -271,6 +303,12 @@ async function getAccountsForWalletIndex(walletIndex) {
   return typeof wallet?.address === 'string' && wallet.address ? [wallet.address] : [];
 }
 
+function normalizeEthereumAddress(address) {
+  return typeof address === 'string' && /^0x[a-fA-F0-9]{40}$/.test(address)
+    ? address.toLowerCase()
+    : null;
+}
+
 async function getExistingPackageWalletAccounts(origin) {
   if (!origin) {
     return null;
@@ -284,6 +322,41 @@ async function getExistingPackageWalletAccounts(origin) {
     updateLastUsed(origin, permission.chainId);
   }
   return accounts;
+}
+
+async function getPackageWalletPermission(origin) {
+  if (!origin) {
+    return {
+      ok: false,
+      error: {
+        code: 4100,
+        message: 'Cannot use wallet without a verified origin',
+        data: { reason: 'provider_origin_unavailable' },
+      },
+    };
+  }
+
+  const permission = getPermission(origin);
+  if (!permission) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_UNAUTHORIZED,
+    };
+  }
+
+  const accounts = await getAccountsForWalletIndex(permission.walletIndex);
+  if (accounts.length === 0) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
+    };
+  }
+
+  return {
+    ok: true,
+    permission,
+    account: accounts[0],
+  };
 }
 
 async function grantPackageWalletConnect(origin) {
@@ -312,6 +385,120 @@ async function grantPackageWalletConnect(origin) {
     ok: true,
     result: [address],
   };
+}
+
+function getAddressMismatchError(expectedAddress, requestedAddress) {
+  return {
+    code: 4100,
+    message: 'Requested signing account is not connected for this origin',
+    data: {
+      reason: 'wallet_account_mismatch',
+      expectedAddress,
+      requestedAddress,
+    },
+  };
+}
+
+function getPackageSignatureRequest(method, params, connectedAccount) {
+  const list = Array.isArray(params) ? params : [];
+  const connected = normalizeEthereumAddress(connectedAccount);
+  if (!connected) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
+    };
+  }
+
+  if (method === 'personal_sign') {
+    const message = list[0];
+    const requestedAddress = list[1];
+    const normalizedRequested = normalizeEthereumAddress(requestedAddress);
+    if (typeof message !== 'string' || !message) {
+      return {
+        ok: false,
+        error: PACKAGE_PROVIDER_INVALID_PARAMS,
+      };
+    }
+    if (requestedAddress && normalizedRequested !== connected) {
+      return {
+        ok: false,
+        error: getAddressMismatchError(connectedAccount, requestedAddress),
+      };
+    }
+    return {
+      ok: true,
+      type: 'personal',
+      message,
+    };
+  }
+
+  if (PACKAGE_PROVIDER_SIGNABLE_METHODS.has(method)) {
+    const requestedAddress = list[0];
+    const typedData = list[1];
+    const normalizedRequested = normalizeEthereumAddress(requestedAddress);
+    if (!normalizedRequested || normalizedRequested !== connected || typedData === undefined) {
+      return {
+        ok: false,
+        error: normalizedRequested && normalizedRequested !== connected
+          ? getAddressMismatchError(connectedAccount, requestedAddress)
+          : PACKAGE_PROVIDER_INVALID_PARAMS,
+      };
+    }
+    return {
+      ok: true,
+      type: 'typedData',
+      typedData,
+    };
+  }
+
+  return {
+    ok: false,
+    error: {
+      code: 4200,
+      message: `Unsupported signing method: ${method || 'unknown'}`,
+      data: { reason: 'unsupported_signing_method' },
+    },
+  };
+}
+
+async function signPackageProviderRequest(origin, method, params) {
+  const permission = await getPackageWalletPermission(origin);
+  if (permission.ok !== true) {
+    return permission;
+  }
+
+  const signatureRequest = getPackageSignatureRequest(method, params, permission.account);
+  if (signatureRequest.ok !== true) {
+    return signatureRequest;
+  }
+
+  try {
+    const signature = await withVaultPrivateKey(permission.permission.walletIndex, (privateKey) => {
+      if (signatureRequest.type === 'personal') {
+        return signPersonalMessage(signatureRequest.message, privateKey);
+      }
+      return signTypedData(signatureRequest.typedData, privateKey);
+    });
+    updateLastUsed(origin, permission.permission.chainId);
+    return {
+      ok: true,
+      result: signature,
+    };
+  } catch (err) {
+    if (isVaultLockedError(err)) {
+      return {
+        ok: false,
+        error: PACKAGE_PROVIDER_VAULT_LOCKED,
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        ...PACKAGE_PROVIDER_SIGNING_FAILED,
+        message: err?.message || PACKAGE_PROVIDER_SIGNING_FAILED.message,
+      },
+    };
+  }
 }
 
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
@@ -402,6 +589,25 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     return {
       result: null,
       error: grant.error,
+      trustedPrompt: prompt,
+    };
+  }
+
+  if (
+    PACKAGE_PROVIDER_SIGNATURE_METHODS.has(method) &&
+    prompt.result?.outcome === 'accepted'
+  ) {
+    const signature = await signPackageProviderRequest(origin, method, payload.params);
+    if (signature.ok === true) {
+      return {
+        result: signature.result,
+        error: null,
+        trustedPrompt: prompt,
+      };
+    }
+    return {
+      result: null,
+      error: signature.error,
       trustedPrompt: prompt,
     };
   }

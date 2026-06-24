@@ -3069,3 +3069,63 @@ Known remaining gaps after this checkpoint:
   Swarm publish/feed, and seed/private-key export prompt surfaces still need
   shell-owned UI before they can be called complete in package mode; these are
   not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 8: Package Wallet Signature Execution
+
+Current checkpoint: package-hosted message and modern typed-data signing can
+now succeed through a shell-owned native signature prompt for already connected
+origins when the vault is unlocked. Package chrome still does not receive
+wallet globals, dApp permission stores, private keys, raw signing authority,
+vault unlock primitives, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- changed the package-hosted wallet-signature native prompt from rejection-only
+  to explicit `Sign` / `Reject`, with `Reject` as the default and cancel action
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- required an existing main-owned dApp permission before package-hosted signing
+  can execute
+- verified the requested signing account against the connected account before
+  executing the signature
+- executed `personal_sign`, `eth_signTypedData`, `eth_signTypedData_v3`, and
+  `eth_signTypedData_v4` in main through `withVaultPrivateKey()`,
+  `signPersonalMessage()`, and `signTypedData()`
+- returned structured provider errors for unconnected origins, account
+  mismatches, invalid signing params, locked vault state, and unsupported
+  signing methods instead of routing back through package chrome
+- kept `eth_sendTransaction` on the shell-owned native rejection prompt; this
+  checkpoint does not send transactions, validate transaction fees/chains, or
+  implement vault unlock
+- updated official package smoke to assert the shell-owned `Sign` / `Reject`
+  prompt shape while intentionally rejecting the launched signature request
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/wallet/wallet-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 52 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2208 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted signing now succeeds only for already connected origins and
+  unlocked vault state; richer account selection/review and vault-unlock
+  prompting still need a real shell-owned wallet surface
+- `eth_sendTransaction` still only reaches a shell-owned native rejection
+  prompt in package mode; successful transaction execution, fee/chain
+  validation, and advanced dApp permission controls still need real shell-owned
+  approval surfaces
+- x402 approval/unlock, identity onboarding, general vault unlock, successful
+  Swarm publish/feed, and seed/private-key export prompt surfaces still need
+  shell-owned UI before they can be called complete in package mode; these are
+  not user-approved completion deferrals
