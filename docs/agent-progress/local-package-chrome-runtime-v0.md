@@ -2911,7 +2911,7 @@ Implemented in this checkpoint:
   `docs/local-package-chrome-runtime.md`, and
   `docs/package-chrome-trust-boundaries.md`
 
-Verification in this checkpoint so far:
+Verification in this checkpoint:
 
 - `npm test -- src/main/trusted-prompt-broker.test.js src/main/wallet/wallet-ipc.test.js src/main/webview-preload.test.js` passed:
   3 suites, 43 tests.
@@ -2923,6 +2923,13 @@ Verification in this checkpoint so far:
   116 suites passed, 5 skipped; 2199 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `c01b235` (`feat(chrome): route package wallet signing
+  prompts through shell`) and pushed to
+  `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28074021278`, job `test` (`83114418057`), passed for
+  `c01b235`.
+- GitHub Actions run `28074021278`, job `e2e-chrome-runtime`
+  (`83114418075`), passed for `c01b235`.
 
 Known remaining gaps after this checkpoint:
 
