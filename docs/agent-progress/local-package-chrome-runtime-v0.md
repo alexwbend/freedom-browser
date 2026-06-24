@@ -2097,6 +2097,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2177 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `d551c7d` (`test(chrome): cover package history page`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28066780687`, job `test` (`83092735156`), passed for
+  `d551c7d`.
+- GitHub Actions run `28066780687`, job `e2e-chrome-runtime`
+  (`83092734885`), passed for `d551c7d`.
 
 Known remaining gaps after this checkpoint:
 
