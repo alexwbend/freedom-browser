@@ -2735,6 +2735,12 @@ Verification in this checkpoint so far:
 - `npm test` passed: 116 suites passed, 5 skipped; 2183 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `cd229d8` (`feat(chrome): add native trusted prompt test
+  path`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28071891009`, job `test` (`83107978040`), passed for
+  `cd229d8`.
+- GitHub Actions run `28071891009`, job `e2e-chrome-runtime`
+  (`83107977992`), passed for `cd229d8`.
 
 Known remaining gaps after this checkpoint:
 
