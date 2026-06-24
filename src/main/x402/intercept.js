@@ -668,11 +668,15 @@ async function presentNativeX402ApprovalPrompt(request, context = {}) {
       const amount = details.amount ? ` Amount: ${details.amount}.` : '';
       const asset = details.asset ? ` Asset: ${details.asset}.` : '';
       const network = details.network ? ` Network: ${details.network}.` : '';
+      const payTo = details.payTo ? ` Pay to: ${details.payTo}.` : '';
+      const resource = details.resource ? ` Resource: ${details.resource}.` : '';
       return (
         `${origin} requested an x402 payment.` +
         amount +
         asset +
         network +
+        payTo +
+        resource +
         ' Choose Pay only if you trust this request.'
       );
     },
@@ -738,13 +742,26 @@ function getX402PaymentPromptDetails(requirements) {
   if (!accept || typeof accept !== 'object') {
     return null;
   }
+  const resource = getX402ResourceForPrompt(requirements, accept);
   return {
     x402Version: requirements.x402Version,
     network: accept.network,
     amount: accept.amount ?? accept.maxAmountRequired,
     asset: accept.asset,
     payTo: accept.payTo,
+    ...(resource ? { resource } : {}),
   };
+}
+
+function getX402ResourceForPrompt(requirements, accept) {
+  const resource = requirements?.resource ?? accept?.resource;
+  if (typeof resource === 'string' && resource) {
+    return resource;
+  }
+  if (resource && typeof resource === 'object' && typeof resource.url === 'string') {
+    return resource.url;
+  }
+  return null;
 }
 
 async function requestPackageHostedX402Prompt({

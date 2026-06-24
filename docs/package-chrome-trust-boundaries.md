@@ -270,13 +270,14 @@ center, or expose raw Swarm IPC.
 Package-hosted x402 approval and vault-unlock needs now also reach shell-owned
 native prompts. One-time x402 payment approval can sign and queue the retry
 through the existing main sign-flow when the user chooses Pay and the vault is
-unlocked. Vault-unlock needs still reject and pass the original 402 through,
-and package chrome still cannot receive raw x402 IPC, grant caps, unlock vault
-state, write payment permissions, or read payment history. Raw Swarm feed
-write approvals, file/folder/full publish UX, richer account selection/review, x402
-cap grants, and vault unlock still need main-derived guest/request context and
-real shell-owned prompt surfaces before they can be called complete in package
-mode.
+unlocked. Main derives payment-review details from parsed x402 requirements
+and shows amount, asset, network, recipient, and resource URL when present.
+Vault-unlock needs still reject and pass the original 402 through, and package
+chrome still cannot receive raw x402 IPC, grant caps, unlock vault state, write
+payment permissions, or read payment history. File/folder/full publish UX,
+richer account selection/review, x402 cap grants, and vault unlock still need
+main-derived guest/request context and real shell-owned prompt surfaces before
+they can be called complete in package mode.
 
 ## Ethereum Provider Status
 

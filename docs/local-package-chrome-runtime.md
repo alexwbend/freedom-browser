@@ -618,14 +618,16 @@ not package chrome APIs. The x402 interceptor refuses to deliver `x402:*`
 host-renderer events to registered package windows. If a package-hosted guest
 hits a non-cap-covered x402 paywall, main presents a shell-owned native Pay /
 Reject prompt instead of waiting for package chrome to render an approval card.
-When the user chooses Pay and the vault is unlocked, main signs through the
-existing vault-backed x402 client, queues the payment header for the retry, and
-returns the same shell-owned retry behavior as bundled approval. Rejected
-prompts pass the original 402 through. If an auto-pay flow needs vault unlock,
-main still presents a shell-owned native vault-unlock rejection prompt and then
-passes the original 402 through. This keeps package mode from silently hanging
-while preserving the boundary that final payment approval and vault unlock must
-stay shell-owned. The native x402 path does not grant caps, unlock vault state,
+Main derives display-only review details from parsed x402 requirements and
+shows amount, asset, network, recipient, and resource URL when present. When
+the user chooses Pay and the vault is unlocked, main signs through the existing
+vault-backed x402 client, queues the payment header for the retry, and returns
+the same shell-owned retry behavior as bundled approval. Rejected prompts pass
+the original 402 through. If an auto-pay flow needs vault unlock, main still
+presents a shell-owned native vault-unlock rejection prompt and then passes the
+original 402 through. This keeps package mode from silently hanging while
+preserving the boundary that final payment approval and vault unlock must stay
+shell-owned. The native x402 path does not grant caps, unlock vault state,
 write payment permissions, expose payment history, or migrate the full payment
 review UI. Raw package runtime x402 adapter methods also return structured
 `X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or

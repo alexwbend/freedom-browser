@@ -417,10 +417,12 @@ payment signing authority.
 
 For non-cap-covered package-hosted paywalls, the shell-owned payment prompt can
 now succeed for a one-time payment when the user chooses Pay and the vault is
-unlocked. Main signs through the existing vault-backed x402 client, queues the
-payment header for the retry, returns a same-URL 307 for subresources, and
-re-navigates main-frame requests through the existing sign-flow path. Rejected
-prompts pass the original 402 through.
+unlocked. Main derives display-only payment review details from the parsed
+x402 requirements before prompting, including amount, asset, network,
+recipient, and resource URL when present. Main signs through the existing
+vault-backed x402 client, queues the payment header for the retry, returns a
+same-URL 307 for subresources, and re-navigates main-frame requests through
+the existing sign-flow path. Rejected prompts pass the original 402 through.
 
 Package-hosted x402 still does not grant caps, unlock vault state, write
 payment permissions, expose payment history, or migrate the full x402 approval

@@ -3669,3 +3669,54 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 17: Package x402 Payment Review Details
+
+Current checkpoint: package-hosted non-cap-covered x402 payment prompts now
+show richer shell-owned native review details before one-time payment approval.
+Main derives the displayed destination and resource from parsed x402
+requirements; package chrome still does not receive raw x402 approval events,
+payment-history IPC, vault unlock primitives, cap-grant authority, payment
+permission authority, signing authority, Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- kept package-hosted x402 approval on the existing `x402.approval` trusted
+  prompt path rather than adding any package chrome API
+- kept main deriving the payment origin from the intercepted request URL and
+  the package host identity from the registered package host WebContents
+- added display-only recipient and resource URL details to the shell-owned
+  native Pay / Reject prompt, alongside the existing amount, asset, and network
+  details
+- derived the resource display value from the top-level V2 resource URL or the
+  V1 accept resource without trusting package chrome
+- preserved one-time payment behavior: accepted prompts can sign/retry only
+  through the existing vault-backed x402 sign flow when the vault is already
+  unlocked
+- left cap grants, payment permission writes, payment history UI, vault unlock,
+  and the full x402 review UI unavailable to package chrome
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js src/main/trusted-prompt-broker.test.js` passed:
+  2 suites, 125 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2243 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted x402 approval remains a native one-time-payment slice; cap
+  grants, payment permission management, payment history UI, full payment
+  review, and vault-unlock prompting still need a real shell-owned x402 surface
+  before x402 can be called complete in package mode
+- identity onboarding, general vault unlock, seed/private-key export, full
+  Swarm publish/feed surfaces, and richer wallet account/review surfaces still
+  need shell-owned UI before the broader package runtime can be called
+  complete; these are not user-approved completion deferrals

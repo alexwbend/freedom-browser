@@ -697,12 +697,37 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
         'Amount: 10000. ' +
         'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
         'Network: eip155:8453. ' +
+        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+        'Resource: https://api.example/article. ' +
         'Choose Pay only if you trust this request.',
       buttons: ['Pay', 'Reject'],
       defaultId: 1,
       cancelId: 1,
       noLink: true,
     });
+  });
+
+  test('package-hosted approval prompt includes V1 accept resource review details', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
+
+    const result = await detectPaymentRequiredHandler(detail({
+      responseHeaders: { 'X-PAYMENT-REQUIRED': [sampleRequirementsV1B64] },
+    }));
+
+    expect(result).toBeNull();
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingApproval('req-1001')).toBe(false);
+    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, expect.objectContaining({
+      detail:
+        'https://api.example requested an x402 payment. ' +
+        'Amount: 10000. ' +
+        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+        'Network: base. ' +
+        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+        'Resource: https://api.example/article. ' +
+        'Choose Pay only if you trust this request.',
+    }));
   });
 
   test('package-hosted approval accepted in shell signs with MANUAL authorization and returns 307 for subresources', async () => {
