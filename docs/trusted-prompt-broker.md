@@ -356,7 +356,8 @@ tag identity when Bee provides one:
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
 not write feed permissions, expose stamp management, allow feed publish/update,
-or migrate the full Swarm publish/feed approval UI.
+or provide the package-hosted trusted publish surface; it is only the
+provider-path file publish approval.
 
 ### Package-Hosted Swarm Feed Creation, Update, And Entry Write Approval
 
@@ -440,8 +441,8 @@ unlocked signing material.
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
 not expose raw feed-store IPC, stamp management, vault unlock, account
-selection, local file/folder picker UI, or the full Swarm publish/feed review
-surface to package chrome.
+selection, local file/folder picker UI, or richer feed-review authority to
+package chrome.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
@@ -517,6 +518,36 @@ those channels. It can list recent payment history, list active x402 caps,
 update cap amount or window, revoke one cap, revoke every cap for an origin,
 and clear payment history. Package chrome receives only surface open/close
 state, not the payment rows, cap rows, mutation APIs, or store internals.
+
+### Package-Hosted Trusted Swarm Publish Surface
+
+Package chrome can request the shell-owned trusted Swarm publish surface
+without receiving raw Swarm publish, stamp, feed-store, filesystem, or provider
+authority:
+
+```text
+window.freedomShell.openSurface("swarmPublish")
+  -> shell API method surfaces.open
+  -> capability surfaces.swarmPublish.control
+  -> src/main/trusted-swarm-publish-surface.js
+  -> bundled trusted publish BrowserWindow/preload
+```
+
+The package-hosted `freedom://publish` page remains unavailable for raw
+path-based publish IPC. Main still rejects package-hosted direct publish,
+file/folder picker, upload-status, stamp-read, and publish-history requests
+with `SWARM_PUBLISH_UNAVAILABLE`. The page's Open trusted publish window
+action only forwards to the host package WebContents' capability-gated
+`surfaces.open("swarmPublish")` path.
+
+The trusted Swarm publish surface is bundled shell code with a dedicated
+preload and per-window scoped IPC channels. Only the trusted surface
+WebContents can call those channels. It loads the existing bundled publish page
+inside a shell-owned BrowserWindow, so text/file/folder publishing, file/folder
+pickers, stamp reads, upload status, publish history, clipboard copy, and
+opening published links through the host tab API stay owned by main and
+trusted bundled code. Package chrome receives only surface open/close state,
+not publish paths, stamp rows, history rows, or mutation APIs.
 
 ## Future Real Prompt Paths
 

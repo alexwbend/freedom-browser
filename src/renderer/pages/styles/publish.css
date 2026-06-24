@@ -63,6 +63,12 @@ html, body {
   color: var(--danger);
 }
 
+.publish-trusted-action {
+  display: flex;
+  justify-content: flex-start;
+  margin: -8px 0 18px;
+}
+
 /* Action cards */
 .publish-actions {
   display: grid;

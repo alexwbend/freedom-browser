@@ -10,6 +10,8 @@ const PACKAGE_SWARM_PUBLISH_UNAVAILABLE = 'SWARM_PUBLISH_UNAVAILABLE';
 
 // DOM refs
 const statusBanner = document.getElementById('publish-status-banner');
+const trustedPublishAction = document.getElementById('trusted-swarm-publish-action');
+const trustedPublishBtn = document.getElementById('open-trusted-swarm-publish-surface');
 const actionsSection = document.getElementById('publish-actions');
 const publishFileBtn = document.getElementById('publish-file-btn');
 const publishFolderBtn = document.getElementById('publish-folder-btn');
@@ -57,6 +59,12 @@ function init() {
   errorRetryBtn?.addEventListener('click', resetToActions);
   copyUrlBtn?.addEventListener('click', () => copyToClipboard(lastResult?.bzzUrl));
   copyRefBtn?.addEventListener('click', () => copyToClipboard(lastResult?.reference));
+  trustedPublishBtn?.addEventListener('click', async () => {
+    const result = await window.freedomAPI?.openTrustedSwarmPublishSurface?.();
+    if (result?.success === false) {
+      showBanner(normalizeErrorMessage(result.error, 'Failed to open trusted publish window.'), 'error');
+    }
+  });
   openUrlBtn?.addEventListener('click', () => {
     if (lastResult?.bzzUrl) {
       window.freedomAPI?.openInNewTab?.(lastResult.bzzUrl);
@@ -131,6 +139,7 @@ function disablePublishing(message = 'Swarm publishing is unavailable.') {
   disableActions();
   if (textSubmitBtn) textSubmitBtn.disabled = true;
   if (historyClearBtn) historyClearBtn.disabled = true;
+  trustedPublishAction?.classList.remove('hidden');
   if (typeof document !== 'undefined' && document.body) {
     document.body.dataset.swarmPublishUnavailable = 'true';
   }

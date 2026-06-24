@@ -203,6 +203,7 @@ The local package directory must contain `manifest.json`:
     "downloads.saveImage",
     "surfaces.wallet.control",
     "surfaces.payments.control",
+    "surfaces.swarmPublish.control",
     "windows.control",
     "windows.open",
     "app.about",
@@ -598,10 +599,19 @@ chrome. Its internal page preload can normally call path-based
 package-hosted publish, file/folder picker, upload-status, stamp-read, and
 publish-history IPC with structured `SWARM_PUBLISH_UNAVAILABLE`. The page
 surfaces that result as a warning and disables the visible Publish File,
-Publish Folder, and Publish Text controls. The provider-path Swarm prompt
-slices do not make this internal publish center available and do not expose
-local file/folder picker UI, stamp management, or the full publish/feed
-approval UX.
+Publish Folder, and Publish Text controls. In package mode, the page can offer
+an "Open trusted publish window" action. That action does not read stamps,
+history, file paths, or publish payloads through the package-hosted webview;
+it asks main to open the `swarmPublish` shell surface through the host package
+window's capability-gated `surfaces.open` path. The trusted publish window is
+bundled shell code with a dedicated preload and per-window scoped IPC channels.
+It loads the existing bundled publish page as trusted surface UI, so file and
+folder pickers, stamp reads, upload status, text/file/folder publishing, publish
+history reads/clear, clipboard writes, and opening published links are owned by
+that trusted window and main, not by package chrome. The provider-path Swarm
+prompt slices are still separate website/dApp flows and do not expose raw
+Swarm provider, stamp-management, feed-store, vault, Node, Electron, or
+filesystem authority to package chrome.
 
 The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. `surfaces.wallet.control` controls the shell-owned trusted
@@ -610,15 +620,19 @@ wallet window with `owner: "shell"` and `mode:
 connected dApp permission rows, and it can revoke dApp wallet permissions from
 trusted bundled code. `surfaces.payments.control` controls the shell-owned
 trusted payments window with the same trusted-window mode. Package chrome can
-read, open, close, or toggle only the surfaces it declares. The caller-scoped
-`surfaces.stateChanged` event is gated by the requested surface capability, so
-payment surface events do not grant wallet control and wallet events do not
-grant payment control. This does not expose wallet, identity, provider,
-signing, vault, x402 permission-store, payment-history, or dApp permission
-store APIs to package chrome. The official package smoke exercises the visible
-wallet/sidebar affordance against the shell-owned wallet window and
-opens/closes the trusted payments surface from package mode. The fixture
-package smoke also exercises the wallet surface control path.
+read, open, close, or toggle only the surfaces it declares.
+`surfaces.swarmPublish.control` controls the shell-owned trusted Swarm publish
+window. The caller-scoped `surfaces.stateChanged` event is gated by the
+requested surface capability, so payment surface events do not grant wallet or
+Swarm-publish control, and wallet events do not grant payment or Swarm-publish
+control. This does not expose wallet, identity, provider, signing, vault, x402
+permission-store, payment-history, Swarm provider, stamp-management,
+publish-history, feed-store, filesystem, or dApp permission-store APIs to
+package chrome. The official package smoke exercises the visible
+wallet/sidebar affordance against the shell-owned wallet window,
+opens/closes the trusted payments surface from package mode, and opens/closes
+the trusted Swarm publish surface from package-hosted `freedom://publish`.
+The fixture package smoke also exercises the wallet surface control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
 documented in `docs/trusted-prompt-broker.md`. It proves package chrome can
@@ -766,6 +780,10 @@ must be allowed by the package manifest's declared capabilities:
 - `surfaces.payments.control` allows `getSurfaceState("payments")`,
   `openSurface("payments")`, `closeSurface("payments")`, and
   `toggleSurface("payments")` for the shell-owned trusted payments window
+- `surfaces.swarmPublish.control` allows
+  `getSurfaceState("swarmPublish")`, `openSurface("swarmPublish")`,
+  `closeSurface("swarmPublish")`, and `toggleSurface("swarmPublish")` for
+  the shell-owned trusted Swarm publish window
 - `trustedPrompts.test` allows `requestTestTrustedPrompt(payload)` for the
   test-only broker slice
 - `windows.control` allows `setWindowTitle(title)`, `closeWindow()`,

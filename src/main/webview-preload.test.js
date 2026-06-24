@@ -153,6 +153,12 @@ describe('webview-preload', () => {
       ['getPaymentsCount', [{ kind: 'x402' }], IPC.PAYMENTS_GET_COUNT, [{ kind: 'x402' }]],
       ['clearPayments', [], IPC.PAYMENTS_CLEAR, []],
       ['openTrustedPaymentsSurface', [], IPC.PAYMENTS_OPEN_TRUSTED_SURFACE, []],
+      [
+        'openTrustedSwarmPublishSurface',
+        [],
+        IPC.SWARM_OPEN_TRUSTED_PUBLISH_SURFACE,
+        [],
+      ],
       ['getSettings', [], IPC.SETTINGS_GET, []],
       ['saveSettings', [{ theme: 'light' }], IPC.SETTINGS_SAVE, [{ theme: 'light' }]],
       ['getPlatform', [], IPC.WINDOW_GET_PLATFORM, []],

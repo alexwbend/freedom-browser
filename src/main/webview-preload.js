@@ -232,6 +232,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   openTrustedPaymentsSurface: guardInternal('openTrustedPaymentsSurface', () =>
     ipcRenderer.invoke('payments:open-trusted-surface')
   ),
+  openTrustedSwarmPublishSurface: guardInternal('openTrustedSwarmPublishSurface', () =>
+    ipcRenderer.invoke('swarm:open-trusted-publish-surface')
+  ),
 
   // Token registry — used by the payments page to resolve asset
   // metadata (symbol, decimals) per chainId:address.

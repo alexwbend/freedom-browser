@@ -239,6 +239,8 @@ function writeOfficialChromePackage(root) {
           'shell.info',
           'shell.ready',
           'navigation.resolve',
+          'tabs.read',
+          'tabs.write',
           'browserState.settings.read',
           'browserState.settings.write',
           'browserState.bookmarks.read',
@@ -254,6 +256,7 @@ function writeOfficialChromePackage(root) {
           'downloads.saveImage',
           'surfaces.wallet.control',
           'surfaces.payments.control',
+          'surfaces.swarmPublish.control',
           'windows.control',
           'windows.open',
           'app.about',
@@ -476,6 +479,7 @@ async function getActiveWebviewPublishPageState(page) {
             text: buttonState('publish-text-btn'),
             textInputHidden: byId('publish-text-input')?.classList.contains('hidden') ?? false,
             historyClearDisabled: byId('publish-history-clear')?.disabled ?? null,
+            trustedPublishExists: Boolean(byId('open-trusted-swarm-publish-surface')),
           };
         })()
       `);
@@ -3416,7 +3420,20 @@ test('official browser chrome can launch as a local package with transitional we
         text: { exists: true, disabled: true },
         textInputHidden: true,
         historyClearDisabled: true,
+        trustedPublishExists: true,
       });
+    await page.evaluate(async () => {
+      const webview = document.querySelector('webview:not(.hidden)');
+      await webview.executeJavaScript(`
+        document.getElementById('open-trusted-swarm-publish-surface').click();
+      `);
+    });
+    await expect.poll(() =>
+      page.evaluate(() =>
+        window.freedomShell.getSurfaceState('swarmPublish').then((state) => state.open)
+      )
+    ).toBe(true);
+    await page.evaluate(() => window.freedomShell.closeSurface('swarmPublish'));
 
     await navigateAddress(page, 'freedom://payments');
     await expect

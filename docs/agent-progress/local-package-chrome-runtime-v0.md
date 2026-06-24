@@ -4532,3 +4532,62 @@ Known remaining gaps after this checkpoint:
   non-provider vault management flows, and richer wallet account selection
   still need shell-owned UI before the broader package runtime can be called
   complete; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 31: Trusted Swarm Publish Surface
+
+Current checkpoint: package-hosted `freedom://publish` still rejects raw
+publish, file/folder picker, upload-status, stamp-read, and publish-history
+IPC with structured `SWARM_PUBLISH_UNAVAILABLE`, but it now offers an Open
+trusted publish window action. That action delegates to the host package's
+capability-gated `surfaces.open("swarmPublish")` shell API path. The trusted
+window is bundled shell code with a dedicated preload and per-window scoped IPC
+channels, so package chrome can request the surface but does not receive Swarm
+provider globals, raw Swarm IPC, raw stamp data, raw publish-history IPC, file
+paths, feed-store authority, vault authority, Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `surfaces.swarmPublish.control` and registered `swarmPublish` as a
+  shell-owned trusted-window surface in `src/main/shell-api.js`
+- added `src/main/trusted-swarm-publish-surface.js` and
+  `src/main/trusted-swarm-publish-preload.js`; the surface loads the existing
+  bundled publish page in a shell-owned BrowserWindow and exposes only scoped
+  publish-surface channels to that trusted WebContents
+- kept package-hosted direct `freedom://publish` raw IPC unavailable while
+  adding `swarm:open-trusted-publish-surface` as the only package-hosted
+  bridge to the trusted surface
+- exposed the package-hosted page method as
+  `window.freedomAPI.openTrustedSwarmPublishSurface()` and added an Open
+  trusted publish window button that appears only in the package-mode
+  unavailable state
+- routed the trusted surface's Open in New Tab action through the host
+  package's normal `tabs.create` shell API instead of direct package IPC
+- updated the generated official package smoke manifest with
+  `tabs.read`, `tabs.write`, and `surfaces.swarmPublish.control`
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/shared/shell-api-policy.test.js src/main/shell-api.test.js src/main/webview-preload.test.js src/main/swarm/publish-service.test.js src/main/trusted-swarm-publish-surface.test.js src/renderer/pages/publish.test.js` passed:
+  6 suites, 96 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed:
+  124 suites passed, 5 skipped; 2309 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted direct publish page IPC remains intentionally unavailable;
+  package mode uses the shell-owned trusted window for the bundled publish UX
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path
+- identity onboarding, seed/private-key export, full wallet-center management,
+  non-provider vault management flows, and richer wallet account selection
+  still need shell-owned UI before the broader package runtime can be called
+  complete; these are not user-approved completion deferrals

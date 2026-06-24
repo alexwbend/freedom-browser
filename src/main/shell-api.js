@@ -8,6 +8,7 @@ const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
 const trustedPaymentsSurface = require('./trusted-payments-surface');
+const trustedSwarmPublishSurface = require('./trusted-swarm-publish-surface');
 const trustedWalletSurface = require('./trusted-wallet-surface');
 const {
   SHELL_API_CAPABILITIES,
@@ -28,16 +29,18 @@ const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_RELOAD,
   SHELL_API_METHODS.TABS_GO_HOME,
 ]);
-const SUPPORTED_SURFACES = new Set(['wallet', 'payments']);
+const SUPPORTED_SURFACES = new Set(['wallet', 'payments', 'swarmPublish']);
 const SURFACE_CONTROL_CAPABILITIES = Object.freeze({
   wallet: SHELL_API_CAPABILITIES.SURFACES_WALLET_CONTROL,
   payments: SHELL_API_CAPABILITIES.SURFACES_PAYMENTS_CONTROL,
+  swarmPublish: SHELL_API_CAPABILITIES.SURFACES_SWARM_PUBLISH_CONTROL,
 });
 const SUPPORTED_SERVICES = new Set(['ant', 'ipfs', 'radicle']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODES = Object.freeze({
   wallet: 'shell-owned-trusted-window',
   payments: 'shell-owned-trusted-window',
+  swarmPublish: 'shell-owned-trusted-window',
 });
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
 const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
@@ -579,12 +582,30 @@ async function openTrustedWalletSurfaceForCaller(caller, event) {
   });
 }
 
+async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
+  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  return trustedSwarmPublishSurface.openTrustedSwarmPublishSurface({
+    ownerWindow,
+    hostWebContents: event?.sender || null,
+    caller: caller.identity,
+    onClosed: () => {
+      const previousOpen = caller.surfaces.get('swarmPublish') === true;
+      caller.surfaces.set('swarmPublish', false);
+      const state = describeSurfaceState(caller, 'swarmPublish');
+      emitSurfaceStateChanged(event, caller, state, previousOpen);
+    },
+  });
+}
+
 async function openTrustedSurfaceForCaller(surface, caller, event) {
   if (surface === 'wallet') {
     return openTrustedWalletSurfaceForCaller(caller, event);
   }
   if (surface === 'payments') {
     return openTrustedPaymentsSurfaceForCaller(caller, event);
+  }
+  if (surface === 'swarmPublish') {
+    return openTrustedSwarmPublishSurfaceForCaller(caller, event);
   }
   return null;
 }
@@ -595,6 +616,9 @@ function closeTrustedSurface(surface) {
   }
   if (surface === 'payments') {
     return trustedPaymentsSurface.closeTrustedPaymentsSurface();
+  }
+  if (surface === 'swarmPublish') {
+    return trustedSwarmPublishSurface.closeTrustedSwarmPublishSurface();
   }
   return null;
 }
@@ -1149,7 +1173,13 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
     identity,
     capabilities: new Set(identity.capabilities || []),
     tabRegistry: options.tabRegistry || createShellTabRegistry(),
-    surfaces: options.surfaces || new Map([['wallet', false], ['payments', false]]),
+    surfaces:
+      options.surfaces ||
+      new Map([
+        ['wallet', false],
+        ['payments', false],
+        ['swarmPublish', false],
+      ]),
   };
   packageCallers.set(sender, caller);
 

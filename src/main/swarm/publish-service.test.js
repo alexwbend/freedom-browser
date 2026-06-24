@@ -43,6 +43,7 @@ jest.mock('../profile-paths', () => ({
 }));
 
 const mockIsPackageHostedInternalPage = jest.fn(() => false);
+const mockHandleShellRequest = jest.fn();
 
 jest.mock('../package-hosted-internal-page', () => ({
   isPackageHostedInternalPage: (...args) => mockIsPackageHostedInternalPage(...args),
@@ -53,6 +54,10 @@ jest.mock('../package-hosted-internal-page', () => ({
       message: 'Swarm publishing is shell-owned and unavailable in package mode',
     },
   }),
+}));
+
+jest.mock('../shell-api', () => ({
+  handleShellRequest: (...args) => mockHandleShellRequest(...args),
 }));
 
 // Mock fs for file operations
@@ -155,6 +160,7 @@ describe('publish-service', () => {
     beforeEach(() => {
       jest.clearAllMocks();
       mockIsPackageHostedInternalPage.mockReturnValue(false);
+      mockHandleShellRequest.mockReset();
     });
 
     test('swarm:publish-data denies package-hosted internal pages', async () => {
@@ -174,6 +180,43 @@ describe('publish-service', () => {
         },
       });
       expect(mockUploadFile).not.toHaveBeenCalled();
+    });
+
+    test('package-hosted publish page can request the shell-owned trusted publish surface', async () => {
+      const hostWebContents = { id: 77 };
+      mockIsPackageHostedInternalPage.mockReturnValue(true);
+      mockHandleShellRequest.mockResolvedValue({
+        ok: true,
+        surface: 'swarmPublish',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-trusted-window',
+        trusted: true,
+      });
+
+      const result = await invokeIpcWithEvent(
+        'swarm:open-trusted-publish-surface',
+        { sender: { hostWebContents } }
+      );
+
+      expect(result).toEqual({
+        success: true,
+        surface: {
+          ok: true,
+          surface: 'swarmPublish',
+          open: true,
+          owner: 'shell',
+          mode: 'shell-owned-trusted-window',
+          trusted: true,
+        },
+      });
+      expect(mockHandleShellRequest).toHaveBeenCalledWith(
+        { sender: hostWebContents },
+        {
+          method: 'surfaces.open',
+          args: [{ surface: 'swarmPublish' }],
+        }
+      );
     });
 
     test('swarm:publish-data uploads via uploadFile and returns normalized result', async () => {

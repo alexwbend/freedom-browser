@@ -10,6 +10,8 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const { ipcMain, dialog, BrowserWindow } = require('electron');
+const IPC = require('../../shared/ipc-channels');
+const { SHELL_API_METHODS } = require('../../shared/shell-api-policy');
 const { getBee, selectBestBatch, toHex } = require('./swarm-service');
 const { addEntry, updateEntry } = require('./publish-history');
 const { createProfileTempDir } = require('../profile-paths');
@@ -377,6 +379,45 @@ function registerPublishIpc() {
     } catch (err) {
       log.error('[PublishService] Directory picker failed:', err.message);
       return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC.SWARM_OPEN_TRUSTED_PUBLISH_SURFACE, async (event) => {
+    if (!isPackageHostedInternalPage(event)) {
+      return {
+        success: false,
+        error: {
+          code: 'SWARM_TRUSTED_PUBLISH_SURFACE_NOT_REQUIRED',
+          message:
+            'Trusted Swarm publish surface requests are only available from package-hosted publish pages',
+        },
+      };
+    }
+
+    const hostWebContents = event?.sender?.hostWebContents || null;
+    try {
+      const { handleShellRequest } = require('../shell-api');
+      const surface = await handleShellRequest(
+        { sender: hostWebContents },
+        {
+          method: SHELL_API_METHODS.SURFACES_OPEN,
+          args: [{ surface: 'swarmPublish' }],
+        }
+      );
+      return {
+        success: surface?.ok === true,
+        surface,
+        ...(surface?.ok === true ? {} : { error: surface?.error }),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: err?.code || 'SWARM_TRUSTED_PUBLISH_SURFACE_OPEN_FAILED',
+          message: err?.message || 'Failed to open trusted Swarm publish surface',
+          details: err?.details,
+        },
+      };
     }
   });
 

@@ -419,6 +419,7 @@ async function autoDepositChequebookIfEmpty() {
 }
 
 module.exports = {
+  getStamps,
   normalizeBatch,
   registerSwarmIpc,
 };

@@ -39,6 +39,8 @@ const mockOpenTrustedWalletSurface = jest.fn();
 const mockCloseTrustedWalletSurface = jest.fn();
 const mockOpenTrustedPaymentsSurface = jest.fn();
 const mockCloseTrustedPaymentsSurface = jest.fn();
+const mockOpenTrustedSwarmPublishSurface = jest.fn();
+const mockCloseTrustedSwarmPublishSurface = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
@@ -53,6 +55,7 @@ const RADICLE_MANAGER_MODULE = require.resolve('./radicle-manager');
 const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
 const TRUSTED_WALLET_SURFACE_MODULE = require.resolve('./trusted-wallet-surface');
 const TRUSTED_PAYMENTS_SURFACE_MODULE = require.resolve('./trusted-payments-surface');
+const TRUSTED_SWARM_PUBLISH_SURFACE_MODULE = require.resolve('./trusted-swarm-publish-surface');
 
 function makeSender(overrides = {}) {
   return {
@@ -146,6 +149,12 @@ function loadShellApi(options = {}) {
         openTrustedPaymentsSurface: (...args) => mockOpenTrustedPaymentsSurface(...args),
         closeTrustedPaymentsSurface: (...args) => mockCloseTrustedPaymentsSurface(...args),
       }),
+      [TRUSTED_SWARM_PUBLISH_SURFACE_MODULE]: () => ({
+        openTrustedSwarmPublishSurface: (...args) =>
+          mockOpenTrustedSwarmPublishSurface(...args),
+        closeTrustedSwarmPublishSurface: (...args) =>
+          mockCloseTrustedSwarmPublishSurface(...args),
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -192,6 +201,8 @@ describe('shell-api', () => {
     mockCloseTrustedWalletSurface.mockReset();
     mockOpenTrustedPaymentsSurface.mockReset();
     mockCloseTrustedPaymentsSurface.mockReset();
+    mockOpenTrustedSwarmPublishSurface.mockReset();
+    mockCloseTrustedSwarmPublishSurface.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -1511,6 +1522,117 @@ describe('shell-api', () => {
       },
     });
     expect(mockOpenTrustedPaymentsSurface).not.toHaveBeenCalled();
+  });
+
+  test('opens the shell-owned Swarm publish surface behind a separate capability', async () => {
+    mockOpenTrustedSwarmPublishSurface.mockResolvedValue({
+      ok: true,
+      surface: 'swarmPublish',
+      owner: 'shell',
+      trusted: true,
+    });
+    mockCloseTrustedSwarmPublishSurface.mockReturnValue({
+      ok: true,
+      surface: 'swarmPublish',
+      owner: 'shell',
+      trusted: true,
+    });
+
+    const { mod } = loadShellApi();
+    const ownerWindow = { id: 503 };
+    const sender = makeSender({
+      id: 111,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.swarmPublish.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: [{ surface: 'swarmPublish' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'swarmPublish',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'swarmPublish' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'swarmPublish',
+      open: true,
+      mode: 'shell-owned-trusted-window',
+    });
+    expect(mockOpenTrustedSwarmPublishSurface).toHaveBeenCalledWith({
+      ownerWindow,
+      hostWebContents: sender,
+      caller: expect.objectContaining({
+        packageId: 'baby.freedom.chrome.fixture',
+      }),
+      onClosed: expect.any(Function),
+    });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'swarmPublish',
+        open: true,
+        mode: 'shell-owned-trusted-window',
+      }),
+    });
+
+    sender.send.mockClear();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_CLOSE, args: [{ surface: 'swarmPublish' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'swarmPublish',
+      open: false,
+    });
+    expect(mockCloseTrustedSwarmPublishSurface).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'swarmPublish',
+        open: false,
+      }),
+    });
+  });
+
+  test('does not let payments surface capability control Swarm publish surface', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 112 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.payments.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'swarmPublish' }] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SURFACES_OPEN,
+        requiredCapability: 'surfaces.swarmPublish.control',
+      },
+    });
+    expect(mockOpenTrustedSwarmPublishSurface).not.toHaveBeenCalled();
   });
 
   test('rejects shell-owned surface requests without declared capabilities', async () => {
