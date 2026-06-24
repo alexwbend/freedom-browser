@@ -16,10 +16,12 @@
   const exportCancel = document.getElementById('export-cancel');
   const exportError = document.getElementById('export-error');
   const exportResult = document.getElementById('export-result');
+  const exportResultLabel = document.getElementById('export-result-label');
   const exportValue = document.getElementById('export-value');
   const exportCopy = document.getElementById('export-copy');
+  const exportMnemonicOpen = document.getElementById('export-mnemonic-open');
 
-  let selectedExportWallet = null;
+  let exportRequest = null;
 
   function setError(message) {
     error.textContent = message || '';
@@ -56,10 +58,11 @@
   }
 
   function resetExportPanel() {
-    selectedExportWallet = null;
+    exportRequest = null;
     exportPanel.hidden = true;
     exportPassword.value = '';
     exportValue.textContent = '';
+    exportResultLabel.textContent = 'Private key';
     exportResult.hidden = true;
     exportSubmit.disabled = false;
     exportCopy.textContent = 'Copy';
@@ -67,11 +70,27 @@
   }
 
   function openExportPanel(wallet) {
-    selectedExportWallet = wallet;
+    exportRequest = { kind: 'privateKey', wallet };
     exportTitle.textContent = `Export private key for ${wallet.name || `Wallet ${wallet.index}`}`;
     exportAddress.textContent = wallet.address || 'Address unavailable';
     exportPassword.value = '';
     exportValue.textContent = '';
+    exportResultLabel.textContent = 'Private key';
+    exportResult.hidden = true;
+    exportSubmit.disabled = false;
+    exportCopy.textContent = 'Copy';
+    setExportError('');
+    exportPanel.hidden = false;
+    exportPassword.focus();
+  }
+
+  function openMnemonicExportPanel() {
+    exportRequest = { kind: 'mnemonic' };
+    exportTitle.textContent = 'Export recovery phrase';
+    exportAddress.textContent = 'This phrase can recover every wallet and node identity in the vault.';
+    exportPassword.value = '';
+    exportValue.textContent = '';
+    exportResultLabel.textContent = 'Recovery phrase';
     exportResult.hidden = true;
     exportSubmit.disabled = false;
     exportCopy.textContent = 'Copy';
@@ -81,24 +100,31 @@
   }
 
   async function handleExportSubmit() {
-    if (!selectedExportWallet) {
+    if (!exportRequest) {
       return;
     }
     exportSubmit.disabled = true;
     exportResult.hidden = true;
     exportValue.textContent = '';
     setExportError('');
-    const result = await api.exportPrivateKey({
-      walletIndex: selectedExportWallet.index,
-      password: exportPassword.value,
-    });
+    let result;
+    if (exportRequest.kind === 'mnemonic') {
+      result = await api.exportMnemonic({
+        password: exportPassword.value,
+      });
+    } else {
+      result = await api.exportPrivateKey({
+        walletIndex: exportRequest.wallet.index,
+        password: exportPassword.value,
+      });
+    }
     exportSubmit.disabled = false;
     if (!result || result.ok !== true) {
-      setExportError(result?.error?.message || 'Failed to export private key.');
+      setExportError(result?.error?.message || 'Failed to export secret.');
       return;
     }
     exportPassword.value = '';
-    exportValue.textContent = result.privateKey || '';
+    exportValue.textContent = result.mnemonic || result.privateKey || '';
     exportResult.hidden = false;
   }
 
@@ -232,6 +258,7 @@
   close.addEventListener('click', () => {
     api.close();
   });
+  exportMnemonicOpen.addEventListener('click', openMnemonicExportPanel);
   exportSubmit.addEventListener('click', () => {
     handleExportSubmit().catch((err) => {
       exportSubmit.disabled = false;

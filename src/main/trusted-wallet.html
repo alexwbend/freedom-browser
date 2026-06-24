@@ -257,6 +257,13 @@
           <h2 id="wallets-title">Accounts</h2>
           <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
           <ul id="wallet-list"></ul>
+          <div class="item-row">
+            <div>
+              <div class="item-title">Recovery Phrase</div>
+              <div class="item-meta">Export the vault seed phrase from this trusted shell window.</div>
+            </div>
+            <button type="button" class="secondary-button" id="export-mnemonic-open">Export phrase</button>
+          </div>
           <div class="export-panel" id="export-panel" hidden>
             <h3 id="export-title">Export private key</h3>
             <p id="export-address"></p>
@@ -270,7 +277,7 @@
             </div>
             <div class="error" id="export-error" hidden></div>
             <div class="field" id="export-result" hidden>
-              <label>Private key</label>
+              <label id="export-result-label">Private key</label>
               <code class="secret-value mono" id="export-value"></code>
               <button type="button" class="secondary-button" id="export-copy">Copy</button>
             </div>

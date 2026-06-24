@@ -257,7 +257,8 @@ falling back to package chrome. If the vault is locked after an accepted
 signing or transaction prompt, main opens the shell-owned trusted vault-unlock
 window and retries only after unlock succeeds. Deprecated/unsupported signing
 methods such as `eth_sign` remain safe failure paths for now. This does not
-select accounts, expose raw wallet authority, or migrate secret-management UI.
+select accounts, expose raw wallet authority, or migrate broader
+secret-management UI.
 
 ### Package-Hosted Swarm Connection Approval
 
@@ -562,10 +563,11 @@ Wallet connect:
 - broker opens the shell-owned trusted wallet approval window
 - current package-hosted slice can grant the active account after trusted-window
   presentation and writes the dApp permission from main
-- the shell-owned trusted wallet surface can export a selected wallet private
-  key after password verification through scoped trusted-window IPC
-- future completion work should add account selection, seed export, and broader
-  wallet-center management in shell-owned surfaces
+- the shell-owned trusted wallet surface can export the vault seed phrase or a
+  selected wallet private key after password verification through scoped
+  trusted-window IPC
+- future completion work should add account selection and broader wallet-center
+  management in shell-owned surfaces
 
 Transaction and typed-data signing:
 
@@ -586,8 +588,8 @@ Transaction and typed-data signing:
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
 - future completion work must add full account selection, wallet-center
-  management, seed export, and broader non-provider vault management before
-  wallet UX can be called complete in package mode
+  management, and broader non-provider vault management before wallet UX can
+  be called complete in package mode
 
 x402 approvals:
 
@@ -643,7 +645,8 @@ Vault unlock:
 
 ## Non-Goals In This Slice
 
-- no full wallet center, seed export, or general secret-management migration
+- no full wallet center or general secret-management migration beyond
+  password-gated seed/private-key export in the trusted wallet surface
 - no full wallet account-selection implementation
 - no general vault-unlock migration outside the current x402 and wallet-provider retry paths
 - no full publish-center approval migration

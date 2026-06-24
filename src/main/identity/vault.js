@@ -280,6 +280,41 @@ function exportPrivateKey(accountIndex = 0) {
   return wallet.privateKey;
 }
 
+async function decryptVaultMnemonicWithPassword(dataDir, password) {
+  if (!vaultExists(dataDir)) {
+    throw new Error('No vault found');
+  }
+  const vaultPath = getVaultPath(dataDir);
+  const vaultData = JSON.parse(fs.readFileSync(vaultPath, 'utf-8'));
+  if (vaultData.version !== 1) {
+    throw new Error(`Unsupported vault version: ${vaultData.version}`);
+  }
+  try {
+    const decrypted = await decrypt(password, vaultData.encrypted);
+    const mnemonic = decrypted.mnemonic;
+    if (!isValidMnemonic(mnemonic)) {
+      throw new Error('Decrypted data is not a valid mnemonic');
+    }
+    return mnemonic;
+  } catch (err) {
+    if (err.message.includes('Incorrect password')) {
+      throw new Error('Incorrect password', { cause: err });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Export mnemonic after password verification without mutating global unlocked
+ * vault state.
+ * @param {string} dataDir - App data directory
+ * @param {string} password - Vault password
+ * @returns {Promise<string>} The mnemonic
+ */
+async function exportMnemonicWithPassword(dataDir, password) {
+  return decryptVaultMnemonicWithPassword(dataDir, password);
+}
+
 /**
  * Export a private key after password verification without mutating global
  * unlocked vault state.
@@ -289,25 +324,9 @@ function exportPrivateKey(accountIndex = 0) {
  * @returns {Promise<string>} The private key (0x-prefixed hex)
  */
 async function exportPrivateKeyWithPassword(dataDir, password, accountIndex = 0) {
-  if (!vaultExists(dataDir)) {
-    throw new Error('No vault found');
-  }
-  const vaultPath = getVaultPath(dataDir);
-  const vaultData = JSON.parse(fs.readFileSync(vaultPath, 'utf-8'));
-  try {
-    const decrypted = await decrypt(password, vaultData.encrypted);
-    const mnemonic = decrypted.mnemonic;
-    if (!isValidMnemonic(mnemonic)) {
-      throw new Error('Decrypted data is not a valid mnemonic');
-    }
-    const wallet = deriveUserWallet(mnemonic, accountIndex);
-    return wallet.privateKey;
-  } catch (err) {
-    if (err.message.includes('Incorrect password')) {
-      throw new Error('Incorrect password', { cause: err });
-    }
-    throw err;
-  }
+  const mnemonic = await decryptVaultMnemonicWithPassword(dataDir, password);
+  const wallet = deriveUserWallet(mnemonic, accountIndex);
+  return wallet.privateKey;
 }
 
 module.exports = {
@@ -323,6 +342,7 @@ module.exports = {
   changePassword,
   deleteVault,
   exportMnemonic,
+  exportMnemonicWithPassword,
   exportPrivateKey,
   exportPrivateKeyWithPassword,
   verifyPassword,

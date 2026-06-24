@@ -60,11 +60,13 @@ jest.mock('electron', () => ({
 const mockGetDerivedWallets = jest.fn();
 const mockGetActiveWalletIndex = jest.fn();
 const mockGetActiveWalletAddress = jest.fn();
+const mockExportMnemonicWithPassword = jest.fn();
 const mockExportPrivateKeyWithPassword = jest.fn();
 jest.mock('./identity-manager', () => ({
   getDerivedWallets: (...args) => mockGetDerivedWallets(...args),
   getActiveWalletIndex: (...args) => mockGetActiveWalletIndex(...args),
   getActiveWalletAddress: (...args) => mockGetActiveWalletAddress(...args),
+  exportMnemonicWithPassword: (...args) => mockExportMnemonicWithPassword(...args),
   exportPrivateKeyWithPassword: (...args) => mockExportPrivateKeyWithPassword(...args),
 }));
 
@@ -97,6 +99,9 @@ function seedStores() {
   ]);
   mockGetActiveWalletIndex.mockReturnValue(1);
   mockGetActiveWalletAddress.mockResolvedValue('0x2222222222222222222222222222222222222222');
+  mockExportMnemonicWithPassword.mockResolvedValue(
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about'
+  );
   mockExportPrivateKeyWithPassword.mockResolvedValue(
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   );
@@ -210,7 +215,7 @@ test('returns after creating the trusted wallet window while presentation load c
   });
   expect(mockWindows).toHaveLength(1);
   expect(mockWindows[0].loadFile).toHaveBeenCalled();
-  expect(mockHandlers.size).toBe(5);
+  expect(mockHandlers.size).toBe(6);
   resolveLoad();
 });
 
@@ -231,6 +236,62 @@ test('rejects permission revocation from unexpected senders', async () => {
     }),
   });
   expect(mockRevokePermission).not.toHaveBeenCalled();
+});
+
+test('rejects mnemonic export from unexpected senders', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-mnemonic', surfaceId))(
+    { sender: { id: 999 } },
+    { password: 'password123' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: expect.objectContaining({
+      code: 'TRUSTED_WALLET_SURFACE_SENDER_MISMATCH',
+    }),
+  });
+  expect(mockExportMnemonicWithPassword).not.toHaveBeenCalled();
+});
+
+test('exports mnemonic only through the trusted surface window', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-mnemonic', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { password: 'password123' }
+  );
+
+  expect(result).toEqual({
+    ok: true,
+    mnemonic: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+  });
+  expect(mockExportMnemonicWithPassword).toHaveBeenCalledWith('password123');
+});
+
+test('returns structured mnemonic export failures', async () => {
+  mockExportMnemonicWithPassword.mockRejectedValueOnce(new Error('Incorrect password'));
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-mnemonic', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { password: 'wrongpassword' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: {
+      code: 'TRUSTED_WALLET_SURFACE_EXPORT_MNEMONIC_FAILED',
+      message: 'Incorrect password',
+    },
+  });
 });
 
 test('rejects private-key export from unexpected senders', async () => {

@@ -226,6 +226,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     context: channelFor('context', surfaceId),
     snapshot: channelFor('snapshot', surfaceId),
     revokePermission: channelFor('revoke-permission', surfaceId),
+    exportMnemonic: channelFor('export-mnemonic', surfaceId),
     exportPrivateKey: channelFor('export-private-key', surfaceId),
     close: channelFor('close', surfaceId),
   };
@@ -316,6 +317,21 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       return errorResult(
         'TRUSTED_WALLET_SURFACE_EXPORT_PRIVATE_KEY_FAILED',
         err?.message || 'Failed to export wallet private key'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.exportMnemonic, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const password = normalizePassword(payload.password);
+      const mnemonic = await identityManager.exportMnemonicWithPassword(password);
+      return { ok: true, mnemonic };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_EXPORT_MNEMONIC_FAILED',
+        err?.message || 'Failed to export recovery phrase'
       );
     }
   });

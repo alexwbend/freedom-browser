@@ -4653,3 +4653,52 @@ Known remaining gaps after this checkpoint:
   management flows, richer wallet account selection/review, and richer
   feed-review UX still need shell-owned UI before the broader package runtime
   can be called complete; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 33: Trusted Wallet Seed Phrase Export
+
+Current checkpoint: the shell-owned trusted wallet window can now export the
+vault seed phrase after vault-password verification through per-window scoped
+IPC. This closes the seed/private-key export gap as a trusted-wallet-surface
+capability while keeping ordinary package chrome limited to
+`surfaces.wallet.control`; package chrome still receives no identity APIs,
+vault primitives, mnemonic APIs, private-key APIs, wallet signing authority,
+dApp permission stores, Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added a password-gated `exportMnemonicWithPassword(...)` identity helper
+  that decrypts the vault and returns the mnemonic without requiring or
+  mutating global unlocked-vault state
+- changed the existing first-party `identity:export-mnemonic` IPC to use the
+  same helper instead of depending on a prior unlock
+- added a scoped `trusted-wallet-surface:export-mnemonic:*` channel that is
+  accepted only from the trusted wallet WebContents and returns structured
+  errors for sender mismatch, missing/wrong password, or vault failures
+- added a Recovery Phrase action to `trusted-wallet.html` /
+  `trusted-wallet-renderer.js`; the seed phrase is displayed only inside the
+  shell-owned trusted wallet window after password submission
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/identity/vault.test.js src/main/trusted-wallet-surface.test.js`
+  passed: 2 suites, 41 tests.
+- `npm test -- src/main/identity/vault.test.js src/main/trusted-wallet-surface.test.js src/main/shell-api.test.js src/main/package-preload.test.js`
+  passed: 4 suites, 85 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"`
+  passed: 1 launched Electron test.
+- `npm test` passed: 124 suites passed, 5 skipped; 2320 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- identity onboarding, full wallet-center management, non-provider vault
+  management flows, richer wallet account selection/review, and richer
+  feed-review UX still need shell-owned UI before the broader package runtime
+  can be called complete; these are not user-approved completion deferrals

@@ -617,20 +617,20 @@ The surface-control methods expose a narrow shell-owned request path for
 trusted surfaces. `surfaces.wallet.control` controls the shell-owned trusted
 wallet window with `owner: "shell"` and `mode:
 "shell-owned-trusted-window"`. It can display public wallet account rows and
-connected dApp permission rows, revoke dApp wallet permissions, and export a
-selected wallet private key after vault-password verification from trusted
-bundled code. `surfaces.payments.control` controls the shell-owned
-trusted payments window with the same trusted-window mode. Package chrome can
-read, open, close, or toggle only the surfaces it declares.
+connected dApp permission rows, revoke dApp wallet permissions, and export the
+vault seed phrase or a selected wallet private key after vault-password
+verification from trusted bundled code. `surfaces.payments.control` controls
+the shell-owned trusted payments window with the same trusted-window mode.
+Package chrome can read, open, close, or toggle only the surfaces it declares.
 `surfaces.swarmPublish.control` controls the shell-owned trusted Swarm publish
 window. The caller-scoped `surfaces.stateChanged` event is gated by the
 requested surface capability, so payment surface events do not grant wallet or
 Swarm-publish control, and wallet events do not grant payment or Swarm-publish
 control. This does not expose wallet, identity, provider, signing, vault, x402
 permission-store, payment-history, Swarm provider, stamp-management,
-publish-history, feed-store, filesystem, dApp permission-store, or private-key
-APIs to package chrome. The official package smoke exercises the visible
-wallet/sidebar affordance against the shell-owned wallet window,
+publish-history, feed-store, filesystem, dApp permission-store, mnemonic, or
+private-key APIs to package chrome. The official package smoke exercises the
+visible wallet/sidebar affordance against the shell-owned wallet window,
 opens/closes the trusted payments surface from package mode, and opens/closes
 the trusted Swarm publish surface from package-hosted `freedom://publish`.
 The fixture package smoke also exercises the wallet surface control path.

@@ -780,6 +780,21 @@ async function exportMnemonic() {
 }
 
 /**
+ * Export mnemonic after password verification without requiring the vault to
+ * already be unlocked globally.
+ * @param {string} password - Vault password
+ * @returns {Promise<string>}
+ */
+async function exportMnemonicWithPassword(password) {
+  if (!password) {
+    throw new Error('Password is required to export mnemonic');
+  }
+  const identity = await loadIdentityModule();
+  const dataDir = getIdentityDataDir();
+  return identity.exportMnemonicWithPassword(dataDir, password);
+}
+
+/**
  * Export a wallet private key after password verification without requiring
  * the vault to already be unlocked globally.
  * @param {number} accountIndex - Wallet account index
@@ -1197,13 +1212,7 @@ function registerIdentityIpc() {
   // Export mnemonic (requires password re-verification)
   ipcMain.handle(IPC.IDENTITY_EXPORT_MNEMONIC, async (_event, password) => {
     try {
-      if (!password) {
-        return { success: false, error: 'Password is required to export mnemonic' };
-      }
-      const identity = await loadIdentityModule();
-      const dataDir = getIdentityDataDir();
-      await identity.verifyPassword(dataDir, password);
-      const mnemonic = await exportMnemonic();
+      const mnemonic = await exportMnemonicWithPassword(password);
       return { success: true, mnemonic };
     } catch (err) {
       return { success: false, error: err.message };
@@ -1340,6 +1349,7 @@ module.exports = {
   unlockVault,
   lockVault,
   exportMnemonic,
+  exportMnemonicWithPassword,
   exportPrivateKeyWithPassword,
   changeVaultPassword,
   deleteVaultData,
