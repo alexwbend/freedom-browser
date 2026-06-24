@@ -3185,7 +3185,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2209 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
-- commit and GitHub Actions verification are still pending for this checkpoint.
+- committed as `8f6abd9` (`feat(chrome): send package wallet transactions
+  through shell`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28076774325`, job `test` (`83122550414`), passed for
+  `8f6abd9`.
+- GitHub Actions run `28076774325`, job `e2e-chrome-runtime`
+  (`83122550236`), passed for `8f6abd9`.
 
 Known remaining gaps after this checkpoint:
 
