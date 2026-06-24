@@ -37,6 +37,7 @@ Pre-Swarm hardening checkpoints recorded in
 | Favicons | tabs, bookmarks, autocomplete | renderer calls favicon IPC in `src/main/favicons.js` | adapter returned `null` | `browser-state-api` | none | package delegates cached reads and scoped favicon fetch/cache writes through shell methods | `browserState.favicons.read`, `browserState.favicons.write` | unit coverage and smoke if icons are asserted | cached read and scoped fetch/cache implemented |
 | Settings | settings page, UI init, feature flags | `settings-store.js` via broad preload | adapter returned startup defaults and `saveSettings: false` | `browser-state-api` | settings page is ordinary browser UI except privileged settings | package reads narrow settings required for visible chrome; writes only a package-safe browser UI subset while service/node/provider settings remain shell-owned | `browserState.settings.read`, `browserState.settings.write` | unit coverage plus package smoke proving unsafe keys are ignored | package-safe read/write subset implemented; broader settings/service controls pending audit |
 | Profiles/profile menu | profile indicator/menu | broad preload profile IPC and profile resolver | adapter returned null/empty/no-op, hiding or weakening profile menu behavior | `browser-state-api` for display, trusted/shell for switching | switching can relaunch shell/profile | package delegates safe current-profile/profile-list display reads to `freedomShell`; profile creation/switching controls are disabled in package mode and remain bundled-only/shell-owned until a scoped trusted switching surface exists | `browserState.profiles.read`, later `profiles.switch` only if approved | unit coverage plus official package smoke for visible profile menu display and disabled create/switch behavior | read-only display implemented; switching/mutation not exposed |
+| Profile settings page | user in `freedom://settings/profiles` | internal settings page uses raw profile IPC for reads, creation/import, switching, delete, rename, and node configuration | transitional package-hosted internal page could call bundled profile management IPC through `freedomAPI` | `trusted-surface` for management, `browser-state-api` for display only | bundled trusted settings page until a shell-owned profile management surface exists | package-hosted page shows deterministic unavailable state; main rejects raw profile reads/mutations/node config with `PROFILE_MANAGEMENT_UNAVAILABLE` and does not broadcast raw `profile:updated` events into package chrome or package-hosted internal pages | none beyond `browserState.profiles.read` display APIs | IPC unit coverage plus official package smoke for disabled `freedom://settings/profiles` state | implemented |
 | Window controls | title bar buttons, menus | broad preload window IPC and Electron menu | adapter no-ops | `surface-control-api` or `window.*` shell API | shell/main owns BrowserWindow | package visible window controls call narrow owner-window methods or are hidden in test environment | `windows.control` | unit coverage for method/capability plus package smoke for visible fullscreen control | implemented for owner-window title/close/minimize/maximize/fullscreen |
 | Ant/IPFS/Radicle node status | node menu/sidebar | renderer node UI reads service status through broad preload and settings | package smoke opened the node menu but did not prove status/control behavior | `services.*` read API | shell owns node lifecycle and external-node prompts | package delegates read-only service registry/status/binary reads to `freedomShell`; start/stop and raw local endpoints remain shell-owned and unavailable to package chrome; default-port external-node candidate prompts fall back to shell-owned native dialogs for package windows | `services.read`, later narrower write caps only if approved | package smoke for sanitized status reads, broad node API absence, disabled lifecycle controls, and unit coverage for package-window native prompt fallback | read-only status implemented; package windows do not receive legacy external-node prompt IPC |
 | Wallet sidebar button | toolbar button | `initSidebar` and `initWalletUi` run in bundled mode and use wallet/identity globals | package mode skips sidebar/wallet init; button initially remained visible with no handler | `surface-control-api` | wallet surface is shell-owned | button must call shell-owned surface control, be hidden, or be explicitly disabled with smoke coverage | `surfaces.wallet.control` | official package smoke proving hidden behavior until the real trusted surface migrates; fixture smoke proving placeholder surface control | shell-owned placeholder API implemented; real wallet surface still pending trusted prompt migration |
@@ -111,6 +112,23 @@ package renderer adapter returns structured unavailable results for
 `createProfile()` and `openProfile()`, and visible profile creation/switching
 controls are disabled in package mode. A future switching API needs a separate
 trusted surface/launch contract before package chrome can request it.
+
+## Profile Settings Page Status
+
+The direct `freedom://settings/profiles` section is intentionally unavailable
+for package-hosted internal pages. The bundled trusted settings page still owns
+full profile management, including profile creation/import, switching, delete,
+rename, and profile node-configuration edits. When the same internal page is
+hosted inside package chrome, main returns structured
+`PROFILE_MANAGEMENT_UNAVAILABLE` before raw profile reads or mutations reach
+the profile resolver. The page surfaces that result, disables profile creation
+controls, and replaces the profile/node list with a visible package-mode
+message in official package smoke.
+
+Raw `profile:updated` broadcasts are also withheld from registered package
+chrome windows and their hosted internal pages. Package chrome receives only
+the sanitized `browserState.profiles.updated` shell event when it declares
+`browserState.profiles.read`.
 
 ## Checkpoint Gates
 

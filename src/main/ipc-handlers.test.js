@@ -25,6 +25,20 @@ const HOST_RENDERER_URL = 'file:///app/src/renderer/index.html';
 const SETTINGS_PAGE_URL = 'file:///app/src/renderer/pages/settings.html';
 const HISTORY_PAGE_URL = 'file:///app/src/renderer/pages/history.html';
 
+function makePackage(overrides = {}) {
+  return {
+    kind: 'local-package',
+    runtimeMode: 'local-package',
+    source: 'local',
+    packageId: 'baby.freedom.chrome.fixture',
+    packageType: 'browser-chrome',
+    name: 'Fixture Chrome',
+    version: '0.0.1',
+    capabilities: ['shell.info', 'browserState.profiles.read'],
+    ...overrides,
+  };
+}
+
 function createIpcEvent(url = SETTINGS_PAGE_URL) {
   return {
     senderFrame: { url },
@@ -32,6 +46,12 @@ function createIpcEvent(url = SETTINGS_PAGE_URL) {
       getURL: jest.fn(() => url),
     },
   };
+}
+
+function createPackageHostedSettingsEvent(hostWebContents) {
+  const event = createIpcEvent(SETTINGS_PAGE_URL);
+  event.sender.hostWebContents = hostWebContents;
+  return event;
 }
 
 function loadIpcHandlersModule(options = {}) {
@@ -656,6 +676,75 @@ describe('ipc-handlers', () => {
       )
     );
     expect(ctx.createProfileForActiveApp).not.toHaveBeenCalled();
+  });
+
+  test('rejects raw profile reads and mutations from package-hosted settings pages', async () => {
+    const ctx = loadIpcHandlersModule();
+    const hostWebContents = { id: 144, isDestroyed: jest.fn(() => false), send: jest.fn() };
+    ctx.shellApi.registerPackageWebContents(hostWebContents, makePackage());
+    const packageHostedSettingsEvent = createPackageHostedSettingsEvent(hostWebContents);
+    const unavailable = failure(
+      'PROFILE_MANAGEMENT_UNAVAILABLE',
+      'Profile management is shell-owned and unavailable in package mode'
+    );
+    const invokeDenied = (channel, payload) =>
+      Promise.resolve(ctx.ipcMain.handlers.get(channel)(packageHostedSettingsEvent, payload));
+
+    ctx.mod.registerBaseIpcHandlers();
+
+    await expect(invokeDenied(IPC.PROFILE_GET_ACTIVE)).resolves.toEqual(unavailable);
+    await expect(invokeDenied(IPC.PROFILE_LIST)).resolves.toEqual(unavailable);
+
+    for (const [channel, payload] of [
+      [IPC.PROFILE_CREATE, { displayName: 'Work' }],
+      [IPC.PROFILE_IMPORT, { id: 'work' }],
+      [IPC.PROFILE_RENAME, { id: 'default', displayName: 'Personal' }],
+      [IPC.PROFILE_OPEN, { id: 'work' }],
+      [IPC.PROFILE_DELETE, { id: 'work', confirmDisplayName: 'Work' }],
+      [IPC.PROFILE_UPDATE_NODE_CONFIG, { protocol: 'bee', config: { mode: 'disabled' } }],
+    ]) {
+      await expect(invokeDenied(channel, payload)).resolves.toEqual(unavailable);
+    }
+
+    expect(ctx.listProfilesForActiveApp).not.toHaveBeenCalled();
+    expect(ctx.createProfileForActiveApp).not.toHaveBeenCalled();
+    expect(ctx.importProfileForActiveApp).not.toHaveBeenCalled();
+    expect(ctx.renameProfileForActiveApp).not.toHaveBeenCalled();
+    expect(ctx.launchProfile).not.toHaveBeenCalled();
+    expect(ctx.deleteProfileForActiveApp).not.toHaveBeenCalled();
+    expect(ctx.updateActiveProfileNodeConfig).not.toHaveBeenCalled();
+  });
+
+  test('does not broadcast raw profile updates into package chrome or hosted internal pages', async () => {
+    const bundledWebContents = { send: jest.fn() };
+    const packageHost = { id: 145, isDestroyed: jest.fn(() => false), send: jest.fn() };
+    const packageHostedInternalPage = {
+      id: 146,
+      hostWebContents: packageHost,
+      send: jest.fn(),
+    };
+    const ctx = loadIpcHandlersModule({
+      webContentsList: [bundledWebContents, packageHost, packageHostedInternalPage],
+    });
+    ctx.shellApi.registerPackageWebContents(packageHost, makePackage());
+
+    ctx.mod.registerBaseIpcHandlers();
+
+    await expect(
+      ctx.invokeProfileMutation(IPC.PROFILE_RENAME, { id: 'default', displayName: 'Personal' })
+    ).resolves.toMatchObject({ success: true });
+
+    expect(bundledWebContents.send).toHaveBeenCalledWith(IPC.PROFILE_UPDATED, {
+      id: 'default',
+      displayName: 'Default',
+      source: 'catalog',
+      isDev: false,
+    });
+    expect(packageHost.send).not.toHaveBeenCalledWith(IPC.PROFILE_UPDATED, expect.anything());
+    expect(packageHostedInternalPage.send).not.toHaveBeenCalledWith(
+      IPC.PROFILE_UPDATED,
+      expect.anything()
+    );
   });
 
   test('imports unregistered profile directories through profile IPC', async () => {

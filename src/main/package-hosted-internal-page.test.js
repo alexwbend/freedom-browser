@@ -6,9 +6,11 @@ jest.mock('./shell-api', () => ({
 
 const {
   PAYMENTS_UNAVAILABLE,
+  PROFILE_MANAGEMENT_UNAVAILABLE,
   SWARM_PUBLISH_UNAVAILABLE,
   isPackageHostedInternalPage,
   packageHostedPaymentsUnavailable,
+  packageHostedProfileManagementUnavailable,
   packageHostedSwarmPublishUnavailable,
 } = require('./package-hosted-internal-page');
 
@@ -47,6 +49,13 @@ describe('package-hosted-internal-page', () => {
     expect(packageHostedPaymentsUnavailable()).toEqual({
       success: false,
       error: PAYMENTS_UNAVAILABLE,
+    });
+  });
+
+  test('returns a structured profile management unavailable result', () => {
+    expect(packageHostedProfileManagementUnavailable()).toEqual({
+      success: false,
+      error: PROFILE_MANAGEMENT_UNAVAILABLE,
     });
   });
 });

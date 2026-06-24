@@ -304,6 +304,9 @@ The official package smoke currently proves:
 - `freedom://payments` exposes an intentional package-mode unavailable state
   instead of letting package-hosted internal pages read or clear payment,
   wallet-send, dApp-send, or x402 history
+- `freedom://settings/profiles` exposes an intentional package-mode
+  unavailable state for raw profile management and node configuration while
+  keeping display-only profile reads available through `freedomShell`
 - the profile indicator/menu renders the active profile through a read-only
   profile shell API, while profile creation and switching controls are disabled
   in package mode
@@ -500,6 +503,14 @@ claiming profile switching support. Profile creation and profile switching
 remain shell-owned/bundled-only until a scoped trusted switching surface exists.
 These APIs return serializable data only and do not expose file paths or store
 internals.
+
+Package-hosted `freedom://settings/profiles` does not receive the bundled raw
+profile management IPC path. Main returns structured
+`PROFILE_MANAGEMENT_UNAVAILABLE` for raw active-profile reads, profile lists,
+create/import/switch/delete/rename mutations, and profile node-configuration
+updates when the internal settings page is hosted by package chrome. The page
+surfaces that package-mode state and disables profile creation controls.
+Bundled trusted settings keeps the existing full profile management UI.
 
 The service read methods expose sanitized Ant, IPFS, and Radicle node status
 needed by the visible nodes menu. `getServiceRegistry()` returns only package

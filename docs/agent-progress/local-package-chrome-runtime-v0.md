@@ -2010,6 +2010,57 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 15: Profile Settings Boundary
+
+Current checkpoint: package-hosted `freedom://settings/profiles` no longer
+exposes raw bundled profile management IPC through the transitional internal
+page bridge. Bundled trusted settings can still manage profiles and profile
+node configuration, but package-hosted settings pages receive structured
+`PROFILE_MANAGEMENT_UNAVAILABLE` results and render a disabled package-mode
+state.
+
+Implemented in this checkpoint:
+
+- added a shared structured `PROFILE_MANAGEMENT_UNAVAILABLE` result for
+  package-hosted internal pages
+- changed active-profile read, profile-list read, profile create/import,
+  rename, open/switch, delete, and profile node-configuration IPC handlers to
+  reject package-hosted settings pages before touching the profile resolver
+- stopped raw `profile:updated` broadcasts from being delivered to registered
+  package chrome windows or their package-hosted internal pages; package chrome
+  continues to receive only sanitized profile shell events through
+  `browserState.profiles.read`
+- changed `freedom://settings/profiles` to surface the package-mode
+  unavailable state, disable profile creation controls, and replace profile
+  node/manager lists with the structured denial message
+- expanded official package smoke to navigate to
+  `freedom://settings/profiles` and assert the disabled package-mode state
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/package-hosted-internal-page.test.js src/main/ipc-handlers.test.js` passed:
+  2 suites, 24 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2177 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, payment-history trusted surface, Swarm
+  publish/feed, and seed/private-key export prompt surfaces still need
+  shell-owned UI before they can be called complete in package mode; these are
+  not user-approved completion deferrals
+
 ### Chrome UI Checkpoint 14: Payment History Page Boundary
 
 Current checkpoint: package-hosted `freedom://payments` no longer exposes

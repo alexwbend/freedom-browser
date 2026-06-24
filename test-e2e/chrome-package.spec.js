@@ -359,6 +359,36 @@ async function getActiveWebviewPublishSetupState(page) {
   });
 }
 
+async function getActiveWebviewProfileSettingsState(page) {
+  return page.evaluate(async () => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return { exists: false };
+    }
+    try {
+      return await webview.executeJavaScript(`
+        (() => {
+          const byId = (id) => document.getElementById(id);
+          return {
+            exists: true,
+            url: location.href,
+            unavailable: document.body.dataset.profileManagementUnavailable || '',
+            displayName: byId('profile-display-name')?.textContent || '',
+            runtime: byId('profile-runtime')?.textContent || '',
+            nodesText: byId('profile-nodes-card')?.textContent || '',
+            managerText: byId('profile-manager-list')?.textContent || '',
+            status: byId('profile-manager-status')?.textContent || '',
+            createDisabled: byId('create-profile-btn')?.disabled ?? null,
+            createNameDisabled: byId('create-profile-name')?.disabled ?? null,
+          };
+        })()
+      `);
+    } catch (error) {
+      return { exists: false, error: error?.message || String(error) };
+    }
+  });
+}
+
 async function getActiveWebviewPublishPageState(page) {
   return page.evaluate(async () => {
     const webview = document.querySelector('webview:not(.hidden)');
@@ -2257,6 +2287,34 @@ test('official browser chrome can launch as a local package with transitional we
         text: 'Publishing setup unavailable',
         help: 'Publish setup is shell-owned and unavailable in package mode',
       });
+
+    await navigateAddress(page, 'freedom://settings/profiles');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for freedom://settings/profiles to load in package webview',
+        timeout: 10_000,
+      })
+      .toContain('/pages/settings.html');
+    await expect
+      .poll(() => getActiveWebviewProfileSettingsState(page), {
+        message: 'Waiting for package profile settings unavailable state',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        unavailable: 'true',
+        displayName: 'Profile management unavailable',
+        runtime: 'Shell-owned',
+        createDisabled: true,
+        createNameDisabled: true,
+      });
+    const profileSettingsState = await getActiveWebviewProfileSettingsState(page);
+    expect(profileSettingsState.nodesText).toContain(
+      'Profile management is shell-owned and unavailable in package mode'
+    );
+    expect(profileSettingsState.managerText).toContain(
+      'Profile management is shell-owned and unavailable in package mode'
+    );
 
     await navigateAddress(page, 'freedom://publish');
     await expect

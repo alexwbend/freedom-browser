@@ -26,6 +26,10 @@ const {
   updateActiveProfileNodeConfig,
 } = require('./profile-resolver');
 const { launchProfile } = require('./profile-launcher');
+const {
+  isPackageHostedInternalPage,
+  packageHostedProfileManagementUnavailable,
+} = require('./package-hosted-internal-page');
 
 // Bzz content probes, keyed by probe id. Each entry exposes a promise that
 // resolves to the probe outcome. Entries survive until BZZ_AWAIT_PROBE
@@ -120,6 +124,9 @@ function isTrustedProfileMutationSender(event) {
 }
 
 function withTrustedProfileMutationSender(event, fn) {
+  if (isPackageHostedInternalPage(event)) {
+    return packageHostedProfileManagementUnavailable();
+  }
   if (!isTrustedProfileMutationSender(event)) {
     return failure(
       'PROFILE_IPC_FORBIDDEN',
@@ -161,7 +168,11 @@ function broadcastProfileUpdated(profile = serializeActiveProfile()) {
   const shellProfile = serializeProfileForShell(profile, { isActive: true });
   for (const contents of webContents.getAllWebContents()) {
     try {
-      contents.send(IPC.PROFILE_UPDATED, profile);
+      const hostedByPackageChrome = isPackageWebContents(contents?.hostWebContents);
+      const packageChrome = isPackageWebContents(contents);
+      if (!hostedByPackageChrome && !packageChrome) {
+        contents.send(IPC.PROFILE_UPDATED, profile);
+      }
       emitShellEventToPackageWebContents(
         contents,
         SHELL_API_EVENTS.BROWSER_STATE_PROFILE_UPDATED,
@@ -614,8 +625,16 @@ function registerBaseIpcHandlers(callbacks = {}) {
     app.showAboutPanel();
   });
 
-  ipcMain.handle(IPC.PROFILE_GET_ACTIVE, () => serializeActiveProfile());
-  ipcMain.handle(IPC.PROFILE_LIST, () => listProfilesFromIpc());
+  ipcMain.handle(IPC.PROFILE_GET_ACTIVE, (event) =>
+    isPackageHostedInternalPage(event)
+      ? packageHostedProfileManagementUnavailable()
+      : serializeActiveProfile()
+  );
+  ipcMain.handle(IPC.PROFILE_LIST, (event) =>
+    isPackageHostedInternalPage(event)
+      ? packageHostedProfileManagementUnavailable()
+      : listProfilesFromIpc()
+  );
   ipcMain.handle(IPC.PROFILE_CREATE, (event, payload = {}) =>
     withTrustedProfileMutationSender(event, () => createProfileFromIpc(payload))
   );

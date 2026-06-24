@@ -1037,6 +1037,7 @@
       let isWindows = false;
       let profileRefreshTimer = null;
       let setProfileRefreshActive = () => {};
+      let profileManagementUnavailable = false;
 
       const esc = (s) =>
         String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
@@ -1214,6 +1215,55 @@
         profileFields.managerStatus.className = 'rpc-status' + (kind ? ' ' + kind : '');
       };
 
+      const resultErrorCode = (result) =>
+        typeof result?.error === 'object' ? result.error.code : undefined;
+
+      const resultErrorMessage = (result, fallback = 'Unavailable') => {
+        if (typeof result?.error === 'object') {
+          return result.error.message || result.error.code || fallback;
+        }
+        return result?.error || fallback;
+      };
+
+      const isProfileManagementUnavailable = (result) =>
+        resultErrorCode(result) === 'PROFILE_MANAGEMENT_UNAVAILABLE';
+
+      const setProfileManagementControlsDisabled = (disabled) => {
+        if (profileFields.createName) profileFields.createName.disabled = disabled;
+        if (profileFields.createButton) profileFields.createButton.disabled = disabled;
+      };
+
+      const showProfileManagementUnavailable = (message) => {
+        profileManagementUnavailable = true;
+        if (document.body?.dataset) {
+          document.body.dataset.profileManagementUnavailable = 'true';
+        }
+        setProfileManagementControlsDisabled(true);
+        if (profileFields.displayName) profileFields.displayName.textContent = 'Profile management unavailable';
+        if (profileFields.id) profileFields.id.textContent = '';
+        if (profileFields.runtime) profileFields.runtime.textContent = 'Shell-owned';
+        if (profileFields.slot) profileFields.slot.textContent = '';
+        if (profileFields.nodesCard) {
+          profileFields.nodesCard.innerHTML = `<div class="profile-node-empty">${esc(message)}</div>`;
+        }
+        if (profileFields.managerList) {
+          profileFields.managerList.innerHTML = `<div class="profile-manager-empty">${esc(message)}</div>`;
+        }
+        setProfileStatus(message, 'error');
+        setManagerStatus(message, 'error');
+      };
+
+      const clearProfileManagementUnavailable = () => {
+        if (!profileManagementUnavailable) return;
+        profileManagementUnavailable = false;
+        if (document.body?.dataset) {
+          delete document.body.dataset.profileManagementUnavailable;
+        }
+        setProfileManagementControlsDisabled(false);
+        setProfileStatus('', '');
+        setManagerStatus('', '');
+      };
+
       const setExternalEditorVisible = (row, mode) => {
         row?.querySelector('[data-external-editor]')?.toggleAttribute('hidden', mode !== 'external');
       };
@@ -1315,6 +1365,10 @@
         if (!profileFields.managerList) return;
         try {
           const result = await freedomAPI.listProfiles?.();
+          if (isProfileManagementUnavailable(result)) {
+            showProfileManagementUnavailable(resultErrorMessage(result, 'Profile management is unavailable'));
+            return;
+          }
           if (!result?.success) {
             throw new Error(result?.error?.message || 'Profiles unavailable');
           }
@@ -1362,6 +1416,7 @@
 
       const refreshProfileSection = async (force = false) => {
         if (!profileFields.nodesCard) return;
+        if (profileManagementUnavailable) return;
         if (
           !force &&
           document.activeElement &&
@@ -1373,10 +1428,15 @@
         }
 
         try {
-          const [profile, registry] = await Promise.all([
-            freedomAPI.getActiveProfile?.(),
-            freedomAPI.getServiceRegistry().catch(() => null),
-          ]);
+          const profile = await freedomAPI.getActiveProfile?.();
+          if (isProfileManagementUnavailable(profile)) {
+            showProfileManagementUnavailable(
+              resultErrorMessage(profile, 'Profile management is unavailable')
+            );
+            return;
+          }
+          clearProfileManagementUnavailable();
+          const registry = await freedomAPI.getServiceRegistry().catch(() => null);
           const label = profile?.displayName || profile?.id || 'Unknown';
           profileFields.displayName.textContent = label;
           profileFields.id.textContent = profile?.id ? `ID: ${profile.id}` : '';
@@ -1412,12 +1472,14 @@
       });
 
       profileFields.nodesCard?.addEventListener('change', (event) => {
+        if (profileManagementUnavailable) return;
         const modeSelect = event.target?.closest?.('[data-node-mode]');
         if (!modeSelect) return;
         setExternalEditorVisible(modeSelect.closest('.profile-node'), modeSelect.value);
       });
 
       profileFields.nodesCard?.addEventListener('click', async (event) => {
+        if (profileManagementUnavailable) return;
         const saveButton = event.target?.closest?.('[data-save-node]');
         if (!saveButton) return;
 
@@ -1458,6 +1520,7 @@
       });
 
       profileFields.createButton?.addEventListener('click', async () => {
+        if (profileManagementUnavailable) return;
         const displayName = profileFields.createName?.value.trim();
         if (!displayName) {
           setManagerStatus('Enter a profile name.', 'error');
@@ -1489,6 +1552,7 @@
       });
 
       profileFields.managerList?.addEventListener('click', async (event) => {
+        if (profileManagementUnavailable) return;
         const importButton = event.target?.closest?.('[data-import-profile]');
         if (importButton) {
           const profileId = importButton.closest('[data-profile-id]')?.dataset.profileId;
