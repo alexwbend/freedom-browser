@@ -2043,7 +2043,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2174 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
-- commit and GitHub Actions verification are pending for this checkpoint.
+- committed as `0b5a8de` (`fix(chrome): disable package payment history page`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28065378052`, job `test` (`83088415125`), passed for
+  `0b5a8de`.
+- GitHub Actions run `28065378052`, job `e2e-chrome-runtime`
+  (`83088415040`), passed for `0b5a8de`.
 
 Known remaining gaps after this checkpoint:
 
