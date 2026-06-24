@@ -205,7 +205,7 @@
       const opened = await shell.openSurface('wallet');
       const toggled = await shell.toggleSurface('wallet');
       const closed = await shell.closeSurface('wallet');
-      const unsupported = await shell.openSurface('identity');
+      const unsupported = await shell.openSurface('unknown');
       const result = {
         initial,
         opened,

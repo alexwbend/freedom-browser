@@ -202,6 +202,7 @@ The local package directory must contain `manifest.json`:
     "clipboard.write",
     "downloads.saveImage",
     "surfaces.wallet.control",
+    "surfaces.identity.control",
     "surfaces.payments.control",
     "surfaces.swarmPublish.control",
     "windows.control",
@@ -384,6 +385,11 @@ The official package smoke currently proves:
   when needed, rename wallets, delete non-main wallets after connected dApp
   grants are revoked, and export the vault seed phrase or a selected private
   key after password verification
+- package chrome can open the shell-owned trusted identity window through
+  `surfaces.identity.control`; the trusted window can create or import the
+  recovery phrase vault and unlock or lock it through scoped trusted-window
+  IPC without exposing raw identity, mnemonic, vault, or quick-unlock APIs to
+  package chrome
 - the main menu opens, and the node menu opens with sanitized service status
   available through `services.read`
 - package chrome does not receive broad node globals such as `ant`, `ipfs`,
@@ -628,20 +634,24 @@ wallet window with `owner: "shell"` and `mode:
 "shell-owned-trusted-window"`. It can display public wallet account rows and
 connected dApp permission rows, revoke dApp wallet permissions, and export the
 vault seed phrase or a selected wallet private key after vault-password
-verification from trusted bundled code. `surfaces.payments.control` controls
-the shell-owned trusted payments window with the same trusted-window mode.
-Package chrome can read, open, close, or toggle only the surfaces it declares.
+verification from trusted bundled code. `surfaces.identity.control` controls
+the shell-owned trusted identity window with the same trusted-window mode. It
+can create or import the recovery phrase vault and unlock or lock it through
+scoped trusted-window IPC. `surfaces.payments.control` controls the
+shell-owned trusted payments window with the same trusted-window mode. Package
+chrome can read, open, close, or toggle only the surfaces it declares.
 `surfaces.swarmPublish.control` controls the shell-owned trusted Swarm publish
 window. The caller-scoped `surfaces.stateChanged` event is gated by the
-requested surface capability, so payment surface events do not grant wallet or
-Swarm-publish control, and wallet events do not grant payment or Swarm-publish
-control. This does not expose wallet, identity, provider, signing, vault, x402
-permission-store, payment-history, Swarm provider, stamp-management,
-publish-history, feed-store, filesystem, dApp permission-store, mnemonic, or
-private-key APIs to package chrome. The official package smoke exercises the
-visible wallet/sidebar affordance against the shell-owned wallet window,
-opens/closes the trusted payments surface from package mode, and opens/closes
-the trusted Swarm publish surface from package-hosted `freedom://publish`.
+requested surface capability, so identity/payment surface events do not grant
+wallet or Swarm-publish control, and wallet events do not grant identity,
+payment, or Swarm-publish control. This does not expose wallet, identity,
+provider, signing, vault, x402 permission-store, payment-history, Swarm
+provider, stamp-management, publish-history, feed-store, filesystem, dApp
+permission-store, mnemonic, or private-key APIs to package chrome. The
+official package smoke exercises the visible wallet/sidebar affordance against
+the shell-owned wallet window, opens/closes the trusted identity and payments
+surfaces from package mode, and opens/closes the trusted Swarm publish surface
+from package-hosted `freedom://publish`.
 The fixture package smoke also exercises the wallet surface control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
@@ -787,6 +797,9 @@ must be allowed by the package manifest's declared capabilities:
 - `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
   `openSurface("wallet")`, `closeSurface("wallet")`, and
   `toggleSurface("wallet")`
+- `surfaces.identity.control` allows `getSurfaceState("identity")`,
+  `openSurface("identity")`, `closeSurface("identity")`, and
+  `toggleSurface("identity")` for the shell-owned trusted identity window
 - `surfaces.payments.control` allows `getSurfaceState("payments")`,
   `openSurface("payments")`, `closeSurface("payments")`, and
   `toggleSurface("payments")` for the shell-owned trusted payments window
@@ -894,8 +907,8 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX, identity onboarding, and broader non-provider vault management flows still
-need real shell-owned UI before they can move fully through the broker.
+UX and broader non-provider vault management flows still need real shell-owned
+UI before they can move fully through the broker.
 
 ## Package Store
 

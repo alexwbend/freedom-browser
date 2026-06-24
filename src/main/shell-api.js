@@ -7,6 +7,7 @@ const log = require('./logger');
 const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
+const trustedIdentitySurface = require('./trusted-identity-surface');
 const trustedPaymentsSurface = require('./trusted-payments-surface');
 const trustedSwarmPublishSurface = require('./trusted-swarm-publish-surface');
 const trustedWalletSurface = require('./trusted-wallet-surface');
@@ -29,9 +30,10 @@ const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_RELOAD,
   SHELL_API_METHODS.TABS_GO_HOME,
 ]);
-const SUPPORTED_SURFACES = new Set(['wallet', 'payments', 'swarmPublish']);
+const SUPPORTED_SURFACES = new Set(['wallet', 'identity', 'payments', 'swarmPublish']);
 const SURFACE_CONTROL_CAPABILITIES = Object.freeze({
   wallet: SHELL_API_CAPABILITIES.SURFACES_WALLET_CONTROL,
+  identity: SHELL_API_CAPABILITIES.SURFACES_IDENTITY_CONTROL,
   payments: SHELL_API_CAPABILITIES.SURFACES_PAYMENTS_CONTROL,
   swarmPublish: SHELL_API_CAPABILITIES.SURFACES_SWARM_PUBLISH_CONTROL,
 });
@@ -39,6 +41,7 @@ const SUPPORTED_SERVICES = new Set(['ant', 'ipfs', 'radicle']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
 const SURFACE_MODES = Object.freeze({
   wallet: 'shell-owned-trusted-window',
+  identity: 'shell-owned-trusted-window',
   payments: 'shell-owned-trusted-window',
   swarmPublish: 'shell-owned-trusted-window',
 });
@@ -582,6 +585,20 @@ async function openTrustedWalletSurfaceForCaller(caller, event) {
   });
 }
 
+async function openTrustedIdentitySurfaceForCaller(caller, event) {
+  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  return trustedIdentitySurface.openTrustedIdentitySurface({
+    ownerWindow,
+    caller: caller.identity,
+    onClosed: () => {
+      const previousOpen = caller.surfaces.get('identity') === true;
+      caller.surfaces.set('identity', false);
+      const state = describeSurfaceState(caller, 'identity');
+      emitSurfaceStateChanged(event, caller, state, previousOpen);
+    },
+  });
+}
+
 async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
   const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
   return trustedSwarmPublishSurface.openTrustedSwarmPublishSurface({
@@ -601,6 +618,9 @@ async function openTrustedSurfaceForCaller(surface, caller, event) {
   if (surface === 'wallet') {
     return openTrustedWalletSurfaceForCaller(caller, event);
   }
+  if (surface === 'identity') {
+    return openTrustedIdentitySurfaceForCaller(caller, event);
+  }
   if (surface === 'payments') {
     return openTrustedPaymentsSurfaceForCaller(caller, event);
   }
@@ -613,6 +633,9 @@ async function openTrustedSurfaceForCaller(surface, caller, event) {
 function closeTrustedSurface(surface) {
   if (surface === 'wallet') {
     return trustedWalletSurface.closeTrustedWalletSurface();
+  }
+  if (surface === 'identity') {
+    return trustedIdentitySurface.closeTrustedIdentitySurface();
   }
   if (surface === 'payments') {
     return trustedPaymentsSurface.closeTrustedPaymentsSurface();

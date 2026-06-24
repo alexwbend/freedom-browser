@@ -37,6 +37,8 @@ const mockFetchBuffer = jest.fn();
 const mockFetchToFile = jest.fn();
 const mockOpenTrustedWalletSurface = jest.fn();
 const mockCloseTrustedWalletSurface = jest.fn();
+const mockOpenTrustedIdentitySurface = jest.fn();
+const mockCloseTrustedIdentitySurface = jest.fn();
 const mockOpenTrustedPaymentsSurface = jest.fn();
 const mockCloseTrustedPaymentsSurface = jest.fn();
 const mockOpenTrustedSwarmPublishSurface = jest.fn();
@@ -54,6 +56,7 @@ const IPFS_MANAGER_MODULE = require.resolve('./ipfs-manager');
 const RADICLE_MANAGER_MODULE = require.resolve('./radicle-manager');
 const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
 const TRUSTED_WALLET_SURFACE_MODULE = require.resolve('./trusted-wallet-surface');
+const TRUSTED_IDENTITY_SURFACE_MODULE = require.resolve('./trusted-identity-surface');
 const TRUSTED_PAYMENTS_SURFACE_MODULE = require.resolve('./trusted-payments-surface');
 const TRUSTED_SWARM_PUBLISH_SURFACE_MODULE = require.resolve('./trusted-swarm-publish-surface');
 
@@ -145,6 +148,10 @@ function loadShellApi(options = {}) {
         openTrustedWalletSurface: (...args) => mockOpenTrustedWalletSurface(...args),
         closeTrustedWalletSurface: (...args) => mockCloseTrustedWalletSurface(...args),
       }),
+      [TRUSTED_IDENTITY_SURFACE_MODULE]: () => ({
+        openTrustedIdentitySurface: (...args) => mockOpenTrustedIdentitySurface(...args),
+        closeTrustedIdentitySurface: (...args) => mockCloseTrustedIdentitySurface(...args),
+      }),
       [TRUSTED_PAYMENTS_SURFACE_MODULE]: () => ({
         openTrustedPaymentsSurface: (...args) => mockOpenTrustedPaymentsSurface(...args),
         closeTrustedPaymentsSurface: (...args) => mockCloseTrustedPaymentsSurface(...args),
@@ -199,6 +206,8 @@ describe('shell-api', () => {
     mockFetchToFile.mockReset();
     mockOpenTrustedWalletSurface.mockReset();
     mockCloseTrustedWalletSurface.mockReset();
+    mockOpenTrustedIdentitySurface.mockReset();
+    mockCloseTrustedIdentitySurface.mockReset();
     mockOpenTrustedPaymentsSurface.mockReset();
     mockCloseTrustedPaymentsSurface.mockReset();
     mockOpenTrustedSwarmPublishSurface.mockReset();
@@ -1399,11 +1408,11 @@ describe('shell-api', () => {
     await expect(
       mod.handleShellRequest(
         { sender: firstSender },
-        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'identity' }] }
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'unknown' }] }
       )
     ).resolves.toEqual({
       ok: false,
-      surface: 'identity',
+      surface: 'unknown',
       owner: 'shell',
       mode: 'shell-owned-placeholder',
       trusted: true,
@@ -1412,6 +1421,116 @@ describe('shell-api', () => {
         message: 'Unsupported shell surface',
       },
     });
+  });
+
+  test('opens the shell-owned identity surface behind a separate capability', async () => {
+    mockOpenTrustedIdentitySurface.mockResolvedValue({
+      ok: true,
+      surface: 'identity',
+      owner: 'shell',
+      trusted: true,
+    });
+    mockCloseTrustedIdentitySurface.mockReturnValue({
+      ok: true,
+      surface: 'identity',
+      owner: 'shell',
+      trusted: true,
+    });
+
+    const { mod } = loadShellApi();
+    const ownerWindow = { id: 504 };
+    const sender = makeSender({
+      id: 113,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.identity.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: [{ surface: 'identity' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'identity',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'identity' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'identity',
+      open: true,
+      mode: 'shell-owned-trusted-window',
+    });
+    expect(mockOpenTrustedIdentitySurface).toHaveBeenCalledWith({
+      ownerWindow,
+      caller: expect.objectContaining({
+        packageId: 'baby.freedom.chrome.fixture',
+      }),
+      onClosed: expect.any(Function),
+    });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'identity',
+        open: true,
+        mode: 'shell-owned-trusted-window',
+      }),
+    });
+
+    sender.send.mockClear();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_CLOSE, args: [{ surface: 'identity' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'identity',
+      open: false,
+    });
+    expect(mockCloseTrustedIdentitySurface).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'identity',
+        open: false,
+      }),
+    });
+  });
+
+  test('does not let wallet surface capability control identity surface', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 114 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.wallet.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'identity' }] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SURFACES_OPEN,
+        requiredCapability: 'surfaces.identity.control',
+      },
+    });
+    expect(mockOpenTrustedIdentitySurface).not.toHaveBeenCalled();
   });
 
   test('opens the shell-owned payments surface behind a separate capability', async () => {

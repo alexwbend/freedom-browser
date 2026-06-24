@@ -4977,9 +4977,66 @@ Verification in this checkpoint so far:
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
   passed: 14 launched Electron tests.
+- committed as `175fd2d` (`feat(chrome): review swarm feed prompt details`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28113668858`, job `test` (`83247412179`), passed for
+  `175fd2d`.
+- GitHub Actions run `28113668858`, job `e2e-chrome-runtime`
+  (`83247412153`), passed for `175fd2d`.
 
 Known remaining gaps after this checkpoint:
 
 - identity onboarding and broader non-provider vault management remain
   shell-owned future work before wallet UX can be called complete in package
   mode
+
+### Trusted Prompt Broker Checkpoint 39: Trusted Identity Onboarding Surface
+
+Current checkpoint: package chrome can now open a shell-owned trusted identity
+window through `surfaces.identity.control`. The trusted identity window can
+create or import the recovery phrase vault and unlock or lock it through
+scoped trusted-window IPC. Package chrome still receives no raw identity,
+vault, mnemonic, quick-unlock, wallet, Node, Electron, filesystem, or arbitrary
+IPC authority.
+
+Implemented in this checkpoint:
+
+- added a dedicated trusted identity BrowserWindow, preload, renderer, and
+  scoped IPC surface under `src/main/trusted-identity-*`
+- added `surfaces.identity.control` to the shell API capability registry and
+  wired `getSurfaceState("identity")`, `openSurface("identity")`,
+  `closeSurface("identity")`, and `toggleSurface("identity")` through the
+  existing sender-checked surface-control path
+- kept identity onboarding shell-owned: only the trusted identity WebContents
+  can invoke create-vault, import-mnemonic, unlock, lock, snapshot, and close
+  channels
+- exported identity vault metadata to main callers for display-safe trusted
+  surface status without exposing it through package chrome
+- updated the official package smoke manifest with
+  `surfaces.identity.control`; the minimal fixture remains wallet-only and
+  probes `openSurface("unknown")` for unsupported-surface behavior
+- extended official package smoke so package chrome opens the trusted identity
+  window and observes it as a shell-owned trusted surface
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-identity-surface.test.js src/main/shell-api.test.js src/shared/shell-api-policy.test.js`
+  passed: 3 suites, 52 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 125 suites passed, 5 skipped; 2342 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
+- broader non-provider vault management remains shell-owned future work before
+  wallet/identity UX can be called complete in package mode
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path

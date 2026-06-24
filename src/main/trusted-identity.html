@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Freedom Identity</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8f7f3;
+      color: #1d2430;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f8f7f3;
+    }
+
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    h1, h2 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 26px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      font-size: 16px;
+      line-height: 1.25;
+      margin-bottom: 12px;
+    }
+
+    p {
+      margin: 6px 0 0;
+      color: #5a6472;
+      line-height: 1.45;
+    }
+
+    button, input, textarea, select {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid #b9c1cc;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #1d2430;
+      padding: 9px 12px;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: #1a5fb4;
+      background: #1a5fb4;
+      color: #ffffff;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .status {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .status-item, section {
+      border: 1px solid #d8dde5;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    .status-item {
+      padding: 12px;
+    }
+
+    .status-label {
+      display: block;
+      color: #687385;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .status-value {
+      display: block;
+      margin-top: 5px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+
+    section {
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    form {
+      display: grid;
+      gap: 11px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #344054;
+      font-size: 13px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid #c9d0da;
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #ffffff;
+      color: #1d2430;
+    }
+
+    textarea {
+      min-height: 86px;
+      resize: vertical;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .error {
+      color: #b42318;
+      min-height: 20px;
+      overflow-wrap: anywhere;
+    }
+
+    .success {
+      color: #166534;
+      min-height: 20px;
+      overflow-wrap: anywhere;
+    }
+
+    .recovery {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main id="identity-surface">
+    <header>
+      <div>
+        <h1 id="heading">Identity And Vault</h1>
+        <p id="summary">Create, import, and unlock your recovery phrase vault.</p>
+      </div>
+      <button id="close" type="button">Close</button>
+    </header>
+
+    <div class="status" aria-live="polite">
+      <div class="status-item">
+        <span class="status-label">Vault</span>
+        <span class="status-value" id="vault-state">Loading</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Lock</span>
+        <span class="status-value" id="lock-state">Loading</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Wallet</span>
+        <span class="status-value" id="wallet-address">Loading</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Ant identity</span>
+        <span class="status-value" id="ant-state">Loading</span>
+      </div>
+    </div>
+
+    <section id="create-section">
+      <h2>Create Recovery Phrase</h2>
+      <form id="create-form">
+        <label>Password
+          <input id="create-password" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <label>Confirm password
+          <input id="create-confirm" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <label>Phrase length
+          <select id="create-strength">
+            <option value="256">24 words</option>
+            <option value="128">12 words</option>
+          </select>
+        </label>
+        <div class="actions">
+          <button id="create-submit" class="primary" type="submit">Create identity</button>
+        </div>
+      </form>
+      <p id="create-error" class="error"></p>
+      <p id="create-success" class="success"></p>
+      <textarea id="created-mnemonic" class="recovery hidden" readonly></textarea>
+    </section>
+
+    <section id="import-section">
+      <h2>Import Recovery Phrase</h2>
+      <form id="import-form">
+        <label>Recovery phrase
+          <textarea id="import-mnemonic" spellcheck="false" autocomplete="off"></textarea>
+        </label>
+        <label>Password
+          <input id="import-password" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <label>Confirm password
+          <input id="import-confirm" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <div class="actions">
+          <button id="import-submit" class="primary" type="submit">Import identity</button>
+        </div>
+      </form>
+      <p id="import-error" class="error"></p>
+      <p id="import-success" class="success"></p>
+    </section>
+
+    <section id="unlock-section">
+      <h2>Vault Access</h2>
+      <form id="unlock-form">
+        <label>Password
+          <input id="unlock-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="actions">
+          <button id="unlock-submit" class="primary" type="submit">Unlock vault</button>
+          <button id="lock-submit" type="button">Lock vault</button>
+        </div>
+      </form>
+      <p id="unlock-error" class="error"></p>
+      <p id="unlock-success" class="success"></p>
+    </section>
+  </main>
+  <script src="./trusted-identity-renderer.js"></script>
+</body>
+</html>

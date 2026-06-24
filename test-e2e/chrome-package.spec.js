@@ -261,6 +261,7 @@ function writeOfficialChromePackage(root) {
           'clipboard.write',
           'downloads.saveImage',
           'surfaces.wallet.control',
+          'surfaces.identity.control',
           'surfaces.payments.control',
           'surfaces.swarmPublish.control',
           'windows.control',
@@ -1075,6 +1076,42 @@ async function waitForTrustedWalletWindow(app) {
   throw new Error('Trusted wallet window did not appear');
 }
 
+async function waitForTrustedIdentityWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('#identity-surface', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; other BrowserWindows do not host the trusted identity surface.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('#identity-surface', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the trusted identity surface is ready.
+      }
+    }
+  }
+
+  throw new Error('Trusted identity window did not appear');
+}
+
 async function waitForTrustedVaultUnlockWindow(app) {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
@@ -1424,7 +1461,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
       },
       unsupported: {
         ok: false,
-        surface: 'identity',
+        surface: 'unknown',
         error: {
           code: 'SURFACE_UNSUPPORTED',
         },
@@ -2075,6 +2112,43 @@ test('official browser chrome can launch as a local package with transitional we
     expect(closedPaymentsSurface).toMatchObject({
       ok: true,
       surface: 'payments',
+      open: false,
+    });
+
+    const initialIdentitySurface = await page.evaluate(() =>
+      window.freedomShell.getSurfaceState('identity')
+    );
+    expect(initialIdentitySurface).toMatchObject({
+      ok: true,
+      surface: 'identity',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+    const openedIdentitySurface = await page.evaluate(() =>
+      window.freedomShell.openSurface('identity')
+    );
+    expect(openedIdentitySurface).toMatchObject({
+      ok: true,
+      surface: 'identity',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+    const trustedIdentityWindow = await waitForTrustedIdentityWindow(launched.app);
+    await expect(trustedIdentityWindow.locator('#heading')).toHaveText('Identity And Vault');
+    await expect(trustedIdentityWindow.locator('#vault-state')).toHaveText('Not created');
+    await expect(trustedIdentityWindow.locator('#wallet-address')).toContainText('0x');
+    await expect(trustedIdentityWindow.locator('#create-submit')).toBeVisible();
+    await expect(trustedIdentityWindow.locator('#import-submit')).toBeVisible();
+    const closedIdentitySurface = await page.evaluate(() =>
+      window.freedomShell.closeSurface('identity')
+    );
+    expect(closedIdentitySurface).toMatchObject({
+      ok: true,
+      surface: 'identity',
       open: false,
     });
 

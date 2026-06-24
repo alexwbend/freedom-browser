@@ -500,6 +500,28 @@ history or cap edit/revoke APIs to package chrome. Cap editing/revocation and
 payment-history review live in the separate shell-owned trusted payments
 surface opened through `surfaces.payments.control`.
 
+### Package-Hosted Trusted Identity Surface
+
+Package chrome can request the shell-owned trusted identity surface without
+receiving identity, vault, mnemonic, quick-unlock, or raw wallet authority:
+
+```text
+window.freedomShell.openSurface("identity")
+  -> shell API method surfaces.open
+  -> capability surfaces.identity.control
+  -> src/main/trusted-identity-surface.js
+  -> bundled trusted identity BrowserWindow/preload
+```
+
+The trusted identity surface is bundled shell code with a dedicated preload
+and per-window scoped IPC channels. Only the trusted surface WebContents can
+call those channels. It can show display-safe vault status, create a new
+recovery phrase vault, import an existing recovery phrase, unlock the vault,
+and lock the vault. The recovery phrase returned by creation is rendered only
+inside the trusted shell-owned window. Package chrome receives only surface
+open/close state and never receives the phrase, passwords, raw vault state,
+quick-unlock handles, or identity-manager APIs.
+
 ### Package-Hosted Trusted Payments Surface
 
 Package chrome can request the shell-owned trusted payments surface without
@@ -576,9 +598,10 @@ Wallet connect:
   rename wallets, delete non-main wallets after connected dApp grants are
   revoked, and export the vault seed phrase or a selected wallet private key
   after password verification through scoped trusted-window IPC
-- future completion work should add identity onboarding, broader non-provider
-  vault management, and any non-provider account-management surfaces that need
-  shell-owned UI
+- the shell-owned trusted identity surface can create or import the recovery
+  phrase vault and unlock or lock it through scoped trusted-window IPC
+- future completion work should add broader non-provider vault management and
+  any non-provider account-management surfaces that need shell-owned UI
 
 Transaction and typed-data signing:
 
@@ -609,8 +632,8 @@ Transaction and typed-data signing:
   after unlock succeeds
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add identity onboarding and broader non-provider
-  vault management before wallet UX can be called complete in package mode
+- future completion work must add broader non-provider vault management before
+  wallet UX can be called complete in package mode
 
 x402 approvals:
 
@@ -668,9 +691,9 @@ Vault unlock:
 
 ## Non-Goals In This Slice
 
-- no identity onboarding or general secret-management migration beyond scoped
-  wallet management, trusted wallet create unlock, and password-gated
-  seed/private-key export in the trusted wallet surface
+- no general secret-management migration beyond scoped wallet management,
+  trusted identity onboarding, trusted wallet create unlock, and
+  password-gated seed/private-key export in the trusted wallet surface
 - no general vault-unlock migration outside the current x402, wallet-provider,
   and trusted wallet create paths
 - no full publish-center approval migration

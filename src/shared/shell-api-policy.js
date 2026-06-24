@@ -100,6 +100,7 @@ const SHELL_API_CAPABILITIES = Object.freeze({
   BROWSER_STATE_PROFILES_READ: 'browserState.profiles.read',
   SERVICES_READ: 'services.read',
   SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
+  SURFACES_IDENTITY_CONTROL: 'surfaces.identity.control',
   SURFACES_PAYMENTS_CONTROL: 'surfaces.payments.control',
   SURFACES_SWARM_PUBLISH_CONTROL: 'surfaces.swarmPublish.control',
   TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',

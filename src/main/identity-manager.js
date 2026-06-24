@@ -1348,6 +1348,7 @@ module.exports = {
   importExistingMnemonic,
   unlockVault,
   lockVault,
+  getVaultMeta,
   exportMnemonic,
   exportMnemonicWithPassword,
   exportPrivateKeyWithPassword,
