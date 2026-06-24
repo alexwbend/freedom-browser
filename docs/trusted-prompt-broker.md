@@ -462,10 +462,12 @@ vault-backed x402 client, queues the payment header for the retry, returns a
 same-URL 307 for subresources, and re-navigates main-frame requests through
 the existing sign-flow path. Rejected prompts pass the original 402 through.
 
-Package-hosted x402 still does not grant caps, unlock vault state, write
-payment permissions, expose payment history, or migrate the full x402 approval
-UI. Package-hosted vault-unlock prompts still intentionally reject and pass the
-original 402 through when signing needs an unlock.
+Package-hosted vault-unlock prompts now receive the same main-derived payment
+review details when available, including amount, asset, network, recipient,
+and resource URL. They still intentionally dismiss and pass the original 402
+through when signing needs an unlock. Package-hosted x402 still does not grant
+caps, unlock vault state, write payment permissions, expose payment history,
+or migrate the full x402 approval UI.
 
 ## Future Real Prompt Paths
 
@@ -509,8 +511,9 @@ x402 approvals:
 - broker opens shell-owned payment approval or unlock prompt
 - current package-hosted approval slice can sign one-time payments after
   shell-owned native presentation when the vault is unlocked
-- package-hosted vault-unlock prompts still reject after shell-owned native
-  presentation and pass the original 402 through
+- package-hosted vault-unlock prompts show main-derived payment details after
+  shell-owned native presentation, then dismiss and pass the original 402
+  through
 - package chrome may receive status after the decision, not raw approval APIs
 - future completion work must add cap grants, vault unlock, payment
   permission management, and richer review UI before x402 can be called

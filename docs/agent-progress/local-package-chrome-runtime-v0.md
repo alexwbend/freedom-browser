@@ -3869,3 +3869,53 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 20: Package x402 Vault Unlock Review Details
+
+Current checkpoint: package-hosted x402 locked-vault paths now show a
+shell-owned native vault-unlock prompt with main-derived payment review
+details, then dismiss and pass the original 402 through because actual vault
+unlock remains unavailable to package chrome. Package chrome still does not
+receive raw x402 events, raw payment-history IPC, cap-grant authority, payment
+permission writes, vault unlock primitives, wallet APIs, Node, Electron, or
+arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- passed parsed x402 requirements into package-hosted `x402_vaultUnlock`
+  prompt requests for both main-frame and subresource locked-vault auto-pay
+  paths
+- changed the shell-owned native vault-unlock prompt to display amount, asset,
+  network, recipient, and resource URL when those fields are present
+- kept vault-unlock handling as a visible dismissal/pass-through path: it does
+  not grant caps, unlock vault state, write payment permissions, expose payment
+  history, or migrate the full x402 approval UI
+- covered the cap-backed subresource locked-vault path and the main-frame
+  locked-vault package-hosted auto-pay path in `src/main/x402/intercept.test.js`
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/x402/intercept.test.js` passed:
+  1 suite, 106 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2256 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted x402 vault unlock now has main-derived payment context and a
+  shell-owned native prompt, but it still cannot unlock the vault or resume the
+  payment; the user must unlock through a shell-owned wallet surface and retry
+- x402 cap grants, payment permission management, payment history UI, full
+  payment review, and actual vault unlock still need a real shell-owned x402 or
+  wallet surface before x402 can be called complete in package mode
+- identity onboarding, general vault unlock, seed/private-key export, full
+  Swarm publish/feed UX, and richer wallet account/review surfaces still need
+  shell-owned UI before the broader package runtime can be called complete;
+  these are not user-approved completion deferrals

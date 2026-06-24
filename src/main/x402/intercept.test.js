@@ -403,9 +403,14 @@ describe('detectPaymentRequiredHandler', () => {
       title: 'Freedom x402 Vault Unlock',
       message: 'Vault unlock request',
       detail:
-        'https://api.example needs vault unlock for x402 auto-pay. ' +
-        'Package chrome cannot unlock the vault; the shell is rejecting it for now.',
-      buttons: ['Reject'],
+        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
+        'Amount: 10000. ' +
+        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+        'Network: eip155:8453. ' +
+        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+        'Resource: https://api.example/article. ' +
+        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
+      buttons: ['Dismiss'],
       defaultId: 0,
       cancelId: 0,
       noLink: true,
@@ -543,6 +548,43 @@ describe('detectPaymentRequiredHandler', () => {
         expect(resume.authorizedBy).toBe('cap');
         resolve();
       }));
+    });
+  });
+
+  test('package-hosted mainFrame auto-pay locked-vault shows the detailed shell-owned prompt and drops the resume token', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPermission.mockReturnValueOnce({
+      capAmount: '20000',
+      spentAmount: '0',
+      createdAt: 1,
+      expiresAt: 9999999999,
+    });
+    mockSignAndQueueRetry.mockReset().mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE));
+
+    const result = await detectPaymentRequiredHandler(detail({ resourceType: 'mainFrame' }));
+    expect(result).toBeNull();
+
+    await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
+    await flushRetryMicrotasks();
+
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(consumePendingUnlockResume(7)).toBeNull();
+    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
+      type: 'info',
+      title: 'Freedom x402 Vault Unlock',
+      message: 'Vault unlock request',
+      detail:
+        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
+        'Amount: 10000. ' +
+        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+        'Network: eip155:8453. ' +
+        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
+        'Resource: https://api.example/article. ' +
+        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
+      buttons: ['Dismiss'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
     });
   });
 

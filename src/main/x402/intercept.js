@@ -691,9 +691,26 @@ async function presentNativeX402VaultUnlockPrompt(request, context = {}) {
   return presentNativeX402Prompt(request, context, {
     title: 'Freedom x402 Vault Unlock',
     message: 'Vault unlock request',
-    detail: (origin) =>
-      `${origin} needs vault unlock for x402 auto-pay. ` +
-      'Package chrome cannot unlock the vault; the shell is rejecting it for now.',
+    detail: (origin, promptRequest) => {
+      const details = promptRequest.details || {};
+      const amount = details.amount ? ` Amount: ${details.amount}.` : '';
+      const asset = details.asset ? ` Asset: ${details.asset}.` : '';
+      const network = details.network ? ` Network: ${details.network}.` : '';
+      const payTo = details.payTo ? ` Pay to: ${details.payTo}.` : '';
+      const resource = details.resource ? ` Resource: ${details.resource}.` : '';
+      return (
+        `${origin} needs vault unlock before x402 payment signing can continue.` +
+        amount +
+        asset +
+        network +
+        payTo +
+        resource +
+        ' Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.'
+      );
+    },
+    buttons: ['Dismiss'],
+    defaultId: 0,
+    cancelId: 0,
   });
 }
 
@@ -785,13 +802,17 @@ async function requestPackageHostedX402Prompt({
     promptType === 'vault-unlock'
       ? `x402 vault unlock request from ${origin || 'unknown origin'}`
       : `x402 payment approval request from ${origin || 'unknown origin'}`;
+  const promptDetails =
+    promptType === 'approval' || promptType === 'vault-unlock'
+      ? getX402PaymentPromptDetails(requirements)
+      : null;
 
   try {
     return await requestPrompt(
       {
         method,
         reason,
-        details: promptType === 'approval' ? getX402PaymentPromptDetails(requirements) : null,
+        details: promptDetails,
       },
       {
         caller:
@@ -864,6 +885,7 @@ function requestVaultUnlockForAutoPay(webContentsId, detection, url) {
       webContentsId,
       url,
       promptType: 'vault-unlock',
+      requirements: detection?.requirements,
     });
     log.warn(
       `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
@@ -1036,6 +1058,7 @@ async function detectPaymentRequiredHandler(details) {
               webContentsId: id,
               url,
               promptType: 'vault-unlock',
+              requirements,
             });
             log.warn(
               `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
@@ -1143,6 +1166,7 @@ async function detectPaymentRequiredHandler(details) {
             webContentsId: details.webContentsId,
             url: details.url,
             promptType: 'vault-unlock',
+            requirements,
           });
         }
         log.warn(

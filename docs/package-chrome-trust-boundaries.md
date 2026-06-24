@@ -272,9 +272,10 @@ native prompts. One-time x402 payment approval can sign and queue the retry
 through the existing main sign-flow when the user chooses Pay and the vault is
 unlocked. Main derives payment-review details from parsed x402 requirements
 and shows amount, asset, network, recipient, and resource URL when present.
-Vault-unlock needs still reject and pass the original 402 through, and package
-chrome still cannot receive raw x402 IPC, grant caps, unlock vault state, write
-payment permissions, or read payment history. File/folder/full publish UX,
+Vault-unlock prompts now receive those same parsed payment-review details when
+signing needs an unlock, but still dismiss and pass the original 402 through.
+Package chrome still cannot receive raw x402 IPC, grant caps, unlock vault
+state, write payment permissions, or read payment history. File/folder/full publish UX,
 richer account selection/review, x402 cap grants, and vault unlock still need
 main-derived guest/request context and real shell-owned prompt surfaces before
 they can be called complete in package mode.
