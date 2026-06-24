@@ -179,6 +179,18 @@ describe('chrome-runtime-api', () => {
     await expect(api.getWebviewPreloadPath()).resolves.toBeNull();
     expect(api.startSwarmProbe).toBeUndefined();
     await expect(api.resolveEns('vitalik.eth')).resolves.toEqual({ type: 'not_found' });
+    await expect(api.resolveEnsAddress('vitalik.eth')).resolves.toMatchObject({
+      success: false,
+      reason: 'PACKAGE_UNAVAILABLE',
+      code: 'ENS_WALLET_RESOLUTION_UNAVAILABLE',
+    });
+    await expect(
+      api.resolveEnsReverse('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045')
+    ).resolves.toMatchObject({
+      success: false,
+      reason: 'PACKAGE_UNAVAILABLE',
+      code: 'ENS_WALLET_RESOLUTION_UNAVAILABLE',
+    });
     await expect(api.invalidateEnsContent('vitalik.eth')).resolves.toBe(true);
     await expect(api.setWindowTitle('Loaded Title')).resolves.toEqual({ ok: true });
     await expect(api.closeWindow()).resolves.toEqual({ ok: true });
@@ -389,6 +401,11 @@ describe('chrome-runtime-api', () => {
     await expect(api.x402GetDetails('payment-1')).resolves.toMatchObject({
       success: false,
       error: { code: 'X402_PACKAGE_API_UNAVAILABLE' },
+    });
+    await expect(api.resolveEnsAddress('vitalik.eth')).resolves.toMatchObject({
+      success: false,
+      reason: 'PACKAGE_UNAVAILABLE',
+      code: 'ENS_WALLET_RESOLUTION_UNAVAILABLE',
     });
   });
 

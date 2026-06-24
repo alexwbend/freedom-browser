@@ -471,6 +471,10 @@ contenthash resolver to package chrome for real navigation. They do not expose
 wallet, identity, provider, or arbitrary IPC authority. In test mode these calls
 use the main-process harness fixtures so official package smoke coverage remains
 deterministic and does not depend on live Ethereum RPC availability.
+Wallet/identity ENS address and reverse lookups are not package chrome APIs in
+this phase; `resolveEnsAddress()` and `resolveEnsReverse()` return
+`ENS_WALLET_RESOLUTION_UNAVAILABLE` in package mode until those trusted
+surfaces migrate.
 
 `markReady()` tells the shell that the package initialized. If a local package
 does not call `markReady()` within the readiness timeout, Freedom creates a new

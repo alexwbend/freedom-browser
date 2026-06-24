@@ -18,6 +18,12 @@ const asyncExternalNodePromptUnavailable = async () =>
     'EXTERNAL_NODE_PROMPT_UNAVAILABLE',
     'External node candidate decisions are shell-owned in package mode'
   );
+const asyncEnsWalletResolutionUnavailable = async () => ({
+  success: false,
+  reason: 'PACKAGE_UNAVAILABLE',
+  code: 'ENS_WALLET_RESOLUTION_UNAVAILABLE',
+  error: 'ENS address and reverse lookups are shell-owned in package mode',
+});
 const asyncX402Unavailable = async () =>
   unavailableResult(
     'X402_PACKAGE_API_UNAVAILABLE',
@@ -147,8 +153,8 @@ const createPackageRuntimeApi = () =>
       callFreedomShell('updateBookmark', false, originalTarget, bookmark),
     removeBookmark: (target) => callFreedomShell('removeBookmark', false, target),
     resolveEns: (name) => getRuntimeWindow().freedomShell?.resolveEns?.(name),
-    resolveEnsAddress: asyncNull,
-    resolveEnsReverse: asyncNull,
+    resolveEnsAddress: asyncEnsWalletResolutionUnavailable,
+    resolveEnsReverse: asyncEnsWalletResolutionUnavailable,
     invalidateEnsContent: (name) =>
       getRuntimeWindow().freedomShell?.invalidateEnsContent?.(name),
     getHistory: (options) => callFreedomShell('getHistory', [], options),
