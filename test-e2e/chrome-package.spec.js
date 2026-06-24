@@ -458,6 +458,62 @@ async function getActiveWebviewPaymentsPageState(page) {
   });
 }
 
+async function getActiveWebviewHistoryPageState(page, query = '') {
+  return page.evaluate(async (searchQuery) => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return { exists: false };
+    }
+    try {
+      return await webview.executeJavaScript(`
+        ((searchQuery) => {
+          const byId = (id) => document.getElementById(id);
+          const searchInput = byId('search-input');
+          if (searchInput && searchQuery) {
+            searchInput.value = searchQuery;
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          const items = Array.from(document.querySelectorAll('.history-item'));
+          return {
+            exists: true,
+            url: location.href,
+            stats: byId('stats')?.textContent || '',
+            itemCount: items.length,
+            titles: items.map((item) => item.querySelector('.history-title')?.textContent || ''),
+            urls: items.map((item) => item.dataset.url || ''),
+            searchValue: searchInput?.value || '',
+            clearText: byId('clear-btn')?.textContent?.trim() || '',
+          };
+        })(${JSON.stringify(searchQuery)})
+      `);
+    } catch (error) {
+      return { exists: false, error: error?.message || String(error) };
+    }
+  }, query);
+}
+
+async function removeFirstActiveWebviewHistoryResult(page, query = '') {
+  return page.evaluate(async (searchQuery) => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') {
+      return false;
+    }
+    return webview.executeJavaScript(`
+      ((searchQuery) => {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput && searchQuery) {
+          searchInput.value = searchQuery;
+          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const button = document.querySelector('.history-item .delete-btn');
+        if (!button) return false;
+        button.click();
+        return true;
+      })(${JSON.stringify(searchQuery)})
+    `);
+  }, query);
+}
+
 async function clickActiveWebviewPublishSetup(page) {
   await page.evaluate(async () => {
     const webview = document.querySelector('webview:not(.hidden)');
@@ -1817,6 +1873,69 @@ test('official browser chrome can launch as a local package with transitional we
     expect(browserState.afterClearCount).toBe(0);
     expect(browserState.fetchedFavicon).toMatch(/^data:/);
     expect(browserState.cachedFavicon).toBe(browserState.fetchedFavicon);
+
+    const historyPageSeed = await page.evaluate(async () => {
+      await window.freedomShell.addHistory({
+        url: 'https://package-history-page-a.example/',
+        title: 'Package History Page A',
+        protocol: 'https',
+      });
+      await window.freedomShell.addHistory({
+        url: 'https://package-history-page-b.example/',
+        title: 'Package History Page B',
+        protocol: 'https',
+      });
+      return window.freedomShell.getHistory({ query: 'Package History Page', limit: 5 });
+    });
+    expect(historyPageSeed.map((entry) => entry.title)).toEqual(
+      expect.arrayContaining(['Package History Page A', 'Package History Page B'])
+    );
+
+    await clickVisibleMainMenuItem(page, '#history-btn');
+    await expect
+      .poll(() => getActiveWebviewUrl(page), {
+        message: 'Waiting for package history page to load from visible menu action',
+        timeout: 10_000,
+      })
+      .toContain('/pages/history.html');
+    await expect
+      .poll(() => getActiveWebviewHistoryPageState(page, 'Package History Page'), {
+        message: 'Waiting for seeded history entries to render in package history page',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        itemCount: 2,
+        searchValue: 'Package History Page',
+      });
+    const historyPageState = await getActiveWebviewHistoryPageState(
+      page,
+      'Package History Page'
+    );
+    expect(historyPageState.titles).toEqual(
+      expect.arrayContaining(['Package History Page A', 'Package History Page B'])
+    );
+    expect(historyPageState.urls).toEqual(
+      expect.arrayContaining([
+        'https://package-history-page-a.example/',
+        'https://package-history-page-b.example/',
+      ])
+    );
+    await expect(removeFirstActiveWebviewHistoryResult(page, 'Package History Page')).resolves.toBe(
+      true
+    );
+    await expect
+      .poll(() => getActiveWebviewHistoryPageState(page, 'Package History Page'), {
+        message: 'Waiting for package history page removal to persist',
+        timeout: 10_000,
+      })
+      .toMatchObject({
+        exists: true,
+        itemCount: 1,
+        searchValue: 'Package History Page',
+      });
+    await page.locator('#home-btn').click();
+    await expectHomeReady(page);
 
     const shellProfileState = await page.evaluate(async () => ({
       active: await window.freedomShell.getActiveProfile(),

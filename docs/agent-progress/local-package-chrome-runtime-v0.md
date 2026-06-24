@@ -2067,6 +2067,47 @@ Known remaining gaps after this checkpoint:
   shell-owned UI before they can be called complete in package mode; these are
   not user-approved completion deferrals
 
+### Chrome UI Checkpoint 16: History Page Smoke Coverage
+
+Current checkpoint: the official package smoke now covers the visible History
+menu path and hosted `freedom://history` page instead of only exercising
+history shell APIs directly. This closes a visible browser-state page coverage
+gap: package chrome opens the page from the menu, renders seeded history
+entries through the internal-page bridge, and removes an entry through the page
+controls.
+
+Implemented in this checkpoint:
+
+- added active-webview helpers to inspect and interact with
+  `freedom://history`
+- expanded the official package smoke to seed package history through
+  `freedomShell`, click the visible History menu item, assert the hosted page
+  renders the seeded entries, remove one entry through the page's delete
+  control, and verify the removal persists
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2177 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, payment-history trusted surface, Swarm
+  publish/feed, and seed/private-key export prompt surfaces still need
+  shell-owned UI before they can be called complete in package mode; these are
+  not user-approved completion deferrals
+
 ### Chrome UI Checkpoint 14: Payment History Page Boundary
 
 Current checkpoint: package-hosted `freedom://payments` no longer exposes

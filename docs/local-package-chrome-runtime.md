@@ -313,6 +313,9 @@ The official package smoke currently proves:
 - clicking a default bookmark navigates under the deterministic harness
 - autocomplete includes bookmark and recorded-history suggestions in package
   mode
+- the visible History menu item opens `freedom://history`, renders seeded
+  history entries through the hosted internal page, and removes an entry
+  through the page controls
 - guest content receives the page-facing Ethereum provider in package mode and
   a low-risk `eth_chainId` request bypasses package chrome through main
 - higher-risk Ethereum provider requests from package-hosted guests fail
