@@ -2143,6 +2143,12 @@ Verification in this checkpoint:
   14 tests.
 - `npm test` passed:
   116 suites passed, 5 skipped; 2180 passed, 17 skipped.
+- committed as `da1fef0` (`feat(chrome): show package wallet surface
+  placeholder`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28070224084`, job `test` (`83103036362`), passed for
+  `da1fef0`.
+- GitHub Actions run `28070224084`, job `e2e-chrome-runtime`
+  (`83103036253`), passed for `da1fef0`.
 
 Known remaining gaps after this checkpoint:
 
