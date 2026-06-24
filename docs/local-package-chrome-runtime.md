@@ -349,6 +349,9 @@ The official package smoke currently proves:
   prompt with main-derived guest context; accepted prompts establish an
   app-scoped feed grant in main and execute the existing main-owned feed
   creation path, while rejected prompts return page-facing `4001`
+- package-hosted `swarm.updateFeed()` routes through the same main-owned feed
+  update gate; the official smoke proves a missing main-owned feed returns
+  structured `feed_not_found` before package chrome can broker the request
 - the wallet/sidebar control opens a shell-owned placeholder surface in
   package mode through `surfaces.wallet.control` without exposing wallet or
   identity APIs to package chrome
@@ -783,20 +786,20 @@ broadcasts through the existing transaction recorder, and updates the
 permission last-used timestamp. Deprecated `eth_sign` and unsupported
 typed-data variants remain structured safe-failure paths. The Swarm path also
 has shell-owned prompt slices for `swarm_requestAccess`, `swarm_publishData`,
-`swarm_publishFiles`, and `swarm_createFeed`: package-hosted guests ask main
-for host context, main derives the guest origin and package host identity, the
-broker presents a shell-owned native dialog, and accepted access prompts write
-the Swarm permission in main while accepted data/file publish and feed-create
-prompts execute through the existing main-owned provider paths. Rejected
-prompts still return a structured `4001` user rejection. These slices do not
-allow feed update/write, expose stamp management, expose account selection, or
-unlock vault state.
+`swarm_publishFiles`, `swarm_createFeed`, and `swarm_updateFeed`:
+package-hosted guests ask main for host context, main derives the guest origin
+and package host identity, the broker presents a shell-owned native dialog,
+and accepted access prompts write the Swarm permission in main while accepted
+data/file publish and feed create/update prompts execute through the existing
+main-owned provider paths. Rejected prompts still return a structured `4001`
+user rejection. These slices do not allow raw feed writes, expose stamp
+management, expose account selection, or unlock vault state.
 Other higher-risk Ethereum and Swarm methods still fail
 with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
 them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. x402 cap grants/unlock, Swarm feed update/write/full publish UX,
+approval UI. x402 cap grants/unlock, raw Swarm feed write/full publish UX,
 richer wallet account
 selection/review, and vault unlock flows still need main-derived request
 context and shell-owned prompt UI before they can move fully through the

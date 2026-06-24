@@ -2283,6 +2283,7 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="swarm-provider-publish">pending</p>
         <p data-test="swarm-provider-files">pending</p>
         <p data-test="swarm-provider-feed">pending</p>
+        <p data-test="swarm-provider-feed-update">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
@@ -2439,6 +2440,18 @@ test('official browser chrome can launch as a local package with transitional we
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
+                try {
+                  await swarm.updateFeed({
+                    feedId: 'blog',
+                    reference: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  });
+                  setText('[data-test="swarm-provider-feed-update"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-feed-update"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
               }
             };
             if (window.ethereum) {
@@ -2578,6 +2591,11 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="swarm-provider-feed"]',
       'error:4900:node-stopped'
     );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-feed-update"]',
+      'error:-32602:feed_not_found'
+    );
     const swarmPublishPromptDialog = (
       await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
     ).find((dialog) => dialog.options?.title === 'Freedom Swarm Publish');
@@ -2621,9 +2639,11 @@ test('official browser chrome can launch as a local package with transitional we
         noLink: true,
       },
     });
-    const swarmFeedPromptDialog = (
+    const swarmFeedPromptDialogs = (
       await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).find((dialog) => dialog.options?.title === 'Freedom Swarm Feed');
+    ).filter((dialog) => dialog.options?.title === 'Freedom Swarm Feed');
+    expect(swarmFeedPromptDialogs).toHaveLength(1);
+    const swarmFeedPromptDialog = swarmFeedPromptDialogs[0];
     expect(swarmFeedPromptDialog).toMatchObject({
       hasOwnerWindow: true,
       ownerWindowDestroyed: false,

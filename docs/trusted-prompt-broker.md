@@ -348,10 +348,11 @@ If the user rejects the prompt, the page still receives a provider-style
 not write feed permissions, expose stamp management, allow feed publish/update,
 or migrate the full Swarm publish/feed approval UI.
 
-### Package-Hosted Swarm Feed Creation Approval
+### Package-Hosted Swarm Feed Creation And Update Approval
 
-Package-hosted guest content can now route `swarm.createFeed()` to main without
-package chrome brokering the provider request:
+Package-hosted guest content can now route `swarm.createFeed()` and
+`swarm.updateFeed()` to main without package chrome brokering the provider
+request:
 
 ```text
 guest webview preload
@@ -359,13 +360,15 @@ guest webview preload
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.feed
   -> shell-owned native dialog
-  -> main-owned feed grant plus feed creation or page-facing provider error
+  -> main-owned feed grant plus feed creation/update or page-facing provider error
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
-origin claims are not used as final security truth. Feed names are validated in
-main before the prompt opens.
+origin claims are not used as final security truth. Feed names and update
+references are validated in main before the prompt opens. Feed updates also
+require an existing Swarm connection permission, an existing feed grant, and an
+existing main-owned feed record before a prompt can open.
 
 If the user chooses Allow, main ensures the derived origin has an app-scoped
 feed identity and feed grant, then executes the existing `swarm_createFeed`
@@ -374,10 +377,16 @@ stamps, and the publisher identity signer, so the page can receive normal
 provider errors such as `4900` with `data.reason: "node-stopped"` under the
 deterministic harness.
 
+For `swarm_updateFeed`, accepted prompts execute the existing main-owned
+`swarm_updateFeed` provider path using the identity that created the feed.
+The update still depends on local Bee node readiness, usable stamps, and the
+feed signer. If the feed does not exist, package-hosted requests fail with
+structured `feed_not_found` before opening a prompt.
+
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
-not allow feed update/write, expose stamp management, expose raw feed-store
-IPC, or migrate the full Swarm publish/feed approval UI.
+not allow raw feed writes, expose stamp management, expose raw feed-store IPC,
+or migrate the full Swarm publish/feed approval UI.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
@@ -473,9 +482,9 @@ Swarm publish/feed approval:
 - current package-hosted `swarm_publishFiles` slice can execute file-set
   publish after shell-owned native approval, subject to normal node/stamp
   readiness
-- current package-hosted `swarm_createFeed` slice can establish an app-scoped
-  feed grant and execute feed creation after shell-owned native approval,
-  subject to normal node/stamp/signer readiness
+- current package-hosted `swarm_createFeed` and `swarm_updateFeed` slices can
+  execute feed creation and existing-feed updates after shell-owned native
+  approval, subject to normal node/stamp/signer readiness
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:
@@ -491,7 +500,6 @@ Vault unlock:
 - no real wallet center migration
 - no richer wallet account-selection implementation
 - no x402 cap-grant, payment-permission, or vault-unlock migration
-- no successful Swarm feed update/write or full publish-center approval
-  migration
+- no successful raw Swarm feed write or full publish-center approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome
