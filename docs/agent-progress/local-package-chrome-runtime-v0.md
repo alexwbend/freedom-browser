@@ -2039,6 +2039,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2177 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `989d437` (`fix(chrome): return structured package ENS lookup
+  errors`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28068217700`, job `test` (`83097085496`), passed for
+  `989d437`.
+- GitHub Actions run `28068217700`, job `e2e-chrome-runtime`
+  (`83097085158`), passed for `989d437`.
 
 Known remaining gaps after this checkpoint:
 
