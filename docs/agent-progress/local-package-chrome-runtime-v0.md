@@ -4452,6 +4452,12 @@ Verification in this checkpoint:
   121 suites passed, 5 skipped; 2294 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `cdf4935` (`feat(chrome): open trusted wallet approval prompt`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28100884928`, job `test` (`83202287560`), passed for
+  `cdf4935`.
+- GitHub Actions run `28100884928`, job `e2e-chrome-runtime`
+  (`83202287557`), passed for `cdf4935`.
 
 Known remaining gaps after this checkpoint:
 
