@@ -573,7 +573,10 @@ hits a non-cap-covered x402 paywall, or an auto-pay flow needs vault unlock
 before a real shell-owned x402 prompt exists, main passes the original 402
 through instead of waiting for package chrome to render an approval card. This
 keeps package mode from silently hanging while preserving the boundary that
-final payment approval and vault unlock must move to a shell-owned prompt.
+final payment approval and vault unlock must move to a shell-owned prompt. Raw
+package runtime x402 adapter methods also return structured
+`X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or
+empty-array defaults.
 
 The direct `freedom://payments` internal page is also unavailable when hosted
 by package chrome. Its internal page preload can normally read unified payment

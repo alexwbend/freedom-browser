@@ -205,6 +205,29 @@ describe('chrome-runtime-api', () => {
       success: true,
     });
     await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
+    const x402Unavailable = {
+      success: false,
+      error: { code: 'X402_PACKAGE_API_UNAVAILABLE' },
+    };
+    await expect(api.x402GetDetails('payment-1')).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402Approve('payment-1')).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402Reject('payment-1')).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402ResumeUnlock('token-1')).resolves.toMatchObject(
+      x402Unavailable
+    );
+    await expect(api.x402RefreshBalances()).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402Cancel('payment-1')).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402GetReceipts()).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402GetAllPermissions()).resolves.toMatchObject(x402Unavailable);
+    await expect(api.x402RevokePermission('origin', 'scope')).resolves.toMatchObject(
+      x402Unavailable
+    );
+    await expect(api.x402RevokeAllForOrigin('origin')).resolves.toMatchObject(
+      x402Unavailable
+    );
+    await expect(api.x402UpdatePermission('origin', 'scope', {})).resolves.toMatchObject(
+      x402Unavailable
+    );
     const callbacks = {
       closeMenus: jest.fn(),
       focusAddressBar: jest.fn(),
@@ -237,6 +260,11 @@ describe('chrome-runtime-api', () => {
       'cleanup-update-notification'
     );
     expect(api.onProfileUpdated(callbacks.profileUpdated)).toBe('cleanup-profile-updated');
+    expect(api.onX402ApprovalNeeded(jest.fn())).toEqual(expect.any(Function));
+    expect(api.onX402ApprovalResult(jest.fn())).toEqual(expect.any(Function));
+    expect(api.onX402UnlockNeeded(jest.fn())).toEqual(expect.any(Function));
+    expect(api.onX402CapConsumed(jest.fn())).toEqual(expect.any(Function));
+    expect(api.onX402BalancesUpdated(jest.fn())).toEqual(expect.any(Function));
     expect(freedomShell.resolveEns).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.invalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
     expect(freedomShell.setWindowTitle).toHaveBeenCalledWith('Loaded Title');
@@ -358,6 +386,10 @@ describe('chrome-runtime-api', () => {
       error: { code: 'IMAGE_SAVE_UNAVAILABLE' },
     });
     await expect(api.readClipboardText()).resolves.toEqual({ success: false, text: '' });
+    await expect(api.x402GetDetails('payment-1')).resolves.toMatchObject({
+      success: false,
+      error: { code: 'X402_PACKAGE_API_UNAVAILABLE' },
+    });
   });
 
   test('marks package chrome ready through freedomShell', async () => {

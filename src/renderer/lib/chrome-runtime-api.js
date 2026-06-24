@@ -1,8 +1,6 @@
 const getRuntimeWindow = () => (typeof window === 'undefined' ? {} : window);
 const noopDisposer = () => {};
 const asyncNull = async () => null;
-const asyncFalse = async () => false;
-const asyncEmptyArray = async () => [];
 const asyncProfileMutationUnavailable = async () => ({
   success: false,
   error: {
@@ -19,6 +17,11 @@ const asyncExternalNodePromptUnavailable = async () =>
   unavailableResult(
     'EXTERNAL_NODE_PROMPT_UNAVAILABLE',
     'External node candidate decisions are shell-owned in package mode'
+  );
+const asyncX402Unavailable = async () =>
+  unavailableResult(
+    'X402_PACKAGE_API_UNAVAILABLE',
+    'x402 approval and permission APIs are shell-owned in package mode'
   );
 const unavailableResult = (code, message) => ({
   success: false,
@@ -152,17 +155,17 @@ const createPackageRuntimeApi = () =>
     addHistory: (entry) => callFreedomShell('addHistory', false, entry),
     removeHistory: (id) => callFreedomShell('removeHistory', false, id),
     clearHistory: () => callFreedomShell('clearHistory', false),
-    x402GetDetails: asyncNull,
-    x402Approve: asyncFalse,
-    x402Reject: asyncFalse,
-    x402ResumeUnlock: asyncFalse,
-    x402RefreshBalances: asyncFalse,
-    x402Cancel: asyncFalse,
-    x402GetReceipts: asyncEmptyArray,
-    x402GetAllPermissions: asyncEmptyArray,
-    x402RevokePermission: asyncFalse,
-    x402RevokeAllForOrigin: asyncFalse,
-    x402UpdatePermission: asyncFalse,
+    x402GetDetails: asyncX402Unavailable,
+    x402Approve: asyncX402Unavailable,
+    x402Reject: asyncX402Unavailable,
+    x402ResumeUnlock: asyncX402Unavailable,
+    x402RefreshBalances: asyncX402Unavailable,
+    x402Cancel: asyncX402Unavailable,
+    x402GetReceipts: asyncX402Unavailable,
+    x402GetAllPermissions: asyncX402Unavailable,
+    x402RevokePermission: asyncX402Unavailable,
+    x402RevokeAllForOrigin: asyncX402Unavailable,
+    x402UpdatePermission: asyncX402Unavailable,
     onX402ApprovalNeeded: () => noopDisposer,
     onX402ApprovalResult: () => noopDisposer,
     onX402UnlockNeeded: () => noopDisposer,

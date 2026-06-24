@@ -2010,6 +2010,47 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 17: x402 Adapter Unavailable Results
+
+Current checkpoint: raw x402 package runtime adapter methods no longer return
+quiet `null`, `false`, or empty-array defaults. They now return structured
+`X402_PACKAGE_API_UNAVAILABLE` results in package mode, making accidental
+package calls explicit while preserving the boundary that payment approval,
+permission, balance, and vault-unlock authority remains shell-owned.
+
+Implemented in this checkpoint:
+
+- replaced the package adapter's raw x402 method defaults with a shared
+  structured unavailable result
+- kept raw x402 event subscription hooks inert because package chrome must not
+  receive `x402:*` host events
+- added renderer adapter unit coverage for the structured unavailable result
+  and inert event subscriptions
+- updated `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js` passed:
+  1 suite, 5 tests.
+- `npm test -- src/main/x402/intercept.test.js src/main/x402/ipc.test.js`
+  passed: 2 suites, 152 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2177 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+
 ### Chrome UI Checkpoint 15: Profile Settings Boundary
 
 Current checkpoint: package-hosted `freedom://settings/profiles` no longer
