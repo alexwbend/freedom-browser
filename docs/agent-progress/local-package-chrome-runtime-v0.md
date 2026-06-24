@@ -3709,6 +3709,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2243 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `db464cd` (`feat(chrome): show package x402 payment review
+  details`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28085016248`, job `test` (`83148768348`), passed for
+  `db464cd`.
+- GitHub Actions run `28085016248`, job `e2e-chrome-runtime`
+  (`83148768198`), passed for `db464cd`.
 
 Known remaining gaps after this checkpoint:
 
