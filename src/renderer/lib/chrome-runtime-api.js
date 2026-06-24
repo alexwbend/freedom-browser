@@ -139,7 +139,6 @@ const createPackageRuntimeApi = () =>
       subscribeFreedomShell('onReopenClosedTabRequested', callback),
     onToggleBookmarkBar: (callback) =>
       subscribeFreedomShell('onToggleBookmarkBarRequested', callback),
-    onToggleBookmarksBar: () => noopDisposer,
     updateTabMenuState: (state) => callFreedomShell('updateTabMenuState', null, state),
     setBookmarkBarToggleEnabled: (enabled) =>
       callFreedomShell('setBookmarkBarToggleEnabled', null, enabled),

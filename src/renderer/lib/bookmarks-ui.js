@@ -604,11 +604,6 @@ export const initBookmarks = () => {
     updateBookmarksBarVisibility();
   });
 
-  // Listen for bookmarks bar toggle from menu
-  electronAPI?.onToggleBookmarksBar?.((visible) => {
-    bookmarksBarVisible = visible;
-    updateBookmarksBarVisibility();
-  });
 };
 
 /**

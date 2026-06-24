@@ -2067,6 +2067,42 @@ Known remaining gaps after this checkpoint:
   prompt surfaces still need shell-owned UI before they can be called complete
   in package mode; these are not user-approved completion deferrals
 
+### Chrome UI Checkpoint 20: Bookmark-Bar Legacy Adapter Cleanup
+
+Current checkpoint: the package adapter no longer exposes a dead plural
+`onToggleBookmarksBar` no-op for bookmark-bar visibility. The renderer now uses
+the singular `onToggleBookmarkBar` command path that is actually exposed by
+bundled chrome and bridged through `freedomShell` in package mode.
+
+Implemented in this checkpoint:
+
+- removed the unused `electronAPI.onToggleBookmarksBar` subscription from
+  `src/renderer/lib/bookmarks-ui.js`
+- removed the package-mode `onToggleBookmarksBar` no-op shim from
+  `src/renderer/lib/chrome-runtime-api.js`
+- added adapter unit coverage proving package mode no longer exposes that dead
+  plural hook
+- updated the method-by-method audit in
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/renderer/lib/chrome-runtime-api.test.js src/renderer/lib/navigation.test.js` passed:
+  2 suites, 57 tests.
+- `npm test -- src/renderer/lib/bookmarks-ui.test.js` passed:
+  1 suite, 4 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+
+Known remaining gaps after this checkpoint:
+
+- profile creation/switching remains shell-owned/bundled-only until a scoped
+  trusted switching/launch contract is designed
+- real wallet connect, transaction signing, typed-data signing, identity,
+  vault, x402 approval/unlock, Swarm publish/feed, and seed/private-key export
+  prompt surfaces still need shell-owned UI before they can be called complete
+  in package mode; these are not user-approved completion deferrals
+
 ### Chrome UI Checkpoint 18: ENS Wallet Lookup Adapter Boundary
 
 Current checkpoint: package-mode `resolveEnsAddress()` and

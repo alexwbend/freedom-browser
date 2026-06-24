@@ -268,6 +268,7 @@ describe('chrome-runtime-api', () => {
     expect(api.onToggleBookmarkBar(callbacks.toggleBookmarkBar)).toBe(
       'cleanup-toggle-bookmark-bar'
     );
+    expect(api.onToggleBookmarksBar).toBeUndefined();
     expect(api.onUpdateNotification(callbacks.updateNotification)).toBe(
       'cleanup-update-notification'
     );
