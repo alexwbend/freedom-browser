@@ -2791,6 +2791,8 @@ test('official browser chrome can launch as a local package with transitional we
           renderedBy: 'trusted-wallet-approval-window',
           presentation: 'trusted-window',
           source: 'trusted-wallet-approval-window',
+          selectedWalletIndex: request?.details?.accountChoices?.[0]?.walletIndex,
+          selectedAccount: request?.details?.accountChoices?.[0]?.account,
         };
       };
       globalThis.__freedomWalletTrustedApprovalPrompts = [];
@@ -2868,6 +2870,13 @@ test('official browser chrome can launch as a local package with transitional we
           chainId: 100,
           walletIndex: 0,
           activeAccount: packageSmokeWalletAddress,
+          accountChoices: [
+            {
+              walletIndex: 0,
+              account: packageSmokeWalletAddress,
+              active: true,
+            },
+          ],
         },
       },
     });

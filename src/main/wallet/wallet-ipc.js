@@ -250,6 +250,68 @@ function normalizeEthereumAddress(address) {
     : null;
 }
 
+async function getPackageWalletAccountChoices() {
+  let activeWalletIndex = null;
+  try {
+    activeWalletIndex = getActiveWalletIndex();
+  } catch {
+    activeWalletIndex = null;
+  }
+
+  let wallets;
+  try {
+    wallets = await getDerivedWallets();
+    if (!Array.isArray(wallets)) {
+      wallets = [];
+    }
+  } catch {
+    wallets = [];
+  }
+
+  const seen = new Set();
+  const choices = [];
+  wallets.forEach((wallet) => {
+    const walletIndex = wallet?.index;
+    const account = typeof wallet?.address === 'string' && wallet.address
+      ? wallet.address
+      : null;
+    if (!Number.isInteger(walletIndex) || walletIndex < 0 || !account || seen.has(walletIndex)) {
+      return;
+    }
+    seen.add(walletIndex);
+    choices.push({
+      walletIndex,
+      account,
+      name: typeof wallet.name === 'string' && wallet.name.trim()
+        ? wallet.name.trim().slice(0, 80)
+        : `Wallet ${walletIndex}`,
+      active: walletIndex === activeWalletIndex,
+    });
+  });
+
+  if (choices.length === 0 && Number.isInteger(activeWalletIndex) && activeWalletIndex >= 0) {
+    const activeAccount = await getActiveWalletAddress();
+    if (typeof activeAccount === 'string' && activeAccount) {
+      choices.push({
+        walletIndex: activeWalletIndex,
+        account: activeAccount,
+        name: `Wallet ${activeWalletIndex}`,
+        active: true,
+      });
+    }
+  }
+
+  return choices;
+}
+
+async function getPackageWalletChoice(walletIndex) {
+  const choices = await getPackageWalletAccountChoices();
+  if (Number.isInteger(walletIndex) && walletIndex >= 0) {
+    return choices.find((choice) => choice.walletIndex === walletIndex) || null;
+  }
+  return choices.find((choice) => choice.active) || choices[0] || null;
+}
+
 async function getExistingPackageWalletAccounts(origin) {
   if (!origin) {
     return null;
@@ -300,7 +362,7 @@ async function getPackageWalletPermission(origin) {
   };
 }
 
-async function grantPackageWalletConnect(origin) {
+async function grantPackageWalletConnect(origin, walletIndex) {
   if (!origin) {
     return {
       ok: false,
@@ -312,19 +374,18 @@ async function grantPackageWalletConnect(origin) {
     };
   }
 
-  const walletIndex = getActiveWalletIndex();
-  const address = await getActiveWalletAddress();
-  if (!Number.isInteger(walletIndex) || typeof address !== 'string' || !address) {
+  const selected = await getPackageWalletChoice(walletIndex);
+  if (!selected) {
     return {
       ok: false,
       error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
     };
   }
 
-  grantPermission(origin, walletIndex, DEFAULT_PROVIDER_CHAIN_ID);
+  grantPermission(origin, selected.walletIndex, DEFAULT_PROVIDER_CHAIN_ID);
   return {
     ok: true,
-    result: [address],
+    result: [selected.account],
   };
 }
 
@@ -460,17 +521,16 @@ async function getConnectedWalletReviewDetails(origin) {
 
 async function getPackageWalletApprovalDetails(method, params, origin) {
   if (PACKAGE_PROVIDER_CONNECT_METHODS.has(method)) {
-    const walletIndex = getActiveWalletIndex();
-    const address = await getActiveWalletAddress();
+    const choices = await getPackageWalletAccountChoices();
+    const activeChoice = choices.find((choice) => choice.active) || choices[0];
     const details = {
       method,
       chainId: DEFAULT_PROVIDER_CHAIN_ID,
     };
-    if (Number.isInteger(walletIndex)) {
-      details.walletIndex = walletIndex;
-    }
-    if (typeof address === 'string' && address) {
-      details.activeAccount = address;
+    if (activeChoice) {
+      details.walletIndex = activeChoice.walletIndex;
+      details.activeAccount = activeChoice.account;
+      details.accountChoices = choices;
     }
     return details;
   }
@@ -1027,7 +1087,10 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     PACKAGE_PROVIDER_CONNECT_METHODS.has(method) &&
     prompt.result?.outcome === 'accepted'
   ) {
-    const grant = await grantPackageWalletConnect(origin);
+    const grant = await grantPackageWalletConnect(
+      origin,
+      prompt.result?.selectedWalletIndex
+    );
     if (grant.ok === true) {
       return {
         result: grant.result,

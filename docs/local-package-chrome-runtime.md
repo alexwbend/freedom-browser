@@ -326,9 +326,10 @@ The official package smoke currently proves:
 - guest content receives the page-facing Ethereum provider in package mode and
   a low-risk `eth_chainId` request bypasses package chrome through main
 - package-hosted `eth_requestAccounts` reaches a shell-owned trusted wallet
-  approval window with main-derived guest context and active-account review
-  details; approval writes a main-side dApp permission and returns the active
-  wallet address, while rejection returns page-facing `4001`
+  approval window with main-derived guest context and account choices;
+  approval writes a main-side dApp permission for the selected wallet only
+  after main revalidates the selection and returns the selected wallet address,
+  while rejection returns page-facing `4001`
 - package-hosted `eth_accounts` reads existing main-owned dApp permissions and
   returns the granted account without opening package chrome authority
 - package-hosted `personal_sign` and modern `eth_signTypedData*` requests
@@ -833,8 +834,9 @@ approval. The Ethereum path accepts low-risk `eth_chainId` directly
 and handles wallet account reads/grants from main-owned dApp permissions:
 `eth_requestAccounts` asks main for its host context, main derives the guest
 origin and package host identity, the broker presents the bundled trusted
-wallet approval window with the active account it would share, and an accepted
-prompt writes the dApp permission and returns the active wallet address.
+wallet approval window with main-derived account choices, and an accepted
+prompt writes the dApp permission for the selected wallet only after main
+revalidates the selected wallet index and returns the selected wallet address.
 `eth_accounts` reads that existing main-owned permission without prompting.
 Modern signing-class methods now use the shell-owned trusted wallet approval
 window plus main/vault execution path for already connected origins:
@@ -866,7 +868,7 @@ create/update/write, signing-identity, and SOC prompts execute through the
 existing main-owned provider paths. The trusted window is bundled shell code
 with a dedicated preload and scoped IPC channels. Rejected prompts still return
 a structured `4001` user rejection. These slices do not expose raw feed-store
-IPC, stamp management, account selection, or vault unlock state.
+IPC, stamp management, wallet account authority, or vault unlock state.
 Other higher-risk Ethereum and Swarm methods still fail
 with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
@@ -878,9 +880,9 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX, full wallet account selection, wallet-center management, and non-provider
-vault management flows still need real shell-owned UI before they can move
-fully through the broker.
+UX, richer wallet signing/account review, wallet-center management, and
+non-provider vault management flows still need real shell-owned UI before they
+can move fully through the broker.
 
 ## Package Store
 

@@ -77,6 +77,79 @@
         color: #1f2428;
       }
 
+      fieldset {
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      fieldset[hidden] {
+        display: none;
+      }
+
+      legend {
+        margin: 0 0 8px;
+        padding: 0;
+        font-size: 12px;
+        font-weight: 650;
+        color: #1f2428;
+      }
+
+      .account-choice-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .account-choice {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        padding: 10px 12px;
+        border: 1px solid #ddd8ce;
+        border-radius: 6px;
+        background: #fffdfa;
+        cursor: pointer;
+      }
+
+      .account-choice input {
+        margin: 2px 0 0;
+      }
+
+      .account-choice-body {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 3px 8px;
+        align-items: center;
+      }
+
+      .account-choice-title {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .account-choice-meta {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        grid-column: 1 / -1;
+        font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+        color: #697176;
+      }
+
+      .account-choice-badge {
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: #e9f0ff;
+        color: #244a8f;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
       .notice {
         padding: 10px 12px;
         border: 1px solid #d8c79a;
@@ -132,6 +205,11 @@
       </header>
 
       <dl id="details" hidden></dl>
+
+      <fieldset id="account-choices" hidden>
+        <legend>Account to share</legend>
+        <div id="account-choice-list" class="account-choice-list"></div>
+      </fieldset>
 
       <p id="notice" class="notice">Approve only if this request matches what you intended.</p>
 

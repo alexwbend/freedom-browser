@@ -67,7 +67,7 @@ const {
   registerWalletIpc,
 } = require('./wallet-ipc');
 
-function trustedWalletPromptResult(outcome = 'accepted', response = 0) {
+function trustedWalletPromptResult(outcome = 'accepted', response = 0, extras = {}) {
   return {
     ok: true,
     outcome,
@@ -75,6 +75,7 @@ function trustedWalletPromptResult(outcome = 'accepted', response = 0) {
     renderedBy: 'trusted-wallet-approval-window',
     presentation: 'trusted-window',
     source: 'trusted-wallet-approval-window',
+    ...extras,
   };
 }
 
@@ -265,7 +266,13 @@ describe('wallet-ipc', () => {
       version: '0.7.5',
     });
     mockGetActiveWalletIndex.mockReturnValue(0);
-    mockGetActiveWalletAddress.mockResolvedValue('0x1111111111111111111111111111111111111111');
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
 
     const result = await handleProviderTrustedPromptRequest(
       { sender },
@@ -299,8 +306,6 @@ describe('wallet-ipc', () => {
       },
     });
     expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
-    expect(mockGetActiveWalletIndex).toHaveBeenCalledTimes(2);
-    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(2);
     expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 0, 100);
     expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
       {
@@ -310,16 +315,110 @@ describe('wallet-ipc', () => {
         reason: 'Wallet connection request from https://app.example',
         origin: 'https://app.example',
         webContentsId: 42,
-        details: {
+        details: expect.objectContaining({
           method: 'eth_requestAccounts',
           chainId: 100,
           walletIndex: 0,
           activeAccount: '0x1111111111111111111111111111111111111111',
-        },
+          accountChoices: [
+            {
+              walletIndex: 0,
+              name: 'Main Wallet',
+              account: '0x1111111111111111111111111111111111111111',
+              active: true,
+            },
+          ],
+        }),
       },
       expect.objectContaining({
         origin: 'https://app.example',
         webContentsId: 42,
+        ownerWindow,
+      })
+    );
+  });
+
+  test('approves package-hosted wallet connect for a selected shell-owned account', async () => {
+    const ownerWindow = { id: 77 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    const sender = {
+      id: 42,
+      hostWebContents,
+      getURL: jest.fn(() => 'https://app.example/path?ignored=1'),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    });
+    mockGetActiveWalletIndex.mockReturnValue(0);
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+      {
+        index: 1,
+        name: 'Savings',
+        address: '0x2222222222222222222222222222222222222222',
+      },
+    ]);
+    mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
+      trustedWalletPromptResult('accepted', 0, {
+        selectedWalletIndex: 1,
+        selectedAccount: '0xffffffffffffffffffffffffffffffffffffffff',
+      })
+    );
+
+    const result = await handleProviderTrustedPromptRequest(
+      { sender },
+      { method: 'eth_requestAccounts' }
+    );
+
+    expect(result).toMatchObject({
+      result: ['0x2222222222222222222222222222222222222222'],
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.connect',
+        result: {
+          selectedWalletIndex: 1,
+        },
+      },
+    });
+    expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 1, 100);
+    expect(mockPresentTrustedWalletApprovalPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'wallet.connect',
+        method: 'eth_requestAccounts',
+        details: expect.objectContaining({
+          activeAccount: '0x1111111111111111111111111111111111111111',
+          accountChoices: [
+            {
+              walletIndex: 0,
+              name: 'Main Wallet',
+              account: '0x1111111111111111111111111111111111111111',
+              active: true,
+            },
+            {
+              walletIndex: 1,
+              name: 'Savings',
+              account: '0x2222222222222222222222222222222222222222',
+              active: false,
+            },
+          ],
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://app.example',
         ownerWindow,
       })
     );
@@ -345,6 +444,14 @@ describe('wallet-ipc', () => {
       name: 'Freedom Official Chrome',
       version: '0.7.5',
     });
+    mockGetActiveWalletIndex.mockReturnValue(0);
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
     mockPresentTrustedWalletApprovalPrompt.mockResolvedValue(
       trustedWalletPromptResult('rejected', 1)
     );
@@ -393,7 +500,7 @@ describe('wallet-ipc', () => {
       },
     });
     expect(mockGrantPermission).not.toHaveBeenCalled();
-    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(1);
+    expect(mockGetActiveWalletAddress).not.toHaveBeenCalled();
     expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
     expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(hostWebContents);
     expect(hostWebContents.getOwnerBrowserWindow).toHaveBeenCalledTimes(1);

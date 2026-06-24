@@ -14,6 +14,9 @@ function channelFor(kind) {
 
 contextBridge.exposeInMainWorld('trustedWalletApproval', {
   getContext: () => ipcRenderer.invoke(channelFor('context')),
-  accept: () => ipcRenderer.invoke(channelFor('decision'), { action: 'accept' }),
+  accept: (payload = {}) => ipcRenderer.invoke(channelFor('decision'), {
+    action: 'accept',
+    selectedWalletIndex: payload?.selectedWalletIndex,
+  }),
   reject: () => ipcRenderer.invoke(channelFor('decision'), { action: 'reject' }),
 });

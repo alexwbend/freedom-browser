@@ -152,10 +152,12 @@ origin claims are not used as final security truth. The approval window is
 bundled shell code with a dedicated preload and per-request scoped IPC
 channels; package chrome cannot render or style the final approval moment.
 
-If the user chooses Connect and the shell has an active wallet address,
-main writes the dApp permission with the derived origin and active wallet index
-and returns the active wallet address to the guest page. The approval window
-shows the active account that will be shared before the user decides:
+If the user chooses Connect, the approval window returns the selected wallet
+index from the main-derived account choices. Main revalidates that selected
+wallet against the current wallet list, writes the dApp permission with the
+derived origin and selected wallet index, and returns the selected wallet
+address to the guest page. The approval window shows the accounts that can be
+shared before the user decides:
 
 ```json
 {
@@ -257,8 +259,9 @@ falling back to package chrome. If the vault is locked after an accepted
 signing or transaction prompt, main opens the shell-owned trusted vault-unlock
 window and retries only after unlock succeeds. Deprecated/unsupported signing
 methods such as `eth_sign` remain safe failure paths for now. This does not
-select accounts, expose raw wallet authority, or migrate broader
-secret-management UI.
+expose raw wallet authority or migrate broader secret-management UI; signing
+and transaction prompts still execute only against the account already granted
+to the origin.
 
 ### Package-Hosted Swarm Connection Approval
 
@@ -561,13 +564,14 @@ Wallet connect:
 - initiated by website provider path, not package chrome
 - main derives committed origin and permission key from the guest WebContents
 - broker opens the shell-owned trusted wallet approval window
-- current package-hosted slice can grant the active account after trusted-window
-  presentation and writes the dApp permission from main
+- current package-hosted slice shows main-derived account choices in the
+  trusted window, revalidates the selected wallet index in main after
+  acceptance, and writes the dApp permission from main
 - the shell-owned trusted wallet surface can export the vault seed phrase or a
   selected wallet private key after password verification through scoped
   trusted-window IPC
-- future completion work should add account selection and broader wallet-center
-  management in shell-owned surfaces
+- future completion work should add broader wallet-center management in
+  shell-owned surfaces
 
 Transaction and typed-data signing:
 
@@ -587,9 +591,9 @@ Transaction and typed-data signing:
   vault-unlock window and retries only after unlock succeeds
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
-- future completion work must add full account selection, wallet-center
-  management, and broader non-provider vault management before wallet UX can
-  be called complete in package mode
+- future completion work must add richer signing account review/switching,
+  wallet-center management, and broader non-provider vault management before
+  wallet UX can be called complete in package mode
 
 x402 approvals:
 

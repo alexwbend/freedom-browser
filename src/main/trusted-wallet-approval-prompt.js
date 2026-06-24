@@ -42,6 +42,35 @@ function addRow(rows, label, value, maxLength) {
   }
 }
 
+function normalizeWalletIndex(value) {
+  const index = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(index) && index >= 0 ? index : null;
+}
+
+function normalizeAccountChoices(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const choices = [];
+  value.forEach((choice) => {
+    if (!choice || typeof choice !== 'object') {
+      return;
+    }
+    const walletIndex = normalizeWalletIndex(choice.walletIndex ?? choice.index);
+    const account = safeString(choice.account || choice.address, 120);
+    if (walletIndex === null || !account) {
+      return;
+    }
+    choices.push({
+      walletIndex,
+      account,
+      name: safeString(choice.name, 80) || `Wallet ${walletIndex}`,
+      active: choice.active === true,
+    });
+  });
+  return choices;
+}
+
 function labelsForKind(kind) {
   if (kind === 'wallet.transaction') {
     return {
@@ -79,6 +108,9 @@ function buildPromptContext(request = {}, context = {}) {
   const labels = labelsForKind(kind);
   const origin = safeString(request.origin || context.origin || 'Unknown site', 300);
   const rows = [];
+  const accountChoices = kind === 'wallet.connect'
+    ? normalizeAccountChoices(details.accountChoices || details.accounts)
+    : [];
 
   addRow(rows, 'Method', method);
   addRow(rows, 'Account', details.account || details.activeAccount);
@@ -99,6 +131,7 @@ function buildPromptContext(request = {}, context = {}) {
       : `A site ${labels.summaryAction}.`,
     reason: safeString(request.reason, 500),
     rows,
+    accountChoices,
     notice: labels.notice,
     actions: {
       acceptLabel: labels.acceptLabel,
@@ -149,13 +182,23 @@ function trustedPresentationResult(result) {
   };
 }
 
-function resultForDecision(action) {
+function resultForDecision(action, payload = {}, contextPayload = {}) {
   if (action === 'accept') {
-    return trustedPresentationResult({
+    const result = trustedPresentationResult({
       ok: true,
       outcome: 'accepted',
       response: 0,
     });
+    const selectedWalletIndex = normalizeWalletIndex(payload.selectedWalletIndex);
+    const choices = Array.isArray(contextPayload.accountChoices)
+      ? contextPayload.accountChoices
+      : [];
+    const matchedChoice = choices.find((choice) => choice.walletIndex === selectedWalletIndex);
+    if (matchedChoice) {
+      result.selectedWalletIndex = matchedChoice.walletIndex;
+      result.selectedAccount = matchedChoice.account;
+    }
+    return result;
   }
   if (action === 'reject') {
     return trustedPresentationResult({
@@ -282,7 +325,7 @@ function presentTrustedWalletApprovalPrompt(request = {}, context = {}, deps = {
         };
       }
       const action = typeof payload?.action === 'string' ? payload.action : '';
-      const result = resultForDecision(action);
+      const result = resultForDecision(action, payload, contextPayload);
       if (result?.ok !== true) {
         return result;
       }
@@ -318,5 +361,6 @@ function presentTrustedWalletApprovalPrompt(request = {}, context = {}, deps = {
 module.exports = {
   buildPromptContext,
   channelFor,
+  normalizeAccountChoices,
   presentTrustedWalletApprovalPrompt,
 };

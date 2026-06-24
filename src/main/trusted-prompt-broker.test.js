@@ -289,6 +289,55 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('preserves trusted wallet account selection from the shell-owned presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+      selectedWalletIndex: 1,
+      selectedAccount: '0x2222222222222222222222222222222222222222',
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-wallet-selection-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestWalletConnectPrompt(
+        {
+          method: 'eth_requestAccounts',
+          details: {
+            accountChoices: [
+              {
+                walletIndex: 0,
+                account: '0x1111111111111111111111111111111111111111',
+                active: true,
+              },
+              {
+                walletIndex: 1,
+                account: '0x2222222222222222222222222222222222222222',
+              },
+            ],
+          },
+        },
+        {
+          origin: 'https://app.example',
+          webContentsId: 45,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: 'wallet.connect',
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+        selectedWalletIndex: 1,
+        selectedAccount: '0x2222222222222222222222222222222222222222',
+      },
+    });
+  });
+
   test('routes wallet signature prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,

@@ -94,6 +94,7 @@ test('buildPromptContext keeps display-only transaction details', () => {
       { label: 'To', value: '0x0000000000000000000000000000000000000001' },
       { label: 'Value', value: '0x2a' },
     ],
+    accountChoices: [],
     notice: 'Send only if the account, recipient, value, and site match what you intended.',
     actions: {
       acceptLabel: 'Send',
@@ -108,6 +109,19 @@ test('buildPromptContext labels connect and signature decisions', () => {
     method: 'eth_requestAccounts',
     details: {
       activeAccount: '0x1111111111111111111111111111111111111111',
+      accountChoices: [
+        {
+          walletIndex: 0,
+          name: 'Main Wallet',
+          account: '0x1111111111111111111111111111111111111111',
+          active: true,
+        },
+        {
+          walletIndex: 1,
+          name: 'Savings',
+          account: '0x2222222222222222222222222222222222222222',
+        },
+      ],
     },
   }))).toMatchObject({
     title: 'Freedom Wallet Connection',
@@ -116,6 +130,20 @@ test('buildPromptContext labels connect and signature decisions', () => {
     rows: [
       { label: 'Method', value: 'eth_requestAccounts' },
       { label: 'Account', value: '0x1111111111111111111111111111111111111111' },
+    ],
+    accountChoices: [
+      {
+        walletIndex: 0,
+        name: 'Main Wallet',
+        account: '0x1111111111111111111111111111111111111111',
+        active: true,
+      },
+      {
+        walletIndex: 1,
+        name: 'Savings',
+        account: '0x2222222222222222222222222222222222222222',
+        active: false,
+      },
     ],
   });
 
@@ -185,6 +213,50 @@ test('creates a modal shell-owned window with a dedicated preload and scoped cha
     source: 'trusted-wallet-approval-window',
   });
   expect(mockHandlers.size).toBe(0);
+});
+
+test('trusted wallet connect decision returns a selected main-provided account choice', async () => {
+  const promptPromise = presentTrustedWalletApprovalPrompt(
+    request({
+      kind: 'wallet.connect',
+      method: 'eth_requestAccounts',
+      details: {
+        method: 'eth_requestAccounts',
+        activeAccount: '0x1111111111111111111111111111111111111111',
+        accountChoices: [
+          {
+            walletIndex: 0,
+            name: 'Main Wallet',
+            account: '0x1111111111111111111111111111111111111111',
+            active: true,
+          },
+          {
+            walletIndex: 1,
+            name: 'Savings',
+            account: '0x2222222222222222222222222222222222222222',
+          },
+        ],
+      },
+    }),
+    {}
+  );
+  const promptWindow = mockWindows[0];
+
+  const decisionResult = await mockHandlers.get(channelFor('decision', 'wallet-approval-request-1'))(
+    { sender: promptWindow.webContents },
+    { action: 'accept', selectedWalletIndex: 1 }
+  );
+  expect(decisionResult).toEqual({ ok: true });
+  await expect(promptPromise).resolves.toEqual({
+    ok: true,
+    outcome: 'accepted',
+    response: 0,
+    renderedBy: 'trusted-wallet-approval-window',
+    presentation: 'trusted-window',
+    source: 'trusted-wallet-approval-window',
+    selectedWalletIndex: 1,
+    selectedAccount: '0x2222222222222222222222222222222222222222',
+  });
 });
 
 test('rejects decisions from unexpected senders without settling the prompt', async () => {

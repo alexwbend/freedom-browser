@@ -100,6 +100,12 @@ function describeNativeDialogResult(presentationResult = {}) {
   if (Number.isInteger(presentationResult.selectedAcceptIndex)) {
     result.selectedAcceptIndex = presentationResult.selectedAcceptIndex;
   }
+  if (Number.isInteger(presentationResult.selectedWalletIndex)) {
+    result.selectedWalletIndex = presentationResult.selectedWalletIndex;
+  }
+  if (typeof presentationResult.selectedAccount === 'string' && presentationResult.selectedAccount) {
+    result.selectedAccount = presentationResult.selectedAccount;
+  }
   return result;
 }
 
