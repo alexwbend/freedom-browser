@@ -139,6 +139,65 @@
         opacity: 0.55;
       }
 
+      .row-actions {
+        align-items: center;
+        display: flex;
+        flex: none;
+        gap: 8px;
+      }
+
+      .export-panel {
+        border: 1px solid #d8a39b;
+        border-radius: 8px;
+        background: #fff9f7;
+        display: grid;
+        gap: 12px;
+        margin-top: 14px;
+        padding: 14px;
+      }
+
+      .export-panel h3 {
+        font-size: 14px;
+        margin: 0;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field label {
+        color: #5d5a52;
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+
+      .field input {
+        border: 1px solid #c8c3b8;
+        border-radius: 7px;
+        font: inherit;
+        padding: 9px 10px;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .secret-value {
+        background: #ffffff;
+        border: 1px solid #dedbd2;
+        border-radius: 7px;
+        display: block;
+        font-size: 12px;
+        line-height: 1.45;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        padding: 10px;
+      }
+
       .empty {
         border: 1px dashed #c8c3b8;
         border-radius: 8px;
@@ -170,6 +229,11 @@
           align-items: stretch;
         }
 
+        .row-actions {
+          align-items: flex-start;
+          flex-wrap: wrap;
+        }
+
         .grid {
           display: grid;
         }
@@ -193,6 +257,24 @@
           <h2 id="wallets-title">Accounts</h2>
           <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
           <ul id="wallet-list"></ul>
+          <div class="export-panel" id="export-panel" hidden>
+            <h3 id="export-title">Export private key</h3>
+            <p id="export-address"></p>
+            <div class="field">
+              <label for="export-password">Vault password</label>
+              <input id="export-password" type="password" autocomplete="current-password">
+            </div>
+            <div class="button-row">
+              <button type="button" class="secondary-button" id="export-submit">Export</button>
+              <button type="button" class="secondary-button" id="export-cancel">Cancel</button>
+            </div>
+            <div class="error" id="export-error" hidden></div>
+            <div class="field" id="export-result" hidden>
+              <label>Private key</label>
+              <code class="secret-value mono" id="export-value"></code>
+              <button type="button" class="secondary-button" id="export-copy">Copy</button>
+            </div>
+          </div>
         </section>
 
         <section aria-labelledby="permissions-title">

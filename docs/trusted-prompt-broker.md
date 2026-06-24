@@ -562,8 +562,10 @@ Wallet connect:
 - broker opens the shell-owned trusted wallet approval window
 - current package-hosted slice can grant the active account after trusted-window
   presentation and writes the dApp permission from main
-- future completion work should add account selection and broader wallet-center
-  management in shell-owned surfaces
+- the shell-owned trusted wallet surface can export a selected wallet private
+  key after password verification through scoped trusted-window IPC
+- future completion work should add account selection, seed export, and broader
+  wallet-center management in shell-owned surfaces
 
 Transaction and typed-data signing:
 
@@ -584,8 +586,8 @@ Transaction and typed-data signing:
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
 - future completion work must add full account selection, wallet-center
-  management, and secret-management UX before wallet UX can be called complete
-  in package mode
+  management, seed export, and broader non-provider vault management before
+  wallet UX can be called complete in package mode
 
 x402 approvals:
 
@@ -641,7 +643,7 @@ Vault unlock:
 
 ## Non-Goals In This Slice
 
-- no full wallet center or secret-management migration
+- no full wallet center, seed export, or general secret-management migration
 - no full wallet account-selection implementation
 - no general vault-unlock migration outside the current x402 and wallet-provider retry paths
 - no full publish-center approval migration

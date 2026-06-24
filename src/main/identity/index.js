@@ -50,6 +50,7 @@ const {
   deleteVault,
   exportMnemonic,
   exportPrivateKey,
+  exportPrivateKeyWithPassword,
   verifyPassword,
 } = require('./vault');
 
@@ -86,5 +87,6 @@ module.exports = {
   deleteVault,
   exportMnemonic,
   exportPrivateKey,
+  exportPrivateKeyWithPassword,
   verifyPassword,
 };

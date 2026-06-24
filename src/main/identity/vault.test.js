@@ -17,8 +17,9 @@ const {
   changePassword,
   deleteVault,
   exportMnemonic,
+  exportPrivateKeyWithPassword,
 } = require('./vault');
-const { isValidMnemonic } = require('./derivation');
+const { deriveUserWallet, isValidMnemonic } = require('./derivation');
 
 const TEST_MNEMONIC =
   'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -230,6 +231,34 @@ describe('vault', () => {
 
     test('throws when locked', () => {
       expect(() => exportMnemonic()).toThrow('Vault is locked');
+    });
+  });
+
+  describe('exportPrivateKeyWithPassword', () => {
+    test('exports private key without unlocking vault state', async () => {
+      await importVault(tempDir, 'password123', TEST_MNEMONIC);
+
+      const privateKey = await exportPrivateKeyWithPassword(tempDir, 'password123', 0);
+
+      expect(privateKey).toBe(deriveUserWallet(TEST_MNEMONIC, 0).privateKey);
+      expect(isUnlocked()).toBe(false);
+    });
+
+    test('exports requested wallet account index', async () => {
+      await importVault(tempDir, 'password123', TEST_MNEMONIC);
+
+      const privateKey = await exportPrivateKeyWithPassword(tempDir, 'password123', 3);
+
+      expect(privateKey).toBe(deriveUserWallet(TEST_MNEMONIC, 3).privateKey);
+    });
+
+    test('throws on incorrect password without unlocking vault state', async () => {
+      await importVault(tempDir, 'password123', TEST_MNEMONIC);
+
+      await expect(
+        exportPrivateKeyWithPassword(tempDir, 'wrongpassword', 0)
+      ).rejects.toThrow('Incorrect password');
+      expect(isUnlocked()).toBe(false);
     });
   });
 

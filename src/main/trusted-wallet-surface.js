@@ -68,6 +68,20 @@ function normalizeOrigin(origin) {
   return text;
 }
 
+function normalizeWalletIndex(walletIndex) {
+  if (!Number.isInteger(walletIndex) || walletIndex < 0) {
+    throw new Error('walletIndex must be a non-negative integer');
+  }
+  return walletIndex;
+}
+
+function normalizePassword(password) {
+  if (typeof password !== 'string' || password.length === 0) {
+    throw new Error('password is required');
+  }
+  return password;
+}
+
 function sanitizePermission(permission = {}) {
   return {
     origin: typeof permission.origin === 'string' ? permission.origin : '',
@@ -212,6 +226,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     context: channelFor('context', surfaceId),
     snapshot: channelFor('snapshot', surfaceId),
     revokePermission: channelFor('revoke-permission', surfaceId),
+    exportPrivateKey: channelFor('export-private-key', surfaceId),
     close: channelFor('close', surfaceId),
   };
   const preload = path.join(__dirname, 'trusted-wallet-preload.js');
@@ -285,6 +300,22 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       return errorResult(
         'TRUSTED_WALLET_SURFACE_REVOKE_FAILED',
         err?.message || 'Failed to revoke wallet permission'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.exportPrivateKey, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const walletIndex = normalizeWalletIndex(payload.walletIndex);
+      const password = normalizePassword(payload.password);
+      const privateKey = await identityManager.exportPrivateKeyWithPassword(walletIndex, password);
+      return { ok: true, walletIndex, privateKey };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_EXPORT_PRIVATE_KEY_FAILED',
+        err?.message || 'Failed to export wallet private key'
       );
     }
   });

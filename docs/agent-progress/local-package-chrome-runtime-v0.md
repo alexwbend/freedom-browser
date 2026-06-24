@@ -4597,3 +4597,53 @@ Known remaining gaps after this checkpoint:
   non-provider vault management flows, and richer wallet account selection
   still need shell-owned UI before the broader package runtime can be called
   complete; these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 32: Trusted Wallet Private-Key Export
+
+Current checkpoint: the shell-owned trusted wallet window can now export a
+selected wallet private key after vault-password verification through
+per-window scoped IPC. Package chrome can still only request the wallet surface
+through `surfaces.wallet.control`; it does not receive identity APIs, vault
+primitives, private-key APIs, wallet signing authority, dApp permission stores,
+Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added a password-gated `exportPrivateKeyWithPassword(...)` identity helper
+  that decrypts the vault and derives the requested wallet key without
+  requiring or mutating global unlocked-vault state
+- changed the existing first-party `identity:export-private-key` IPC to use
+  the same helper instead of depending on a prior unlock
+- added a scoped `trusted-wallet-surface:export-private-key:*` channel that is
+  accepted only from the trusted wallet WebContents and returns structured
+  errors for sender mismatch, invalid input, wrong password, or missing wallet
+- added an inline export flow to `trusted-wallet.html` /
+  `trusted-wallet-renderer.js` so the selected account's key is revealed only
+  inside the shell-owned wallet window after password submission
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/identity/vault.test.js src/main/trusted-wallet-surface.test.js`
+  passed: 2 suites, 36 tests.
+- `npm test -- src/main/identity/vault.test.js src/main/trusted-wallet-surface.test.js src/main/shell-api.test.js src/main/package-preload.test.js`
+  passed: 4 suites, 80 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"`
+  passed: 1 launched Electron test.
+- `npm test` passed: 124 suites passed, 5 skipped; 2315 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+- `git diff --check` passed.
+
+Known remaining gaps after this checkpoint:
+
+- seed phrase export is still not migrated to a shell-owned package-mode
+  surface
+- identity onboarding, full wallet-center management, non-provider vault
+  management flows, richer wallet account selection/review, and richer
+  feed-review UX still need shell-owned UI before the broader package runtime
+  can be called complete; these are not user-approved completion deferrals

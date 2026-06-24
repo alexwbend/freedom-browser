@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('trustedWalletSurface', {
   getContext: () => ipcRenderer.invoke(channelFor('context')),
   getSnapshot: () => ipcRenderer.invoke(channelFor('snapshot')),
   revokePermission: (payload) => ipcRenderer.invoke(channelFor('revoke-permission'), payload || {}),
+  exportPrivateKey: (payload) => ipcRenderer.invoke(channelFor('export-private-key'), payload || {}),
   close: () => ipcRenderer.invoke(channelFor('close')),
   onSnapshotUpdated: (callback) => {
     const channel = channelFor('snapshot-updated');

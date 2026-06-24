@@ -8,10 +8,27 @@
   const permissionEmpty = document.getElementById('permission-empty');
   const error = document.getElementById('error');
   const close = document.getElementById('close');
+  const exportPanel = document.getElementById('export-panel');
+  const exportTitle = document.getElementById('export-title');
+  const exportAddress = document.getElementById('export-address');
+  const exportPassword = document.getElementById('export-password');
+  const exportSubmit = document.getElementById('export-submit');
+  const exportCancel = document.getElementById('export-cancel');
+  const exportError = document.getElementById('export-error');
+  const exportResult = document.getElementById('export-result');
+  const exportValue = document.getElementById('export-value');
+  const exportCopy = document.getElementById('export-copy');
+
+  let selectedExportWallet = null;
 
   function setError(message) {
     error.textContent = message || '';
     error.hidden = !message;
+  }
+
+  function setExportError(message) {
+    exportError.textContent = message || '';
+    exportError.hidden = !message;
   }
 
   function formatDate(value) {
@@ -38,6 +55,69 @@
     }
   }
 
+  function resetExportPanel() {
+    selectedExportWallet = null;
+    exportPanel.hidden = true;
+    exportPassword.value = '';
+    exportValue.textContent = '';
+    exportResult.hidden = true;
+    exportSubmit.disabled = false;
+    exportCopy.textContent = 'Copy';
+    setExportError('');
+  }
+
+  function openExportPanel(wallet) {
+    selectedExportWallet = wallet;
+    exportTitle.textContent = `Export private key for ${wallet.name || `Wallet ${wallet.index}`}`;
+    exportAddress.textContent = wallet.address || 'Address unavailable';
+    exportPassword.value = '';
+    exportValue.textContent = '';
+    exportResult.hidden = true;
+    exportSubmit.disabled = false;
+    exportCopy.textContent = 'Copy';
+    setExportError('');
+    exportPanel.hidden = false;
+    exportPassword.focus();
+  }
+
+  async function handleExportSubmit() {
+    if (!selectedExportWallet) {
+      return;
+    }
+    exportSubmit.disabled = true;
+    exportResult.hidden = true;
+    exportValue.textContent = '';
+    setExportError('');
+    const result = await api.exportPrivateKey({
+      walletIndex: selectedExportWallet.index,
+      password: exportPassword.value,
+    });
+    exportSubmit.disabled = false;
+    if (!result || result.ok !== true) {
+      setExportError(result?.error?.message || 'Failed to export private key.');
+      return;
+    }
+    exportPassword.value = '';
+    exportValue.textContent = result.privateKey || '';
+    exportResult.hidden = false;
+  }
+
+  async function handleCopyExportedKey() {
+    const value = exportValue.textContent;
+    if (!value) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      exportCopy.textContent = 'Copied';
+      setTimeout(() => {
+        exportCopy.textContent = 'Copy';
+      }, 1200);
+    } catch {
+      setExportError('Copy unavailable; select the key manually.');
+    }
+  }
+
   function renderWallets(snapshot) {
     clearChildren(walletList);
     const wallets = Array.isArray(snapshot.wallets) ? snapshot.wallets : [];
@@ -61,9 +141,19 @@
       badge.className = 'badge';
       badge.textContent = wallet.index === snapshot.activeWalletIndex ? 'Active' : `#${wallet.index}`;
 
+      const exportButton = document.createElement('button');
+      exportButton.type = 'button';
+      exportButton.className = 'secondary-button';
+      exportButton.textContent = 'Export key';
+      exportButton.addEventListener('click', () => openExportPanel(wallet));
+
+      const actions = document.createElement('div');
+      actions.className = 'row-actions';
+      actions.append(badge, exportButton);
+
       const content = document.createElement('div');
       content.append(title, meta);
-      row.append(content, badge);
+      row.append(content, actions);
       walletList.append(row);
     });
   }
@@ -141,6 +231,27 @@
 
   close.addEventListener('click', () => {
     api.close();
+  });
+  exportSubmit.addEventListener('click', () => {
+    handleExportSubmit().catch((err) => {
+      exportSubmit.disabled = false;
+      setExportError(err?.message || 'Failed to export private key.');
+    });
+  });
+  exportPassword.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleExportSubmit().catch((err) => {
+        exportSubmit.disabled = false;
+        setExportError(err?.message || 'Failed to export private key.');
+      });
+    }
+  });
+  exportCancel.addEventListener('click', resetExportPanel);
+  exportCopy.addEventListener('click', () => {
+    handleCopyExportedKey().catch(() => {
+      setExportError('Copy unavailable; select the key manually.');
+    });
   });
 
   if (api && typeof api.onSnapshotUpdated === 'function') {

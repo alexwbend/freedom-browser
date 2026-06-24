@@ -779,6 +779,32 @@ async function exportMnemonic() {
   return identity.exportMnemonic();
 }
 
+/**
+ * Export a wallet private key after password verification without requiring
+ * the vault to already be unlocked globally.
+ * @param {number} accountIndex - Wallet account index
+ * @param {string} password - Vault password
+ * @returns {Promise<string>}
+ */
+async function exportPrivateKeyWithPassword(accountIndex, password) {
+  const normalizedIndex = accountIndex === undefined || accountIndex === null ? 0 : accountIndex;
+  if (!Number.isInteger(normalizedIndex) || normalizedIndex < 0) {
+    throw new Error('Wallet index must be a non-negative integer');
+  }
+  if (!password) {
+    throw new Error('Password is required to export private key');
+  }
+
+  const wallets = await getDerivedWallets();
+  if (!wallets.some((wallet) => wallet.index === normalizedIndex)) {
+    throw new Error(`Wallet with index ${normalizedIndex} does not exist`);
+  }
+
+  const identity = await loadIdentityModule();
+  const dataDir = getIdentityDataDir();
+  return identity.exportPrivateKeyWithPassword(dataDir, password, normalizedIndex);
+}
+
 // ============================================
 // Multi-Wallet Support
 // ============================================
@@ -1187,13 +1213,7 @@ function registerIdentityIpc() {
   // Export private key for a specific wallet (requires password re-verification)
   ipcMain.handle(IPC.IDENTITY_EXPORT_PRIVATE_KEY, async (_event, accountIndex, password) => {
     try {
-      if (!password) {
-        return { success: false, error: 'Password is required to export private key' };
-      }
-      const identity = await loadIdentityModule();
-      const dataDir = getIdentityDataDir();
-      await identity.verifyPassword(dataDir, password);
-      const privateKey = identity.exportPrivateKey(accountIndex);
+      const privateKey = await exportPrivateKeyWithPassword(accountIndex, password);
       return { success: true, privateKey };
     } catch (err) {
       return { success: false, error: err.message };
@@ -1320,6 +1340,7 @@ module.exports = {
   unlockVault,
   lockVault,
   exportMnemonic,
+  exportPrivateKeyWithPassword,
   changeVaultPassword,
   deleteVaultData,
 

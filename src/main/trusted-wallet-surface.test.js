@@ -60,10 +60,12 @@ jest.mock('electron', () => ({
 const mockGetDerivedWallets = jest.fn();
 const mockGetActiveWalletIndex = jest.fn();
 const mockGetActiveWalletAddress = jest.fn();
+const mockExportPrivateKeyWithPassword = jest.fn();
 jest.mock('./identity-manager', () => ({
   getDerivedWallets: (...args) => mockGetDerivedWallets(...args),
   getActiveWalletIndex: (...args) => mockGetActiveWalletIndex(...args),
   getActiveWalletAddress: (...args) => mockGetActiveWalletAddress(...args),
+  exportPrivateKeyWithPassword: (...args) => mockExportPrivateKeyWithPassword(...args),
 }));
 
 const mockGetAllPermissions = jest.fn();
@@ -95,6 +97,9 @@ function seedStores() {
   ]);
   mockGetActiveWalletIndex.mockReturnValue(1);
   mockGetActiveWalletAddress.mockResolvedValue('0x2222222222222222222222222222222222222222');
+  mockExportPrivateKeyWithPassword.mockResolvedValue(
+    '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  );
   mockGetAllPermissions.mockReturnValue([
     {
       origin: 'https://app.example',
@@ -205,7 +210,7 @@ test('returns after creating the trusted wallet window while presentation load c
   });
   expect(mockWindows).toHaveLength(1);
   expect(mockWindows[0].loadFile).toHaveBeenCalled();
-  expect(mockHandlers.size).toBe(4);
+  expect(mockHandlers.size).toBe(5);
   resolveLoad();
 });
 
@@ -226,6 +231,63 @@ test('rejects permission revocation from unexpected senders', async () => {
     }),
   });
   expect(mockRevokePermission).not.toHaveBeenCalled();
+});
+
+test('rejects private-key export from unexpected senders', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-private-key', surfaceId))(
+    { sender: { id: 999 } },
+    { walletIndex: 1, password: 'password123' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: expect.objectContaining({
+      code: 'TRUSTED_WALLET_SURFACE_SENDER_MISMATCH',
+    }),
+  });
+  expect(mockExportPrivateKeyWithPassword).not.toHaveBeenCalled();
+});
+
+test('exports private keys only through the trusted surface window', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-private-key', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 1, password: 'password123' }
+  );
+
+  expect(result).toEqual({
+    ok: true,
+    walletIndex: 1,
+    privateKey: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  });
+  expect(mockExportPrivateKeyWithPassword).toHaveBeenCalledWith(1, 'password123');
+});
+
+test('returns structured private-key export failures', async () => {
+  mockExportPrivateKeyWithPassword.mockRejectedValueOnce(new Error('Incorrect password'));
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('export-private-key', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 1, password: 'wrongpassword' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: {
+      code: 'TRUSTED_WALLET_SURFACE_EXPORT_PRIVATE_KEY_FAILED',
+      message: 'Incorrect password',
+    },
+  });
 });
 
 test('revokes dApp permissions only through the trusted surface window', async () => {
