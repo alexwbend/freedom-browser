@@ -4270,3 +4270,68 @@ Known remaining gaps after this checkpoint:
   richer x402 approval review still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 27: Trusted Wallet Surface
+
+Current checkpoint: package mode now opens the wallet affordance as a real
+shell-owned trusted wallet window instead of a package sidebar placeholder.
+Package chrome can still only read/open/close/toggle the surface through the
+sender-checked `surfaces.wallet.control` path. The trusted window is bundled
+shell code with a dedicated preload and scoped IPC channels; it shows public
+wallet account rows, active-account state, and connected dApp wallet
+permission rows, and it can revoke a dApp wallet permission from shell-owned
+code. Package chrome still does not receive wallet APIs, identity APIs, vault
+primitives, private keys, provider authority, raw dApp permission stores, Node,
+Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-wallet-surface.js` plus bundled HTML, renderer, and
+  dedicated preload files for the shell-owned wallet window
+- scoped wallet-surface IPC by per-window surface id and rejected context,
+  snapshot, revoke-permission, and close calls from any sender other than the
+  trusted wallet window
+- changed `surfaces.wallet.control` state from
+  `mode: "shell-owned-placeholder"` to
+  `mode: "shell-owned-trusted-window"`
+- changed package sidebar behavior so the wallet button mirrors the trusted
+  window state without rendering package-owned wallet UI or a placeholder panel
+- made wallet surface presentation loading non-blocking after the trusted
+  BrowserWindow and scoped IPC are created, so package readiness and rollback
+  health checks do not depend on the trusted window finishing its HTML load
+- updated fixture and official package smoke expectations for trusted-window
+  wallet mode and kept package fixture manifest hashes current
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-wallet-surface.test.js src/main/shell-api.test.js src/renderer/lib/chrome-runtime-api.test.js` passed:
+  3 suites, 48 tests.
+- after the non-blocking load fix, `npm test -- src/main/trusted-wallet-surface.test.js src/main/shell-api.test.js` passed:
+  2 suites, 44 tests.
+- `npm run lint` passed.
+- `npm test` passed:
+  119 suites passed, 5 skipped; 2281 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- `git diff --check` passed.
+- committed as `dfb92b3` (`feat(chrome): open trusted wallet surface`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28097270283`, job `test` (`83189790677`), passed for
+  `dfb92b3`.
+- GitHub Actions run `28097270283`, job `e2e-chrome-runtime`
+  (`83189790731`), passed for `dfb92b3`.
+
+Known remaining gaps after this checkpoint:
+
+- the trusted wallet surface covers public account display and dApp permission
+  revocation, but richer wallet account selection/signing review and full
+  wallet-center management remain pending
+- identity onboarding, seed/private-key export, full Swarm publish/feed UX, and
+  richer x402 approval review still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals
