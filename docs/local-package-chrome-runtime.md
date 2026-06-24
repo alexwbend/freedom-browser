@@ -596,11 +596,13 @@ Raw x402 approval and vault-unlock events remain bundled-trusted-renderer UI,
 not package chrome APIs. The x402 interceptor refuses to deliver `x402:*`
 host-renderer events to registered package windows. If a package-hosted guest
 hits a non-cap-covered x402 paywall, or an auto-pay flow needs vault unlock
-before a real shell-owned x402 prompt exists, main passes the original 402
-through instead of waiting for package chrome to render an approval card. This
-keeps package mode from silently hanging while preserving the boundary that
-final payment approval and vault unlock must move to a shell-owned prompt. Raw
-package runtime x402 adapter methods also return structured
+before a real shell-owned x402 prompt exists, main presents a shell-owned native
+rejection prompt and then passes the original 402 through instead of waiting
+for package chrome to render an approval card. This keeps package mode from
+silently hanging while preserving the boundary that final payment approval and
+vault unlock must move to a shell-owned prompt. The native prompt path does not
+sign, grant caps, unlock vault state, or write payment permissions. Raw package
+runtime x402 adapter methods also return structured
 `X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or
 empty-array defaults.
 

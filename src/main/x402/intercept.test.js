@@ -5,7 +5,11 @@ jest.mock('../logger', () => ({
 }));
 
 const mockHostSend = jest.fn();
+const mockDialogShowMessageBox = jest.fn();
 jest.mock('electron', () => ({
+  dialog: {
+    showMessageBox: (...args) => mockDialogShowMessageBox(...args),
+  },
   webContents: {
     fromId: jest.fn(() => ({ hostWebContents: { send: mockHostSend } })),
   },
@@ -27,7 +31,9 @@ jest.mock('../payment-history', () => ({
 }));
 
 const mockIsPackageWebContents = jest.fn(() => false);
+const mockGetPackageWebContentsIdentity = jest.fn(() => null);
 jest.mock('../shell-api', () => ({
+  getPackageWebContentsIdentity: (...args) => mockGetPackageWebContentsIdentity(...args),
   isPackageWebContents: (...args) => mockIsPackageWebContents(...args),
 }));
 
@@ -95,10 +101,19 @@ beforeEach(() => {
   mockRegister.mockClear();
   mockAppendReceipt.mockReset();
   mockHostSend.mockClear();
+  mockDialogShowMessageBox.mockReset().mockResolvedValue({ response: 0 });
   mockSignAndQueueRetry.mockReset().mockResolvedValue(undefined);
   mockGetPermission.mockReset().mockReturnValue(null);
   mockTryConsume.mockReset().mockReturnValue(true);
   mockIsPackageWebContents.mockReset().mockReturnValue(false);
+  mockGetPackageWebContentsIdentity.mockReset().mockReturnValue({
+    runtimeMode: 'local-package',
+    source: 'local',
+    packageId: 'baby.freedom.chrome.official',
+    packageType: 'browser-chrome',
+    name: 'Freedom Official Chrome',
+    version: '0.7.5',
+  });
 });
 
 // Canonical Base USDC PaymentRequired (V2). `resource` is an object per
@@ -367,7 +382,7 @@ describe('detectPaymentRequiredHandler', () => {
     expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(1);
   });
 
-  test('package-hosted cap-covered locked-vault subresource passes the 402 through without waiting for package UI', async () => {
+  test('package-hosted cap-covered locked-vault subresource shows a shell-owned rejection prompt and passes the 402 through', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
     mockGetPermission.mockReturnValueOnce({
       capAmount: '20000',
@@ -383,6 +398,18 @@ describe('detectPaymentRequiredHandler', () => {
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingUnlockWait(7)).toBe(false);
     expect(consumePendingUnlockResume(7)).toBeNull();
+    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
+      type: 'info',
+      title: 'Freedom x402 Vault Unlock',
+      message: 'Vault unlock request',
+      detail:
+        'https://api.example needs vault unlock for x402 auto-pay. ' +
+        'Package chrome cannot unlock the vault; the shell is rejecting it for now.',
+      buttons: ['Reject'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
   });
 
   test('subresource cap-covered locked-vault: if the second sign also fails locked, fires unlock-needed again and re-arms the wait', async () => {
@@ -651,7 +678,7 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     abortPendingApproval('req-1001', new Error('test cleanup'));
   });
 
-  test('package-hosted approval UI is unavailable, so subresource 402 passes through without pending approval', async () => {
+  test('package-hosted approval UI shows a shell-owned rejection prompt and passes the 402 through without pending approval', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
 
     const result = await detectPaymentRequiredHandler(detail());
@@ -660,6 +687,18 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingApproval('req-1001')).toBe(false);
     expect(getDetectedPayment(7)).toBeNull();
+    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
+      type: 'info',
+      title: 'Freedom x402 Payment',
+      message: 'Payment approval request',
+      detail:
+        'https://api.example requested an x402 payment. ' +
+        'Package chrome cannot approve this payment; the shell is rejecting it for now.',
+      buttons: ['Reject'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
   });
 
   test('on approve: signs with MANUAL authorization, returns 307, and fires approval-result success event', async () => {

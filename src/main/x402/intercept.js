@@ -32,7 +32,7 @@
  * All stores expose `clear*` helpers for test isolation.
  */
 
-const { webContents } = require('electron');
+const { dialog, webContents } = require('electron');
 const crypto = require('crypto');
 
 const log = require('../logger');
@@ -40,7 +40,7 @@ const { parsePaymentRequired } = require('@x402/core/schemas');
 const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const paymentHistory = require('../payment-history');
 const { KINDS: PAYMENT_KINDS, STATUSES: PAYMENT_STATUSES } = paymentHistory;
-const { isPackageWebContents } = require('../shell-api');
+const { getPackageWebContentsIdentity, isPackageWebContents } = require('../shell-api');
 const { findCoveringPermission } = require('./payment-utils');
 const { tryConsume } = require('./permissions');
 const { isVaultLockedError } = require('../wallet/vault-errors');
@@ -653,10 +653,107 @@ function sendToHost(webviewWebContentsId, channel, payload) {
     log.warn(
       `[x402] package host for webContents ${webviewWebContentsId}; ${channel} requires shell-owned UI`
     );
-    return { delivered: false, reason: 'package-host' };
+    return { delivered: false, reason: 'package-host', hostWebContents: host };
   }
   host.send(channel, payload);
   return { delivered: true };
+}
+
+async function presentNativeX402ApprovalPrompt(request, context = {}) {
+  return presentNativeX402Prompt(request, context, {
+    title: 'Freedom x402 Payment',
+    message: 'Payment approval request',
+    detail: (origin) =>
+      `${origin} requested an x402 payment. ` +
+      'Package chrome cannot approve this payment; the shell is rejecting it for now.',
+  });
+}
+
+async function presentNativeX402VaultUnlockPrompt(request, context = {}) {
+  return presentNativeX402Prompt(request, context, {
+    title: 'Freedom x402 Vault Unlock',
+    message: 'Vault unlock request',
+    detail: (origin) =>
+      `${origin} needs vault unlock for x402 auto-pay. ` +
+      'Package chrome cannot unlock the vault; the shell is rejecting it for now.',
+  });
+}
+
+async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native x402 trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: dialogOptions.title,
+    message: dialogOptions.message,
+    detail: dialogOptions.detail(origin),
+    buttons: ['Reject'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: 'rejected',
+    response: result?.response,
+  };
+}
+
+async function requestPackageHostedX402Prompt({
+  hostWebContents,
+  webContentsId,
+  url,
+  promptType,
+}) {
+  if (!hostWebContents) {
+    return null;
+  }
+  const origin = originKeyForUrl(url) ?? url ?? null;
+  const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
+  const method = promptType === 'vault-unlock' ? 'x402_vaultUnlock' : 'x402_approval';
+  const requestPrompt =
+    promptType === 'vault-unlock'
+      ? defaultTrustedPromptBroker.requestX402VaultUnlockPrompt
+      : defaultTrustedPromptBroker.requestX402ApprovalPrompt;
+  const reason =
+    promptType === 'vault-unlock'
+      ? `x402 vault unlock request from ${origin || 'unknown origin'}`
+      : `x402 payment approval request from ${origin || 'unknown origin'}`;
+
+  try {
+    return await requestPrompt(
+      {
+        method,
+        reason,
+      },
+      {
+        caller:
+          typeof getPackageWebContentsIdentity === 'function'
+            ? getPackageWebContentsIdentity(hostWebContents)
+            : null,
+        origin,
+        webContentsId,
+        ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+        presentNativeDialog:
+          promptType === 'vault-unlock'
+            ? presentNativeX402VaultUnlockPrompt
+            : presentNativeX402ApprovalPrompt,
+      }
+    );
+  } catch (err) {
+    log.warn(`[x402] package-hosted trusted prompt failed: ${err?.message || err}`);
+    return null;
+  }
 }
 
 // === Dispatcher handlers =================================================
@@ -683,6 +780,12 @@ function requestVaultUnlockForAutoPay(webContentsId, detection, url) {
   const dispatch = notifyVaultUnlockNeeded(webContentsId, url);
   if (dispatch.reason === 'package-host') {
     consumePendingUnlockResume(webContentsId);
+    void requestPackageHostedX402Prompt({
+      hostWebContents: dispatch.hostWebContents,
+      webContentsId,
+      url,
+      promptType: 'vault-unlock',
+    });
     log.warn(
       `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
     );
@@ -849,6 +952,12 @@ async function detectPaymentRequiredHandler(details) {
           log.info(`[x402:auto-pay] vault locked — holding subresource open, requesting unlock for ${sanitizeUrlForLog(url)}`);
           const dispatch = notifyVaultUnlockNeeded(id, url);
           if (dispatch.reason === 'package-host') {
+            await requestPackageHostedX402Prompt({
+              hostWebContents: dispatch.hostWebContents,
+              webContentsId: id,
+              url,
+              promptType: 'vault-unlock',
+            });
             log.warn(
               `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
             );
@@ -924,6 +1033,12 @@ async function detectPaymentRequiredHandler(details) {
     resourceType: details.resourceType,
   });
   if (approvalDispatch.reason === 'package-host') {
+    await requestPackageHostedX402Prompt({
+      hostWebContents: approvalDispatch.hostWebContents,
+      webContentsId: details.webContentsId,
+      url: details.url,
+      promptType: 'approval',
+    });
     clearDetectedPayment(details.webContentsId);
     log.warn(
       `[x402:approval] approval UI unavailable (${approvalDispatch.reason}); passing 402 through`

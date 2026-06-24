@@ -3,6 +3,8 @@ const TRUSTED_PROMPT_KINDS = Object.freeze({
   WALLET_CONNECT: 'wallet.connect',
   WALLET_TRANSACTION: 'wallet.transaction',
   WALLET_SIGNATURE: 'wallet.signature',
+  X402_APPROVAL: 'x402.approval',
+  X402_VAULT_UNLOCK: 'x402.vaultUnlock',
   SWARM_PUBLISH: 'swarm.publish',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
@@ -19,6 +21,8 @@ const WALLET_SIGNATURE_METHODS = new Set([
   'eth_signTypedData_v3',
   'eth_signTypedData_v4',
 ]);
+const X402_APPROVAL_METHODS = new Set(['x402_approval']);
+const X402_VAULT_UNLOCK_METHODS = new Set(['x402_vaultUnlock']);
 
 function cloneSerializable(value) {
   if (value === null || value === undefined) {
@@ -290,6 +294,34 @@ function createTrustedPromptBroker(options = {}) {
     });
   }
 
+  async function requestX402ApprovalPrompt(payload = {}, context = {}) {
+    return requestNativeProviderPrompt({
+      payload,
+      context,
+      createRequestId,
+      defaultPresentNativeDialog,
+      kind: TRUSTED_PROMPT_KINDS.X402_APPROVAL,
+      supportedMethods: X402_APPROVAL_METHODS,
+      unsupportedMessage: 'Unsupported x402 approval trusted prompt method',
+      defaultReason: (trustedContext) =>
+        `x402 payment approval request from ${trustedContext.origin || 'unknown origin'}`,
+    });
+  }
+
+  async function requestX402VaultUnlockPrompt(payload = {}, context = {}) {
+    return requestNativeProviderPrompt({
+      payload,
+      context,
+      createRequestId,
+      defaultPresentNativeDialog,
+      kind: TRUSTED_PROMPT_KINDS.X402_VAULT_UNLOCK,
+      supportedMethods: X402_VAULT_UNLOCK_METHODS,
+      unsupportedMessage: 'Unsupported x402 vault unlock trusted prompt method',
+      defaultReason: (trustedContext) =>
+        `x402 vault unlock request from ${trustedContext.origin || 'unknown origin'}`,
+    });
+  }
+
   async function requestSwarmPublishPrompt(payload = {}, context = {}) {
     const method = typeof payload?.method === 'string' ? payload.method : '';
     if (method !== 'swarm_publishData') {
@@ -372,6 +404,10 @@ function createTrustedPromptBroker(options = {}) {
       cloneSerializable(await requestWalletTransactionPrompt(payload, context)),
     requestWalletSignaturePrompt: async (payload, context) =>
       cloneSerializable(await requestWalletSignaturePrompt(payload, context)),
+    requestX402ApprovalPrompt: async (payload, context) =>
+      cloneSerializable(await requestX402ApprovalPrompt(payload, context)),
+    requestX402VaultUnlockPrompt: async (payload, context) =>
+      cloneSerializable(await requestX402VaultUnlockPrompt(payload, context)),
     requestSwarmPublishPrompt: async (payload, context) =>
       cloneSerializable(await requestSwarmPublishPrompt(payload, context)),
   });

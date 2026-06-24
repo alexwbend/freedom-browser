@@ -369,6 +369,166 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes x402 approval prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-x402-approval-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestX402ApprovalPrompt(
+        {
+          method: 'x402_approval',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'https://pay.example',
+          webContentsId: 45,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-x402-approval-1',
+      kind: 'x402.approval',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'https://pay.example',
+        tabId: null,
+        webContentsId: 45,
+      },
+      request: {
+        method: 'x402_approval',
+        reason: 'x402 payment approval request from https://pay.example',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-x402-approval-1',
+        kind: TRUSTED_PROMPT_KINDS.X402_APPROVAL,
+        method: 'x402_approval',
+        reason: 'x402 payment approval request from https://pay.example',
+        origin: 'https://pay.example',
+        webContentsId: 45,
+      },
+      {
+        caller,
+        origin: 'https://pay.example',
+        webContentsId: 45,
+      }
+    );
+  });
+
+  test('routes x402 vault unlock prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-x402-vault-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestX402VaultUnlockPrompt(
+        {
+          method: 'x402_vaultUnlock',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'https://pay.example',
+          webContentsId: 46,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-x402-vault-1',
+      kind: 'x402.vaultUnlock',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'https://pay.example',
+        tabId: null,
+        webContentsId: 46,
+      },
+      request: {
+        method: 'x402_vaultUnlock',
+        reason: 'x402 vault unlock request from https://pay.example',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-x402-vault-1',
+        kind: TRUSTED_PROMPT_KINDS.X402_VAULT_UNLOCK,
+        method: 'x402_vaultUnlock',
+        reason: 'x402 vault unlock request from https://pay.example',
+        origin: 'https://pay.example',
+        webContentsId: 46,
+      },
+      {
+        caller,
+        origin: 'https://pay.example',
+        webContentsId: 46,
+      }
+    );
+  });
+
   test('routes Swarm publish prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,
@@ -492,6 +652,35 @@ describe('trusted-prompt-broker', () => {
       error: {
         code: 'TRUSTED_PROMPT_UNSUPPORTED',
         message: 'Unsupported wallet signature trusted prompt method',
+      },
+    });
+  });
+
+  test('rejects unsupported x402 prompt methods', async () => {
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'unused-x402',
+    });
+
+    await expect(
+      broker.requestX402ApprovalPrompt({
+        method: 'x402_vaultUnlock',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported x402 approval trusted prompt method',
+      },
+    });
+    await expect(
+      broker.requestX402VaultUnlockPrompt({
+        method: 'x402_approval',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported x402 vault unlock trusted prompt method',
       },
     });
   });
