@@ -3534,7 +3534,7 @@ records. Package chrome still does not receive Swarm provider globals,
 `window.swarmPermissions`, `window.swarmFeedStore`, raw Swarm IPC, raw feed
 write authority, stamp-management authority, Node, Electron, or arbitrary IPC.
 
-Implemented in this checkpoint so far:
+Implemented in this checkpoint:
 
 - added `swarm_updateFeed` to the existing `swarm.feed` trusted prompt kind
   rather than creating a package chrome API
@@ -3562,7 +3562,7 @@ Implemented in this checkpoint so far:
   `docs/local-package-chrome-runtime.md`, and
   `docs/package-chrome-trust-boundaries.md`
 
-Verification in this checkpoint so far:
+Verification in this checkpoint:
 
 - `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
   3 suites, 209 tests.
@@ -3574,6 +3574,12 @@ Verification in this checkpoint so far:
   116 suites passed, 5 skipped; 2236 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `2d1f41f` (`feat(chrome): approve package swarm feed
+  updates`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28082805896`, job `test` (`83141493280`), passed for
+  `2d1f41f`.
+- GitHub Actions run `28082805896`, job `e2e-chrome-runtime`
+  (`83141493179`), passed for `2d1f41f`.
 
 Known remaining gaps after this checkpoint:
 
