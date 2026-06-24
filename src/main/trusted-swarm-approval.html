@@ -66,6 +66,32 @@
         display: none;
       }
 
+      .feed-review {
+        padding: 12px;
+        border: 1px solid #cbd6df;
+        border-radius: 6px;
+        background: #fbfdff;
+      }
+
+      .feed-review[hidden] {
+        display: none;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 13px;
+        line-height: 1.3;
+        font-weight: 650;
+        color: #1f2428;
+      }
+
+      .feed-review dl {
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+      }
+
       dt {
         color: #697176;
       }
@@ -132,6 +158,11 @@
       </header>
 
       <dl id="details" hidden></dl>
+
+      <section id="feed-review" class="feed-review" hidden>
+        <h2 id="feed-review-title">Feed review</h2>
+        <dl id="feed-review-details"></dl>
+      </section>
 
       <p id="notice" class="notice">Approve only if this request matches what you intended.</p>
 

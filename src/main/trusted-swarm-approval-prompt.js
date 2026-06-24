@@ -42,6 +42,52 @@ function addRow(rows, label, value, maxLength) {
   }
 }
 
+function addReviewItem(items, label, value, maxLength) {
+  const itemLabel = safeString(label, 80);
+  const itemValue = safeString(value, maxLength);
+  if (itemLabel && itemValue) {
+    items.push({ label: itemLabel, value: itemValue });
+  }
+}
+
+function feedOperationLabel(method, action) {
+  if (method === 'swarm_createFeed') {
+    return 'Create feed';
+  }
+  if (method === 'swarm_updateFeed') {
+    return 'Update feed reference';
+  }
+  if (method === 'swarm_writeFeedEntry') {
+    return 'Write feed entry';
+  }
+  return safeString(action, 80);
+}
+
+function buildFeedReview(method, details = {}) {
+  const items = [];
+  const operation = feedOperationLabel(method, details.action);
+
+  addReviewItem(items, 'Operation', operation);
+  addReviewItem(items, 'Feed', details.feedName);
+  addReviewItem(items, 'Requested reference', details.reference);
+  addReviewItem(items, 'Current reference', details.currentReference);
+  addReviewItem(items, 'Manifest reference', details.manifestReference);
+  addReviewItem(items, 'Owner', details.feedOwner);
+  addReviewItem(items, 'Feed identity', details.feedIdentityId);
+  addReviewItem(items, 'Index', Number.isInteger(details.index) ? details.index : null);
+  addReviewItem(items, 'Payload size', Number.isFinite(details.sizeBytes) ? `${details.sizeBytes} bytes` : null);
+  addReviewItem(items, 'Payload preview', details.payloadPreview, 220);
+  addReviewItem(items, 'Identity', details.identityMode);
+
+  if (items.length === 0) {
+    return null;
+  }
+  return {
+    title: 'Feed review',
+    items,
+  };
+}
+
 function labelsForKind(kind) {
   if (kind === 'swarm.publish') {
     return {
@@ -88,28 +134,24 @@ function buildPromptContext(request = {}, context = {}) {
   const labels = labelsForKind(kind);
   const origin = safeString(request.origin || context.origin || 'Unknown site', 300);
   const rows = [];
+  const feedReview = kind === 'swarm.feed'
+    ? buildFeedReview(method, details)
+    : null;
 
   addRow(rows, 'Method', method);
-  addRow(rows, 'Target', details.target);
-  addRow(rows, 'Action', details.action);
-  addRow(rows, 'Content type', details.contentType);
-  addRow(rows, 'Name', details.name);
-  addRow(rows, 'Files', details.fileCount);
-  addRow(rows, 'Size', Number.isFinite(details.sizeBytes) ? `${details.sizeBytes} bytes` : null);
-  addRow(rows, 'Span', details.span);
-  addRow(rows, 'Index document', details.indexDocument);
-  addRow(rows, 'Feed', details.feedName);
-  addRow(rows, 'Reference', details.reference);
-  addRow(rows, 'Current reference', details.currentReference);
-  addRow(rows, 'Manifest', details.manifestReference);
-  addRow(rows, 'Owner', details.feedOwner);
-  addRow(rows, 'Feed identity', details.feedIdentityId);
-  addRow(rows, 'Index', Number.isInteger(details.index) ? details.index : null);
-  addRow(rows, 'Payload preview', details.payloadPreview, 220);
-  addRow(rows, 'Identity', details.identityMode);
-  addRow(rows, 'Identifier', details.identifier);
+  if (kind !== 'swarm.feed') {
+    addRow(rows, 'Target', details.target);
+    addRow(rows, 'Action', details.action);
+    addRow(rows, 'Content type', details.contentType);
+    addRow(rows, 'Name', details.name);
+    addRow(rows, 'Files', details.fileCount);
+    addRow(rows, 'Size', Number.isFinite(details.sizeBytes) ? `${details.sizeBytes} bytes` : null);
+    addRow(rows, 'Span', details.span);
+    addRow(rows, 'Index document', details.indexDocument);
+    addRow(rows, 'Identifier', details.identifier);
+  }
 
-  return {
+  const promptContext = {
     title: safeString(request.title || context.title, 120) || labels.title,
     heading: safeString(request.heading || context.heading, 160) || labels.heading,
     origin,
@@ -124,6 +166,10 @@ function buildPromptContext(request = {}, context = {}) {
       rejectLabel: 'Reject',
     },
   };
+  if (feedReview) {
+    promptContext.feedReview = feedReview;
+  }
+  return promptContext;
 }
 
 function removeHandlerSafe(electronIpcMain, channel) {

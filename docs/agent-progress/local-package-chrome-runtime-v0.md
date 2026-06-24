@@ -5085,8 +5085,57 @@ Verification in this checkpoint:
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
   passed: 14 launched Electron tests.
+- committed as `7b3924d` (`feat(chrome): manage vault in trusted identity surface`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28116606870`, job `test` (`83257592795`), passed for
+  `7b3924d`.
+- GitHub Actions run `28116606870`, job `e2e-chrome-runtime`
+  (`83257592651`), passed for `7b3924d`.
 
 Known remaining gaps after this checkpoint:
 
 - richer feed-review UX remains pending as a separate shell-owned surface or
   trusted prompt path
+
+### Trusted Prompt Broker Checkpoint 41: Trusted Swarm Feed Review UI
+
+Current checkpoint: the shell-owned trusted Swarm approval window now renders
+feed create/update/write requests with a dedicated main-derived feed review
+section instead of folding feed security context into the generic prompt
+detail rows. Package chrome still does not receive raw Swarm, feed-store,
+stamp-management, Node, Electron, vault, signer, or arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- added a normalized `feedReview` context to
+  `src/main/trusted-swarm-approval-prompt.js` for `swarm.feed` requests
+- rendered feed operations, feed name, requested/current references, manifest
+  reference, owner, feed identity, optional index, payload size, bounded
+  payload preview, and identity mode in a dedicated trusted-window section
+- kept non-feed Swarm prompts on the existing generic details path
+- extended the official package smoke harness to record the same main-built
+  prompt context that the trusted window receives, and asserted that
+  package-hosted feed creation includes the dedicated feed review model
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-swarm-approval-prompt.test.js src/main/trusted-prompt-broker.test.js src/main/swarm/swarm-provider-ipc.test.js`
+  passed: 3 suites, 208 tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `npm test` passed: 125 suites passed, 5 skipped; 2347 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
+- no self-approved deferrals were added in this checkpoint
+- a formal final completion audit and branch-head GitHub target-job
+  verification still remain before the long-running goal can be marked
+  complete

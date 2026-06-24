@@ -128,17 +128,23 @@ test('buildPromptContext labels connect, feed, and signing decisions', () => {
     },
   }))).toMatchObject({
     title: 'Freedom Swarm Feed',
-    rows: expect.arrayContaining([
-      { label: 'Action', value: 'write' },
-      { label: 'Feed', value: 'blog' },
-      { label: 'Reference', value: 'aa'.repeat(32) },
-      { label: 'Current reference', value: 'bb'.repeat(32) },
-      { label: 'Manifest', value: 'cc'.repeat(32) },
-      { label: 'Owner', value: '0xOwnerAddr' },
-      { label: 'Feed identity', value: 'app-scoped:0' },
-      { label: 'Payload preview', value: 'hello world' },
-      { label: 'Identity', value: 'app-scoped' },
-    ]),
+    rows: [
+      { label: 'Method', value: 'swarm_writeFeedEntry' },
+    ],
+    feedReview: {
+      title: 'Feed review',
+      items: [
+        { label: 'Operation', value: 'Write feed entry' },
+        { label: 'Feed', value: 'blog' },
+        { label: 'Requested reference', value: 'aa'.repeat(32) },
+        { label: 'Current reference', value: 'bb'.repeat(32) },
+        { label: 'Manifest reference', value: 'cc'.repeat(32) },
+        { label: 'Owner', value: '0xOwnerAddr' },
+        { label: 'Feed identity', value: 'app-scoped:0' },
+        { label: 'Payload preview', value: 'hello world' },
+        { label: 'Identity', value: 'app-scoped' },
+      ],
+    },
   });
 
   expect(buildPromptContext(request({
@@ -155,6 +161,48 @@ test('buildPromptContext labels connect, feed, and signing decisions', () => {
       { label: 'Identifier', value: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' },
       { label: 'Size', value: '5 bytes' },
     ]),
+  });
+});
+
+test('buildPromptContext gives Swarm feed updates a dedicated review model', () => {
+  const reference = 'aa'.repeat(32);
+  const currentReference = 'bb'.repeat(32);
+  const payloadPreview = `${'x'.repeat(260)} hidden`;
+
+  expect(buildPromptContext(request({
+    kind: 'swarm.feed',
+    method: 'swarm_updateFeed',
+    details: {
+      action: 'update',
+      feedName: 'blog',
+      reference,
+      currentReference,
+      manifestReference: 'manifesthex',
+      feedOwner: '0xOwnerAddr',
+      feedIdentityId: 'app-scoped:0',
+      payloadPreview,
+      sizeBytes: 5,
+      index: 2,
+      identityMode: 'app-scoped',
+    },
+  }))).toMatchObject({
+    heading: 'Review Swarm feed request',
+    feedReview: {
+      title: 'Feed review',
+      items: [
+        { label: 'Operation', value: 'Update feed reference' },
+        { label: 'Feed', value: 'blog' },
+        { label: 'Requested reference', value: reference },
+        { label: 'Current reference', value: currentReference },
+        { label: 'Manifest reference', value: 'manifesthex' },
+        { label: 'Owner', value: '0xOwnerAddr' },
+        { label: 'Feed identity', value: 'app-scoped:0' },
+        { label: 'Index', value: '2' },
+        { label: 'Payload size', value: '5 bytes' },
+        { label: 'Payload preview', value: `${'x'.repeat(219)}...` },
+        { label: 'Identity', value: 'app-scoped' },
+      ],
+    },
   });
 });
 

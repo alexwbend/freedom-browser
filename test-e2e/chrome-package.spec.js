@@ -3007,8 +3007,10 @@ test('official browser chrome can launch as a local package with transitional we
         request,
         context = {}
       ) => {
+        const promptContext = trustedSwarmApprovalPrompt.buildPromptContext(request, context);
         globalThis.__freedomSwarmTrustedApprovalPrompts.push({
           request,
+          promptContext,
           context: {
             origin: context.origin || null,
             webContentsId: context.webContentsId ?? null,
@@ -3293,6 +3295,16 @@ test('official browser chrome can launch as a local package with transitional we
     expect(swarmFeedPrompts).toHaveLength(1);
     expect(promptFor('swarm.feed', 'swarm_createFeed')).toMatchObject({
       context: trustedSwarmContext,
+      promptContext: {
+        feedReview: {
+          title: 'Feed review',
+          items: expect.arrayContaining([
+            { label: 'Operation', value: 'Create feed' },
+            { label: 'Feed', value: 'blog' },
+            { label: 'Identity', value: 'app-scoped' },
+          ]),
+        },
+      },
       request: {
         kind: 'swarm.feed',
         method: 'swarm_createFeed',

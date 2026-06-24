@@ -3,6 +3,9 @@
   const heading = document.getElementById('heading');
   const summary = document.getElementById('summary');
   const details = document.getElementById('details');
+  const feedReview = document.getElementById('feed-review');
+  const feedReviewTitle = document.getElementById('feed-review-title');
+  const feedReviewDetails = document.getElementById('feed-review-details');
   const notice = document.getElementById('notice');
   const accept = document.getElementById('accept');
   const reject = document.getElementById('reject');
@@ -31,6 +34,24 @@
       details.append(term, value);
     });
     details.hidden = false;
+  }
+
+  function renderFeedReview(review) {
+    feedReviewDetails.textContent = '';
+    const items = Array.isArray(review?.items) ? review.items : [];
+    if (items.length === 0) {
+      feedReview.hidden = true;
+      return;
+    }
+    feedReviewTitle.textContent = review.title || 'Feed review';
+    items.forEach((item) => {
+      const term = document.createElement('dt');
+      term.textContent = item.label;
+      const value = document.createElement('dd');
+      value.textContent = item.value;
+      feedReviewDetails.append(term, value);
+    });
+    feedReview.hidden = false;
   }
 
   async function submitDecision(decide) {
@@ -66,6 +87,7 @@
     summary.textContent = context.summary || 'A site requested Swarm access.';
     notice.textContent = context.notice || 'Approve only if this request matches what you intended.';
     renderRows(context.rows);
+    renderFeedReview(context.feedReview);
     accept.textContent = actions.acceptLabel || 'Allow';
     reject.textContent = actions.rejectLabel || 'Reject';
     reject.focus();
