@@ -4469,3 +4469,66 @@ Known remaining gaps after this checkpoint:
 - full Swarm publish/feed UX still needs shell-owned review surfaces before the
   broader package runtime can be called complete; this is not a user-approved
   completion deferral
+
+### Trusted Prompt Broker Checkpoint 30: Trusted Swarm Approval Window
+
+Current checkpoint: package-hosted Swarm access, publish, feed, and publisher
+signing approvals now use a shell-owned trusted Swarm approval window instead
+of Electron native Swarm dialogs. The window is bundled shell code with a
+dedicated preload and per-request scoped IPC channels. It shows main-derived
+origin plus display-only method/details before the existing main-owned Swarm
+permission, publish, feed, signing, or SOC paths run. Package chrome still
+does not receive Swarm provider globals, `window.swarmPermissions`, raw Swarm
+IPC, raw feed-store IPC, stamp-management authority, vault-unlock authority,
+Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-swarm-approval-prompt.js` plus bundled HTML,
+  renderer, and dedicated preload assets for a shell-owned Swarm approval
+  prompt
+- scoped Swarm approval IPC channels by trusted prompt request id and rejected
+  context/decision calls from any sender other than the trusted approval window
+- changed package-hosted `swarm_requestAccess`, `swarm_publishData`,
+  `swarm_publishFiles`, `swarm_publishChunk`, `swarm_createFeed`,
+  `swarm_updateFeed`, `swarm_writeFeedEntry`, `swarm_getSigningIdentity`, and
+  `swarm_writeSingleOwnerChunk` approval prompts to render through the trusted
+  Swarm approval window while keeping execution, permission writes, feed-grant
+  checks, signing, SOC writes, and provider error shaping in main
+- kept the trusted prompt broker compatible with native-dialog presenters while
+  preserving `presentation: "trusted-window"` and `renderedBy:
+  "trusted-swarm-approval-window"` for Swarm trusted-window presenters
+- updated the official package smoke harness to stub and assert the trusted
+  Swarm approval presenter rather than native Swarm dialogs, and to fail if a
+  package-hosted Swarm provider request falls back to a `Freedom Swarm...`
+  native dialog
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-swarm-approval-prompt.test.js src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js` passed:
+  3 suites, 206 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed:
+  122 suites passed, 5 skipped; 2300 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+- committed as `009a40e` (`feat(chrome): open trusted swarm approval prompt`).
+
+Known remaining gaps after this checkpoint:
+
+- the provider-path Swarm approval window closes the native-dialog prompt gap,
+  but it is still a bounded provider approval surface, not the full Swarm
+  publish/feed center
+- direct `freedom://publish`, local file/folder picker UI, stamp management,
+  publish history UI, and richer feed review remain shell-owned or unavailable
+  to package chrome until a full Swarm publish/feed surface exists
+- identity onboarding, seed/private-key export, full wallet-center management,
+  non-provider vault management flows, and richer wallet account selection
+  still need shell-owned UI before the broader package runtime can be called
+  complete; these are not user-approved completion deferrals
