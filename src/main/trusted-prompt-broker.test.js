@@ -624,6 +624,86 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes Swarm connection prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-connect-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestSwarmConnectPrompt(
+        {
+          method: 'swarm_requestAccess',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'ipfs://bafyapp',
+          webContentsId: 53,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-connect-1',
+      kind: 'swarm.connect',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'ipfs://bafyapp',
+        tabId: null,
+        webContentsId: 53,
+      },
+      request: {
+        method: 'swarm_requestAccess',
+        reason: 'Swarm connection request from ipfs://bafyapp',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-swarm-connect-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_CONNECT,
+        method: 'swarm_requestAccess',
+        reason: 'Swarm connection request from ipfs://bafyapp',
+        origin: 'ipfs://bafyapp',
+        webContentsId: 53,
+      },
+      {
+        caller,
+        origin: 'ipfs://bafyapp',
+        webContentsId: 53,
+      }
+    );
+  });
+
   test('rejects unsupported wallet prompt methods', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'unused-wallet',

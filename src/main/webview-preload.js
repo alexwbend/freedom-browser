@@ -732,7 +732,10 @@ try {
 }
 
 const MAIN_READONLY_SWARM_METHODS = new Set(['swarm_getCapabilities']);
-const MAIN_TRUSTED_PROMPT_SWARM_METHODS = new Set(['swarm_publishData']);
+const MAIN_TRUSTED_PROMPT_SWARM_METHODS = new Set([
+  'swarm_requestAccess',
+  'swarm_publishData',
+]);
 const sendSwarmResponseToPage = (id, result, error) => {
   window.postMessage({
     type: 'FREEDOM_SWARM_RESPONSE',

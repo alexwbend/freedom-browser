@@ -252,6 +252,43 @@ signing methods such as `eth_sign` remain safe failure paths for now. This
 does not select accounts, unlock vault state, expose raw wallet authority, or
 migrate the full wallet center UI.
 
+### Package-Hosted Swarm Connection Approval
+
+Package-hosted guest content can now route `swarm.requestAccess()` to main
+without package chrome brokering the provider request:
+
+```text
+guest webview preload
+  -> swarm:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker swarm.connect
+  -> shell-owned native dialog
+  -> main-owned Swarm permission grant or page-facing provider error
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims are not used as final security truth. If an existing main-owned
+permission is present, main updates last-used and returns the connected result
+without prompting. If the user chooses Allow, main writes the Swarm permission
+for the derived origin and returns:
+
+```json
+{
+  "result": {
+    "connected": true,
+    "origin": "ipfs://bafyapp",
+    "capabilities": ["publish"]
+  },
+  "error": null
+}
+```
+
+If the user rejects the prompt, the page still receives a provider-style
+`4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
+not expose `window.swarmPermissions`, feed grants, stamp management,
+file/folder publish, or final Swarm approval UI to package chrome.
+
 ### Package-Hosted Swarm Data Publish Approval
 
 Package-hosted guest content can now route `swarm.publishData()` to main
@@ -292,8 +329,8 @@ Successful data publish returns the normal provider result:
 
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
-not grant Swarm access, write feed permissions, expose stamp management, allow
-file/folder publish, or migrate the full Swarm publish/feed approval UI.
+not write feed permissions, expose stamp management, allow file/folder publish,
+or migrate the full Swarm publish/feed approval UI.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
@@ -381,6 +418,8 @@ Swarm publish/feed approval:
 - main derives origin, feed identity, stamp/batch constraints, and publish
   target
 - broker opens shell-owned publish/feed prompt
+- current package-hosted `swarm_requestAccess` slice can grant the
+  main-derived guest origin after shell-owned native approval
 - current package-hosted `swarm_publishData` slice can execute data-only
   publish after shell-owned native approval, subject to normal node/stamp
   readiness

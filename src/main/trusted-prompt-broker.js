@@ -5,6 +5,7 @@ const TRUSTED_PROMPT_KINDS = Object.freeze({
   WALLET_SIGNATURE: 'wallet.signature',
   X402_APPROVAL: 'x402.approval',
   X402_VAULT_UNLOCK: 'x402.vaultUnlock',
+  SWARM_CONNECT: 'swarm.connect',
   SWARM_PUBLISH: 'swarm.publish',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
@@ -23,6 +24,7 @@ const WALLET_SIGNATURE_METHODS = new Set([
 ]);
 const X402_APPROVAL_METHODS = new Set(['x402_approval']);
 const X402_VAULT_UNLOCK_METHODS = new Set(['x402_vaultUnlock']);
+const SWARM_CONNECT_METHODS = new Set(['swarm_requestAccess']);
 
 function cloneSerializable(value) {
   if (value === null || value === undefined) {
@@ -418,6 +420,18 @@ function createTrustedPromptBroker(options = {}) {
       cloneSerializable(await requestX402ApprovalPrompt(payload, context)),
     requestX402VaultUnlockPrompt: async (payload, context) =>
       cloneSerializable(await requestX402VaultUnlockPrompt(payload, context)),
+    requestSwarmConnectPrompt: async (payload, context) =>
+      cloneSerializable(await requestNativeProviderPrompt({
+        payload,
+        context,
+        createRequestId,
+        defaultPresentNativeDialog,
+        kind: TRUSTED_PROMPT_KINDS.SWARM_CONNECT,
+        supportedMethods: SWARM_CONNECT_METHODS,
+        unsupportedMessage: 'Unsupported Swarm connect trusted prompt method',
+        defaultReason: (trustedContext) =>
+          `Swarm connection request from ${trustedContext.origin || 'unknown origin'}`,
+      })),
     requestSwarmPublishPrompt: async (payload, context) =>
       cloneSerializable(await requestSwarmPublishPrompt(payload, context)),
   });

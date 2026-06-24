@@ -40,7 +40,7 @@
 const { dialog, ipcMain } = require('electron');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
-const { getPermission } = require('./swarm-permissions');
+const { getPermission, grantPermission, updateLastUsed } = require('./swarm-permissions');
 const { publishData, publishFilesFromContent, getUploadStatus } = require('./publish-service');
 const { createFeed, updateFeed, writeFeedPayload, readFeedPayload, buildTopicString } = require('./feed-service');
 const { Topic } = require('@ethersphere/bee-js');
@@ -507,6 +507,38 @@ async function presentNativeSwarmPublishPrompt(request, context = {}) {
   };
 }
 
+async function presentNativeSwarmConnectPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native Swarm trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Swarm Connection',
+    message: 'Swarm connection request',
+    detail:
+      `${origin} requested Swarm publishing access. ` +
+      'Choose Allow to let this site publish data through the shell-owned Swarm provider broker.',
+    buttons: ['Allow', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: result?.response === 0 ? 'accepted' : 'rejected',
+    response: result?.response,
+  };
+}
+
 function summarizePublishDataPrompt(prepared) {
   return {
     contentType: prepared.contentType,
@@ -529,21 +561,13 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  if (method !== 'swarm_publishData') {
+  if (method !== 'swarm_requestAccess' && method !== 'swarm_publishData') {
     return {
       result: null,
       error: {
         ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
         message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method || 'unknown'}`,
       },
-    };
-  }
-
-  const prepared = preparePublishDataParams(payload.params);
-  if (prepared.error) {
-    return {
-      result: null,
-      error: prepared.error,
     };
   }
 
@@ -559,18 +583,101 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
+  const normalizedOrigin = normalizeOrigin(origin);
   const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
+  const trustedContext = {
+    caller: getPackageHostIdentity(hostWebContents),
+    origin: normalizedOrigin,
+    webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
+    ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+  };
+
+  if (method === 'swarm_requestAccess') {
+    if (getPermission(normalizedOrigin)) {
+      updateLastUsed(normalizedOrigin);
+      return {
+        result: {
+          connected: true,
+          origin: normalizedOrigin,
+          capabilities: ['publish'],
+        },
+      };
+    }
+
+    const prompt = await defaultTrustedPromptBroker.requestSwarmConnectPrompt(
+      {
+        method,
+        reason: `Swarm connection request from ${normalizedOrigin}`,
+      },
+      {
+        ...trustedContext,
+        presentNativeDialog: presentNativeSwarmConnectPrompt,
+      }
+    );
+
+    if (prompt?.ok !== true) {
+      return {
+        result: null,
+        error: {
+          ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
+          message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method}`,
+          data: {
+            reason: 'trusted_prompt_unavailable',
+            promptError: prompt?.error?.code || 'TRUSTED_PROMPT_UNAVAILABLE',
+          },
+        },
+        trustedPrompt: prompt || null,
+      };
+    }
+
+    if (prompt.result?.outcome === 'accepted') {
+      const permission = grantPermission(normalizedOrigin);
+      return {
+        result: {
+          connected: true,
+          origin: permission.origin,
+          capabilities: ['publish'],
+        },
+        trustedPrompt: prompt,
+      };
+    }
+
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_SWARM_PROVIDER_REJECTED,
+        data: {
+          ...PACKAGE_SWARM_PROVIDER_REJECTED.data,
+          prompt: {
+            requestId: prompt.requestId,
+            kind: prompt.kind,
+            renderedBy: prompt.renderedBy,
+            surfaceOwner: prompt.surfaceOwner,
+            origin: prompt.context?.origin || null,
+            webContentsId: prompt.context?.webContentsId || null,
+          },
+        },
+      },
+      trustedPrompt: prompt,
+    };
+  }
+
+  const prepared = preparePublishDataParams(payload.params);
+  if (prepared.error) {
+    return {
+      result: null,
+      error: prepared.error,
+    };
+  }
+
   const prompt = await defaultTrustedPromptBroker.requestSwarmPublishPrompt(
     {
       method,
-      reason: origin ? `Swarm publish request from ${origin}` : 'Swarm publish request',
+      reason: `Swarm publish request from ${normalizedOrigin}`,
       details: summarizePublishDataPrompt(prepared),
     },
     {
-      caller: getPackageHostIdentity(hostWebContents),
-      origin,
-      webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
-      ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+      ...trustedContext,
       presentNativeDialog: presentNativeSwarmPublishPrompt,
     }
   );
@@ -591,8 +698,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   }
 
   if (prompt.result?.outcome === 'accepted') {
-    const publishOrigin = normalizeOrigin(origin);
-    const publishResult = await executePublishData(prepared, publishOrigin);
+    const publishResult = await executePublishData(prepared, normalizedOrigin);
     if (publishResult.result) resetVaultAutoLockTimer();
     return {
       ...publishResult,

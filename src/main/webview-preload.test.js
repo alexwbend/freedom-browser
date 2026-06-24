@@ -611,6 +611,68 @@ describe('webview-preload', () => {
     });
   });
 
+  test('routes package-hosted swarm access requests to main trusted-prompt handling', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.SWARM_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+        [IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST]: {
+          result: {
+            connected: true,
+            origin: 'https://app.example',
+            capabilities: ['publish'],
+          },
+          error: null,
+        },
+      },
+    });
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 13,
+          method: 'swarm_requestAccess',
+          params: {},
+        },
+      });
+    }
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, {
+      method: 'swarm_requestAccess',
+      params: {},
+      origin: 'https://app.example',
+    });
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'swarm:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id: 13,
+        result: {
+          connected: true,
+          origin: 'https://app.example',
+          capabilities: ['publish'],
+        },
+        error: null,
+      },
+      origin: 'https://app.example',
+    });
+  });
+
   test('fails unsupported privileged swarm provider requests before package chrome can broker them', async () => {
     const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
       location: {

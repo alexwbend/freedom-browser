@@ -757,9 +757,11 @@ Package chrome is also not the dApp provider broker. The current low-risk
 package-mode proofs route guest
 `ethereum.request({ method: 'eth_chainId' })` and
 `swarm.getCapabilities()` from the webview preload directly to main over
-read-only provider channels. The Swarm path only accepts
+read-only provider channels. The Swarm read-only path only accepts
 `swarm_getCapabilities`; publish, feed, signing, and access-request methods do
-not use this bypass. The Ethereum path accepts low-risk `eth_chainId` directly
+not use this bypass. Package-hosted `swarm_requestAccess` uses a separate
+shell-owned trusted prompt path that writes the Swarm permission in main after
+approval. The Ethereum path accepts low-risk `eth_chainId` directly
 and handles wallet account reads/grants from main-owned dApp permissions:
 `eth_requestAccounts` asks main for its host context, main derives the guest
 origin and package host identity, the broker presents a shell-owned native
@@ -776,14 +778,15 @@ permission, fills missing gas and fee fields through wallet services, signs and
 broadcasts through the existing transaction recorder, and updates the
 permission last-used timestamp. Deprecated `eth_sign` and unsupported
 typed-data variants remain structured safe-failure paths. The Swarm path also
-has a shell-owned prompt slice for
+has shell-owned prompt slices for `swarm_requestAccess` and
 `swarm_publishData`: package-hosted guests ask main for host context, main
 derives the guest origin and package host identity, the broker presents a
-shell-owned native dialog, and accepted data-only prompts execute through the
-existing main-owned provider publish path. Rejected prompts still return a
-structured `4001` user rejection. These slices do not grant Swarm access,
-write feed permissions, expose stamp management, expose account selection, or
-unlock vault state. Other higher-risk Ethereum and Swarm methods still fail
+shell-owned native dialog, and accepted access prompts write the Swarm
+permission in main while accepted data-only publish prompts execute through
+the existing main-owned provider publish path. Rejected prompts still return a
+structured `4001` user rejection. These slices do not write feed permissions,
+expose stamp management, expose account selection, or unlock vault state.
+Other higher-risk Ethereum and Swarm methods still fail
 with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
 them. Bundled chrome keeps the legacy renderer prompt path for those methods

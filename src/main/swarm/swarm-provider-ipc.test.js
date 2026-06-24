@@ -18,8 +18,12 @@ jest.mock('electron-log', () => ({
 }));
 
 const mockGetPermission = jest.fn();
+const mockGrantPermission = jest.fn();
+const mockUpdateLastUsed = jest.fn();
 jest.mock('./swarm-permissions', () => ({
   getPermission: mockGetPermission,
+  grantPermission: mockGrantPermission,
+  updateLastUsed: mockUpdateLastUsed,
 }));
 
 const mockGetBeeApiUrl = jest.fn();
@@ -265,6 +269,171 @@ describe('swarm-provider-ipc', () => {
         .mockResolvedValueOnce({ ok: true, json: async () => ({ stamps: [{ usable: true }] }) });
     }
 
+    function mockPackageIdentity() {
+      mockGetPackageWebContentsIdentity.mockReturnValue({
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.official',
+        packageType: 'browser-chrome',
+        name: 'Freedom Official Chrome',
+        version: '0.7.5',
+      });
+    }
+
+    test('returns existing package-hosted swarm_requestAccess grant without prompting', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_requestAccess',
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: {
+          connected: true,
+          origin: 'ipfs://bafyfixture',
+          capabilities: ['publish'],
+        },
+      });
+      expect(mockGetPermission).toHaveBeenCalledWith('ipfs://bafyfixture');
+      expect(mockUpdateLastUsed).toHaveBeenCalledWith('ipfs://bafyfixture');
+      expect(mockGrantPermission).not.toHaveBeenCalled();
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+    });
+
+    test('fails package-hosted swarm_requestAccess when main cannot derive the guest origin', async () => {
+      const event = buildPackageHostedEvent('');
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_requestAccess',
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4100,
+          message: 'Unable to derive Swarm provider origin',
+          data: { reason: 'origin_unavailable' },
+        },
+      });
+      expect(mockGetPermission).not.toHaveBeenCalled();
+      expect(mockGrantPermission).not.toHaveBeenCalled();
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_requestAccess through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue(null);
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_requestAccess',
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockGrantPermission).not.toHaveBeenCalled();
+      expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Connection',
+          message: 'Swarm connection request',
+          detail:
+            'ipfs://bafyfixture requested Swarm publishing access. ' +
+            'Choose Allow to let this site publish data through the shell-owned Swarm provider broker.',
+          buttons: ['Allow', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.connect',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.connect',
+          renderedBy: 'shell-native-dialog',
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('grants package-hosted swarm_requestAccess after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue(null);
+      mockGrantPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 2,
+        lastUsed: 2,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_requestAccess',
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockGrantPermission).toHaveBeenCalledWith('ipfs://bafyfixture');
+      expect(result).toMatchObject({
+        result: {
+          connected: true,
+          origin: 'ipfs://bafyfixture',
+          capabilities: ['publish'],
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.connect',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
     test('rejects invalid package-hosted swarm_publishData before opening a prompt', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
@@ -312,14 +481,7 @@ describe('swarm-provider-ipc', () => {
     test('routes rejected package-hosted swarm_publishData through a shell-owned prompt', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
-      mockGetPackageWebContentsIdentity.mockReturnValue({
-        runtimeMode: 'local-package',
-        source: 'local',
-        packageId: 'baby.freedom.chrome.official',
-        packageType: 'browser-chrome',
-        name: 'Freedom Official Chrome',
-        version: '0.7.5',
-      });
+      mockPackageIdentity();
       mockShowMessageBox.mockResolvedValue({ response: 1 });
 
       const result = await handleProviderTrustedPromptRequest(event, {
@@ -381,14 +543,7 @@ describe('swarm-provider-ipc', () => {
     test('publishes package-hosted swarm_publishData after shell-owned approval', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
-      mockGetPackageWebContentsIdentity.mockReturnValue({
-        runtimeMode: 'local-package',
-        source: 'local',
-        packageId: 'baby.freedom.chrome.official',
-        packageType: 'browser-chrome',
-        name: 'Freedom Official Chrome',
-        version: '0.7.5',
-      });
+      mockPackageIdentity();
       mockShowMessageBox.mockResolvedValue({ response: 0 });
       mockPreFlightOk();
       mockPublishData.mockResolvedValue({

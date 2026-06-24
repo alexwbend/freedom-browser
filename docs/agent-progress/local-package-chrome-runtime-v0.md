@@ -3328,3 +3328,58 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 12: Package Swarm Access Grant
+
+Current checkpoint: package-hosted `swarm.requestAccess()` can now proceed
+through a shell-owned native Allow / Reject prompt into the main-owned Swarm
+permission store. Package chrome still does not receive Swarm provider globals,
+`window.swarmPermissions`, raw Swarm IPC, feed grants, stamp-management
+authority, file/folder publish authority, Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added the `swarm.connect` trusted prompt kind for package-hosted
+  `swarm_requestAccess`
+- changed the package-hosted guest preload to route only `swarm_requestAccess`
+  and `swarm_publishData` to main trusted-prompt handling; feed, file, chunk,
+  and SOC methods still fail before package chrome can broker them
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- on accepted `swarm_requestAccess`, main writes the Swarm permission through
+  the main-owned permission store and returns the connected provider result
+- for existing Swarm permissions, main updates last-used and returns the
+  connected provider result without prompting
+- on rejected prompts, the page still receives provider-style `4001` with
+  `data.reason: "shell_trusted_prompt_rejected"`
+- expanded official package smoke to call `swarm.requestAccess()` before
+  `swarm.publishData()` and assert the shell-owned connection prompt
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 192 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2219 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted Swarm access grants only the main-derived guest origin and
+  enables the existing data-only provider path; file/folder publish, feed
+  publish/update, stamp management, publish history, and full publish/feed
+  review UI still need a real shell-owned Swarm surface before Swarm publish
+  can be called complete in package mode
+- identity onboarding, general vault unlock, seed/private-key export, x402 cap
+  grants/payment-permission/vault-unlock flows, richer x402 review, and richer
+  wallet account/review surfaces still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals
