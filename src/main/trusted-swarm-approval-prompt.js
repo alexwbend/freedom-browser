@@ -100,7 +100,12 @@ function buildPromptContext(request = {}, context = {}) {
   addRow(rows, 'Index document', details.indexDocument);
   addRow(rows, 'Feed', details.feedName);
   addRow(rows, 'Reference', details.reference);
+  addRow(rows, 'Current reference', details.currentReference);
+  addRow(rows, 'Manifest', details.manifestReference);
+  addRow(rows, 'Owner', details.feedOwner);
+  addRow(rows, 'Feed identity', details.feedIdentityId);
   addRow(rows, 'Index', Number.isInteger(details.index) ? details.index : null);
+  addRow(rows, 'Payload preview', details.payloadPreview, 220);
   addRow(rows, 'Identity', details.identityMode);
   addRow(rows, 'Identifier', details.identifier);
 

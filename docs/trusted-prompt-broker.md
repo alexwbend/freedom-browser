@@ -395,16 +395,20 @@ deterministic harness.
 
 For `swarm_updateFeed`, accepted prompts execute the existing main-owned
 `swarm_updateFeed` provider path using the identity that created the feed.
-The update still depends on local Bee node readiness, usable stamps, and the
-feed signer. If the feed does not exist, package-hosted requests fail with
+Before the prompt opens, main reads the existing feed record and passes
+display-only review details to the shell-owned approval window: current
+reference, manifest reference, owner, and feed identity when present. The
+update still depends on local Bee node readiness, usable stamps, and the feed
+signer. If the feed does not exist, package-hosted requests fail with
 structured `feed_not_found` before opening a prompt.
 
 For `swarm_writeFeedEntry`, accepted prompts execute the existing main-owned
 `swarm_writeFeedEntry` provider path using the identity that created the feed.
-The prompt receives display-only feed name, payload size, and optional index
-details; it does not receive or display the raw payload. If the feed does not
-exist, package-hosted requests fail with structured `feed_not_found` before
-opening a prompt.
+The prompt receives display-only feed name, existing-feed metadata, payload
+size, optional index details, and a bounded normalized payload preview. It does
+not receive raw feed-store authority or expose stamp management to package
+chrome. If the feed does not exist, package-hosted requests fail with
+structured `feed_not_found` before opening a prompt.
 
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
@@ -445,8 +449,8 @@ unlocked signing material.
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
 not expose raw feed-store IPC, stamp management, vault unlock, account
-selection, local file/folder picker UI, or richer feed-review authority to
-package chrome.
+selection, local file/folder picker UI, or feed-management authority to package
+chrome.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
@@ -644,8 +648,10 @@ Swarm publish/feed/signing approval:
   readiness
 - current package-hosted `swarm_createFeed`, `swarm_updateFeed`, and
   `swarm_writeFeedEntry` slices can execute feed creation, existing-feed
-  updates, and feed-entry writes after shell-owned trusted-window approval, subject to
-  normal node/stamp/signer readiness
+  updates, and feed-entry writes after shell-owned trusted-window approval,
+  subject to normal node/stamp/signer readiness. Update/write prompt details
+  include main-derived feed metadata, and write prompts include a bounded
+  payload preview
 - current package-hosted `swarm_getSigningIdentity` and
   `swarm_writeSingleOwnerChunk` slices can disclose the active publisher
   signing identity or write an SOC after shell-owned trusted-window approval, subject

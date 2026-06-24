@@ -533,6 +533,42 @@ function summarizeSingleOwnerChunkPrompt(prepared) {
   };
 }
 
+function summarizeFeedRecord(feed) {
+  if (!feed || typeof feed !== 'object') {
+    return {};
+  }
+  return {
+    ...(typeof feed.lastReference === 'string' && feed.lastReference
+      ? { currentReference: feed.lastReference }
+      : {}),
+    ...(typeof feed.manifestReference === 'string' && feed.manifestReference
+      ? { manifestReference: feed.manifestReference }
+      : {}),
+    ...(typeof feed.owner === 'string' && feed.owner
+      ? { feedOwner: feed.owner }
+      : {}),
+    ...(typeof feed.identityId === 'string' && feed.identityId
+      ? { feedIdentityId: feed.identityId }
+      : {}),
+  };
+}
+
+function summarizeFeedPayloadPreview(data) {
+  if (typeof data === 'string') {
+    const normalized = data.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return null;
+    }
+    return normalized.length > 160 ? `${normalized.slice(0, 159)}...` : normalized;
+  }
+  if (Buffer.isBuffer(data)) {
+    const prefix = data.subarray(0, 24).toString('hex');
+    const suffix = data.length > 24 ? '...' : '';
+    return `0x${prefix}${suffix}`;
+  }
+  return null;
+}
+
 function prepareCreateFeedParams(params) {
   if (!params || typeof params !== 'object') {
     return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
@@ -753,6 +789,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     const isCreateFeed = method === 'swarm_createFeed';
     const isUpdateFeed = method === 'swarm_updateFeed';
     const isWriteFeedEntry = method === 'swarm_writeFeedEntry';
+    let existingFeed = null;
     const prepared = isCreateFeed
       ? prepareCreateFeedParams(payload.params)
       : isUpdateFeed
@@ -773,7 +810,8 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
         };
       }
       const feedName = isWriteFeedEntry ? prepared.name : prepared.feedId;
-      if (!getFeed(normalizedOrigin, feedName)) {
+      existingFeed = getFeed(normalizedOrigin, feedName);
+      if (!existingFeed) {
         return {
           result: null,
           error: {
@@ -799,13 +837,17 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
         action: 'update',
         feedName: prepared.feedId,
         reference: prepared.reference,
+        ...summarizeFeedRecord(existingFeed),
         identityMode: 'app-scoped',
       };
     } else {
+      const payloadPreview = summarizeFeedPayloadPreview(prepared.data);
       promptDetails = {
         action: 'write',
         feedName: prepared.name,
         sizeBytes: prepared.sizeBytes,
+        ...summarizeFeedRecord(existingFeed),
+        ...(payloadPreview ? { payloadPreview } : {}),
         ...(Number.isInteger(prepared.index) ? { index: prepared.index } : {}),
         identityMode: 'app-scoped',
       };

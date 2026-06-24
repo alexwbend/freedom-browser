@@ -114,13 +114,29 @@ test('buildPromptContext labels connect, feed, and signing decisions', () => {
 
   expect(buildPromptContext(request({
     kind: 'swarm.feed',
-    method: 'swarm_createFeed',
-    details: { action: 'create', feedName: 'blog', identityMode: 'app-scoped' },
+    method: 'swarm_writeFeedEntry',
+    details: {
+      action: 'write',
+      feedName: 'blog',
+      reference: 'aa'.repeat(32),
+      currentReference: 'bb'.repeat(32),
+      manifestReference: 'cc'.repeat(32),
+      feedOwner: '0xOwnerAddr',
+      feedIdentityId: 'app-scoped:0',
+      payloadPreview: 'hello world',
+      identityMode: 'app-scoped',
+    },
   }))).toMatchObject({
     title: 'Freedom Swarm Feed',
     rows: expect.arrayContaining([
-      { label: 'Action', value: 'create' },
+      { label: 'Action', value: 'write' },
       { label: 'Feed', value: 'blog' },
+      { label: 'Reference', value: 'aa'.repeat(32) },
+      { label: 'Current reference', value: 'bb'.repeat(32) },
+      { label: 'Manifest', value: 'cc'.repeat(32) },
+      { label: 'Owner', value: '0xOwnerAddr' },
+      { label: 'Feed identity', value: 'app-scoped:0' },
+      { label: 'Payload preview', value: 'hello world' },
       { label: 'Identity', value: 'app-scoped' },
     ]),
   });

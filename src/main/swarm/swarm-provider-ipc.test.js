@@ -1157,6 +1157,8 @@ describe('swarm-provider-ipc', () => {
         topic: 'topichex',
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
+        identityId: 'app-scoped:0',
+        lastReference: 'bb'.repeat(32),
       });
       mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
@@ -1193,6 +1195,10 @@ describe('swarm-provider-ipc', () => {
               action: 'update',
               feedName: 'blog',
               reference: 'aa'.repeat(32),
+              currentReference: 'bb'.repeat(32),
+              manifestReference: 'manifesthex',
+              feedOwner: '0xOwnerAddr',
+              feedIdentityId: 'app-scoped:0',
             },
           },
         },
@@ -1230,6 +1236,7 @@ describe('swarm-provider-ipc', () => {
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
         identityId: 'app-scoped:0',
+        lastReference: 'bb'.repeat(32),
       });
       mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
@@ -1266,6 +1273,10 @@ describe('swarm-provider-ipc', () => {
               action: 'update',
               feedName: 'blog',
               reference,
+              currentReference: 'bb'.repeat(32),
+              manifestReference: 'manifesthex',
+              feedOwner: '0xOwnerAddr',
+              feedIdentityId: 'app-scoped:0',
             },
           },
         },
@@ -1345,6 +1356,8 @@ describe('swarm-provider-ipc', () => {
         topic: 'topichex',
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
+        identityId: 'app-scoped:0',
+        lastReference: 'bb'.repeat(32),
       });
       mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
@@ -1381,6 +1394,11 @@ describe('swarm-provider-ipc', () => {
               action: 'write',
               feedName: 'blog',
               sizeBytes: 5,
+              currentReference: 'bb'.repeat(32),
+              manifestReference: 'manifesthex',
+              feedOwner: '0xOwnerAddr',
+              feedIdentityId: 'app-scoped:0',
+              payloadPreview: 'hello',
               index: 2,
             },
           },
@@ -1418,6 +1436,7 @@ describe('swarm-provider-ipc', () => {
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
         identityId: 'app-scoped:0',
+        lastReference: 'bb'.repeat(32),
       });
       mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
@@ -1453,6 +1472,11 @@ describe('swarm-provider-ipc', () => {
               action: 'write',
               feedName: 'blog',
               sizeBytes: 5,
+              currentReference: 'bb'.repeat(32),
+              manifestReference: 'manifesthex',
+              feedOwner: '0xOwnerAddr',
+              feedIdentityId: 'app-scoped:0',
+              payloadPreview: 'hello',
               index: 2,
             },
           },

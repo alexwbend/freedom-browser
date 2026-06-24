@@ -356,12 +356,15 @@ The official package smoke currently proves:
   an app-scoped feed grant in main and execute the existing main-owned feed
   creation path, while rejected prompts return page-facing `4001`
 - package-hosted `swarm.updateFeed()` routes through the same main-owned feed
-  update gate; the official smoke proves a missing main-owned feed returns
+  update gate and shell-owned trusted prompt with main-derived existing-feed
+  metadata, including current reference, manifest reference, owner, and feed
+  identity; the official smoke proves a missing main-owned feed returns
   structured `feed_not_found` before package chrome can broker the request
 - package-hosted `swarm.writeFeedEntry()` routes through the same main-owned
-  feed prompt gate; the official smoke proves a missing main-owned feed
-  returns structured `feed_not_found` before package chrome can broker the
-  request
+  feed prompt gate with the same existing-feed metadata plus a bounded
+  display-only payload preview; the official smoke proves a missing main-owned
+  feed returns structured `feed_not_found` before package chrome can broker
+  the request
 - package-hosted `swarm.getSigningIdentity()` and
   `swarm.writeSingleOwnerChunk()` route through shell-owned trusted Swarm
   approval windows with main-derived guest context; accepted prompts execute

@@ -4940,3 +4940,46 @@ Known remaining gaps after this checkpoint:
   mode
 - richer feed-review UX remains pending as a separate shell-owned surface or
   trusted prompt path
+
+### Trusted Prompt Broker Checkpoint 38: Trusted Swarm Feed Review Details
+
+Current checkpoint: package-hosted Swarm feed update and feed-entry write
+prompts now show main-derived existing-feed review details in the shell-owned
+trusted Swarm approval window. Package chrome still does not receive raw
+Swarm, feed-store, stamp-management, Node, Electron, vault, signer, or
+arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- extended the shell-owned trusted Swarm approval context with display rows
+  for current feed reference, manifest reference, owner, feed identity, and a
+  bounded payload preview
+- changed the package-hosted `swarm_updateFeed` and
+  `swarm_writeFeedEntry` prompt path to keep the existing main-owned feed
+  record after `getFeed(...)` validation and pass only display-safe metadata
+  into the trusted prompt broker
+- added a bounded normalized preview for feed-entry payloads while keeping
+  raw feed-store, stamp, vault, signer, and provider authority in main
+- kept missing-feed behavior unchanged: package-hosted update/write requests
+  still fail with structured `feed_not_found` before opening a prompt when no
+  main-owned feed record exists
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/trusted-swarm-approval-prompt.test.js src/main/trusted-prompt-broker.test.js src/main/swarm/swarm-provider-ipc.test.js`
+  passed: 3 suites, 207 tests.
+- `npm run lint` passed.
+- `git diff --check` passed.
+- `npm test` passed: 124 suites passed, 5 skipped; 2335 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
+- identity onboarding and broader non-provider vault management remain
+  shell-owned future work before wallet UX can be called complete in package
+  mode
