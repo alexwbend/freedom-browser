@@ -1192,6 +1192,17 @@ describe('trusted-prompt-broker', () => {
         message: 'Unsupported Swarm feed trusted prompt method',
       },
     });
+    await expect(
+      broker.requestSwarmSigningPrompt({
+        method: 'swarm_publishData',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported Swarm signing trusted prompt method',
+      },
+    });
   });
 
   test('routes Swarm chunk publish prompts through a shell-owned native dialog presenter', async () => {
@@ -1246,6 +1257,72 @@ describe('trusted-prompt-broker', () => {
         method: 'swarm_publishChunk',
         details: {
           target: 'chunk',
+          sizeBytes: 5,
+          span: '5',
+        },
+      }),
+      expect.objectContaining({
+        origin: 'ipfs://bafyapp',
+        webContentsId: 52,
+      })
+    );
+  });
+
+  test('routes Swarm publisher signing prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-signing-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestSwarmSigningPrompt(
+        {
+          method: 'swarm_writeSingleOwnerChunk',
+          details: {
+            action: 'soc',
+            identifier: 'bb'.repeat(32),
+            sizeBytes: 5,
+            span: '5',
+          },
+        },
+        {
+          origin: 'ipfs://bafyapp',
+          webContentsId: 52,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-signing-1',
+      kind: 'swarm.signing',
+      renderedBy: 'shell-native-dialog',
+      request: {
+        method: 'swarm_writeSingleOwnerChunk',
+        details: {
+          action: 'soc',
+          identifier: 'bb'.repeat(32),
+          sizeBytes: 5,
+          span: '5',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: 'trusted-prompt-swarm-signing-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_SIGNING,
+        method: 'swarm_writeSingleOwnerChunk',
+        details: {
+          action: 'soc',
+          identifier: 'bb'.repeat(32),
           sizeBytes: 5,
           span: '5',
         },

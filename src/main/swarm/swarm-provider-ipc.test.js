@@ -1561,18 +1561,303 @@ describe('swarm-provider-ipc', () => {
       });
     });
 
+    test('rejects package-hosted swarm_getSigningIdentity without a feed grant before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(false);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_getSigningIdentity',
+        params: {},
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4100,
+          message: 'The origin is not authorized for this operation',
+          data: { reason: 'feed_not_granted' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockGetSignerAddress).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_getSigningIdentity through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_getSigningIdentity',
+        params: {},
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockGetSignerAddress).not.toHaveBeenCalled();
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Publisher Signing',
+          message: 'Swarm publisher signing request',
+          detail:
+            'ipfs://bafyfixture requested to disclose your Swarm signing identity. ' +
+            'Choose Allow only if you trust this request.',
+          buttons: ['Allow', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.signing',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.signing',
+          request: {
+            method: 'swarm_getSigningIdentity',
+            details: {
+              action: 'identity',
+            },
+          },
+        },
+      });
+    });
+
+    test('returns package-hosted swarm_getSigningIdentity after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      const origin = 'ipfs://bafyfixture';
+      const owner = `0x${'cd'.repeat(20)}`;
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin,
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetOriginEntry.mockReturnValue({
+        activeIdentityId: 'app-scoped:0',
+        identities: {
+          'app-scoped:0': {
+            id: 'app-scoped:0',
+            mode: 'app-scoped',
+            publisherKeyIndex: 0,
+          },
+        },
+        identityMode: 'app-scoped',
+        publisherKeyIndex: 0,
+        feeds: {},
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
+      mockGetSignerAddress.mockReturnValue(owner);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_getSigningIdentity',
+        params: {},
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockUpdateLastUsed).toHaveBeenCalledWith(origin);
+      expect(mockGetPublisherKey).toHaveBeenCalledWith(0);
+      expect(mockGetSignerAddress).toHaveBeenCalledWith('0xpublisherkey');
+      expect(result).toMatchObject({
+        result: {
+          owner,
+          identityMode: 'app-scoped',
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.signing',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_getSigningIdentity',
+            details: {
+              action: 'identity',
+            },
+          },
+        },
+      });
+    });
+
+    test('rejects invalid package-hosted swarm_writeSingleOwnerChunk before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeSingleOwnerChunk',
+        params: { data: 'hello' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'identifier must be a 64-character hex string',
+          data: { reason: 'invalid_identifier' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockWriteSingleOwnerChunk).not.toHaveBeenCalled();
+    });
+
+    test('writes package-hosted swarm_writeSingleOwnerChunk after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      const origin = 'ipfs://bafyfixture';
+      const identifier = 'bb'.repeat(32);
+      const owner = `0x${'cd'.repeat(20)}`;
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin,
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetOriginEntry.mockReturnValue({
+        activeIdentityId: 'app-scoped:0',
+        identities: {
+          'app-scoped:0': {
+            id: 'app-scoped:0',
+            mode: 'app-scoped',
+            publisherKeyIndex: 0,
+          },
+        },
+        identityMode: 'app-scoped',
+        publisherKeyIndex: 0,
+        feeds: {},
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
+      mockWriteSingleOwnerChunk.mockResolvedValue({
+        reference: 'soc123',
+        owner,
+        identifier,
+        batchIdUsed: 'batch1',
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeSingleOwnerChunk',
+        params: { identifier, data: 'hello', span: 5 },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockUpdateLastUsed).toHaveBeenCalledWith(origin);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Publisher Signing',
+          message: 'Swarm publisher signing request',
+          detail:
+            'ipfs://bafyfixture requested to write a Single Owner Chunk. ' +
+            `Identifier: ${identifier}. ` +
+            'Size: 5 bytes. ' +
+            'Span: 5. ' +
+            'Choose Allow only if you trust this request.',
+          buttons: ['Allow', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(mockWriteSingleOwnerChunk).toHaveBeenCalledWith(
+        '0xpublisherkey',
+        identifier,
+        Buffer.from('hello'),
+        { span: 5n }
+      );
+      expect(mockAddEntry).toHaveBeenCalledWith({
+        type: 'soc',
+        name: 'SOC chunk',
+        status: 'uploading',
+        origin,
+        bytesSize: 5,
+      });
+      expect(result).toMatchObject({
+        result: {
+          reference: 'soc123',
+          owner,
+          identifier,
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.signing',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_writeSingleOwnerChunk',
+            details: {
+              action: 'soc',
+              identifier,
+              sizeBytes: 5,
+              span: '5',
+            },
+          },
+        },
+      });
+    });
+
     test('keeps unsupported package-hosted privileged swarm methods unavailable', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
 
       await expect(
-        handleProviderTrustedPromptRequest(event, { method: 'swarm_writeSingleOwnerChunk' })
+        handleProviderTrustedPromptRequest(event, { method: 'swarm_getUploadStatus' })
       ).resolves.toEqual({
         result: null,
         error: {
           code: 4200,
           message:
-            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_writeSingleOwnerChunk',
+            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_getUploadStatus',
           data: { reason: 'trusted_prompt_unavailable' },
         },
       });

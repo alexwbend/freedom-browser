@@ -397,6 +397,43 @@ If the user rejects the prompt, the page still receives a provider-style
 not expose stamp management, expose raw feed-store IPC, or migrate the full
 Swarm publish/feed approval UI.
 
+### Package-Hosted Swarm Publisher Signing Approval
+
+Package-hosted guest content can now route `swarm.getSigningIdentity()` and
+`swarm.writeSingleOwnerChunk()` to main without package chrome brokering the
+provider request:
+
+```text
+guest webview preload
+  -> swarm:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker swarm.signing
+  -> shell-owned native dialog
+  -> main-owned signing identity disclosure or SOC write, or page-facing provider error
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims are not used as final security truth. Both methods require an
+existing main-owned Swarm permission and feed grant before a prompt can open.
+For SOC writes, main validates the identifier, payload, options, and span
+before prompting, and the prompt receives only display-safe identifier, byte
+size, and span details.
+
+If the user chooses Allow, `swarm_getSigningIdentity` resolves the publisher
+owner through the existing main-owned signer path, while
+`swarm_writeSingleOwnerChunk` signs and publishes through the existing
+main-owned SOC provider path. These operations still depend on normal
+vault/signer and Bee node/stamp readiness, so package-hosted smoke may receive
+structured provider errors after approval when the deterministic harness lacks
+unlocked signing material.
+
+If the user rejects the prompt, the page still receives a provider-style
+`4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
+not expose raw feed-store IPC, stamp management, vault unlock, account
+selection, local file/folder picker UI, or the full Swarm publish/feed review
+surface to package chrome.
+
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
 Package-hosted guest content can now surface x402 payment approval and
@@ -479,12 +516,12 @@ x402 approvals:
   permission management, and richer review UI before x402 can be called
   complete in package mode
 
-Swarm publish/feed approval:
+Swarm publish/feed/signing approval:
 
 - initiated by website/provider or shell-owned publish request
 - main derives origin, feed identity, stamp/batch constraints, and publish
   target
-- broker opens shell-owned publish/feed prompt
+- broker opens shell-owned publish/feed/signing prompt
 - current package-hosted `swarm_requestAccess` slice can grant the
   main-derived guest origin after shell-owned native approval
 - current package-hosted `swarm_publishData` slice can execute data-only
@@ -500,6 +537,10 @@ Swarm publish/feed approval:
   `swarm_writeFeedEntry` slices can execute feed creation, existing-feed
   updates, and feed-entry writes after shell-owned native approval, subject to
   normal node/stamp/signer readiness
+- current package-hosted `swarm_getSigningIdentity` and
+  `swarm_writeSingleOwnerChunk` slices can disclose the active publisher
+  signing identity or write an SOC after shell-owned native approval, subject
+  to an existing feed grant and normal vault/signer/node/stamp readiness
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:

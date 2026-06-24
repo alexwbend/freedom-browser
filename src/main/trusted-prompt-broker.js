@@ -8,6 +8,7 @@ const TRUSTED_PROMPT_KINDS = Object.freeze({
   SWARM_CONNECT: 'swarm.connect',
   SWARM_PUBLISH: 'swarm.publish',
   SWARM_FEED: 'swarm.feed',
+  SWARM_SIGNING: 'swarm.signing',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
   SYNTHETIC: 'synthetic',
@@ -32,6 +33,7 @@ const SWARM_PUBLISH_METHODS = new Set([
   'swarm_publishChunk',
 ]);
 const SWARM_FEED_METHODS = new Set(['swarm_createFeed', 'swarm_updateFeed', 'swarm_writeFeedEntry']);
+const SWARM_SIGNING_METHODS = new Set(['swarm_getSigningIdentity', 'swarm_writeSingleOwnerChunk']);
 
 function cloneSerializable(value) {
   if (value === null || value === undefined) {
@@ -452,6 +454,18 @@ function createTrustedPromptBroker(options = {}) {
         unsupportedMessage: 'Unsupported Swarm feed trusted prompt method',
         defaultReason: (trustedContext) =>
           `Swarm feed request from ${trustedContext.origin || 'unknown origin'}`,
+      })),
+    requestSwarmSigningPrompt: async (payload, context) =>
+      cloneSerializable(await requestNativeProviderPrompt({
+        payload,
+        context,
+        createRequestId,
+        defaultPresentNativeDialog,
+        kind: TRUSTED_PROMPT_KINDS.SWARM_SIGNING,
+        supportedMethods: SWARM_SIGNING_METHODS,
+        unsupportedMessage: 'Unsupported Swarm signing trusted prompt method',
+        defaultReason: (trustedContext) =>
+          `Swarm publisher signing request from ${trustedContext.origin || 'unknown origin'}`,
       })),
   });
 }

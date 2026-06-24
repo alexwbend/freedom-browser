@@ -3795,3 +3795,71 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 19: Package Swarm Publisher Signing Approval
+
+Current checkpoint: package-hosted `swarm.getSigningIdentity()` /
+`swarm_getSigningIdentity` and `swarm.writeSingleOwnerChunk()` /
+`swarm_writeSingleOwnerChunk` can now proceed from shell-owned native Allow /
+Reject prompts into the existing main-owned publisher signing and SOC write
+paths. Package chrome still does not receive Swarm provider globals,
+`window.swarmPermissions`, raw Swarm IPC, raw feed-store IPC, stamp-management
+authority, vault-unlock authority, Node, Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added a `swarm.signing` trusted prompt kind for `swarm_getSigningIdentity`
+  and `swarm_writeSingleOwnerChunk` instead of creating a package chrome API
+- changed the package-hosted guest preload to route both methods through main
+  trusted-prompt handling alongside Swarm access, publish, and feed methods
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- required an existing main-owned Swarm connection grant and existing feed
+  grant before either publisher signing prompt can open
+- validated SOC identifier, payload, options, and span in main before opening
+  the prompt
+- passed only display-safe signing details to the shell-owned native prompt:
+  identity-disclosure action for `swarm_getSigningIdentity`, and identifier,
+  payload size, and span for `swarm_writeSingleOwnerChunk`
+- on accepted package-hosted `swarm_getSigningIdentity`, main resolves the
+  active publisher owner through the existing signer path
+- on accepted package-hosted `swarm_writeSingleOwnerChunk`, main signs and
+  publishes through the existing SOC provider path and records normal publish
+  history
+- preserved page-facing `4001` with `data.reason:
+  "shell_trusted_prompt_rejected"` on rejection
+- expanded official package smoke so package-hosted signing identity and SOC
+  requests open shell-owned native prompts and then surface the deterministic
+  vault/signing-material error under the harness
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 227 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2255 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted publisher signing now succeeds only for origins with existing
+  main-owned Swarm permission and feed grants after shell-owned approval and
+  normal vault/signer/Bee node/stamp readiness; it does not unlock the vault,
+  select publisher accounts, expose raw feed-store IPC, or implement the full
+  publish/feed review surface
+- the direct `freedom://publish` page, local file/folder picker UI, stamp
+  management, publish history UI, and richer feed review remain shell-owned or
+  unavailable to package chrome until a real Swarm publish surface exists
+- identity onboarding, general vault unlock, seed/private-key export, x402 cap
+  grants/payment-permission/vault-unlock flows, full payment review, and richer
+  wallet account/review surfaces still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals

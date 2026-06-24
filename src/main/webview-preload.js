@@ -740,6 +740,8 @@ const MAIN_TRUSTED_PROMPT_SWARM_METHODS = new Set([
   'swarm_createFeed',
   'swarm_updateFeed',
   'swarm_writeFeedEntry',
+  'swarm_getSigningIdentity',
+  'swarm_writeSingleOwnerChunk',
 ]);
 const sendSwarmResponseToPage = (id, result, error) => {
   window.postMessage({

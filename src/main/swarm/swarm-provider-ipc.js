@@ -607,6 +607,46 @@ async function presentNativeSwarmFeedPrompt(request, context = {}) {
   };
 }
 
+async function presentNativeSwarmSigningPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native Swarm trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const details = request.details || {};
+  const action = details.action === 'soc' ? 'write a Single Owner Chunk' : 'disclose your Swarm signing identity';
+  const identifier = details.identifier ? ` Identifier: ${details.identifier}.` : '';
+  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
+  const span = details.span !== undefined && details.span !== null ? ` Span: ${details.span}.` : '';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Swarm Publisher Signing',
+    message: 'Swarm publisher signing request',
+    detail:
+      `${origin} requested to ${action}.` +
+      identifier +
+      size +
+      span +
+      ' Choose Allow only if you trust this request.',
+    buttons: ['Allow', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: result?.response === 0 ? 'accepted' : 'rejected',
+    response: result?.response,
+  };
+}
+
 function summarizePublishDataPrompt(prepared) {
   return {
     contentType: prepared.contentType,
@@ -626,6 +666,21 @@ function summarizePublishFilesPrompt(prepared) {
 function summarizePublishChunkPrompt(prepared) {
   return {
     target: 'chunk',
+    sizeBytes: prepared.sizeBytes,
+    ...(prepared.span !== undefined ? { span: prepared.span.toString() } : {}),
+  };
+}
+
+function summarizeSigningIdentityPrompt() {
+  return {
+    action: 'identity',
+  };
+}
+
+function summarizeSingleOwnerChunkPrompt(prepared) {
+  return {
+    action: 'soc',
+    identifier: prepared.identifier,
     sizeBytes: prepared.sizeBytes,
     ...(prepared.span !== undefined ? { span: prepared.span.toString() } : {}),
   };
@@ -731,7 +786,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     method !== 'swarm_publishChunk' &&
     method !== 'swarm_createFeed' &&
     method !== 'swarm_updateFeed' &&
-    method !== 'swarm_writeFeedEntry'
+    method !== 'swarm_writeFeedEntry' &&
+    method !== 'swarm_getSigningIdentity' &&
+    method !== 'swarm_writeSingleOwnerChunk'
   ) {
     return {
       result: null,
@@ -944,6 +1001,95 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
         : isUpdateFeed
           ? await handleUpdateFeed(prepared, normalizedOrigin)
           : await handleWriteFeedEntry(prepared, normalizedOrigin);
+      if (result.result) resetVaultAutoLockTimer();
+      return {
+        ...result,
+        trustedPrompt: prompt,
+      };
+    }
+
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_SWARM_PROVIDER_REJECTED,
+        data: {
+          ...PACKAGE_SWARM_PROVIDER_REJECTED.data,
+          prompt: {
+            requestId: prompt.requestId,
+            kind: prompt.kind,
+            renderedBy: prompt.renderedBy,
+            surfaceOwner: prompt.surfaceOwner,
+            origin: prompt.context?.origin || null,
+            webContentsId: prompt.context?.webContentsId || null,
+          },
+        },
+      },
+      trustedPrompt: prompt,
+    };
+  }
+
+  if (
+    method === 'swarm_getSigningIdentity' ||
+    method === 'swarm_writeSingleOwnerChunk'
+  ) {
+    const permission = getPermission(normalizedOrigin);
+    if (!permission) {
+      return {
+        result: null,
+        error: notConnected().error,
+      };
+    }
+
+    const isSocWrite = method === 'swarm_writeSingleOwnerChunk';
+    const prepared = isSocWrite ? prepareWriteSingleOwnerChunkParams(payload.params) : null;
+    if (prepared?.error) {
+      return {
+        result: null,
+        error: prepared.error,
+      };
+    }
+
+    if (!hasFeedGrant(normalizedOrigin)) {
+      return {
+        result: null,
+        error: feedNotGranted().error,
+      };
+    }
+
+    const prompt = await defaultTrustedPromptBroker.requestSwarmSigningPrompt(
+      {
+        method,
+        reason: `Swarm publisher signing request from ${normalizedOrigin}`,
+        details: isSocWrite
+          ? summarizeSingleOwnerChunkPrompt(prepared)
+          : summarizeSigningIdentityPrompt(),
+      },
+      {
+        ...trustedContext,
+        presentNativeDialog: presentNativeSwarmSigningPrompt,
+      }
+    );
+
+    if (prompt?.ok !== true) {
+      return {
+        result: null,
+        error: {
+          ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
+          message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method}`,
+          data: {
+            reason: 'trusted_prompt_unavailable',
+            promptError: prompt?.error?.code || 'TRUSTED_PROMPT_UNAVAILABLE',
+          },
+        },
+        trustedPrompt: prompt || null,
+      };
+    }
+
+    if (prompt.result?.outcome === 'accepted') {
+      updateLastUsed(normalizedOrigin);
+      const result = isSocWrite
+        ? await executeWriteSingleOwnerChunk(prepared, normalizedOrigin)
+        : await handleGetSigningIdentity(normalizedOrigin);
       if (result.result) resetVaultAutoLockTimer();
       return {
         ...result,
@@ -1487,7 +1633,7 @@ async function handleReadChunk(params, origin) {
 /**
  * Handle swarm_writeSingleOwnerChunk: sign and publish an SOC.
  */
-async function handleWriteSingleOwnerChunk(params, origin) {
+function prepareWriteSingleOwnerChunkParams(params) {
   if (!params || typeof params !== 'object') {
     return invalidParams('params is required');
   }
@@ -1506,6 +1652,15 @@ async function handleWriteSingleOwnerChunk(params, origin) {
     return invalidParams('span must be a non-negative unsigned 64-bit integer', 'invalid_span');
   }
 
+  return {
+    identifier: params.identifier,
+    payload,
+    span: span.value,
+    sizeBytes: payload.length,
+  };
+}
+
+async function executeWriteSingleOwnerChunk(prepared, origin) {
   if (!hasFeedGrant(origin)) {
     return feedNotGranted();
   }
@@ -1529,11 +1684,11 @@ async function handleWriteSingleOwnerChunk(params, origin) {
     name: 'SOC chunk',
     status: 'uploading',
     origin,
-    bytesSize: payload.length,
+    bytesSize: prepared.payload.length,
   });
 
   try {
-    const result = await writeSingleOwnerChunk(signerKey, params.identifier, payload, { span: span.value });
+    const result = await writeSingleOwnerChunk(signerKey, prepared.identifier, prepared.payload, { span: prepared.span });
     updateEntry(historyEntry.id, {
       status: 'completed',
       reference: result.reference,
@@ -1551,6 +1706,14 @@ async function handleWriteSingleOwnerChunk(params, origin) {
     log.error(`[SwarmProvider] writeSingleOwnerChunk failed for ${origin}:`, err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
   }
+}
+
+async function handleWriteSingleOwnerChunk(params, origin) {
+  const prepared = prepareWriteSingleOwnerChunkParams(params);
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  return executeWriteSingleOwnerChunk(prepared, origin);
 }
 
 /**

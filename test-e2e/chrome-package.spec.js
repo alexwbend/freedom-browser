@@ -2284,6 +2284,8 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="swarm-provider-files">pending</p>
         <p data-test="swarm-provider-chunk">pending</p>
         <p data-test="swarm-provider-feed">pending</p>
+        <p data-test="swarm-provider-signing">pending</p>
+        <p data-test="swarm-provider-soc">pending</p>
         <p data-test="swarm-provider-feed-update">pending</p>
         <p data-test="swarm-provider-feed-entry">pending</p>
         <script>
@@ -2448,6 +2450,27 @@ test('official browser chrome can launch as a local package with transitional we
                 } catch (error) {
                   setText(
                     '[data-test="swarm-provider-feed"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  await swarm.getSigningIdentity();
+                  setText('[data-test="swarm-provider-signing"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-signing"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  await swarm.writeSingleOwnerChunk({
+                    identifier: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    data: 'hello',
+                  });
+                  setText('[data-test="swarm-provider-soc"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-soc"]',
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
@@ -2622,6 +2645,16 @@ test('official browser chrome can launch as a local package with transitional we
     );
     await expectActiveWebviewText(
       page,
+      '[data-test="swarm-provider-signing"]',
+      'error:-32603:Vault must be unlocked to derive publisher keys'
+    );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-soc"]',
+      'error:-32603:Vault must be unlocked to derive publisher keys'
+    );
+    await expectActiveWebviewText(
+      page,
       '[data-test="swarm-provider-feed-update"]',
       'error:-32602:feed_not_found'
     );
@@ -2688,6 +2721,44 @@ test('official browser chrome can launch as a local package with transitional we
           'Size: 5 bytes. ' +
           'Choose Publish only if you trust this request.',
         buttons: ['Publish', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      },
+    });
+    const swarmSigningPromptDialogs = (
+      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
+    ).filter((dialog) => dialog.options?.title === 'Freedom Swarm Publisher Signing');
+    expect(swarmSigningPromptDialogs).toHaveLength(2);
+    expect(swarmSigningPromptDialogs[0]).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Swarm Publisher Signing',
+        message: 'Swarm publisher signing request',
+        detail:
+          `ipfs://${providerIpfsCid} requested to disclose your Swarm signing identity. ` +
+          'Choose Allow only if you trust this request.',
+        buttons: ['Allow', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      },
+    });
+    expect(swarmSigningPromptDialogs[1]).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Swarm Publisher Signing',
+        message: 'Swarm publisher signing request',
+        detail:
+          `ipfs://${providerIpfsCid} requested to write a Single Owner Chunk. ` +
+          'Identifier: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb. ' +
+          'Size: 5 bytes. ' +
+          'Choose Allow only if you trust this request.',
+        buttons: ['Allow', 'Reject'],
         defaultId: 1,
         cancelId: 1,
         noLink: true,
