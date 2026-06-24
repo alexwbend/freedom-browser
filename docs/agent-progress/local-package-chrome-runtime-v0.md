@@ -4695,6 +4695,12 @@ Verification in this checkpoint so far:
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
   passed: 14 launched Electron tests.
 - `git diff --check` passed.
+- committed as `3d1ddc6` (`feat(chrome): export seed phrase from trusted
+  wallet surface`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28106889735`, job `test` (`83223436528`), passed for
+  `3d1ddc6`.
+- GitHub Actions run `28106889735`, job `e2e-chrome-runtime`
+  (`83223436442`), passed for `3d1ddc6`.
 
 Known remaining gaps after this checkpoint:
 
