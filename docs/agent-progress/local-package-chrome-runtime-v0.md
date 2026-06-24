@@ -4387,6 +4387,12 @@ Verification in this checkpoint:
   14 tests.
 - after the smoke harness fix, `git diff --check`, `npm run lint`, and the
   focused x402 unit command passed again.
+- committed as `0819f77` (`feat(chrome): open trusted x402 approval prompt`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28098982045`, job `test` (`83195593626`), passed for
+  `0819f77`.
+- GitHub Actions run `28098982045`, job `e2e-chrome-runtime`
+  (`83195593603`), passed for `0819f77`.
 
 Known remaining gaps after this checkpoint:
 
