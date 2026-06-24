@@ -2047,6 +2047,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2180 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `a941c66` (`feat(chrome): emit package surface state events`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28071150715`, job `test` (`83105779617`), passed for
+  `a941c66`.
+- GitHub Actions run `28071150715`, job `e2e-chrome-runtime`
+  (`83105779586`), passed for `a941c66`.
 
 Known remaining gaps after this checkpoint:
 
