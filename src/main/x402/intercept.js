@@ -710,30 +710,8 @@ async function presentNativeX402ApprovalPrompt(request, context = {}) {
 }
 
 async function presentNativeX402VaultUnlockPrompt(request, context = {}) {
-  return presentNativeX402Prompt(request, context, {
-    title: 'Freedom x402 Vault Unlock',
-    message: 'Vault unlock request',
-    detail: (origin, promptRequest) => {
-      const details = promptRequest.details || {};
-      const amount = details.amount ? ` Amount: ${details.amount}.` : '';
-      const asset = details.asset ? ` Asset: ${details.asset}.` : '';
-      const network = details.network ? ` Network: ${details.network}.` : '';
-      const payTo = details.payTo ? ` Pay to: ${details.payTo}.` : '';
-      const resource = details.resource ? ` Resource: ${details.resource}.` : '';
-      return (
-        `${origin} needs vault unlock before x402 payment signing can continue.` +
-        amount +
-        asset +
-        network +
-        payTo +
-        resource +
-        ' Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.'
-      );
-    },
-    buttons: ['Dismiss'],
-    defaultId: 0,
-    cancelId: 0,
-  });
+  const { presentTrustedVaultUnlockPrompt } = require('../trusted-vault-unlock-prompt');
+  return presentTrustedVaultUnlockPrompt(request, context);
 }
 
 async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}) {
@@ -891,6 +869,26 @@ async function requestPackageHostedX402Prompt({
   }
 }
 
+function isAcceptedTrustedPrompt(prompt) {
+  return prompt?.ok === true && prompt.result?.outcome === 'accepted';
+}
+
+async function requestPackageHostedX402VaultUnlock({
+  hostWebContents,
+  webContentsId,
+  url,
+  requirements,
+}) {
+  const prompt = await requestPackageHostedX402Prompt({
+    hostWebContents,
+    webContentsId,
+    url,
+    promptType: 'vault-unlock',
+    requirements,
+  });
+  return isAcceptedTrustedPrompt(prompt);
+}
+
 async function signPackageHostedX402Approval({
   webContentsId,
   url,
@@ -942,16 +940,30 @@ function requestVaultUnlockForAutoPay(webContentsId, detection, url) {
   const dispatch = notifyVaultUnlockNeeded(webContentsId, url);
   if (dispatch.reason === 'package-host') {
     consumePendingUnlockResume(webContentsId);
-    void requestPackageHostedX402Prompt({
+    void requestPackageHostedX402VaultUnlock({
       hostWebContents: dispatch.hostWebContents,
       webContentsId,
       url,
-      promptType: 'vault-unlock',
       requirements: detection?.requirements,
+    }).then(async (unlocked) => {
+      if (!unlocked) {
+        log.warn(
+          `[x402:auto-pay] package-hosted vault unlock rejected/unavailable (${dispatch.reason}); passing 402 through`
+        );
+        return;
+      }
+      try {
+        const { signAndQueueRetry } = require('./sign-flow');
+        await signAndQueueRetry(webContentsId, { detection, authorizedBy: AUTHORIZED_BY.CAP });
+        log.info(`[x402:auto-pay] package-hosted mainFrame signed after shell-owned vault unlock for ${sanitizeUrlForLog(url)}`);
+      } catch (err) {
+        log.warn(
+          `[x402:auto-pay] package-hosted mainFrame retry after vault unlock failed: ${err?.message || err}`
+        );
+      }
+    }).catch((err) => {
+      log.warn(`[x402:auto-pay] package-hosted vault unlock failed: ${err?.message || err}`);
     });
-    log.warn(
-      `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
-    );
     return false;
   }
   return true;
@@ -1115,15 +1127,18 @@ async function detectPaymentRequiredHandler(details) {
           log.info(`[x402:auto-pay] vault locked — holding subresource open, requesting unlock for ${sanitizeUrlForLog(url)}`);
           const dispatch = notifyVaultUnlockNeeded(id, url);
           if (dispatch.reason === 'package-host') {
-            await requestPackageHostedX402Prompt({
+            const unlocked = await requestPackageHostedX402VaultUnlock({
               hostWebContents: dispatch.hostWebContents,
               webContentsId: id,
               url,
-              promptType: 'vault-unlock',
               requirements,
             });
+            if (unlocked) {
+              log.info(`[x402:auto-pay] package-hosted vault unlocked; retrying subresource sign for ${sanitizeUrlForLog(url)}`);
+              continue;
+            }
             log.warn(
-              `[x402:auto-pay] vault unlock UI unavailable (${dispatch.reason}); passing 402 through`
+              `[x402:auto-pay] package-hosted vault unlock rejected/unavailable (${dispatch.reason}); passing 402 through`
             );
             return null;
           }
@@ -1225,13 +1240,37 @@ async function detectPaymentRequiredHandler(details) {
         return null;
       } catch (err) {
         if (isVaultLockedError(err)) {
-          await requestPackageHostedX402Prompt({
+          const unlocked = await requestPackageHostedX402VaultUnlock({
             hostWebContents: approvalDispatch.hostWebContents,
             webContentsId: details.webContentsId,
             url: details.url,
-            promptType: 'vault-unlock',
             requirements,
           });
+          if (unlocked) {
+            try {
+              await signPackageHostedX402Approval({
+                webContentsId: details.webContentsId,
+                url: details.url,
+                requirements,
+                resourceType: details.resourceType,
+                requestShape,
+                grant: prompt.result?.grant,
+                selectedAcceptIndex: prompt.result?.selectedAcceptIndex,
+              });
+              log.info(`[x402:approval] package-hosted ${sanitizeUrlForLog(details.url)} signed after shell-owned vault unlock`);
+              if (details.resourceType && details.resourceType !== 'mainFrame') {
+                return {
+                  statusLine: 'HTTP/1.1 307 Temporary Redirect',
+                  responseHeaders: { Location: [details.url] },
+                };
+              }
+              return null;
+            } catch (retryErr) {
+              log.warn(
+                `[x402:approval] package-hosted retry after vault unlock failed: ${retryErr?.message || retryErr}`
+              );
+            }
+          }
         }
         log.warn(
           `[x402:approval] package-hosted shell-owned payment failed: ${err?.message || err}`

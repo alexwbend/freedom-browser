@@ -444,7 +444,7 @@ approval cards:
 guest webContents x402 interception
   -> main-owned package host/context derivation
   -> trusted prompt broker x402.approval or x402.vaultUnlock
-  -> shell-owned native dialog
+  -> shell-owned native dialog or trusted vault-unlock window
   -> shell-owned signing/retry or original 402 remains visible to the page
 ```
 
@@ -469,10 +469,14 @@ permission store; package chrome still receives no raw x402 permission API.
 
 Package-hosted vault-unlock prompts now receive the same main-derived payment
 review details when available, including amount, asset, network, recipient,
-and resource URL. They still intentionally dismiss and pass the original 402
-through when signing needs an unlock. Package-hosted x402 still does not
-unlock vault state, expose payment history, expose cap edit/revoke APIs, or
-migrate the full x402 approval UI.
+and resource URL. The x402 vault-unlock presentation is a shell-owned trusted
+window loaded from bundled code with a dedicated preload and per-request IPC
+channels. It submits the password only to main, calls the identity vault unlock
+path, and reports acceptance only after unlock succeeds. Accepted unlocks retry
+the existing main-owned x402 sign/retry path for package-hosted cap-covered
+auto-pay and accepted manual payment flows; rejected or failed unlocks pass the
+original 402 through. Package-hosted x402 still does not expose payment
+history, expose cap edit/revoke APIs, or migrate the full x402 approval UI.
 
 ## Future Real Prompt Paths
 
@@ -516,14 +520,14 @@ x402 approvals:
 - broker opens shell-owned payment approval or unlock prompt
 - current package-hosted approval slice can sign one-time payments, and can
   create the bounded default 10-token/30-day cap for recognized EIP-155
-  assets, after shell-owned native presentation when the vault is unlocked
-- package-hosted vault-unlock prompts show main-derived payment details after
-  shell-owned native presentation, then dismiss and pass the original 402
-  through
+  assets, after shell-owned native presentation
+- package-hosted vault-unlock prompts show main-derived payment details in a
+  shell-owned trusted window, unlock through main on accepted passwords, and
+  retry x402 signing without exposing vault APIs to package chrome
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add vault unlock, payment permission management,
-  cap editing/revocation surfaces, and richer review UI before x402 can be
-  called complete in package mode
+- future completion work must add payment permission management, cap
+  editing/revocation surfaces, richer review UI, and broader/general vault
+  unlock UX before x402 can be called complete in package mode
 
 Swarm publish/feed/signing approval:
 

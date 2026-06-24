@@ -632,6 +632,15 @@ async function triggerPackageHostedX402Approval(app, webContentsId) {
       const intercept = nodeRequire(
         pathModule.join(process.cwd(), 'src', 'main', 'x402', 'intercept.js')
       );
+      const signFlow = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'x402', 'sign-flow.js')
+      );
+      const { VAULT_LOCKED_MESSAGE } = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'wallet', 'vault-errors.js')
+      );
+      const trustedVaultPrompt = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'trusted-vault-unlock-prompt.js')
+      );
 
       intercept.clearAllDetectedPayments();
       intercept.clearAllPendingApprovals();
@@ -641,6 +650,8 @@ async function triggerPackageHostedX402Approval(app, webContentsId) {
 
       globalThis.__freedomX402PromptDialogs = [];
       globalThis.__freedomX402HostEvents = [];
+      globalThis.__freedomX402TrustedVaultUnlockPrompts = [];
+      globalThis.__freedomX402SignCalls = [];
       for (const window of BrowserWindow.getAllWindows()) {
         const wc = window.webContents;
         if (!wc || wc.isDestroyed?.()) continue;
@@ -676,6 +687,43 @@ async function triggerPackageHostedX402Approval(app, webContentsId) {
         return { response: 0 };
       };
 
+      const originalSignAndQueueRetry = signFlow.signAndQueueRetry;
+      const originalPresentTrustedVaultUnlockPrompt =
+        trustedVaultPrompt.presentTrustedVaultUnlockPrompt;
+      let signAttempt = 0;
+      signFlow.signAndQueueRetry = async (signWebContentsId, options = {}) => {
+        signAttempt += 1;
+        globalThis.__freedomX402SignCalls.push({
+          webContentsId: signWebContentsId,
+          authorizedBy: options.authorizedBy || null,
+          hasGrant: !!options.grant,
+          grant: options.grant || null,
+          selectedAcceptIndex: Number.isInteger(options.selectedAcceptIndex)
+            ? options.selectedAcceptIndex
+            : null,
+          detection: {
+            url: options.detection?.url || null,
+            resourceType: options.detection?.resourceType || null,
+          },
+        });
+        if (signAttempt === 1) {
+          throw new Error(VAULT_LOCKED_MESSAGE);
+        }
+      };
+      trustedVaultPrompt.presentTrustedVaultUnlockPrompt = async (request, context = {}) => {
+        globalThis.__freedomX402TrustedVaultUnlockPrompts.push({
+          request,
+          context: {
+            origin: context.origin || null,
+            webContentsId: context.webContentsId ?? null,
+            hasOwnerWindow: !!context.ownerWindow,
+            ownerWindowDestroyed: context.ownerWindow?.isDestroyed?.() ?? null,
+            caller: context.caller || null,
+          },
+        });
+        return { ok: true, outcome: 'accepted', response: 0 };
+      };
+
       const header = Buffer.from(JSON.stringify(payload.requirements)).toString('base64');
       const requestDetails = {
         id: payload.requestId,
@@ -685,25 +733,31 @@ async function triggerPackageHostedX402Approval(app, webContentsId) {
         requestHeaders: {},
         resourceType: 'xhr',
       };
-      intercept.captureRequestContextHandler(requestDetails);
-      const result = await intercept.detectPaymentRequiredHandler({
-        ...requestDetails,
-        statusLine: 'HTTP/1.1 402 Payment Required',
-        responseHeaders: { 'PAYMENT-REQUIRED': [header] },
-      });
-      const summary = {
-        result,
-        detectedAfter: intercept.getDetectedPayment(payload.webContentsId),
-        hostEvents: globalThis.__freedomX402HostEvents,
-        prompts: globalThis.__freedomX402PromptDialogs,
-      };
-
-      intercept.clearRequestContextHandler({ id: payload.requestId });
-      intercept.clearAllDetectedPayments();
-      intercept.clearAllPendingApprovals();
-      intercept.clearAllPendingUnlockResume();
-      intercept.clearAllPendingUnlockWaits();
-      return summary;
+      try {
+        intercept.captureRequestContextHandler(requestDetails);
+        const result = await intercept.detectPaymentRequiredHandler({
+          ...requestDetails,
+          statusLine: 'HTTP/1.1 402 Payment Required',
+          responseHeaders: { 'PAYMENT-REQUIRED': [header] },
+        });
+        return {
+          result,
+          detectedAfter: intercept.getDetectedPayment(payload.webContentsId),
+          hostEvents: globalThis.__freedomX402HostEvents,
+          prompts: globalThis.__freedomX402PromptDialogs,
+          vaultUnlockPrompts: globalThis.__freedomX402TrustedVaultUnlockPrompts,
+          signCalls: globalThis.__freedomX402SignCalls,
+        };
+      } finally {
+        signFlow.signAndQueueRetry = originalSignAndQueueRetry;
+        trustedVaultPrompt.presentTrustedVaultUnlockPrompt =
+          originalPresentTrustedVaultUnlockPrompt;
+        intercept.clearRequestContextHandler({ id: payload.requestId });
+        intercept.clearAllDetectedPayments();
+        intercept.clearAllPendingApprovals();
+        intercept.clearAllPendingUnlockResume();
+        intercept.clearAllPendingUnlockWaits();
+      }
     },
     {
       requestId: 40201,
@@ -2928,13 +2982,41 @@ test('official browser chrome can launch as a local package with transitional we
       },
     });
 
+    const activeWebContentsId = await getActiveWebviewWebContentsId(page);
     const x402SmokeResult = await triggerPackageHostedX402Approval(
       launched.app,
-      await getActiveWebviewWebContentsId(page)
+      activeWebContentsId
     );
-    expect(x402SmokeResult.result).toBeNull();
+    expect(x402SmokeResult.result).toEqual({
+      statusLine: 'HTTP/1.1 307 Temporary Redirect',
+      responseHeaders: { Location: [sampleX402PaymentUrl] },
+    });
     expect(x402SmokeResult.detectedAfter).toBeNull();
     expect(x402SmokeResult.hostEvents).toEqual([]);
+    expect(x402SmokeResult.signCalls).toEqual([
+      {
+        webContentsId: activeWebContentsId,
+        authorizedBy: 'manual',
+        hasGrant: true,
+        grant: { capAmount: '10000000', windowSeconds: 30 * 24 * 60 * 60 },
+        selectedAcceptIndex: null,
+        detection: {
+          url: sampleX402PaymentUrl,
+          resourceType: 'xhr',
+        },
+      },
+      {
+        webContentsId: activeWebContentsId,
+        authorizedBy: 'manual',
+        hasGrant: true,
+        grant: { capAmount: '10000000', windowSeconds: 30 * 24 * 60 * 60 },
+        selectedAcceptIndex: null,
+        detection: {
+          url: sampleX402PaymentUrl,
+          resourceType: 'xhr',
+        },
+      },
+    ]);
     const x402PaymentPromptDialog = x402SmokeResult.prompts.find(
       (dialog) => dialog.options?.title === 'Freedom x402 Payment'
     );
@@ -2959,30 +3041,40 @@ test('official browser chrome can launch as a local package with transitional we
         noLink: true,
       },
     });
-    const x402VaultUnlockPromptDialog = x402SmokeResult.prompts.find(
-      (dialog) => dialog.options?.title === 'Freedom x402 Vault Unlock'
-    );
-    expect(x402VaultUnlockPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom x402 Vault Unlock',
-        message: 'Vault unlock request',
-        detail:
-          'https://api.example needs vault unlock before x402 payment signing can continue. ' +
-          'Amount: 10000. ' +
-          'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-          'Network: eip155:8453. ' +
-          'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-          'Resource: https://api.example/article. ' +
-          'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
-        buttons: ['Dismiss'],
-        defaultId: 0,
-        cancelId: 0,
-        noLink: true,
+    expect(x402SmokeResult.vaultUnlockPrompts).toEqual([
+      {
+        request: expect.objectContaining({
+          kind: 'x402.vaultUnlock',
+          method: 'x402_vaultUnlock',
+          origin: 'https://api.example',
+          webContentsId: activeWebContentsId,
+          details: {
+            x402Version: 2,
+            amount: '10000',
+            asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            network: 'eip155:8453',
+            payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+            defaultGrant: {
+              capAmount: '10000000',
+              windowSeconds: 30 * 24 * 60 * 60,
+              selectedAcceptIndex: 0,
+              label: '10 USDC for 30 days',
+            },
+            resource: 'https://api.example/article',
+          },
+        }),
+        context: expect.objectContaining({
+          origin: 'https://api.example',
+          webContentsId: activeWebContentsId,
+          hasOwnerWindow: true,
+          ownerWindowDestroyed: false,
+          caller: expect.objectContaining({
+            runtimeMode: 'local-package',
+            packageType: 'browser-chrome',
+          }),
+        }),
       },
-    });
+    ]);
     await page.locator('#home-btn').click();
     await expectHomeReady(page);
 

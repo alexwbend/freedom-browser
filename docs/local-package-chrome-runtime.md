@@ -637,13 +637,15 @@ shell-owned retry behavior as bundled approval. For recognized EIP-155 token
 requirements, the prompt can also create the bounded default 10-token/30-day
 cap through the existing main-owned x402 permission store. Rejected prompts
 pass the original 402 through. If an auto-pay flow needs vault unlock, main
-presents a shell-owned native vault-unlock prompt with the same main-derived
-payment review details when available, then dismisses and passes the original
-402 through. This keeps package mode from silently hanging while preserving the
-boundary that final payment approval and vault unlock must stay shell-owned.
-The native x402 path does not unlock vault state, expose payment history,
-expose cap edit/revoke APIs, or migrate the full payment review UI. Raw package
-runtime x402 adapter methods also return structured
+presents a shell-owned trusted vault-unlock window with a dedicated preload and
+the same main-derived payment review details when available. Accepted unlocks
+call the main-owned identity vault unlock path and then retry the existing x402
+sign/retry flow; rejected or failed unlocks pass the original 402 through. This
+keeps package mode from silently hanging while preserving the boundary that
+final payment approval and vault unlock must stay shell-owned. The native x402
+path does not expose payment history, expose cap edit/revoke APIs, or migrate
+the full payment review UI. Raw package runtime x402 adapter methods also
+return structured
 `X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or
 empty-array defaults.
 
@@ -823,10 +825,11 @@ them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
 approval UI. Package-hosted x402 approval prompts can now create the bounded
 default cap for recognized tokens, and vault-unlock prompts now have
-main-derived request/payment context, but x402 cap editing/revocation, actual
-vault unlock, full Swarm publish/feed UX, richer wallet account
-selection/review, and general vault unlock flows still need real shell-owned
-prompt UI before they can move fully through the broker.
+main-derived request/payment context and can unlock through a shell-owned
+trusted window before retrying the x402 sign path. x402 cap editing/revocation,
+payment permission management, full Swarm publish/feed UX, richer wallet
+account selection/review, and general vault unlock flows still need real
+shell-owned prompt UI before they can move fully through the broker.
 
 ## Package Store
 

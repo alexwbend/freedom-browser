@@ -4083,3 +4083,58 @@ Known remaining gaps after this checkpoint:
   Swarm publish/feed UX, and richer wallet account/review surfaces still need
   shell-owned UI before the broader package runtime can be called complete;
   these are not user-approved completion deferrals
+
+### Trusted Prompt Broker Checkpoint 24: Package x402 Trusted Vault Unlock
+
+Current checkpoint: package-hosted x402 locked-vault paths now use a real
+shell-owned trusted vault-unlock window instead of a dismissal-only native
+prompt. The window is bundled shell code with a dedicated preload and
+per-request IPC channels. It submits the password only to main, calls the
+identity vault unlock path, and reports an accepted trusted prompt result only
+after unlock succeeds. Package chrome still does not receive raw `x402:*`
+events, raw payment-history IPC, vault primitives, wallet APIs, Node,
+Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `src/main/trusted-vault-unlock-prompt.js` plus bundled HTML,
+  renderer, and dedicated preload assets for a shell-owned vault unlock prompt
+- scoped the prompt IPC channels by trusted prompt request id and rejected
+  submit/context/cancel requests from any sender other than the prompt window
+- changed package-hosted x402 vault-unlock prompts to present the trusted
+  window with main-derived payment details
+- changed cap-covered package-hosted subresource auto-pay so an accepted
+  shell-owned unlock retries the existing main-owned x402 sign/retry loop and
+  returns the same 307 retry result
+- changed cap-covered package-hosted main-frame auto-pay so an accepted
+  shell-owned unlock retries signing through the existing sign-flow path
+- changed accepted package-hosted manual x402 payments so a locked-vault
+  failure can unlock through the shell-owned prompt and then retry signing
+- kept rejected or failed unlocks on the conservative pass-through path
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-vault-unlock-prompt.test.js src/main/x402/intercept.test.js src/main/trusted-prompt-broker.test.js` passed:
+  3 suites, 136 tests.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  117 suites passed, 5 skipped; 2264 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted x402 can now unlock and retry for payment signing paths, but
+  x402 cap editing/revocation, payment permission management, payment history
+  UI, and richer payment review still need shell-owned x402 or wallet surfaces
+  before x402 can be called complete in package mode
+- identity onboarding, general vault unlock UX, seed/private-key export, full
+  Swarm publish/feed UX, and richer wallet account/review surfaces still need
+  shell-owned UI before the broader package runtime can be called complete;
+  these are not user-approved completion deferrals

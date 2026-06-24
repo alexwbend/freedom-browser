@@ -61,6 +61,10 @@ jest.mock('./sign-flow', () => ({
   signAndQueueRetry: (...args) => mockSignAndQueueRetry(...args),
 }));
 
+const mockPresentTrustedVaultUnlockPrompt = jest.fn();
+jest.mock('../trusted-vault-unlock-prompt', () => ({
+  presentTrustedVaultUnlockPrompt: (...args) => mockPresentTrustedVaultUnlockPrompt(...args),
+}));
 
 const mockGetPermission = jest.fn(() => null);
 const mockTryConsume = jest.fn(() => true);
@@ -120,6 +124,11 @@ beforeEach(() => {
   mockHostSend.mockClear();
   mockDialogShowMessageBox.mockReset().mockResolvedValue({ response: 0 });
   mockSignAndQueueRetry.mockReset().mockResolvedValue(undefined);
+  mockPresentTrustedVaultUnlockPrompt.mockReset().mockResolvedValue({
+    ok: true,
+    outcome: 'accepted',
+    response: 0,
+  });
   mockGetPermission.mockReset().mockReturnValue(null);
   mockTryConsume.mockReset().mockReturnValue(true);
   mockGetToken.mockClear();
@@ -400,8 +409,57 @@ describe('detectPaymentRequiredHandler', () => {
     expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(1);
   });
 
-  test('package-hosted cap-covered locked-vault subresource shows a shell-owned rejection prompt and passes the 402 through', async () => {
+  test('package-hosted cap-covered locked-vault subresource unlocks through a shell-owned prompt and retries', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPermission.mockReturnValueOnce({
+      capAmount: '20000',
+      spentAmount: '0',
+      createdAt: 1,
+      expiresAt: 9999999999,
+    });
+    mockSignAndQueueRetry.mockReset()
+      .mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE))
+      .mockResolvedValueOnce(undefined);
+
+    const result = await detectPaymentRequiredHandler(detail({ resourceType: 'xhr' }));
+
+    expect(result).toEqual({
+      statusLine: 'HTTP/1.1 307 Temporary Redirect',
+      responseHeaders: { Location: ['https://api.example/article'] },
+    });
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingUnlockWait(7)).toBe(false);
+    expect(consumePendingUnlockResume(7)).toBeNull();
+    expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(2);
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'x402.vaultUnlock',
+        method: 'x402_vaultUnlock',
+        origin: 'https://api.example',
+        webContentsId: 7,
+        details: expect.objectContaining({
+          amount: '10000',
+          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          network: 'eip155:8453',
+          payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+          resource: 'https://api.example/article',
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://api.example',
+        webContentsId: 7,
+        ownerWindow: null,
+      })
+    );
+  });
+
+  test('package-hosted cap-covered locked-vault subresource passes through when shell-owned unlock is rejected', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockPresentTrustedVaultUnlockPrompt.mockResolvedValueOnce({
+      ok: true,
+      outcome: 'rejected',
+      response: 1,
+    });
     mockGetPermission.mockReturnValueOnce({
       capAmount: '20000',
       spentAmount: '0',
@@ -416,23 +474,8 @@ describe('detectPaymentRequiredHandler', () => {
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingUnlockWait(7)).toBe(false);
     expect(consumePendingUnlockResume(7)).toBeNull();
-    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
-      type: 'info',
-      title: 'Freedom x402 Vault Unlock',
-      message: 'Vault unlock request',
-      detail:
-        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
-        'Amount: 10000. ' +
-        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-        'Network: eip155:8453. ' +
-        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-        'Resource: https://api.example/article. ' +
-        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
-      buttons: ['Dismiss'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    });
+    expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(1);
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledTimes(1);
   });
 
   test('subresource cap-covered locked-vault: if the second sign also fails locked, fires unlock-needed again and re-arms the wait', async () => {
@@ -569,7 +612,7 @@ describe('detectPaymentRequiredHandler', () => {
     });
   });
 
-  test('package-hosted mainFrame auto-pay locked-vault shows the detailed shell-owned prompt and drops the resume token', async () => {
+  test('package-hosted mainFrame auto-pay locked-vault unlocks through a shell-owned prompt and retries signing', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
     mockGetPermission.mockReturnValueOnce({
       capAmount: '20000',
@@ -577,33 +620,29 @@ describe('detectPaymentRequiredHandler', () => {
       createdAt: 1,
       expiresAt: 9999999999,
     });
-    mockSignAndQueueRetry.mockReset().mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE));
+    mockSignAndQueueRetry.mockReset()
+      .mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE))
+      .mockResolvedValueOnce(undefined);
 
     const result = await detectPaymentRequiredHandler(detail({ resourceType: 'mainFrame' }));
     expect(result).toBeNull();
 
     await new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
     await flushRetryMicrotasks();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushRetryMicrotasks();
 
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(consumePendingUnlockResume(7)).toBeNull();
-    expect(mockDialogShowMessageBox).toHaveBeenCalledWith(null, {
-      type: 'info',
-      title: 'Freedom x402 Vault Unlock',
-      message: 'Vault unlock request',
-      detail:
-        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
-        'Amount: 10000. ' +
-        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-        'Network: eip155:8453. ' +
-        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-        'Resource: https://api.example/article. ' +
-        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
-      buttons: ['Dismiss'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    });
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledTimes(1);
+    expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(2);
+    expect(mockSignAndQueueRetry).toHaveBeenNthCalledWith(2, 7, expect.objectContaining({
+      authorizedBy: 'cap',
+      detection: expect.objectContaining({
+        url: 'https://api.example/article',
+        requirements: sampleRequirements,
+      }),
+    }));
   });
 
   test('consumePendingUnlockResume returns null past the TTL', async () => {
@@ -847,39 +886,43 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
     });
   });
 
-  test('package-hosted accepted payment with locked vault shows the detailed shell-owned unlock prompt', async () => {
+  test('package-hosted accepted payment with locked vault unlocks through a shell-owned prompt and retries signing', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
-    mockDialogShowMessageBox
-      .mockResolvedValueOnce({ response: 0 })
-      .mockResolvedValueOnce({ response: 0 });
-    mockSignAndQueueRetry.mockReset().mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE));
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 0 });
+    mockSignAndQueueRetry.mockReset()
+      .mockRejectedValueOnce(new Error(VAULT_LOCKED_MESSAGE))
+      .mockResolvedValueOnce(undefined);
 
     const result = await detectPaymentRequiredHandler(detail());
 
-    expect(result).toBeNull();
+    expect(result).toEqual({
+      statusLine: 'HTTP/1.1 307 Temporary Redirect',
+      responseHeaders: { Location: ['https://api.example/segment/0'] },
+    });
     expect(mockHostSend).not.toHaveBeenCalled();
     expect(hasPendingApproval('req-1001')).toBe(false);
     expect(getDetectedPayment(7)).toBeNull();
-    expect(mockSignAndQueueRetry).toHaveBeenCalledWith(7, expect.objectContaining({
+    expect(mockSignAndQueueRetry).toHaveBeenCalledTimes(2);
+    expect(mockSignAndQueueRetry).toHaveBeenNthCalledWith(1, 7, expect.objectContaining({
       authorizedBy: 'manual',
     }));
-    expect(mockDialogShowMessageBox).toHaveBeenNthCalledWith(2, null, {
-      type: 'info',
-      title: 'Freedom x402 Vault Unlock',
-      message: 'Vault unlock request',
-      detail:
-        'https://api.example needs vault unlock before x402 payment signing can continue. ' +
-        'Amount: 10000. ' +
-        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
-        'Network: eip155:8453. ' +
-        'Pay to: 0x209693Bc6afc0C5328bA36FaF03C514EF312287C. ' +
-        'Resource: https://api.example/article. ' +
-        'Package chrome cannot unlock the vault; unlock from a shell-owned wallet surface and retry.',
-      buttons: ['Dismiss'],
-      defaultId: 0,
-      cancelId: 0,
-      noLink: true,
-    });
+    expect(mockSignAndQueueRetry).toHaveBeenNthCalledWith(2, 7, expect.objectContaining({
+      authorizedBy: 'manual',
+    }));
+    expect(mockPresentTrustedVaultUnlockPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'x402.vaultUnlock',
+        method: 'x402_vaultUnlock',
+        details: expect.objectContaining({
+          amount: '10000',
+          resource: 'https://api.example/article',
+        }),
+      }),
+      expect.objectContaining({
+        origin: 'https://api.example',
+        webContentsId: 7,
+      })
+    );
   });
 
   test('on approve: signs with MANUAL authorization, returns 307, and fires approval-result success event', async () => {
