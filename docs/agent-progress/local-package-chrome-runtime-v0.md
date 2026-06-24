@@ -2051,6 +2051,12 @@ Verification in this checkpoint:
   14 tests.
 - `xvfb-run -a npm run test:e2e` passed:
   27 tests.
+- committed as `3afac60` (`fix(chrome): restrict package-hosted settings`) and
+  pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28069196324`, job `test` (`83099991924`), passed for
+  `3afac60`.
+- GitHub Actions run `28069196324`, job `e2e-chrome-runtime`
+  (`83099991952`), passed for `3afac60`.
 
 Known remaining gaps after this checkpoint:
 
