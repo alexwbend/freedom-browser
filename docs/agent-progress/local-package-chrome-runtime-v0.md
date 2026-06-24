@@ -2797,6 +2797,13 @@ Verification in this checkpoint so far:
 - `npm test` passed: 116 suites passed, 5 skipped; 2187 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `104509d` (`feat(chrome): route package wallet connect
+  prompts through shell`) and pushed to
+  `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28072584408`, job `test` (`83110095022`), passed for
+  `104509d`.
+- GitHub Actions run `28072584408`, job `e2e-chrome-runtime`
+  (`83110095016`), passed for `104509d`.
 
 Known remaining gaps after this checkpoint:
 
