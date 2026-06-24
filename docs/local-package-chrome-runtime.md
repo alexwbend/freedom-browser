@@ -375,7 +375,12 @@ The official package smoke currently proves:
   `x402:*` host events are delivered to package chrome
 - the wallet/sidebar control opens a shell-owned trusted wallet window in
   package mode through `surfaces.wallet.control` without exposing wallet,
-  identity, vault, provider, or permission-store APIs to package chrome
+  identity, vault, provider, or permission-store APIs to package chrome; the
+  trusted window displays wallet accounts and dApp grants, can set the active
+  wallet, create a derived wallet when the vault is already unlocked, rename
+  wallets, delete non-main wallets after connected dApp grants are revoked, and
+  export the vault seed phrase or a selected private key after password
+  verification
 - the main menu opens, and the node menu opens with sanitized service status
   available through `services.read`
 - package chrome does not receive broad node globals such as `ant`, `ipfs`,
@@ -880,9 +885,9 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX, richer wallet signing/account review, wallet-center management, and
-non-provider vault management flows still need real shell-owned UI before they
-can move fully through the broker.
+UX, identity onboarding, richer wallet signing/account review and switching,
+and non-provider vault unlock/management flows still need real shell-owned UI
+before they can move fully through the broker.
 
 ## Package Store
 

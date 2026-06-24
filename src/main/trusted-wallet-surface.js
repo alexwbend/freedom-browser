@@ -82,6 +82,14 @@ function normalizePassword(password) {
   return password;
 }
 
+function normalizeWalletName(name) {
+  const text = typeof name === 'string' ? name.trim() : '';
+  if (!text) {
+    throw new Error('wallet name is required');
+  }
+  return text.slice(0, 80);
+}
+
 function sanitizePermission(permission = {}) {
   return {
     origin: typeof permission.origin === 'string' ? permission.origin : '',
@@ -93,6 +101,21 @@ function sanitizePermission(permission = {}) {
       ? cloneSerializable(permission.autoApprove)
       : null,
   };
+}
+
+function getDappPermissionReferences(walletIndex) {
+  return dappPermissions
+    .getAllPermissions()
+    .filter((permission) => permission?.walletIndex === walletIndex);
+}
+
+function formatDappPermissionReferenceError(walletIndex, permissions) {
+  const origins = permissions.map((permission) => permission.origin).filter(Boolean);
+  const shownOrigins = origins.slice(0, 3).join(', ');
+  const extraCount = origins.length - 3;
+  const extra = extraCount > 0 ? ` and ${extraCount} more` : '';
+  const suffix = shownOrigins ? ` for ${shownOrigins}${extra}` : '';
+  return `Cannot delete wallet with index ${walletIndex}; it is connected to dApps${suffix}. Revoke connected sites before deleting this wallet.`;
 }
 
 function buildSurfaceContext(context = {}) {
@@ -226,6 +249,10 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     context: channelFor('context', surfaceId),
     snapshot: channelFor('snapshot', surfaceId),
     revokePermission: channelFor('revoke-permission', surfaceId),
+    setActiveWallet: channelFor('set-active-wallet', surfaceId),
+    createWallet: channelFor('create-wallet', surfaceId),
+    renameWallet: channelFor('rename-wallet', surfaceId),
+    deleteWallet: channelFor('delete-wallet', surfaceId),
     exportMnemonic: channelFor('export-mnemonic', surfaceId),
     exportPrivateKey: channelFor('export-private-key', surfaceId),
     close: channelFor('close', surfaceId),
@@ -301,6 +328,79 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       return errorResult(
         'TRUSTED_WALLET_SURFACE_REVOKE_FAILED',
         err?.message || 'Failed to revoke wallet permission'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.setActiveWallet, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const walletIndex = normalizeWalletIndex(payload.walletIndex);
+      await identityManager.setActiveWalletIndex(walletIndex);
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, walletIndex, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_SET_ACTIVE_FAILED',
+        err?.message || 'Failed to set active wallet'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.createWallet, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const name = normalizeWalletName(payload.name);
+      const wallet = await identityManager.createDerivedWallet(name);
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, wallet, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_CREATE_WALLET_FAILED',
+        err?.message || 'Failed to create wallet'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.renameWallet, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const walletIndex = normalizeWalletIndex(payload.walletIndex);
+      const name = normalizeWalletName(payload.name);
+      await identityManager.renameDerivedWallet(walletIndex, name);
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, walletIndex, name, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_RENAME_WALLET_FAILED',
+        err?.message || 'Failed to rename wallet'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.deleteWallet, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const walletIndex = normalizeWalletIndex(payload.walletIndex);
+      const dappPermissionReferences = getDappPermissionReferences(walletIndex);
+      if (dappPermissionReferences.length > 0) {
+        throw new Error(formatDappPermissionReferenceError(walletIndex, dappPermissionReferences));
+      }
+      await identityManager.deleteDerivedWallet(walletIndex);
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, walletIndex, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_DELETE_WALLET_FAILED',
+        err?.message || 'Failed to delete wallet'
       );
     }
   });

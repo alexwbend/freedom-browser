@@ -20,8 +20,12 @@
   const exportValue = document.getElementById('export-value');
   const exportCopy = document.getElementById('export-copy');
   const exportMnemonicOpen = document.getElementById('export-mnemonic-open');
+  const createWalletName = document.getElementById('create-wallet-name');
+  const createWalletSubmit = document.getElementById('create-wallet-submit');
+  const managementError = document.getElementById('management-error');
 
   let exportRequest = null;
+  let currentSnapshot = {};
 
   function setError(message) {
     error.textContent = message || '';
@@ -31,6 +35,11 @@
   function setExportError(message) {
     exportError.textContent = message || '';
     exportError.hidden = !message;
+  }
+
+  function setManagementError(message) {
+    managementError.textContent = message || '';
+    managementError.hidden = !message;
   }
 
   function formatDate(value) {
@@ -55,6 +64,80 @@
     while (element.firstChild) {
       element.removeChild(element.firstChild);
     }
+  }
+
+  function renderAndStoreSnapshot(snapshot = {}) {
+    currentSnapshot = snapshot;
+    renderSnapshot(snapshot);
+  }
+
+  async function runWalletManagement(operation, busyButton) {
+    setManagementError('');
+    if (busyButton) {
+      busyButton.disabled = true;
+    }
+    try {
+      const result = await operation();
+      if (!result || result.ok !== true) {
+        setManagementError(result?.error?.message || 'Wallet management action failed.');
+        return null;
+      }
+      renderAndStoreSnapshot(result.snapshot || currentSnapshot);
+      return result;
+    } catch (err) {
+      setManagementError(err?.message || 'Wallet management action failed.');
+      return null;
+    } finally {
+      if (busyButton) {
+        busyButton.disabled = false;
+      }
+    }
+  }
+
+  async function handleCreateWallet() {
+    const name = createWalletName.value.trim();
+    const result = await runWalletManagement(
+      () => api.createWallet({ name }),
+      createWalletSubmit
+    );
+    if (result) {
+      createWalletName.value = '';
+    }
+  }
+
+  async function handleSetActiveWallet(wallet, button) {
+    await runWalletManagement(
+      () => api.setActiveWallet({ walletIndex: wallet.index }),
+      button
+    );
+  }
+
+  async function handleRenameWallet(wallet, button) {
+    const name = window.prompt('Wallet name', wallet.name || `Wallet ${wallet.index}`);
+    if (name === null) {
+      return;
+    }
+    await runWalletManagement(
+      () => api.renameWallet({ walletIndex: wallet.index, name }),
+      button
+    );
+  }
+
+  async function handleDeleteWallet(wallet, button) {
+    if (wallet.index === 0) {
+      setManagementError('The main wallet cannot be deleted.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Delete ${wallet.name || `Wallet ${wallet.index}`}? This removes the account from the wallet list but it can be recovered from the vault recovery phrase.`
+    );
+    if (!confirmed) {
+      return;
+    }
+    await runWalletManagement(
+      () => api.deleteWallet({ walletIndex: wallet.index }),
+      button
+    );
   }
 
   function resetExportPanel() {
@@ -173,11 +256,38 @@
       exportButton.textContent = 'Export key';
       exportButton.addEventListener('click', () => openExportPanel(wallet));
 
+      const activeButton = document.createElement('button');
+      activeButton.type = 'button';
+      activeButton.className = 'secondary-button';
+      activeButton.textContent = wallet.index === snapshot.activeWalletIndex ? 'Active' : 'Set active';
+      activeButton.disabled = wallet.index === snapshot.activeWalletIndex;
+      activeButton.addEventListener('click', () => {
+        handleSetActiveWallet(wallet, activeButton);
+      });
+
+      const renameButton = document.createElement('button');
+      renameButton.type = 'button';
+      renameButton.className = 'secondary-button';
+      renameButton.textContent = 'Rename';
+      renameButton.addEventListener('click', () => {
+        handleRenameWallet(wallet, renameButton);
+      });
+
+      const deleteButton = document.createElement('button');
+      deleteButton.type = 'button';
+      deleteButton.className = 'secondary-button';
+      deleteButton.textContent = 'Delete';
+      deleteButton.disabled = wallet.index === 0;
+      deleteButton.addEventListener('click', () => {
+        handleDeleteWallet(wallet, deleteButton);
+      });
+
       const actions = document.createElement('div');
       actions.className = 'row-actions';
-      actions.append(badge, exportButton);
+      actions.append(badge, activeButton, renameButton, deleteButton, exportButton);
 
       const content = document.createElement('div');
+      content.className = 'row-main';
       content.append(title, meta);
       row.append(content, actions);
       walletList.append(row);
@@ -215,10 +325,11 @@
           return;
         }
         setError('');
-        renderSnapshot(result.snapshot || snapshot);
+        renderAndStoreSnapshot(result.snapshot || snapshot);
       });
 
       const content = document.createElement('div');
+      content.className = 'row-main';
       content.append(title, meta);
       row.append(content, revoke);
       permissionList.append(row);
@@ -252,11 +363,20 @@
       setError(snapshotResult?.error?.message || 'Failed to load wallet state.');
       return;
     }
-    renderSnapshot(snapshotResult.snapshot);
+    renderAndStoreSnapshot(snapshotResult.snapshot);
   }
 
   close.addEventListener('click', () => {
     api.close();
+  });
+  createWalletSubmit.addEventListener('click', () => {
+    handleCreateWallet();
+  });
+  createWalletName.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleCreateWallet();
+    }
   });
   exportMnemonicOpen.addEventListener('click', openMnemonicExportPanel);
   exportSubmit.addEventListener('click', () => {
@@ -284,7 +404,7 @@
   if (api && typeof api.onSnapshotUpdated === 'function') {
     api.onSnapshotUpdated((payload) => {
       if (payload?.ok === true) {
-        renderSnapshot(payload.snapshot);
+        renderAndStoreSnapshot(payload.snapshot);
       }
     });
   }

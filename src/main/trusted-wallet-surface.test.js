@@ -62,12 +62,20 @@ const mockGetActiveWalletIndex = jest.fn();
 const mockGetActiveWalletAddress = jest.fn();
 const mockExportMnemonicWithPassword = jest.fn();
 const mockExportPrivateKeyWithPassword = jest.fn();
+const mockSetActiveWalletIndex = jest.fn();
+const mockCreateDerivedWallet = jest.fn();
+const mockRenameDerivedWallet = jest.fn();
+const mockDeleteDerivedWallet = jest.fn();
 jest.mock('./identity-manager', () => ({
   getDerivedWallets: (...args) => mockGetDerivedWallets(...args),
   getActiveWalletIndex: (...args) => mockGetActiveWalletIndex(...args),
   getActiveWalletAddress: (...args) => mockGetActiveWalletAddress(...args),
   exportMnemonicWithPassword: (...args) => mockExportMnemonicWithPassword(...args),
   exportPrivateKeyWithPassword: (...args) => mockExportPrivateKeyWithPassword(...args),
+  setActiveWalletIndex: (...args) => mockSetActiveWalletIndex(...args),
+  createDerivedWallet: (...args) => mockCreateDerivedWallet(...args),
+  renameDerivedWallet: (...args) => mockRenameDerivedWallet(...args),
+  deleteDerivedWallet: (...args) => mockDeleteDerivedWallet(...args),
 }));
 
 const mockGetAllPermissions = jest.fn();
@@ -105,6 +113,14 @@ function seedStores() {
   mockExportPrivateKeyWithPassword.mockResolvedValue(
     '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   );
+  mockSetActiveWalletIndex.mockResolvedValue(undefined);
+  mockCreateDerivedWallet.mockResolvedValue({
+    index: 2,
+    name: 'Trading',
+    address: '0x3333333333333333333333333333333333333333',
+  });
+  mockRenameDerivedWallet.mockResolvedValue(undefined);
+  mockDeleteDerivedWallet.mockResolvedValue(undefined);
   mockGetAllPermissions.mockReturnValue([
     {
       origin: 'https://app.example',
@@ -215,8 +231,162 @@ test('returns after creating the trusted wallet window while presentation load c
   });
   expect(mockWindows).toHaveLength(1);
   expect(mockWindows[0].loadFile).toHaveBeenCalled();
-  expect(mockHandlers.size).toBe(6);
+  expect(mockHandlers.size).toBe(10);
   resolveLoad();
+});
+
+test('rejects wallet management requests from unexpected senders', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('set-active-wallet', surfaceId))(
+    { sender: { id: 999 } },
+    { walletIndex: 0 }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: expect.objectContaining({
+      code: 'TRUSTED_WALLET_SURFACE_SENDER_MISMATCH',
+    }),
+  });
+  expect(mockSetActiveWalletIndex).not.toHaveBeenCalled();
+});
+
+test('sets the active wallet only through the trusted surface window', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('set-active-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 0 }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    walletIndex: 0,
+    snapshot: {
+      activeWalletIndex: 1,
+    },
+  });
+  expect(mockSetActiveWalletIndex).toHaveBeenCalledWith(0);
+  expect(surfaceWindow.webContents.send).toHaveBeenCalledWith(
+    channelFor('snapshot-updated', surfaceId),
+    expect.objectContaining({
+      ok: true,
+      snapshot: expect.objectContaining({
+        wallets: expect.any(Array),
+      }),
+    })
+  );
+});
+
+test('creates derived wallets only through the trusted surface window', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('create-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { name: ' Trading ' }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    wallet: {
+      index: 2,
+      name: 'Trading',
+      address: '0x3333333333333333333333333333333333333333',
+    },
+    snapshot: {
+      wallets: expect.any(Array),
+    },
+  });
+  expect(mockCreateDerivedWallet).toHaveBeenCalledWith('Trading');
+});
+
+test('renames wallets only through the trusted surface window', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('rename-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 1, name: ' Long Term ' }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    walletIndex: 1,
+    name: 'Long Term',
+    snapshot: {
+      wallets: expect.any(Array),
+    },
+  });
+  expect(mockRenameDerivedWallet).toHaveBeenCalledWith(1, 'Long Term');
+});
+
+test('deletes derived wallets only through the trusted surface window', async () => {
+  mockGetAllPermissions.mockReturnValueOnce([]);
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('delete-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 1 }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    walletIndex: 1,
+    snapshot: {
+      wallets: expect.any(Array),
+    },
+  });
+  expect(mockDeleteDerivedWallet).toHaveBeenCalledWith(1);
+});
+
+test('refuses to delete wallets that still have dapp permissions', async () => {
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('delete-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { walletIndex: 1 }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: {
+      code: 'TRUSTED_WALLET_SURFACE_DELETE_WALLET_FAILED',
+      message: 'Cannot delete wallet with index 1; it is connected to dApps for https://app.example. Revoke connected sites before deleting this wallet.',
+    },
+  });
+  expect(mockDeleteDerivedWallet).not.toHaveBeenCalled();
+});
+
+test('returns structured wallet management failures', async () => {
+  mockCreateDerivedWallet.mockRejectedValueOnce(new Error('Vault must be unlocked'));
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('create-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { name: 'Trading' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: {
+      code: 'TRUSTED_WALLET_SURFACE_CREATE_WALLET_FAILED',
+      message: 'Vault must be unlocked',
+    },
+  });
 });
 
 test('rejects permission revocation from unexpected senders', async () => {

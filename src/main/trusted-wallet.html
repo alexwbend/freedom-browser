@@ -76,7 +76,8 @@
 
       .item-row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
+        flex-wrap: wrap;
         justify-content: space-between;
         gap: 16px;
         border: 1px solid #dedbd2;
@@ -87,6 +88,11 @@
 
       .item-row.active {
         border-color: #2f7d59;
+      }
+
+      .row-main {
+        flex: 1 1 220px;
+        min-width: 180px;
       }
 
       .item-title {
@@ -142,8 +148,10 @@
       .row-actions {
         align-items: center;
         display: flex;
-        flex: none;
+        flex: 1 1 260px;
+        flex-wrap: wrap;
         gap: 8px;
+        justify-content: flex-end;
       }
 
       .export-panel {
@@ -156,7 +164,22 @@
         padding: 14px;
       }
 
+      .management-panel {
+        border: 1px solid #dedbd2;
+        border-radius: 8px;
+        background: #fffdfa;
+        display: grid;
+        gap: 12px;
+        margin-bottom: 14px;
+        padding: 14px;
+      }
+
       .export-panel h3 {
+        font-size: 14px;
+        margin: 0;
+      }
+
+      .management-panel h3 {
         font-size: 14px;
         margin: 0;
       }
@@ -183,6 +206,11 @@
       .button-row {
         display: flex;
         flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .inline-form {
+        display: grid;
         gap: 8px;
       }
 
@@ -255,6 +283,19 @@
       <div class="grid">
         <section aria-labelledby="wallets-title">
           <h2 id="wallets-title">Accounts</h2>
+          <div class="management-panel">
+            <h3>Create wallet</h3>
+            <div class="inline-form">
+              <div class="field">
+                <label for="create-wallet-name">Wallet name</label>
+                <input id="create-wallet-name" type="text" autocomplete="off" maxlength="80" placeholder="Savings">
+              </div>
+              <div class="button-row">
+                <button type="button" class="secondary-button" id="create-wallet-submit">Create wallet</button>
+              </div>
+            </div>
+            <div class="error" id="management-error" hidden></div>
+          </div>
           <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
           <ul id="wallet-list"></ul>
           <div class="item-row">

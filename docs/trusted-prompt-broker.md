@@ -567,11 +567,14 @@ Wallet connect:
 - current package-hosted slice shows main-derived account choices in the
   trusted window, revalidates the selected wallet index in main after
   acceptance, and writes the dApp permission from main
-- the shell-owned trusted wallet surface can export the vault seed phrase or a
-  selected wallet private key after password verification through scoped
-  trusted-window IPC
-- future completion work should add broader wallet-center management in
-  shell-owned surfaces
+- the shell-owned trusted wallet surface can set the active wallet, create a
+  derived wallet when the vault is already unlocked, rename wallets, delete
+  non-main wallets after connected dApp grants are revoked, and export the
+  vault seed phrase or a selected wallet private key after password
+  verification through scoped trusted-window IPC
+- future completion work should add identity onboarding, non-provider vault
+  unlock/management, and richer account review/switching in shell-owned
+  surfaces
 
 Transaction and typed-data signing:
 
@@ -592,7 +595,7 @@ Transaction and typed-data signing:
 - package chrome never receives private keys, raw transaction authority, or
   final approval rendering authority
 - future completion work must add richer signing account review/switching,
-  wallet-center management, and broader non-provider vault management before
+  identity onboarding, and broader non-provider vault unlock/management before
   wallet UX can be called complete in package mode
 
 x402 approvals:
@@ -649,9 +652,10 @@ Vault unlock:
 
 ## Non-Goals In This Slice
 
-- no full wallet center or general secret-management migration beyond
-  password-gated seed/private-key export in the trusted wallet surface
-- no full wallet account-selection implementation
+- no identity onboarding or general secret-management migration beyond scoped
+  wallet management plus password-gated seed/private-key export in the trusted
+  wallet surface
+- no full signing account-review/switching implementation
 - no general vault-unlock migration outside the current x402 and wallet-provider retry paths
 - no full publish-center approval migration
 - no package-rendered prompt UI

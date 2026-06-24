@@ -144,9 +144,21 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
 
-function seedWalletMetadata(userDataDir, address = packageSmokeWalletAddress) {
+function seedWalletMetadata(userDataDir, address = packageSmokeWalletAddress, options = {}) {
   const identityDir = path.join(userDataDir, 'identity');
   fs.mkdirSync(identityDir, { recursive: true });
+  const derivedWallets = Array.isArray(options.derivedWallets)
+    ? options.derivedWallets
+    : [
+        {
+          index: 0,
+          name: 'Main Wallet',
+          address,
+        },
+      ];
+  const activeWalletIndex = Number.isInteger(options.activeWalletIndex)
+    ? options.activeWalletIndex
+    : 0;
   fs.writeFileSync(
     path.join(identityDir, 'vault-meta.json'),
     JSON.stringify(
@@ -157,14 +169,8 @@ function seedWalletMetadata(userDataDir, address = packageSmokeWalletAddress) {
           userWallet: address,
           beeWallet: '0x2222222222222222222222222222222222222222',
         },
-        derivedWallets: [
-          {
-            index: 0,
-            name: 'Main Wallet',
-            address,
-          },
-        ],
-        activeWalletIndex: 0,
+        derivedWallets,
+        activeWalletIndex,
       },
       null,
       2
@@ -1033,6 +1039,42 @@ async function waitForPackageChromeWindow(app, expected) {
   throw new Error('Package chrome window did not appear');
 }
 
+async function waitForTrustedWalletWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('#create-wallet-submit', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; other BrowserWindows do not host the trusted wallet surface.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('#create-wallet-submit', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the trusted wallet surface is ready.
+      }
+    }
+  }
+
+  throw new Error('Trusted wallet window did not appear');
+}
+
 test('local package chrome loads through freedomShell without broad preload APIs', async () => {
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
@@ -1835,7 +1877,21 @@ test('official browser chrome can launch as a local package with transitional we
   const packageDir = path.join(parent, 'official');
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-user-'));
   writeOfficialChromePackage(packageDir);
-  seedWalletMetadata(userDataDir);
+  seedWalletMetadata(userDataDir, packageSmokeWalletAddress, {
+    derivedWallets: [
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: packageSmokeWalletAddress,
+      },
+      {
+        index: 1,
+        name: 'Savings',
+        address: '0x3333333333333333333333333333333333333333',
+      },
+    ],
+    activeWalletIndex: 0,
+  });
   const faviconServer = await startFaviconFixtureServer();
 
   const launched = await launchFreedom(
@@ -1894,6 +1950,34 @@ test('official browser chrome can launch as a local package with transitional we
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(true);
+    const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
+    await expect(trustedWalletWindow.locator('#heading')).toHaveText('Wallet Accounts');
+    await expect(trustedWalletWindow.locator('#wallet-list li')).toHaveCount(2);
+    await expect(trustedWalletWindow.locator('#create-wallet-submit')).toBeVisible();
+    await trustedWalletWindow.locator('#create-wallet-name').fill('Trading');
+    await trustedWalletWindow.locator('#create-wallet-submit').click();
+    await expect(trustedWalletWindow.locator('#management-error')).toContainText(
+      'Vault must be unlocked'
+    );
+    const savingsRow = trustedWalletWindow.locator('#wallet-list li').filter({
+      hasText: 'Savings',
+    });
+    await savingsRow.getByRole('button', { name: 'Set active' }).click();
+    await expect(savingsRow.getByRole('button', { name: 'Active' })).toBeVisible();
+    await trustedWalletWindow.evaluate(() => {
+      window.prompt = () => 'Renamed Savings';
+    });
+    await savingsRow.getByRole('button', { name: 'Rename' }).click();
+    const renamedSavingsRow = trustedWalletWindow.locator('#wallet-list li').filter({
+      hasText: 'Renamed Savings',
+    });
+    await expect(renamedSavingsRow).toHaveCount(1);
+    await trustedWalletWindow.evaluate(() => {
+      window.confirm = () => true;
+    });
+    await renamedSavingsRow.getByRole('button', { name: 'Delete' }).click();
+    await expect(trustedWalletWindow.locator('#wallet-list li')).toHaveCount(1);
+    await expect(trustedWalletWindow.getByText('Renamed Savings')).toHaveCount(0);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
     await page.evaluate(() => window.freedomShell.closeSurface('wallet'));
     await expect.poll(() =>
