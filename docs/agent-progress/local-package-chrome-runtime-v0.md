@@ -4580,6 +4580,12 @@ Verification in this checkpoint:
   124 suites passed, 5 skipped; 2309 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `24ffa31` (`feat(chrome): open trusted swarm publish surface`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28104234451`, job `test` (`83213982247`), passed for
+  `24ffa31`.
+- GitHub Actions run `28104234451`, job `e2e-chrome-runtime`
+  (`83213982427`), passed for `24ffa31`.
 
 Known remaining gaps after this checkpoint:
 
