@@ -2284,6 +2284,7 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="swarm-provider-files">pending</p>
         <p data-test="swarm-provider-feed">pending</p>
         <p data-test="swarm-provider-feed-update">pending</p>
+        <p data-test="swarm-provider-feed-entry">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
@@ -2452,6 +2453,19 @@ test('official browser chrome can launch as a local package with transitional we
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
+                try {
+                  await swarm.writeFeedEntry({
+                    name: 'blog',
+                    data: 'hello',
+                    index: 2,
+                  });
+                  setText('[data-test="swarm-provider-feed-entry"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-feed-entry"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
               }
             };
             if (window.ethereum) {
@@ -2594,6 +2608,11 @@ test('official browser chrome can launch as a local package with transitional we
     await expectActiveWebviewText(
       page,
       '[data-test="swarm-provider-feed-update"]',
+      'error:-32602:feed_not_found'
+    );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-feed-entry"]',
       'error:-32602:feed_not_found'
     );
     const swarmPublishPromptDialog = (

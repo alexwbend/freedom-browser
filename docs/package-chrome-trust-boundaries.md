@@ -49,9 +49,9 @@ Pre-Swarm hardening checkpoints recorded in
 | Vault unlock | user or privileged flow | bundled wallet/identity UI and identity IPC | unavailable to package chrome | `trusted-surface` | shell-owned vault prompt | shell-owned prompt broker derives context and returns structured outcome | trusted prompt request cap, not identity raw API | broker unit/integration test | broker foundation required; full UX proposed deferral |
 | Seed/private-key export | user in wallet settings | bundled wallet settings uses identity/wallet IPC | unavailable to package chrome | `trusted-surface` | shell-owned export prompt | must remain shell-owned; never package-rendered | none for package chrome | negative API exposure tests | proposed deferral for full UX |
 | dApp permissions | website provider flow and permissions UI | renderer/provider and permission stores | package lacks dApp permission globals | `provider-path`, `trusted-surface` for grants | shell-owned permission prompt | main derives committed origin and permission key; package can display read-only summaries later | no package provider caps | provider bypass smoke and permission broker tests | provider safety required |
-| Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, direct low-risk capabilities request, shell-owned access grant, and structured package-mode prompt/failure behavior for privileged methods | low-risk `swarm_getCapabilities` bypass implemented; package-hosted `swarm_requestAccess` reaches a shell-owned native connect prompt, writes the main-owned Swarm permission after approval, and returns `shell_trusted_prompt_rejected` on rejection; package-hosted `swarm_publishData`, `swarm_publishFiles`, `swarm_createFeed`, and `swarm_updateFeed` reach shell-owned native prompts with main-derived context and can execute after approval; other higher-risk methods fail through main with `trusted_prompt_unavailable` |
+| Swarm provider connect/request | website content | renderer Swarm provider and main Swarm provider IPC | package lacks swarm provider globals | `provider-path`, `trusted-surface` | shell-owned Swarm prompt | guest content talks to main broker; package chrome does not broker | none for package chrome | package smoke for guest Swarm provider presence, package global absence, direct low-risk capabilities request, shell-owned access grant, and structured package-mode prompt/failure behavior for privileged methods | low-risk `swarm_getCapabilities` bypass implemented; package-hosted `swarm_requestAccess` reaches a shell-owned native connect prompt, writes the main-owned Swarm permission after approval, and returns `shell_trusted_prompt_rejected` on rejection; package-hosted `swarm_publishData`, `swarm_publishFiles`, `swarm_createFeed`, `swarm_updateFeed`, and `swarm_writeFeedEntry` reach shell-owned native prompts with main-derived context and can execute after approval; other higher-risk methods fail through main with `trusted_prompt_unavailable` |
 | Swarm publish | website/app or chrome UI | bundled wallet/sidebar publish flow and `freedom://publish` internal page | unavailable to package chrome | `trusted-surface` | shell-owned publish prompt | provider `swarm_publishData` and `swarm_publishFiles` may execute after shell-owned approval; package-hosted publish/setup entry points remain visibly unavailable until the full shell-owned publish/feed surface exists | surface or trusted prompt cap | broker doc/tests plus official package smoke for disabled `freedom://publish` controls and provider publish prompt | package-hosted direct publish page disabled with `SWARM_PUBLISH_UNAVAILABLE`; provider data and file publish approval paths implemented with main-side validation; stamp management, feed publish, and full publish UX remain proposed deferrals pending a real shell-owned approval surface |
-| Swarm feed create/update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests plus official package smoke for create/update-feed prompt behavior | package-hosted feed creation and existing-feed update now reach shell-owned native prompts with main-derived context; accepted creation establishes an app-scoped feed grant in main and executes `swarm_createFeed`, while accepted update requires an existing feed grant/feed record and executes `swarm_updateFeed`; raw feed write/full publish UX remains proposed deferral pending a real shell-owned review surface |
+| Swarm feed create/update/publish | website/app | bundled Swarm feed approval UI | unavailable to package chrome | `trusted-surface` | shell-owned approval prompt | shell-owned approval through broker | trusted prompt cap | broker doc/tests plus official package smoke for create/update/write-feed prompt behavior | package-hosted feed creation, existing-feed update, and feed-entry write now reach shell-owned native prompts with main-derived context; accepted creation establishes an app-scoped feed grant in main and executes `swarm_createFeed`, while accepted update/write require an existing feed grant/feed record and execute `swarm_updateFeed` / `swarm_writeFeedEntry`; full publish/feed UX remains proposed deferral pending a real shell-owned review surface |
 | x402 approvals | network intercept/provider | x402 intercept and bundled sidebar approval UI | adapter x402 methods/events were no-ops | `trusted-surface`, sometimes `provider-path` | shell-owned payment prompt | final approval in shell-owned prompt; package chrome may surface status only | trusted prompt or surface cap, not raw x402 IPC | package adapter unit coverage and no silent no-op smoke if visible | raw x402 methods return structured `X402_PACKAGE_API_UNAVAILABLE`, raw x402 host events are not delivered to package chrome, and package-hosted one-time payment approvals can now sign/retry through a shell-owned native prompt when the vault is unlocked; cap grants, payment permission writes, and vault unlock still remain unavailable to package chrome |
 | Payment history page | user in chrome/internal page | `freedom://payments` reads unified payment history through internal page `freedomAPI` and can clear the store | package-hosted internal page could read and clear payment history through the transitional webview bridge | `trusted-surface` for sensitive payment history UI | bundled trusted chrome until a shell-owned payment history surface exists | package-hosted page is visibly unavailable; main rejects payment-history read/count/by-id/clear IPC with `PAYMENTS_UNAVAILABLE` | none for package chrome | IPC unit coverage plus official package smoke for disabled `freedom://payments` state | implemented |
 | Package install/update/recovery UI and package origin | shell package runtime | main package store, feed, rollback, bundled safe chrome recovery | existing local package recovery works; UI remains bundled recovery path; cached packages now load from `freedom-chrome://active/` | `trusted-surface` for final warnings; shell-owned package scheme for cached package assets | shell/bundled safe chrome | package cannot render final recovery/install trust warnings; cached package assets are served only from verified active package files | package-management caps only later | fallback/rollback smoke plus package-origin path traversal and verified-file tests | package origin implemented for cached packages; future UI remains shell-owned |
@@ -261,8 +261,12 @@ app-scoped feed grant and execute feed creation after a shell-owned native
 Allow decision. It also lets package-hosted `swarm_updateFeed` execute
 existing-feed updates after a shell-owned native Allow decision, but only after
 main verifies the derived origin has a Swarm permission, feed grant, and feed
-record. These paths do not allow raw feed writes, expose stamp management,
-enable the full publish center, or expose raw Swarm IPC.
+record. `swarm_writeFeedEntry` uses the same shell-owned feed prompt boundary
+for existing feed-entry writes; main validates the payload shape and optional
+index before prompting, shows only display-safe feed name and payload size
+details, and writes through the existing main-owned provider path after
+approval. These paths do not expose stamp management, enable the full publish
+center, or expose raw Swarm IPC.
 Package-hosted x402 approval and vault-unlock needs now also reach shell-owned
 native prompts. One-time x402 payment approval can sign and queue the retry
 through the existing main sign-flow when the user chooses Pay and the vault is
@@ -331,7 +335,11 @@ app-scoped feed grant in main after approval, and executes the existing
 main-owned feed-create path. `swarm_updateFeed` uses the same shell-owned feed
 prompt boundary for existing feeds: main validates the reference, verifies the
 feed grant and feed record before prompting, and executes the existing
-main-owned feed-update path after approval. Rejections still return structured
+main-owned feed-update path after approval. `swarm_writeFeedEntry` uses the
+same shell-owned feed prompt boundary for existing feeds: main validates the
+payload shape and optional index, verifies the feed grant and feed record
+before prompting, and executes the existing main-owned feed-entry write path
+after approval. Rejections still return structured
 `shell_trusted_prompt_rejected` provider errors. Other
 higher-risk methods still return `trusted_prompt_unavailable` until their
 shell-owned prompt paths exist. Bundled trusted chrome keeps the legacy
@@ -344,10 +352,11 @@ can grant only the main-derived guest origin, and `swarm_publishData` plus
 `swarm_publishFiles` can succeed only after shell-owned approval and normal
 node/stamp readiness. `swarm_createFeed` can create only through the
 main-owned app-scoped feed grant path after shell-owned approval and normal
-node/stamp/signer readiness. `swarm_updateFeed` can update only existing
-main-owned feed records after shell-owned approval and normal node/stamp/signer
-readiness. Other higher-risk Swarm provider methods still require the trusted
-prompt/surface migration before they can succeed in package mode.
+node/stamp/signer readiness. `swarm_updateFeed` and `swarm_writeFeedEntry` can
+update only existing main-owned feed records after shell-owned approval and
+normal node/stamp/signer readiness. Other higher-risk Swarm provider methods
+still require the trusted prompt/surface migration before they can succeed in
+package mode.
 
 ## Swarm Publish Page Status
 
@@ -360,12 +369,12 @@ window. The page surfaces that result and disables Publish File, Publish
 Folder, and Publish Text in official package smoke.
 
 The provider-path `swarm_publishData`, `swarm_publishFiles`,
-`swarm_createFeed`, and `swarm_updateFeed` approvals do not make this page
-available or implement the final Swarm publish/feed approval UX. That remains
-a shell-owned trusted prompt/surface migration: package chrome may eventually
-request the surface, but it must not receive raw publish paths, stamp
-management authority, feed signing authority, or final approval rendering
-authority.
+`swarm_createFeed`, `swarm_updateFeed`, and `swarm_writeFeedEntry` approvals
+do not make this page available or implement the final Swarm publish/feed
+approval UX. That remains a shell-owned trusted prompt/surface migration:
+package chrome may eventually request the surface, but it must not receive raw
+publish paths, stamp management authority, feed signing authority, or final
+approval rendering authority.
 
 ## Payment History Page Status
 

@@ -1202,18 +1202,224 @@ describe('swarm-provider-ipc', () => {
       });
     });
 
+    test('rejects invalid package-hosted swarm_writeFeedEntry before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeFeedEntry',
+        params: { name: 'blog' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'data is required',
+          data: { reason: 'invalid_params' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockWriteFeedPayload).not.toHaveBeenCalled();
+    });
+
+    test('rejects package-hosted swarm_writeFeedEntry when feed is missing before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetFeed.mockReturnValue(null);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeFeedEntry',
+        params: { name: 'blog', data: 'hello' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'Feed not found: blog. Create it with createFeed first.',
+          data: { reason: 'feed_not_found' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockWriteFeedPayload).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_writeFeedEntry through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetFeed.mockReturnValue({
+        topic: 'topichex',
+        owner: '0xOwnerAddr',
+        manifestReference: 'manifesthex',
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeFeedEntry',
+        params: { name: 'blog', data: 'hello', index: 2 },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockWriteFeedPayload).not.toHaveBeenCalled();
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Feed',
+          message: 'Swarm feed request',
+          detail:
+            'ipfs://bafyfixture requested to write a Swarm feed entry. ' +
+            'Feed: blog. ' +
+            'Size: 5 bytes. ' +
+            'Index: 2. ' +
+            'Choose Allow only if you trust this request.',
+          buttons: ['Allow', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.feed',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.feed',
+          renderedBy: 'shell-native-dialog',
+          request: {
+            method: 'swarm_writeFeedEntry',
+            details: {
+              action: 'write',
+              feedName: 'blog',
+              sizeBytes: 5,
+              index: 2,
+            },
+          },
+        },
+      });
+    });
+
+    test('writes package-hosted swarm_writeFeedEntry after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      const origin = 'ipfs://bafyfixture';
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin,
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetOriginEntry.mockReturnValue({
+        activeIdentityId: 'app-scoped:0',
+        identities: {
+          'app-scoped:0': {
+            id: 'app-scoped:0',
+            mode: 'app-scoped',
+            publisherKeyIndex: 0,
+          },
+        },
+        identityMode: 'app-scoped',
+        publisherKeyIndex: 0,
+        feeds: {},
+      });
+      mockGetFeed.mockReturnValue({
+        topic: 'topichex',
+        owner: '0xOwnerAddr',
+        manifestReference: 'manifesthex',
+        identityId: 'app-scoped:0',
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
+      mockWriteFeedPayload.mockResolvedValue({ index: 2 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_writeFeedEntry',
+        params: { name: 'blog', data: 'hello', index: 2 },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockUpdateLastUsed).toHaveBeenCalledWith(origin);
+      expect(mockWriteFeedPayload).toHaveBeenCalledWith(
+        '0xpublisherkey',
+        `${origin}/blog`,
+        'hello',
+        { index: 2 }
+      );
+      expect(result).toMatchObject({
+        result: { index: 2 },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.feed',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_writeFeedEntry',
+            details: {
+              action: 'write',
+              feedName: 'blog',
+              sizeBytes: 5,
+              index: 2,
+            },
+          },
+        },
+      });
+    });
+
     test('keeps unsupported package-hosted privileged swarm methods unavailable', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
 
       await expect(
-        handleProviderTrustedPromptRequest(event, { method: 'swarm_writeFeedEntry' })
+        handleProviderTrustedPromptRequest(event, { method: 'swarm_writeSingleOwnerChunk' })
       ).resolves.toEqual({
         result: null,
         error: {
           code: 4200,
           message:
-            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_writeFeedEntry',
+            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_writeSingleOwnerChunk',
           data: { reason: 'trusted_prompt_unavailable' },
         },
       });

@@ -3594,3 +3594,72 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 16: Package Swarm Feed Entry Write Approval
+
+Current checkpoint: package-hosted `swarm.writeFeedEntry()` /
+`swarm_writeFeedEntry` can now proceed from a shell-owned native Allow /
+Reject prompt into the existing main-owned Swarm feed-entry write path for
+existing main-owned feed records. Package chrome still does not receive Swarm
+provider globals, `window.swarmPermissions`, `window.swarmFeedStore`, raw
+Swarm IPC, raw feed-store IPC, stamp-management authority, Node, Electron, or
+arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- added `swarm_writeFeedEntry` to the existing `swarm.feed` trusted prompt
+  kind rather than creating a package chrome API
+- changed the package-hosted guest preload to route `swarm_writeFeedEntry`
+  through main trusted-prompt handling alongside Swarm access, data publish,
+  file publish, feed creation, and feed update
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- required an existing main-owned Swarm connection grant before feed entry
+  writes can proceed
+- required an existing feed grant and existing main-owned feed record before a
+  feed entry write prompt can open
+- validated the feed name, payload shape, and optional non-negative integer
+  index in main before opening the prompt
+- passed only display-safe feed name, payload size, and optional index details
+  to the native prompt; the raw payload is not displayed by the prompt
+- on accepted package-hosted `swarm_writeFeedEntry`, main executes the
+  existing `handleWriteFeedEntry()` path using the identity that created the
+  feed
+- preserved page-facing `4001` with `data.reason:
+  "shell_trusted_prompt_rejected"` on rejection
+- left the full publish center UX, local file/folder picker UI, stamp
+  management, publish history UI, and richer feed review unavailable to package
+  chrome
+- expanded official package smoke so a package-hosted `swarm.writeFeedEntry()`
+  call after failed harness feed creation returns structured `feed_not_found`
+  before another feed prompt can open
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 215 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` initially failed before the new Swarm section on the existing page context-menu clipboard assertion, then passed on rerun:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2242 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted Swarm feed entry writes now succeed only for existing
+  main-owned feed records after shell-owned approval and normal
+  Bee node/stamp/signer readiness; full publish center UX, local file/folder
+  picker UI, stamp management, publish history UI, and richer feed review
+  still need a real shell-owned Swarm surface before Swarm feed/publish UX can
+  be called complete in package mode
+- identity onboarding, general vault unlock, seed/private-key export, x402 cap
+  grants/payment-permission/vault-unlock flows, richer x402 review, and richer
+  wallet account/review surfaces still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals

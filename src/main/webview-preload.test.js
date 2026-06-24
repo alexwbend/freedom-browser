@@ -803,6 +803,69 @@ describe('webview-preload', () => {
     });
   });
 
+  test('routes package-hosted swarm feed-entry writes to main trusted-prompt handling', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.SWARM_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+        [IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST]: {
+          result: null,
+          error: {
+            code: -32602,
+            message: 'Feed not found: blog. Create it with createFeed first.',
+            data: { reason: 'feed_not_found' },
+          },
+        },
+      },
+    });
+    const params = { name: 'blog', data: 'hello', index: 2 };
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 17,
+          method: 'swarm_writeFeedEntry',
+          params,
+        },
+      });
+    }
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, {
+      method: 'swarm_writeFeedEntry',
+      params,
+      origin: 'https://app.example',
+    });
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'swarm:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id: 17,
+        result: null,
+        error: {
+          code: -32602,
+          message: 'Feed not found: blog. Create it with createFeed first.',
+          data: { reason: 'feed_not_found' },
+        },
+      },
+      origin: 'https://app.example',
+    });
+  });
+
   test('routes package-hosted swarm access requests to main trusted-prompt handling', async () => {
     const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
       location: {
@@ -887,7 +950,7 @@ describe('webview-preload', () => {
         data: {
           type: 'FREEDOM_SWARM_REQUEST',
           id: 12,
-          method: 'swarm_writeFeedEntry',
+          method: 'swarm_writeSingleOwnerChunk',
           params: { topic: 'demo' },
         },
       });
@@ -911,7 +974,7 @@ describe('webview-preload', () => {
         error: {
           code: 4200,
           message:
-            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_writeFeedEntry',
+            'Swarm method is unavailable in package mode until a shell-owned trusted prompt exists: swarm_writeSingleOwnerChunk',
           data: { reason: 'trusted_prompt_unavailable' },
         },
       },

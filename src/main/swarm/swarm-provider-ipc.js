@@ -567,10 +567,20 @@ async function presentNativeSwarmFeedPrompt(request, context = {}) {
 
   const origin = request.origin || context.origin || 'Unknown site';
   const details = request.details || {};
-  const action = details.action === 'update' ? 'update' : 'create';
-  const actionText = action === 'update' ? 'update a Swarm feed' : 'create a Swarm feed';
+  const action = details.action === 'update'
+    ? 'update'
+    : details.action === 'write'
+      ? 'write'
+      : 'create';
+  const actionText = action === 'update'
+    ? 'update a Swarm feed'
+    : action === 'write'
+      ? 'write a Swarm feed entry'
+      : 'create a Swarm feed';
   const feedName = details.feedName ? ` Feed: ${details.feedName}.` : '';
   const reference = details.reference ? ` Reference: ${details.reference}.` : '';
+  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
+  const index = Number.isInteger(details.index) ? ` Index: ${details.index}.` : '';
   const ownerWindow = context.ownerWindow || null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
@@ -580,6 +590,8 @@ async function presentNativeSwarmFeedPrompt(request, context = {}) {
       `${origin} requested to ${actionText}.` +
       feedName +
       reference +
+      size +
+      index +
       ' Choose Allow only if you trust this request.',
     buttons: ['Allow', 'Reject'],
     defaultId: 1,
@@ -640,6 +652,43 @@ function prepareUpdateFeedParams(params) {
   return { feedId, reference };
 }
 
+function prepareWriteFeedEntryParams(params) {
+  if (!params || typeof params !== 'object') {
+    return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
+  }
+
+  const { name, data, index } = params;
+  const nameResult = validateFeedName(name);
+  if (!nameResult.valid) {
+    return { error: { ...ERRORS.INVALID_PARAMS, message: nameResult.message, data: { reason: 'invalid_feed_name' } } };
+  }
+
+  if (data === undefined || data === null) {
+    return { error: { ...ERRORS.INVALID_PARAMS, message: 'data is required', data: { reason: 'invalid_params' } } };
+  }
+
+  let payload = data;
+  if (typeof payload !== 'string') {
+    payload = normalizeBytes(payload);
+    if (!payload) {
+      return { error: { ...ERRORS.INVALID_PARAMS, message: 'data must be a string, Uint8Array, or ArrayBuffer', data: { reason: 'invalid_params' } } };
+    }
+  }
+
+  if (index !== undefined && index !== null) {
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) {
+      return { error: { ...ERRORS.INVALID_PARAMS, message: 'index must be a non-negative integer', data: { reason: 'invalid_params' } } };
+    }
+  }
+
+  return {
+    name,
+    data: payload,
+    index,
+    sizeBytes: Buffer.byteLength(payload),
+  };
+}
+
 function ensurePackageFeedGrant(origin) {
   const existing = getOriginEntry(origin);
   if (existing?.activeIdentityId) {
@@ -670,7 +719,8 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     method !== 'swarm_publishData' &&
     method !== 'swarm_publishFiles' &&
     method !== 'swarm_createFeed' &&
-    method !== 'swarm_updateFeed'
+    method !== 'swarm_updateFeed' &&
+    method !== 'swarm_writeFeedEntry'
   ) {
     return {
       result: null,
@@ -772,7 +822,11 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  if (method === 'swarm_createFeed' || method === 'swarm_updateFeed') {
+  if (
+    method === 'swarm_createFeed' ||
+    method === 'swarm_updateFeed' ||
+    method === 'swarm_writeFeedEntry'
+  ) {
     const permission = getPermission(normalizedOrigin);
     if (!permission) {
       return {
@@ -782,9 +836,13 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     }
 
     const isCreateFeed = method === 'swarm_createFeed';
+    const isUpdateFeed = method === 'swarm_updateFeed';
+    const isWriteFeedEntry = method === 'swarm_writeFeedEntry';
     const prepared = isCreateFeed
       ? prepareCreateFeedParams(payload.params)
-      : prepareUpdateFeedParams(payload.params);
+      : isUpdateFeed
+        ? prepareUpdateFeedParams(payload.params)
+        : prepareWriteFeedEntryParams(payload.params);
     if (prepared.error) {
       return {
         result: null,
@@ -799,34 +857,50 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
           error: feedNotGranted().error,
         };
       }
-      if (!getFeed(normalizedOrigin, prepared.feedId)) {
+      const feedName = isWriteFeedEntry ? prepared.name : prepared.feedId;
+      if (!getFeed(normalizedOrigin, feedName)) {
         return {
           result: null,
           error: {
             ...ERRORS.INVALID_PARAMS,
-            message: `Feed not found: ${prepared.feedId}`,
+            message: isWriteFeedEntry
+              ? `Feed not found: ${feedName}. Create it with createFeed first.`
+              : `Feed not found: ${feedName}`,
             data: { reason: 'feed_not_found' },
           },
         };
       }
     }
 
+    let promptDetails;
+    if (isCreateFeed) {
+      promptDetails = {
+        action: 'create',
+        feedName: prepared.name,
+        identityMode: 'app-scoped',
+      };
+    } else if (isUpdateFeed) {
+      promptDetails = {
+        action: 'update',
+        feedName: prepared.feedId,
+        reference: prepared.reference,
+        identityMode: 'app-scoped',
+      };
+    } else {
+      promptDetails = {
+        action: 'write',
+        feedName: prepared.name,
+        sizeBytes: prepared.sizeBytes,
+        ...(Number.isInteger(prepared.index) ? { index: prepared.index } : {}),
+        identityMode: 'app-scoped',
+      };
+    }
+
     const prompt = await defaultTrustedPromptBroker.requestSwarmFeedPrompt(
       {
         method,
         reason: `Swarm feed request from ${normalizedOrigin}`,
-        details: isCreateFeed
-          ? {
-            action: 'create',
-            feedName: prepared.name,
-            identityMode: 'app-scoped',
-          }
-          : {
-            action: 'update',
-            feedName: prepared.feedId,
-            reference: prepared.reference,
-            identityMode: 'app-scoped',
-          },
+        details: promptDetails,
       },
       {
         ...trustedContext,
@@ -856,7 +930,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       }
       const result = isCreateFeed
         ? await handleCreateFeed(prepared, normalizedOrigin)
-        : await handleUpdateFeed(prepared, normalizedOrigin);
+        : isUpdateFeed
+          ? await handleUpdateFeed(prepared, normalizedOrigin)
+          : await handleWriteFeedEntry(prepared, normalizedOrigin);
       if (result.result) resetVaultAutoLockTimer();
       return {
         ...result,
