@@ -16,6 +16,7 @@ const sampleIpnsName = 'example.ipns';
 const sampleRadicleRid = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 const pasteModifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 const faviconFixtureBytes = Buffer.from('package-favicon-fixture', 'utf8');
+const packageSmokeWalletAddress = '0x1111111111111111111111111111111111111111';
 
 function hashFileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -125,6 +126,35 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
     ...manifestOverrides,
   };
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
+}
+
+function seedWalletMetadata(userDataDir, address = packageSmokeWalletAddress) {
+  const identityDir = path.join(userDataDir, 'identity');
+  fs.mkdirSync(identityDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(identityDir, 'vault-meta.json'),
+    JSON.stringify(
+      {
+        userKnowsPassword: true,
+        createdAt: '2026-06-24T00:00:00.000Z',
+        addresses: {
+          userWallet: address,
+          beeWallet: '0x2222222222222222222222222222222222222222',
+        },
+        derivedWallets: [
+          {
+            index: 0,
+            name: 'Main Wallet',
+            address,
+          },
+        ],
+        activeWalletIndex: 0,
+      },
+      null,
+      2
+    ),
+    'utf-8'
+  );
 }
 
 function copyFixturePackage(root, manifestOverrides = {}) {
@@ -1604,12 +1634,17 @@ test('local package feed rolls back when updated package renderer becomes unheal
 test('official browser chrome can launch as a local package with transitional webviews', async () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
   const packageDir = path.join(parent, 'official');
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-user-'));
   writeOfficialChromePackage(packageDir);
+  seedWalletMetadata(userDataDir);
   const faviconServer = await startFaviconFixtureServer();
 
-  const launched = await launchFreedom({
-    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
-  });
+  const launched = await launchFreedom(
+    {
+      FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+    },
+    { userDataDir }
+  );
   try {
     const page = await launched.app.firstWindow();
     const rendererErrors = installRendererErrorCapture(page);
@@ -2279,12 +2314,27 @@ test('official browser chrome can launch as a local package with transitional we
                   setText('[data-test="provider-chain"]', 'error:' + (error.message || error));
                 }
                 try {
-                  await provider.request({ method: 'eth_requestAccounts' });
-                  setText('[data-test="provider-accounts"]', 'unexpected-success');
+                  const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                  setText(
+                    '[data-test="provider-accounts"]',
+                    Array.isArray(accounts) ? accounts.join(',') : String(accounts)
+                  );
                 } catch (error) {
                   setText(
                     '[data-test="provider-accounts"]',
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  const accounts = await provider.request({ method: 'eth_accounts' });
+                  const accountText = Array.isArray(accounts) ? accounts.join(',') : String(accounts);
+                  if (accountText !== document.querySelector('[data-test="provider-accounts"]')?.textContent) {
+                    setText('[data-test="provider-accounts"]', 'eth_accounts-mismatch:' + accountText);
+                  }
+                } catch (error) {
+                  setText(
+                    '[data-test="provider-accounts"]',
+                    'eth_accounts-error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
                 try {
@@ -2373,7 +2423,7 @@ test('official browser chrome can launch as a local package with transitional we
     await expectActiveWebviewText(
       page,
       '[data-test="provider-accounts"]',
-      'error:4001:shell_trusted_prompt_rejected'
+      packageSmokeWalletAddress
     );
     await expectActiveWebviewText(
       page,
@@ -2400,10 +2450,10 @@ test('official browser chrome can launch as a local package with transitional we
         message: 'Wallet connection request',
         detail:
           `ipfs://${providerIpfsCid} requested wallet account access. ` +
-          'Package chrome cannot approve this request; the shell is rejecting it for now.',
-        buttons: ['Reject'],
-        defaultId: 0,
-        cancelId: 0,
+          'Choose Connect to share the active wallet address through the shell-owned provider broker.',
+        buttons: ['Connect', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
         noLink: true,
       },
     });

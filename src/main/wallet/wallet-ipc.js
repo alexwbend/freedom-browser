@@ -21,7 +21,16 @@ const {
   signTypedData,
 } = require('./transaction-service');
 const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
-const { getActiveWalletIndex } = require('../identity-manager');
+const {
+  getActiveWalletAddress,
+  getActiveWalletIndex,
+  getDerivedWallets,
+} = require('../identity-manager');
+const {
+  getPermission,
+  grantPermission,
+  updateLastUsed,
+} = require('./dapp-permissions');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
 
@@ -38,6 +47,13 @@ const PACKAGE_PROVIDER_REJECTED = Object.freeze({
   message: 'User rejected the request',
   data: { reason: 'shell_trusted_prompt_rejected' },
 });
+const PACKAGE_PROVIDER_WALLET_UNAVAILABLE = Object.freeze({
+  code: 4100,
+  message: 'No active wallet account is available for this origin',
+  data: { reason: 'wallet_account_unavailable' },
+});
+const DEFAULT_PROVIDER_CHAIN_ID = 100;
+const PACKAGE_PROVIDER_ACCOUNT_METHODS = new Set(['eth_accounts']);
 const PACKAGE_PROVIDER_CONNECT_METHODS = new Set(['eth_requestAccounts']);
 const PACKAGE_PROVIDER_TRANSACTION_METHODS = new Set(['eth_sendTransaction']);
 const PACKAGE_PROVIDER_SIGNATURE_METHODS = new Set([
@@ -150,7 +166,11 @@ async function presentNativeWalletConnectPrompt(request, context = {}) {
     message: 'Wallet connection request',
     detail: (origin) =>
       `${origin} requested wallet account access. ` +
-      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+      'Choose Connect to share the active wallet address through the shell-owned provider broker.',
+    buttons: ['Connect', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    acceptedResponse: 0,
   });
 }
 
@@ -187,19 +207,29 @@ async function presentNativeWalletPrompt(request, context = {}, dialogOptions = 
 
   const origin = request.origin || context.origin || 'Unknown site';
   const ownerWindow = context.ownerWindow || null;
+  const buttons = Array.isArray(dialogOptions.buttons) && dialogOptions.buttons.length > 0
+    ? dialogOptions.buttons
+    : ['Reject'];
+  const defaultId = Number.isInteger(dialogOptions.defaultId) ? dialogOptions.defaultId : 0;
+  const cancelId = Number.isInteger(dialogOptions.cancelId) ? dialogOptions.cancelId : defaultId;
+  const acceptedResponse = Number.isInteger(dialogOptions.acceptedResponse)
+    ? dialogOptions.acceptedResponse
+    : null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
     title: dialogOptions.title,
     message: dialogOptions.message,
     detail: dialogOptions.detail(origin),
-    buttons: ['Reject'],
-    defaultId: 0,
-    cancelId: 0,
+    buttons,
+    defaultId,
+    cancelId,
     noLink: true,
   });
   return {
     ok: true,
-    outcome: 'rejected',
+    outcome: acceptedResponse !== null && result?.response === acceptedResponse
+      ? 'accepted'
+      : 'rejected',
     response: result?.response,
   };
 }
@@ -229,6 +259,61 @@ function getPackageProviderPrompt(method) {
   return null;
 }
 
+async function getAccountsForWalletIndex(walletIndex) {
+  if (!Number.isInteger(walletIndex) || walletIndex < 0) {
+    return [];
+  }
+  const wallets = await getDerivedWallets();
+  if (!Array.isArray(wallets)) {
+    return [];
+  }
+  const wallet = wallets.find((candidate) => candidate?.index === walletIndex);
+  return typeof wallet?.address === 'string' && wallet.address ? [wallet.address] : [];
+}
+
+async function getExistingPackageWalletAccounts(origin) {
+  if (!origin) {
+    return null;
+  }
+  const permission = getPermission(origin);
+  if (!permission) {
+    return null;
+  }
+  const accounts = await getAccountsForWalletIndex(permission.walletIndex);
+  if (accounts.length > 0) {
+    updateLastUsed(origin, permission.chainId);
+  }
+  return accounts;
+}
+
+async function grantPackageWalletConnect(origin) {
+  if (!origin) {
+    return {
+      ok: false,
+      error: {
+        code: 4100,
+        message: 'Cannot grant wallet access without a verified origin',
+        data: { reason: 'provider_origin_unavailable' },
+      },
+    };
+  }
+
+  const walletIndex = getActiveWalletIndex();
+  const address = await getActiveWalletAddress();
+  if (!Number.isInteger(walletIndex) || typeof address !== 'string' || !address) {
+    return {
+      ok: false,
+      error: PACKAGE_PROVIDER_WALLET_UNAVAILABLE,
+    };
+  }
+
+  grantPermission(origin, walletIndex, DEFAULT_PROVIDER_CHAIN_ID);
+  return {
+    ok: true,
+    result: [address],
+  };
+}
+
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
   const method = typeof payload.method === 'string' ? payload.method : '';
   const hostWebContents = getPackageHostWebContents(event);
@@ -243,7 +328,16 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
+  const origin = deriveProviderOrigin(event);
   const providerPrompt = getPackageProviderPrompt(method);
+  if (PACKAGE_PROVIDER_ACCOUNT_METHODS.has(method)) {
+    const existingAccounts = await getExistingPackageWalletAccounts(origin);
+    return {
+      result: existingAccounts || [],
+      error: null,
+    };
+  }
+
   if (!providerPrompt) {
     return {
       result: null,
@@ -255,7 +349,15 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   }
 
   const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
-  const origin = deriveProviderOrigin(event);
+  if (PACKAGE_PROVIDER_CONNECT_METHODS.has(method)) {
+    const existingAccounts = await getExistingPackageWalletAccounts(origin);
+    if (existingAccounts) {
+      return {
+        result: existingAccounts,
+        error: null,
+      };
+    }
+  }
   const prompt = await defaultTrustedPromptBroker[providerPrompt.brokerMethod](
     {
       method,
@@ -282,6 +384,25 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
         },
       },
       trustedPrompt: prompt || null,
+    };
+  }
+
+  if (
+    PACKAGE_PROVIDER_CONNECT_METHODS.has(method) &&
+    prompt.result?.outcome === 'accepted'
+  ) {
+    const grant = await grantPackageWalletConnect(origin);
+    if (grant.ok === true) {
+      return {
+        result: grant.result,
+        error: null,
+        trustedPrompt: prompt,
+      };
+    }
+    return {
+      result: null,
+      error: grant.error,
+      trustedPrompt: prompt,
     };
   }
 

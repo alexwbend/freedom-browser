@@ -131,7 +131,7 @@ cannot present it, the broker returns
 `TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE`. Package chrome cannot provide its own
 native presenter or fall back to package-rendered prompt UI.
 
-### Package-Hosted Wallet Connect Denial
+### Package-Hosted Wallet Connect Approval
 
 Package-hosted guest content can now route
 `ethereum.request({ method: "eth_requestAccounts" })` to main without package
@@ -143,31 +143,29 @@ guest webview preload
   -> main-owned package host/context derivation
   -> trusted prompt broker wallet.connect
   -> shell-owned native dialog
-  -> page-facing EIP-1193 user rejection
+  -> main-side dApp permission grant and page-facing account result
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
 origin claims are not used as final security truth.
 
-The current result intentionally rejects the connection:
+If the user chooses Connect and the shell has an active wallet address,
+main writes the dApp permission with the derived origin and active wallet index
+and returns the active wallet address to the guest page:
 
 ```json
 {
-  "result": null,
-  "error": {
-    "code": 4001,
-    "message": "User rejected the request",
-    "data": {
-      "reason": "shell_trusted_prompt_rejected"
-    }
-  }
+  "result": ["0x1111111111111111111111111111111111111111"],
+  "error": null
 }
 ```
 
-This proves a real provider request reaches shell-owned prompt presentation
-with main-derived context. It does not grant accounts, write dApp permissions,
-or migrate transaction/signing approval UI.
+If the user rejects the prompt, the page still receives an EIP-1193 `4001`
+user rejection. Package-hosted `eth_accounts` reads existing main-owned dApp
+permissions and returns the granted account without opening a prompt. This
+does not migrate transaction/signing approval UI, expose wallet management, or
+give package chrome dApp permission-store authority.
 
 ### Package-Hosted Wallet Transaction And Signature Denials
 
@@ -292,9 +290,11 @@ Wallet connect:
 - initiated by website provider path, not package chrome
 - main derives committed origin and permission key from the guest WebContents
 - broker opens shell-owned wallet-connect prompt
-- current package-hosted slice rejects after shell-owned native presentation
-- future completion work must add real account-grant permission handling from
-  main before wallet connect can succeed in package mode
+- current package-hosted slice can grant the active account after shell-owned
+  native presentation and writes the dApp permission from main
+- future completion work should replace the native connect dialog with the
+  full shell-owned wallet-connect surface when account selection or richer
+  permission review is needed
 
 Transaction and typed-data signing:
 

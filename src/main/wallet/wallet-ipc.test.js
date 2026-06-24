@@ -12,7 +12,22 @@ jest.mock('./tx-recorder', () => ({
   signAndRecord: jest.fn(),
   KINDS: { WALLET_SEND: 'wallet-send', DAPP_SEND: 'dapp-send' },
 }));
-jest.mock('../identity-manager', () => ({}));
+const mockGetActiveWalletAddress = jest.fn();
+const mockGetActiveWalletIndex = jest.fn();
+const mockGetDerivedWallets = jest.fn();
+jest.mock('../identity-manager', () => ({
+  getActiveWalletAddress: mockGetActiveWalletAddress,
+  getActiveWalletIndex: mockGetActiveWalletIndex,
+  getDerivedWallets: mockGetDerivedWallets,
+}));
+const mockGetPermission = jest.fn();
+const mockGrantPermission = jest.fn();
+const mockUpdateLastUsed = jest.fn();
+jest.mock('./dapp-permissions', () => ({
+  getPermission: mockGetPermission,
+  grantPermission: mockGrantPermission,
+  updateLastUsed: mockUpdateLastUsed,
+}));
 jest.mock('./rpc-manager', () => ({}));
 jest.mock('./vault-access', () => ({}));
 
@@ -35,6 +50,12 @@ const {
 describe('wallet-ipc', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetActiveWalletAddress.mockResolvedValue(null);
+    mockGetActiveWalletIndex.mockReturnValue(0);
+    mockGetDerivedWallets.mockResolvedValue([]);
+    mockGetPermission.mockReturnValue(null);
+    mockGrantPermission.mockReturnValue(null);
+    mockUpdateLastUsed.mockReturnValue(true);
   });
 
   test('renderer context cannot override fixed payment-history kind', () => {
@@ -88,7 +109,84 @@ describe('wallet-ipc', () => {
     expect(mockIsPackageWebContents).not.toHaveBeenCalled();
   });
 
-  test('routes package-hosted wallet connect requests through a shell-owned prompt', async () => {
+  test('returns existing package-hosted wallet connect grants without prompting package chrome', async () => {
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(),
+    };
+    const sender = {
+      id: 42,
+      hostWebContents,
+      getURL: jest.fn(() => 'https://app.example/path?ignored=1'),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPermission.mockReturnValue({
+      origin: 'https://app.example',
+      walletIndex: 2,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 2,
+        name: 'App Wallet',
+        address: '0x2222222222222222222222222222222222222222',
+      },
+    ]);
+
+    await expect(
+      handleProviderTrustedPromptRequest({ sender }, { method: 'eth_requestAccounts' })
+    ).resolves.toEqual({
+      result: ['0x2222222222222222222222222222222222222222'],
+      error: null,
+    });
+    expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith('https://app.example', 100);
+    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(hostWebContents.getOwnerBrowserWindow).not.toHaveBeenCalled();
+  });
+
+  test('returns package-hosted eth_accounts from existing main-owned dApp permissions', async () => {
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(),
+    };
+    const sender = {
+      id: 42,
+      hostWebContents,
+      getURL: jest.fn(() => 'ipfs://bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/page'),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPermission.mockReturnValue({
+      origin: 'ipfs://bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      walletIndex: 0,
+      chainId: 100,
+    });
+    mockGetDerivedWallets.mockResolvedValue([
+      {
+        index: 0,
+        name: 'Main Wallet',
+        address: '0x1111111111111111111111111111111111111111',
+      },
+    ]);
+
+    await expect(
+      handleProviderTrustedPromptRequest({ sender }, { method: 'eth_accounts' })
+    ).resolves.toEqual({
+      result: ['0x1111111111111111111111111111111111111111'],
+      error: null,
+    });
+    expect(mockGetPermission).toHaveBeenCalledWith(
+      'ipfs://bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    );
+    expect(mockUpdateLastUsed).toHaveBeenCalledWith(
+      'ipfs://bafybeibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      100
+    );
+    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
+    expect(hostWebContents.getOwnerBrowserWindow).not.toHaveBeenCalled();
+  });
+
+  test('approves package-hosted wallet connect through a shell-owned prompt and main-side permission grant', async () => {
     const ownerWindow = { id: 77 };
     const hostWebContents = {
       id: 20,
@@ -108,7 +206,80 @@ describe('wallet-ipc', () => {
       name: 'Freedom Official Chrome',
       version: '0.7.5',
     });
+    mockGetActiveWalletIndex.mockReturnValue(0);
+    mockGetActiveWalletAddress.mockResolvedValue('0x1111111111111111111111111111111111111111');
     require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      { sender },
+      {
+        method: 'eth_requestAccounts',
+        origin: 'https://spoofed.example',
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: ['0x1111111111111111111111111111111111111111'],
+      error: null,
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.connect',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 42,
+          caller: {
+            packageId: 'baby.freedom.chrome.official',
+            packageType: 'browser-chrome',
+          },
+        },
+        result: {
+          outcome: 'accepted',
+          source: 'shell-native-dialog',
+          response: 0,
+        },
+      },
+    });
+    expect(mockGetPermission).toHaveBeenCalledWith('https://app.example');
+    expect(mockGetActiveWalletIndex).toHaveBeenCalledTimes(1);
+    expect(mockGetActiveWalletAddress).toHaveBeenCalledTimes(1);
+    expect(mockGrantPermission).toHaveBeenCalledWith('https://app.example', 0, 100);
+    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Wallet Connection',
+      message: 'Wallet connection request',
+      detail:
+        'https://app.example requested wallet account access. ' +
+        'Choose Connect to share the active wallet address through the shell-owned provider broker.',
+      buttons: ['Connect', 'Reject'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true,
+    });
+  });
+
+  test('rejects package-hosted wallet connect through a shell-owned prompt without granting accounts', async () => {
+    const ownerWindow = { id: 77 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    const sender = {
+      id: 42,
+      hostWebContents,
+      getURL: jest.fn(() => 'https://app.example/path?ignored=1'),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 1 });
 
     const result = await handleProviderTrustedPromptRequest(
       { sender },
@@ -147,8 +318,14 @@ describe('wallet-ipc', () => {
             packageType: 'browser-chrome',
           },
         },
+        result: {
+          outcome: 'rejected',
+          response: 1,
+        },
       },
     });
+    expect(mockGrantPermission).not.toHaveBeenCalled();
+    expect(mockGetActiveWalletAddress).not.toHaveBeenCalled();
     expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
     expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(hostWebContents);
     expect(hostWebContents.getOwnerBrowserWindow).toHaveBeenCalledTimes(1);
@@ -158,10 +335,10 @@ describe('wallet-ipc', () => {
       message: 'Wallet connection request',
       detail:
         'https://app.example requested wallet account access. ' +
-        'Package chrome cannot approve this request; the shell is rejecting it for now.',
-      buttons: ['Reject'],
-      defaultId: 0,
-      cancelId: 0,
+        'Choose Connect to share the active wallet address through the shell-owned provider broker.',
+      buttons: ['Connect', 'Reject'],
+      defaultId: 1,
+      cancelId: 1,
       noLink: true,
     });
   });

@@ -324,8 +324,11 @@ The official package smoke currently proves:
 - guest content receives the page-facing Ethereum provider in package mode and
   a low-risk `eth_chainId` request bypasses package chrome through main
 - package-hosted `eth_requestAccounts` reaches a shell-owned native wallet
-  connect prompt with main-derived guest context and returns a page-facing
-  `4001` user rejection instead of being brokered by package chrome
+  connect prompt with main-derived guest context; approval writes a main-side
+  dApp permission and returns the active wallet address, while rejection
+  returns page-facing `4001`
+- package-hosted `eth_accounts` reads existing main-owned dApp permissions and
+  returns the granted account without opening package chrome authority
 - package-hosted `eth_sendTransaction` and `personal_sign` reach shell-owned
   native wallet transaction/signature prompts with main-derived guest context
   and return page-facing `4001` user rejections instead of being brokered by
@@ -745,28 +748,30 @@ package-mode proofs route guest
 `swarm.getCapabilities()` from the webview preload directly to main over
 read-only provider channels. The Swarm path only accepts
 `swarm_getCapabilities`; publish, feed, signing, and access-request methods do
-not use this bypass. The Ethereum path only accepts `eth_chainId`; wallet
-connect and account access now use a denial-only package-hosted prompt slice:
+not use this bypass. The Ethereum path accepts low-risk `eth_chainId` directly
+and handles wallet account reads/grants from main-owned dApp permissions:
 `eth_requestAccounts` asks main for its host context, main derives the guest
 origin and package host identity, the broker presents a shell-owned native
-dialog, and the page receives a structured `4001` user rejection. Transaction
-and signing-class methods now have the same rejection-only shell-owned prompt
-path for `eth_sendTransaction`, `eth_sign`, `personal_sign`,
+dialog, and an accepted prompt writes the dApp permission and returns the
+active wallet address. `eth_accounts` reads that existing main-owned
+permission without prompting. Transaction and signing-class methods retain the
+rejection-only shell-owned prompt path for `eth_sendTransaction`, `eth_sign`,
+`personal_sign`,
 `eth_signTypedData`, `eth_signTypedData_v1`, `eth_signTypedData_v3`, and
 `eth_signTypedData_v4`. The Swarm path also has a denial-only prompt slice for
 `swarm_publishData`: package-hosted guests ask main for host context, main
 derives the guest origin and package host identity, the broker presents a
 shell-owned native dialog, and the page receives a structured `4001` user
-rejection. These slices do not grant accounts, write dApp permissions, sign,
-send transactions, publish data, write feed permissions, or spend stamps. Other
-higher-risk Ethereum and Swarm methods still fail with structured
+rejection. These slices do not sign, send transactions, publish data, write
+feed permissions, or spend stamps. Other higher-risk Ethereum and Swarm methods
+still fail with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker
 them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
-approval UI. Real account grants, successful signing/transaction execution,
-x402, successful Swarm publish/feed, and vault unlock flows still need
-main-derived request context and shell-owned prompt UI before they can move
-fully through the broker.
+approval UI. Successful signing/transaction execution, x402, successful Swarm
+publish/feed, richer wallet account selection, and vault unlock flows still
+need main-derived request context and shell-owned prompt UI before they can
+move fully through the broker.
 
 ## Package Store
 
