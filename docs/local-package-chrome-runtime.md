@@ -344,13 +344,14 @@ The official package smoke currently proves:
 - guest content receives the page-facing Swarm provider in package mode and a
   low-risk `swarm_getCapabilities` request bypasses package chrome through main
   with a deterministic `not-connected` result under the harness
-- package-hosted `swarm.publishData()` and `swarm.publishFiles()` reach
-  shell-owned native Swarm publish prompts with main-derived guest context;
-  accepted prompts execute through the existing main-owned provider publish
-  paths, while rejected prompts return page-facing `4001`
-- package-hosted `swarm.createFeed()` reaches a shell-owned native Swarm feed
-  prompt with main-derived guest context; accepted prompts establish an
-  app-scoped feed grant in main and execute the existing main-owned feed
+- package-hosted `swarm.publishData()`, `swarm.publishFiles()`, and
+  `swarm.publishChunk()` reach shell-owned trusted Swarm approval windows with
+  main-derived guest context; accepted prompts execute through the existing
+  main-owned provider publish paths, while rejected prompts return page-facing
+  `4001`
+- package-hosted `swarm.createFeed()` reaches a shell-owned trusted Swarm
+  approval window with main-derived guest context; accepted prompts establish
+  an app-scoped feed grant in main and execute the existing main-owned feed
   creation path, while rejected prompts return page-facing `4001`
 - package-hosted `swarm.updateFeed()` routes through the same main-owned feed
   update gate; the official smoke proves a missing main-owned feed returns
@@ -360,8 +361,8 @@ The official package smoke currently proves:
   returns structured `feed_not_found` before package chrome can broker the
   request
 - package-hosted `swarm.getSigningIdentity()` and
-  `swarm.writeSingleOwnerChunk()` route through shell-owned native publisher
-  signing prompts with main-derived guest context; accepted prompts execute
+  `swarm.writeSingleOwnerChunk()` route through shell-owned trusted Swarm
+  approval windows with main-derived guest context; accepted prompts execute
   only through the existing main-owned signing/SOC paths after existing Swarm
   permission and feed-grant checks, while deterministic smoke proves vault
   signing material failures surface as structured provider errors
@@ -840,12 +841,13 @@ has shell-owned prompt slices for `swarm_requestAccess`, `swarm_publishData`,
 `swarm_updateFeed`, `swarm_writeFeedEntry`, `swarm_getSigningIdentity`, and
 `swarm_writeSingleOwnerChunk`: package-hosted guests ask main for host context,
 main derives the guest origin and package host identity, the broker presents a
-shell-owned native dialog, and accepted access prompts write the Swarm
-permission in main while accepted data/file/chunk publish, feed
+shell-owned trusted Swarm approval window, and accepted access prompts write
+the Swarm permission in main while accepted data/file/chunk publish, feed
 create/update/write, signing-identity, and SOC prompts execute through the
-existing main-owned provider paths. Rejected prompts still return a structured
-`4001` user rejection. These slices do not expose raw feed-store IPC, stamp
-management, account selection, or vault unlock state.
+existing main-owned provider paths. The trusted window is bundled shell code
+with a dedicated preload and scoped IPC channels. Rejected prompts still return
+a structured `4001` user rejection. These slices do not expose raw feed-store
+IPC, stamp management, account selection, or vault unlock state.
 Other higher-risk Ethereum and Swarm methods still fail
 with structured
 `trusted_prompt_unavailable` provider errors before package chrome can broker

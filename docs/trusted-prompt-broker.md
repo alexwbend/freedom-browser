@@ -269,16 +269,18 @@ guest webview preload
   -> swarm:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.connect
-  -> shell-owned native dialog
+  -> shell-owned trusted Swarm approval window
   -> main-owned Swarm permission grant or page-facing provider error
 ```
 
 Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
-origin claims are not used as final security truth. If an existing main-owned
-permission is present, main updates last-used and returns the connected result
-without prompting. If the user chooses Allow, main writes the Swarm permission
-for the derived origin and returns:
+origin claims are not used as final security truth. The approval window is
+bundled shell code with a dedicated preload and per-request scoped IPC
+channels; package chrome cannot render or style the final approval moment. If
+an existing main-owned permission is present, main updates last-used and
+returns the connected result without prompting. If the user chooses Allow,
+main writes the Swarm permission for the derived origin and returns:
 
 ```json
 {
@@ -307,7 +309,7 @@ guest webview preload
   -> swarm:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.publish
-  -> shell-owned native dialog
+  -> shell-owned trusted Swarm approval window
   -> main-owned provider publish execution or page-facing provider error
 ```
 
@@ -367,7 +369,7 @@ guest webview preload
   -> swarm:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.feed
-  -> shell-owned native dialog
+  -> shell-owned trusted Swarm approval window
   -> main-owned feed grant plus feed creation/update/entry write or page-facing provider error
 ```
 
@@ -415,7 +417,7 @@ guest webview preload
   -> swarm:provider-trusted-prompt-request
   -> main-owned package host/context derivation
   -> trusted prompt broker swarm.signing
-  -> shell-owned native dialog
+  -> shell-owned trusted Swarm approval window
   -> main-owned signing identity disclosure or SOC write, or page-facing provider error
 ```
 
@@ -578,23 +580,23 @@ Swarm publish/feed/signing approval:
   target
 - broker opens shell-owned publish/feed/signing prompt
 - current package-hosted `swarm_requestAccess` slice can grant the
-  main-derived guest origin after shell-owned native approval
+  main-derived guest origin after shell-owned trusted-window approval
 - current package-hosted `swarm_publishData` slice can execute data-only
-  publish after shell-owned native approval, subject to normal node/stamp
+  publish after shell-owned trusted-window approval, subject to normal node/stamp
   readiness
 - current package-hosted `swarm_publishFiles` slice can execute file-set
-  publish after shell-owned native approval, subject to normal node/stamp
+  publish after shell-owned trusted-window approval, subject to normal node/stamp
   readiness
 - current package-hosted `swarm_publishChunk` slice can execute CAC chunk
-  publish after shell-owned native approval, subject to normal node/stamp
+  publish after shell-owned trusted-window approval, subject to normal node/stamp
   readiness
 - current package-hosted `swarm_createFeed`, `swarm_updateFeed`, and
   `swarm_writeFeedEntry` slices can execute feed creation, existing-feed
-  updates, and feed-entry writes after shell-owned native approval, subject to
+  updates, and feed-entry writes after shell-owned trusted-window approval, subject to
   normal node/stamp/signer readiness
 - current package-hosted `swarm_getSigningIdentity` and
   `swarm_writeSingleOwnerChunk` slices can disclose the active publisher
-  signing identity or write an SOC after shell-owned native approval, subject
+  signing identity or write an SOC after shell-owned trusted-window approval, subject
   to an existing feed grant and normal vault/signer/node/stamp readiness
 - package chrome does not broker Swarm access or render final publish approval
 

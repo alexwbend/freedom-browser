@@ -736,6 +736,62 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('propagates shell-owned trusted window metadata for Swarm publish prompts', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+      renderedBy: 'trusted-swarm-approval-window',
+      presentation: 'trusted-window',
+      source: 'trusted-swarm-approval-window',
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-window-1',
+      presentNativeDialog,
+    });
+
+    await expect(
+      broker.requestSwarmPublishPrompt(
+        {
+          method: 'swarm_publishFiles',
+          reason: 'Swarm publish request from ipfs://bafyapp',
+          details: {
+            target: 'files',
+            fileCount: 2,
+            sizeBytes: 8,
+            indexDocument: 'index.html',
+          },
+        },
+        {
+          origin: 'ipfs://bafyapp',
+          webContentsId: 52,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-window-1',
+      kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'trusted-swarm-approval-window',
+      request: {
+        method: 'swarm_publishFiles',
+        presentation: 'trusted-window',
+        details: {
+          target: 'files',
+          fileCount: 2,
+          sizeBytes: 8,
+          indexDocument: 'index.html',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'trusted-swarm-approval-window',
+        response: 0,
+      },
+    });
+  });
+
   test('routes Swarm connection prompts through a shell-owned native dialog presenter', async () => {
     const presentNativeDialog = jest.fn().mockResolvedValue({
       ok: true,

@@ -111,6 +111,11 @@ jest.mock('../identity-manager', () => ({
   getUserWalletKey: mockGetUserWalletKey,
 }));
 
+const mockPresentTrustedSwarmApprovalPrompt = jest.fn();
+jest.mock('../trusted-swarm-approval-prompt', () => ({
+  presentTrustedSwarmApprovalPrompt: mockPresentTrustedSwarmApprovalPrompt,
+}));
+
 const mockAddEntry = jest.fn().mockReturnValue({ id: 'test-id' });
 const mockUpdateEntry = jest.fn();
 jest.mock('./publish-history', () => ({
@@ -136,6 +141,17 @@ const {
 } = require('./swarm-provider-ipc');
 
 registerSwarmProviderIpc();
+
+function trustedSwarmPromptResult(outcome = 'accepted', response = 0) {
+  return {
+    ok: true,
+    outcome,
+    response,
+    renderedBy: 'trusted-swarm-approval-window',
+    presentation: 'trusted-window',
+    source: 'trusted-swarm-approval-window',
+  };
+}
 
 async function invokeProvider(method, params, origin) {
   const handler = ipcHandlers['swarm:provider-execute'];
@@ -176,6 +192,7 @@ describe('swarm-provider-ipc', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     clearPermissionFreeReadBudgets();
+    mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
   });
 
   test('registers swarm:provider-execute handler', () => {
@@ -339,7 +356,7 @@ describe('swarm-provider-ipc', () => {
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
       mockGetPermission.mockReturnValue(null);
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_requestAccess',
@@ -348,21 +365,6 @@ describe('swarm-provider-ipc', () => {
 
       expect(mockGrantPermission).not.toHaveBeenCalled();
       expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Connection',
-          message: 'Swarm connection request',
-          detail:
-            'ipfs://bafyfixture requested Swarm publishing access. ' +
-            'Choose Allow to let this site publish data through the shell-owned Swarm provider broker.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -372,7 +374,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.connect',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -382,7 +384,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.connect',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           context: {
             origin: 'ipfs://bafyfixture',
             webContentsId: 42,
@@ -405,7 +407,7 @@ describe('swarm-provider-ipc', () => {
         lastUsed: 2,
         autoApprove: { publish: false, feeds: false },
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_requestAccess',
@@ -424,7 +426,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.connect',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           context: {
@@ -486,7 +488,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_publishData',
@@ -496,23 +498,6 @@ describe('swarm-provider-ipc', () => {
 
       expect(mockPublishData).not.toHaveBeenCalled();
       expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Publish',
-          message: 'Swarm publish request',
-          detail:
-            'ipfs://bafyfixture requested to publish data to Swarm. ' +
-            'Type: text/plain. ' +
-            'Size: 5 bytes. ' +
-            'Choose Publish only if you trust this request.',
-          buttons: ['Publish', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -522,7 +507,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.publish',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -532,7 +517,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.publish',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           context: {
             origin: 'ipfs://bafyfixture',
             webContentsId: 42,
@@ -548,7 +533,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockPublishData.mockResolvedValue({
         reference: 'abc123',
@@ -586,7 +571,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.publish',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -636,7 +621,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_publishFiles',
@@ -652,24 +637,6 @@ describe('swarm-provider-ipc', () => {
 
       expect(mockPublishFilesFromContent).not.toHaveBeenCalled();
       expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Publish',
-          message: 'Swarm publish request',
-          detail:
-            'ipfs://bafyfixture requested to publish files to Swarm. ' +
-            'Files: 2. ' +
-            'Size: 8 bytes. ' +
-            'Index: index.html. ' +
-            'Choose Publish only if you trust this request.',
-          buttons: ['Publish', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -679,7 +646,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.publish',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -689,7 +656,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.publish',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           request: {
             method: 'swarm_publishFiles',
             details: {
@@ -713,7 +680,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockPublishFilesFromContent.mockResolvedValue({
         reference: 'site123',
@@ -759,7 +726,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.publish',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -807,7 +774,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_publishChunk',
@@ -817,23 +784,6 @@ describe('swarm-provider-ipc', () => {
 
       expect(mockPublishChunk).not.toHaveBeenCalled();
       expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Publish',
-          message: 'Swarm publish request',
-          detail:
-            'ipfs://bafyfixture requested to publish chunk to Swarm. ' +
-            'Size: 5 bytes. ' +
-            'Span: 5. ' +
-            'Choose Publish only if you trust this request.',
-          buttons: ['Publish', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -843,7 +793,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.publish',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -876,7 +826,7 @@ describe('swarm-provider-ipc', () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
       mockPackageIdentity();
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockPublishChunk.mockResolvedValue({
         reference: 'chunk123',
@@ -912,7 +862,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.publish',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -992,7 +942,7 @@ describe('swarm-provider-ipc', () => {
         lastUsed: 1,
         autoApprove: { publish: false, feeds: false },
       });
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_createFeed',
@@ -1004,22 +954,6 @@ describe('swarm-provider-ipc', () => {
       expect(mockGrantFeedAccess).not.toHaveBeenCalled();
       expect(mockCreateFeed).not.toHaveBeenCalled();
       expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Feed',
-          message: 'Swarm feed request',
-          detail:
-            'ipfs://bafyfixture requested to create a Swarm feed. ' +
-            'Feed: blog. ' +
-            'Choose Allow only if you trust this request.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -1029,7 +963,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.feed',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -1039,7 +973,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.feed',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           request: {
             method: 'swarm_createFeed',
             details: {
@@ -1088,7 +1022,7 @@ describe('swarm-provider-ipc', () => {
       mockSetOriginEntry.mockReturnValue(feedEntry);
       mockHasFeedGrant.mockReturnValue(true);
       mockGetFeed.mockReturnValue(null);
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
       mockCreateFeed.mockResolvedValue({
@@ -1128,7 +1062,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.feed',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -1224,7 +1158,7 @@ describe('swarm-provider-ipc', () => {
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
       });
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_updateFeed',
@@ -1233,23 +1167,6 @@ describe('swarm-provider-ipc', () => {
       });
 
       expect(mockUpdateFeed).not.toHaveBeenCalled();
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Feed',
-          message: 'Swarm feed request',
-          detail:
-            'ipfs://bafyfixture requested to update a Swarm feed. ' +
-            'Feed: blog. ' +
-            `Reference: ${'aa'.repeat(32)}. ` +
-            'Choose Allow only if you trust this request.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -1259,7 +1176,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.feed',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -1269,7 +1186,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.feed',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           request: {
             method: 'swarm_updateFeed',
             details: {
@@ -1314,7 +1231,7 @@ describe('swarm-provider-ipc', () => {
         manifestReference: 'manifesthex',
         identityId: 'app-scoped:0',
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
       mockUpdateFeed.mockResolvedValue({ index: 9 });
@@ -1340,7 +1257,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.feed',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -1429,7 +1346,7 @@ describe('swarm-provider-ipc', () => {
         owner: '0xOwnerAddr',
         manifestReference: 'manifesthex',
       });
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_writeFeedEntry',
@@ -1438,24 +1355,6 @@ describe('swarm-provider-ipc', () => {
       });
 
       expect(mockWriteFeedPayload).not.toHaveBeenCalled();
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Feed',
-          message: 'Swarm feed request',
-          detail:
-            'ipfs://bafyfixture requested to write a Swarm feed entry. ' +
-            'Feed: blog. ' +
-            'Size: 5 bytes. ' +
-            'Index: 2. ' +
-            'Choose Allow only if you trust this request.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -1465,7 +1364,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.feed',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -1475,7 +1374,7 @@ describe('swarm-provider-ipc', () => {
         trustedPrompt: {
           ok: true,
           kind: 'swarm.feed',
-          renderedBy: 'shell-native-dialog',
+          renderedBy: 'trusted-swarm-approval-window',
           request: {
             method: 'swarm_writeFeedEntry',
             details: {
@@ -1520,7 +1419,7 @@ describe('swarm-provider-ipc', () => {
         manifestReference: 'manifesthex',
         identityId: 'app-scoped:0',
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
       mockWriteFeedPayload.mockResolvedValue({ index: 2 });
@@ -1545,7 +1444,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.feed',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -1601,7 +1500,7 @@ describe('swarm-provider-ipc', () => {
         autoApprove: { publish: false, feeds: false },
       });
       mockHasFeedGrant.mockReturnValue(true);
-      mockShowMessageBox.mockResolvedValue({ response: 1 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult('rejected', 1));
 
       const result = await handleProviderTrustedPromptRequest(event, {
         method: 'swarm_getSigningIdentity',
@@ -1610,21 +1509,6 @@ describe('swarm-provider-ipc', () => {
       });
 
       expect(mockGetSignerAddress).not.toHaveBeenCalled();
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Publisher Signing',
-          message: 'Swarm publisher signing request',
-          detail:
-            'ipfs://bafyfixture requested to disclose your Swarm signing identity. ' +
-            'Choose Allow only if you trust this request.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(result).toMatchObject({
         result: null,
         error: {
@@ -1634,7 +1518,7 @@ describe('swarm-provider-ipc', () => {
             reason: 'shell_trusted_prompt_rejected',
             prompt: {
               kind: 'swarm.signing',
-              renderedBy: 'shell-native-dialog',
+              renderedBy: 'trusted-swarm-approval-window',
               surfaceOwner: 'shell',
               origin: 'ipfs://bafyfixture',
               webContentsId: 42,
@@ -1680,7 +1564,7 @@ describe('swarm-provider-ipc', () => {
         publisherKeyIndex: 0,
         feeds: {},
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
       mockGetSignerAddress.mockReturnValue(owner);
 
@@ -1703,7 +1587,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.signing',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {
@@ -1771,7 +1655,7 @@ describe('swarm-provider-ipc', () => {
         publisherKeyIndex: 0,
         feeds: {},
       });
-      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPresentTrustedSwarmApprovalPrompt.mockResolvedValue(trustedSwarmPromptResult());
       mockPreFlightOk();
       mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
       mockWriteSingleOwnerChunk.mockResolvedValue({
@@ -1788,24 +1672,6 @@ describe('swarm-provider-ipc', () => {
       });
 
       expect(mockUpdateLastUsed).toHaveBeenCalledWith(origin);
-      expect(mockShowMessageBox).toHaveBeenCalledWith(
-        { id: 5 },
-        expect.objectContaining({
-          type: 'info',
-          title: 'Freedom Swarm Publisher Signing',
-          message: 'Swarm publisher signing request',
-          detail:
-            'ipfs://bafyfixture requested to write a Single Owner Chunk. ' +
-            `Identifier: ${identifier}. ` +
-            'Size: 5 bytes. ' +
-            'Span: 5. ' +
-            'Choose Allow only if you trust this request.',
-          buttons: ['Allow', 'Reject'],
-          defaultId: 1,
-          cancelId: 1,
-          noLink: true,
-        })
-      );
       expect(mockWriteSingleOwnerChunk).toHaveBeenCalledWith(
         '0xpublisherkey',
         identifier,
@@ -1830,7 +1696,7 @@ describe('swarm-provider-ipc', () => {
           kind: 'swarm.signing',
           result: {
             outcome: 'accepted',
-            source: 'shell-native-dialog',
+            source: 'trusted-swarm-approval-window',
             response: 0,
           },
           request: {

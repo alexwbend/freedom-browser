@@ -2753,6 +2753,9 @@ test('official browser chrome can launch as a local package with transitional we
       const trustedWalletApprovalPrompt = nodeRequire(
         pathModule.join(process.cwd(), 'src', 'main', 'trusted-wallet-approval-prompt.js')
       );
+      const trustedSwarmApprovalPrompt = nodeRequire(
+        pathModule.join(process.cwd(), 'src', 'main', 'trusted-swarm-approval-prompt.js')
+      );
       trustedWalletApprovalPrompt.presentTrustedWalletApprovalPrompt = async (
         request,
         context = {}
@@ -2787,6 +2790,30 @@ test('official browser chrome can launch as a local package with transitional we
         };
       };
       globalThis.__freedomWalletTrustedApprovalPrompts = [];
+      trustedSwarmApprovalPrompt.presentTrustedSwarmApprovalPrompt = async (
+        request,
+        context = {}
+      ) => {
+        globalThis.__freedomSwarmTrustedApprovalPrompts.push({
+          request,
+          context: {
+            origin: context.origin || null,
+            webContentsId: context.webContentsId ?? null,
+            hasOwnerWindow: !!context.ownerWindow,
+            ownerWindowDestroyed: context.ownerWindow?.isDestroyed?.() ?? null,
+            caller: context.caller || null,
+          },
+        });
+        return {
+          ok: true,
+          outcome: 'accepted',
+          response: 0,
+          renderedBy: 'trusted-swarm-approval-window',
+          presentation: 'trusted-window',
+          source: 'trusted-swarm-approval-window',
+        };
+      };
+      globalThis.__freedomSwarmTrustedApprovalPrompts = [];
       globalThis.__freedomProviderPromptDialogs = [];
       dialog.showMessageBox = async (ownerWindow, options) => {
         globalThis.__freedomProviderPromptDialogs.push({
@@ -2939,148 +2966,118 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="swarm-provider-feed-entry"]',
       'error:-32602:feed_not_found'
     );
-    const swarmPublishPromptDialog = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).find((dialog) => dialog.options?.title === 'Freedom Swarm Publish');
-    expect(swarmPublishPromptDialog).toMatchObject({
+    const swarmApprovalPrompts = await launched.app.evaluate(
+      () => globalThis.__freedomSwarmTrustedApprovalPrompts
+    );
+    const promptFor = (kind, method) =>
+      swarmApprovalPrompts.find(
+        (prompt) => prompt.request?.kind === kind && prompt.request?.method === method
+      );
+    const trustedSwarmContext = {
       hasOwnerWindow: true,
       ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Publish',
-        message: 'Swarm publish request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to publish data to Swarm. ` +
-          'Type: text/plain. ' +
-          'Size: 5 bytes. ' +
-          'Choose Publish only if you trust this request.',
-        buttons: ['Publish', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+      origin: `ipfs://${providerIpfsCid}`,
+      webContentsId: expect.any(Number),
+    };
+    expect(promptFor('swarm.connect', 'swarm_requestAccess')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.connect',
+        method: 'swarm_requestAccess',
+        origin: `ipfs://${providerIpfsCid}`,
       },
     });
-    const swarmFilePublishPromptDialog = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).find((dialog) => dialog.options?.detail?.includes('publish files to Swarm'));
-    expect(swarmFilePublishPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Publish',
-        message: 'Swarm publish request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to publish files to Swarm. ` +
-          'Files: 2. ' +
-          'Size: 8 bytes. ' +
-          'Index: index.html. ' +
-          'Choose Publish only if you trust this request.',
-        buttons: ['Publish', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(promptFor('swarm.publish', 'swarm_publishData')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.publish',
+        method: 'swarm_publishData',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          contentType: 'text/plain',
+          sizeBytes: 5,
+        },
       },
     });
-    const swarmChunkPublishPromptDialog = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).find((dialog) => dialog.options?.detail?.includes('publish chunk to Swarm'));
-    expect(swarmChunkPublishPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Publish',
-        message: 'Swarm publish request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to publish chunk to Swarm. ` +
-          'Size: 5 bytes. ' +
-          'Choose Publish only if you trust this request.',
-        buttons: ['Publish', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(promptFor('swarm.publish', 'swarm_publishFiles')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.publish',
+        method: 'swarm_publishFiles',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          fileCount: 2,
+          sizeBytes: 8,
+          indexDocument: 'index.html',
+        },
       },
     });
-    const swarmSigningPromptDialogs = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).filter((dialog) => dialog.options?.title === 'Freedom Swarm Publisher Signing');
-    expect(swarmSigningPromptDialogs).toHaveLength(2);
-    expect(swarmSigningPromptDialogs[0]).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Publisher Signing',
-        message: 'Swarm publisher signing request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to disclose your Swarm signing identity. ` +
-          'Choose Allow only if you trust this request.',
-        buttons: ['Allow', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(promptFor('swarm.publish', 'swarm_publishChunk')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.publish',
+        method: 'swarm_publishChunk',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          target: 'chunk',
+          sizeBytes: 5,
+        },
       },
     });
-    expect(swarmSigningPromptDialogs[1]).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Publisher Signing',
-        message: 'Swarm publisher signing request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to write a Single Owner Chunk. ` +
-          'Identifier: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb. ' +
-          'Size: 5 bytes. ' +
-          'Choose Allow only if you trust this request.',
-        buttons: ['Allow', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    const swarmSigningPrompts = swarmApprovalPrompts.filter(
+      (prompt) => prompt.request?.kind === 'swarm.signing'
+    );
+    expect(swarmSigningPrompts).toHaveLength(2);
+    expect(promptFor('swarm.signing', 'swarm_getSigningIdentity')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.signing',
+        method: 'swarm_getSigningIdentity',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          action: 'identity',
+        },
       },
     });
-    const swarmFeedPromptDialogs = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).filter((dialog) => dialog.options?.title === 'Freedom Swarm Feed');
-    expect(swarmFeedPromptDialogs).toHaveLength(1);
-    const swarmFeedPromptDialog = swarmFeedPromptDialogs[0];
-    expect(swarmFeedPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Feed',
-        message: 'Swarm feed request',
-        detail:
-          `ipfs://${providerIpfsCid} requested to create a Swarm feed. ` +
-          'Feed: blog. ' +
-          'Choose Allow only if you trust this request.',
-        buttons: ['Allow', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    expect(promptFor('swarm.signing', 'swarm_writeSingleOwnerChunk')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.signing',
+        method: 'swarm_writeSingleOwnerChunk',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          action: 'soc',
+          identifier: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          sizeBytes: 5,
+        },
       },
     });
-    const swarmConnectPromptDialog = (
-      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
-    ).find((dialog) => dialog.options?.title === 'Freedom Swarm Connection');
-    expect(swarmConnectPromptDialog).toMatchObject({
-      hasOwnerWindow: true,
-      ownerWindowDestroyed: false,
-      options: {
-        type: 'info',
-        title: 'Freedom Swarm Connection',
-        message: 'Swarm connection request',
-        detail:
-          `ipfs://${providerIpfsCid} requested Swarm publishing access. ` +
-          'Choose Allow to let this site publish data through the shell-owned Swarm provider broker.',
-        buttons: ['Allow', 'Reject'],
-        defaultId: 1,
-        cancelId: 1,
-        noLink: true,
+    const swarmFeedPrompts = swarmApprovalPrompts.filter(
+      (prompt) => prompt.request?.kind === 'swarm.feed'
+    );
+    expect(swarmFeedPrompts).toHaveLength(1);
+    expect(promptFor('swarm.feed', 'swarm_createFeed')).toMatchObject({
+      context: trustedSwarmContext,
+      request: {
+        kind: 'swarm.feed',
+        method: 'swarm_createFeed',
+        origin: `ipfs://${providerIpfsCid}`,
+        details: {
+          action: 'create',
+          feedName: 'blog',
+          identityMode: 'app-scoped',
+        },
       },
     });
+    const providerPromptDialogs = await launched.app.evaluate(
+      () => globalThis.__freedomProviderPromptDialogs
+    );
+    expect(
+      providerPromptDialogs.filter((dialog) =>
+        typeof dialog.options?.title === 'string' &&
+        dialog.options.title.startsWith('Freedom Swarm')
+      )
+    ).toHaveLength(0);
 
     const activeWebContentsId = await getActiveWebviewWebContentsId(page);
     const x402SmokeResult = await triggerPackageHostedX402Approval(

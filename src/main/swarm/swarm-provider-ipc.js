@@ -37,7 +37,7 @@
  *   authority.
  */
 
-const { dialog, ipcMain } = require('electron');
+const { ipcMain } = require('electron');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
 const { getPermission, grantPermission, updateLastUsed } = require('./swarm-permissions');
@@ -66,6 +66,7 @@ const { addEntry, updateEntry } = require('./publish-history');
 const { getAntApiUrl } = require('../service-registry');
 const { getDerivedKeys, getPublisherKey, getUserWalletKey } = require('../identity-manager');
 const { resetVaultAutoLockTimer } = require('../vault-timer');
+const trustedSwarmApprovalPrompt = require('../trusted-swarm-approval-prompt');
 const log = require('electron-log');
 
 const LIMITS = {
@@ -477,174 +478,20 @@ function deriveProviderOrigin(event) {
   return null;
 }
 
-async function presentNativeSwarmPublishPrompt(request, context = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native Swarm trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const details = request.details || {};
-  const isFilePublish = Number.isInteger(details.fileCount);
-  const target = details.target || (isFilePublish ? 'files' : 'data');
-  const fileCount = isFilePublish ? ` Files: ${details.fileCount}.` : '';
-  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
-  const contentType = details.contentType ? ` Type: ${details.contentType}.` : '';
-  const name = details.name ? ` Name: ${details.name}.` : '';
-  const indexDocument = details.indexDocument ? ` Index: ${details.indexDocument}.` : '';
-  const span = details.span !== undefined && details.span !== null ? ` Span: ${details.span}.` : '';
-  const ownerWindow = context.ownerWindow || null;
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: 'Freedom Swarm Publish',
-    message: 'Swarm publish request',
-    detail:
-      `${origin} requested to publish ${target} to Swarm.` +
-      contentType +
-      fileCount +
-      size +
-      span +
-      name +
-      indexDocument +
-      ' Choose Publish only if you trust this request.',
-    buttons: ['Publish', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
-  return {
-    ok: true,
-    outcome: result?.response === 0 ? 'accepted' : 'rejected',
-    response: result?.response,
-  };
+async function presentTrustedSwarmPublishPrompt(request, context = {}) {
+  return trustedSwarmApprovalPrompt.presentTrustedSwarmApprovalPrompt(request, context);
 }
 
-async function presentNativeSwarmConnectPrompt(request, context = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native Swarm trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const ownerWindow = context.ownerWindow || null;
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: 'Freedom Swarm Connection',
-    message: 'Swarm connection request',
-    detail:
-      `${origin} requested Swarm publishing access. ` +
-      'Choose Allow to let this site publish data through the shell-owned Swarm provider broker.',
-    buttons: ['Allow', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
-  return {
-    ok: true,
-    outcome: result?.response === 0 ? 'accepted' : 'rejected',
-    response: result?.response,
-  };
+async function presentTrustedSwarmConnectPrompt(request, context = {}) {
+  return trustedSwarmApprovalPrompt.presentTrustedSwarmApprovalPrompt(request, context);
 }
 
-async function presentNativeSwarmFeedPrompt(request, context = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native Swarm trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const details = request.details || {};
-  const action = details.action === 'update'
-    ? 'update'
-    : details.action === 'write'
-      ? 'write'
-      : 'create';
-  const actionText = action === 'update'
-    ? 'update a Swarm feed'
-    : action === 'write'
-      ? 'write a Swarm feed entry'
-      : 'create a Swarm feed';
-  const feedName = details.feedName ? ` Feed: ${details.feedName}.` : '';
-  const reference = details.reference ? ` Reference: ${details.reference}.` : '';
-  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
-  const index = Number.isInteger(details.index) ? ` Index: ${details.index}.` : '';
-  const ownerWindow = context.ownerWindow || null;
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: 'Freedom Swarm Feed',
-    message: 'Swarm feed request',
-    detail:
-      `${origin} requested to ${actionText}.` +
-      feedName +
-      reference +
-      size +
-      index +
-      ' Choose Allow only if you trust this request.',
-    buttons: ['Allow', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
-  return {
-    ok: true,
-    outcome: result?.response === 0 ? 'accepted' : 'rejected',
-    response: result?.response,
-  };
+async function presentTrustedSwarmFeedPrompt(request, context = {}) {
+  return trustedSwarmApprovalPrompt.presentTrustedSwarmApprovalPrompt(request, context);
 }
 
-async function presentNativeSwarmSigningPrompt(request, context = {}) {
-  if (!dialog || typeof dialog.showMessageBox !== 'function') {
-    return {
-      ok: false,
-      error: {
-        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
-        message: 'Native Swarm trusted prompt dialog is unavailable',
-      },
-    };
-  }
-
-  const origin = request.origin || context.origin || 'Unknown site';
-  const details = request.details || {};
-  const action = details.action === 'soc' ? 'write a Single Owner Chunk' : 'disclose your Swarm signing identity';
-  const identifier = details.identifier ? ` Identifier: ${details.identifier}.` : '';
-  const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
-  const span = details.span !== undefined && details.span !== null ? ` Span: ${details.span}.` : '';
-  const ownerWindow = context.ownerWindow || null;
-  const result = await dialog.showMessageBox(ownerWindow, {
-    type: 'info',
-    title: 'Freedom Swarm Publisher Signing',
-    message: 'Swarm publisher signing request',
-    detail:
-      `${origin} requested to ${action}.` +
-      identifier +
-      size +
-      span +
-      ' Choose Allow only if you trust this request.',
-    buttons: ['Allow', 'Reject'],
-    defaultId: 1,
-    cancelId: 1,
-    noLink: true,
-  });
-  return {
-    ok: true,
-    outcome: result?.response === 0 ? 'accepted' : 'rejected',
-    response: result?.response,
-  };
+async function presentTrustedSwarmSigningPrompt(request, context = {}) {
+  return trustedSwarmApprovalPrompt.presentTrustedSwarmApprovalPrompt(request, context);
 }
 
 function summarizePublishDataPrompt(prepared) {
@@ -839,7 +686,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       },
       {
         ...trustedContext,
-        presentNativeDialog: presentNativeSwarmConnectPrompt,
+        presentNativeDialog: presentTrustedSwarmConnectPrompt,
       }
     );
 
@@ -972,7 +819,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       },
       {
         ...trustedContext,
-        presentNativeDialog: presentNativeSwarmFeedPrompt,
+        presentNativeDialog: presentTrustedSwarmFeedPrompt,
       }
     );
 
@@ -1066,7 +913,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
       },
       {
         ...trustedContext,
-        presentNativeDialog: presentNativeSwarmSigningPrompt,
+        presentNativeDialog: presentTrustedSwarmSigningPrompt,
       }
     );
 
@@ -1143,7 +990,7 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     },
     {
       ...trustedContext,
-      presentNativeDialog: presentNativeSwarmPublishPrompt,
+      presentNativeDialog: presentTrustedSwarmPublishPrompt,
     }
   );
 

@@ -400,6 +400,14 @@ function createTrustedPromptBroker(options = {}) {
       },
       context
     );
+    const renderedBy =
+      typeof presentationResult?.renderedBy === 'string' && presentationResult.renderedBy
+        ? presentationResult.renderedBy
+        : 'shell-native-dialog';
+    const presentation =
+      presentationResult?.presentation === TRUSTED_PROMPT_PRESENTATIONS.TRUSTED_WINDOW
+        ? TRUSTED_PROMPT_PRESENTATIONS.TRUSTED_WINDOW
+        : TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG;
     if (presentationResult?.ok !== true) {
       return {
         ok: false,
@@ -407,7 +415,7 @@ function createTrustedPromptBroker(options = {}) {
         kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
         trusted: true,
         surfaceOwner: 'shell',
-        renderedBy: 'shell-native-dialog',
+        renderedBy,
         error: presentationResult?.error || {
           code: 'TRUSTED_PROMPT_PRESENTATION_FAILED',
           message: 'Native trusted prompt presentation failed',
@@ -421,12 +429,12 @@ function createTrustedPromptBroker(options = {}) {
       kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
       trusted: true,
       surfaceOwner: 'shell',
-      renderedBy: 'shell-native-dialog',
+      renderedBy,
       context: describeTrustedContext(context),
       request: {
         method,
         reason,
-        presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+        presentation,
         ...(details ? { details } : {}),
       },
       result: describeNativeDialogResult({
