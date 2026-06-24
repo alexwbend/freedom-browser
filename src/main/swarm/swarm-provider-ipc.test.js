@@ -84,17 +84,21 @@ jest.mock('@ethersphere/bee-js', () => ({
 }));
 
 const mockGetOriginEntry = jest.fn();
+const mockSetOriginEntry = jest.fn();
 const mockGetFeed = jest.fn();
 const mockSetFeed = jest.fn();
 const mockUpdateFeedReference = jest.fn();
 const mockHasFeedGrant = jest.fn();
+const mockGrantFeedAccess = jest.fn();
 const mockGetAllFeeds = jest.fn();
 jest.mock('./feed-store', () => ({
   getOriginEntry: mockGetOriginEntry,
+  setOriginEntry: mockSetOriginEntry,
   getFeed: mockGetFeed,
   setFeed: mockSetFeed,
   updateFeedReference: mockUpdateFeedReference,
   hasFeedGrant: mockHasFeedGrant,
+  grantFeedAccess: mockGrantFeedAccess,
   getAllFeeds: mockGetAllFeeds,
 }));
 
@@ -768,6 +772,221 @@ describe('swarm-provider-ipc', () => {
           },
           context: {
             origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('rejects invalid package-hosted swarm_createFeed before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue({ origin: 'ipfs://bafyfixture' });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_createFeed',
+        params: { name: 'bad/name' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'Feed name must not contain "/"',
+          data: { reason: 'invalid_feed_name' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockSetOriginEntry).not.toHaveBeenCalled();
+      expect(mockCreateFeed).not.toHaveBeenCalled();
+    });
+
+    test('rejects package-hosted swarm_createFeed without a Swarm connection grant', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockGetPermission.mockReturnValue(null);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_createFeed',
+        params: { name: 'blog' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: 4100,
+          message: 'The origin is not authorized for this operation',
+          data: { reason: 'not_connected' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockSetOriginEntry).not.toHaveBeenCalled();
+      expect(mockCreateFeed).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_createFeed through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin: 'ipfs://bafyfixture',
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_createFeed',
+        params: { name: 'blog' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockSetOriginEntry).not.toHaveBeenCalled();
+      expect(mockGrantFeedAccess).not.toHaveBeenCalled();
+      expect(mockCreateFeed).not.toHaveBeenCalled();
+      expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Feed',
+          message: 'Swarm feed request',
+          detail:
+            'ipfs://bafyfixture requested to create a Swarm feed. ' +
+            'Feed: blog. ' +
+            'Choose Allow only if you trust this request.',
+          buttons: ['Allow', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.feed',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.feed',
+          renderedBy: 'shell-native-dialog',
+          request: {
+            method: 'swarm_createFeed',
+            details: {
+              feedName: 'blog',
+              identityMode: 'app-scoped',
+            },
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('creates package-hosted swarm_createFeed after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      const origin = 'ipfs://bafyfixture';
+      const feedEntry = {
+        activeIdentityId: 'app-scoped:0',
+        identities: {
+          'app-scoped:0': {
+            id: 'app-scoped:0',
+            mode: 'app-scoped',
+            publisherKeyIndex: 0,
+          },
+        },
+        identityMode: 'app-scoped',
+        publisherKeyIndex: 0,
+        feeds: {},
+      };
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockGetPermission.mockReturnValue({
+        origin,
+        connectedAt: 1,
+        lastUsed: 1,
+        autoApprove: { publish: false, feeds: false },
+      });
+      mockGetOriginEntry
+        .mockReturnValueOnce(null)
+        .mockReturnValue(feedEntry);
+      mockSetOriginEntry.mockReturnValue(feedEntry);
+      mockHasFeedGrant.mockReturnValue(true);
+      mockGetFeed.mockReturnValue(null);
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockGetPublisherKey.mockResolvedValue({ privateKey: '0xpublisherkey' });
+      mockCreateFeed.mockResolvedValue({
+        topic: 'topichex',
+        owner: '0xOwnerAddr',
+        manifestReference: 'manifesthex',
+        bzzUrl: 'bzz://manifesthex',
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_createFeed',
+        params: { name: 'blog' },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockSetOriginEntry).toHaveBeenCalledWith(origin, {
+        identityMode: 'app-scoped',
+        feedGranted: true,
+      });
+      expect(mockUpdateLastUsed).toHaveBeenCalledWith(origin);
+      expect(mockCreateFeed).toHaveBeenCalledWith('0xpublisherkey', `${origin}/blog`);
+      expect(mockSetFeed).toHaveBeenCalledWith(origin, 'blog', expect.objectContaining({
+        topic: 'topichex',
+        owner: '0xOwnerAddr',
+        identityId: 'app-scoped:0',
+      }));
+      expect(result).toMatchObject({
+        result: {
+          feedId: 'blog',
+          owner: '0xOwnerAddr',
+          manifestReference: 'manifesthex',
+          bzzUrl: 'bzz://manifesthex',
+          identityMode: 'app-scoped',
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.feed',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_createFeed',
+            details: {
+              feedName: 'blog',
+              identityMode: 'app-scoped',
+            },
+          },
+          context: {
+            origin,
             webContentsId: 42,
             caller: {
               packageId: 'baby.freedom.chrome.official',

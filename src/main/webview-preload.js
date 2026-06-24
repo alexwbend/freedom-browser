@@ -736,6 +736,7 @@ const MAIN_TRUSTED_PROMPT_SWARM_METHODS = new Set([
   'swarm_requestAccess',
   'swarm_publishData',
   'swarm_publishFiles',
+  'swarm_createFeed',
 ]);
 const sendSwarmResponseToPage = (id, result, error) => {
   window.postMessage({

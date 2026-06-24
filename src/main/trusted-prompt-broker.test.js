@@ -799,6 +799,98 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes Swarm feed prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-feed-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestSwarmFeedPrompt(
+        {
+          method: 'swarm_createFeed',
+          origin: 'https://spoofed.example',
+          details: {
+            feedName: 'blog',
+            identityMode: 'app-scoped',
+          },
+        },
+        {
+          caller,
+          origin: 'ipfs://bafyapp',
+          webContentsId: 55,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-feed-1',
+      kind: 'swarm.feed',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'ipfs://bafyapp',
+        tabId: null,
+        webContentsId: 55,
+      },
+      request: {
+        method: 'swarm_createFeed',
+        reason: 'Swarm feed request from ipfs://bafyapp',
+        presentation: 'native-dialog',
+        details: {
+          feedName: 'blog',
+          identityMode: 'app-scoped',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-swarm-feed-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_FEED,
+        method: 'swarm_createFeed',
+        reason: 'Swarm feed request from ipfs://bafyapp',
+        origin: 'ipfs://bafyapp',
+        webContentsId: 55,
+        details: {
+          feedName: 'blog',
+          identityMode: 'app-scoped',
+        },
+      },
+      {
+        caller,
+        origin: 'ipfs://bafyapp',
+        webContentsId: 55,
+      }
+    );
+  });
+
   test('rejects unsupported wallet prompt methods', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'unused-wallet',
@@ -889,6 +981,17 @@ describe('trusted-prompt-broker', () => {
       error: {
         code: 'TRUSTED_PROMPT_UNSUPPORTED',
         message: 'Unsupported Swarm trusted prompt method',
+      },
+    });
+    await expect(
+      broker.requestSwarmFeedPrompt({
+        method: 'swarm_updateFeed',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported Swarm feed trusted prompt method',
       },
     });
   });

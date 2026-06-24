@@ -45,7 +45,16 @@ const { publishData, publishFilesFromContent, getUploadStatus } = require('./pub
 const { createFeed, updateFeed, writeFeedPayload, readFeedPayload, buildTopicString } = require('./feed-service');
 const { Topic } = require('@ethersphere/bee-js');
 const { VAULT_LOCKED_MESSAGE } = require('../wallet/vault-errors');
-const { getOriginEntry, getFeed, setFeed, updateFeedReference, hasFeedGrant, getAllFeeds } = require('./feed-store');
+const {
+  getOriginEntry,
+  setOriginEntry,
+  getFeed,
+  setFeed,
+  updateFeedReference,
+  hasFeedGrant,
+  grantFeedAccess,
+  getAllFeeds,
+} = require('./feed-store');
 const {
   publishChunk,
   readChunk,
@@ -545,6 +554,41 @@ async function presentNativeSwarmConnectPrompt(request, context = {}) {
   };
 }
 
+async function presentNativeSwarmFeedPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native Swarm trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const details = request.details || {};
+  const feedName = details.feedName ? ` Feed: ${details.feedName}.` : '';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Swarm Feed',
+    message: 'Swarm feed request',
+    detail:
+      `${origin} requested to create a Swarm feed.` +
+      feedName +
+      ' Choose Allow only if you trust this request.',
+    buttons: ['Allow', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: result?.response === 0 ? 'accepted' : 'rejected',
+    response: result?.response,
+  };
+}
+
 function summarizePublishDataPrompt(prepared) {
   return {
     contentType: prepared.contentType,
@@ -559,6 +603,30 @@ function summarizePublishFilesPrompt(prepared) {
     sizeBytes: prepared.totalSize,
     ...(prepared.indexDocument ? { indexDocument: prepared.indexDocument } : {}),
   };
+}
+
+function prepareCreateFeedParams(params) {
+  if (!params || typeof params !== 'object') {
+    return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
+  }
+
+  const nameResult = validateFeedName(params.name);
+  if (!nameResult.valid) {
+    return { error: { ...ERRORS.INVALID_PARAMS, message: nameResult.message, data: { reason: 'invalid_feed_name' } } };
+  }
+
+  return { name: params.name };
+}
+
+function ensurePackageFeedGrant(origin) {
+  const existing = getOriginEntry(origin);
+  if (existing?.activeIdentityId) {
+    if (!hasFeedGrant(origin)) {
+      grantFeedAccess(origin);
+    }
+    return getOriginEntry(origin) || existing;
+  }
+  return setOriginEntry(origin, { identityMode: 'app-scoped', feedGranted: true });
 }
 
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
@@ -578,7 +646,8 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   if (
     method !== 'swarm_requestAccess' &&
     method !== 'swarm_publishData' &&
-    method !== 'swarm_publishFiles'
+    method !== 'swarm_publishFiles' &&
+    method !== 'swarm_createFeed'
   ) {
     return {
       result: null,
@@ -656,6 +725,84 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
           origin: permission.origin,
           capabilities: ['publish'],
         },
+        trustedPrompt: prompt,
+      };
+    }
+
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_SWARM_PROVIDER_REJECTED,
+        data: {
+          ...PACKAGE_SWARM_PROVIDER_REJECTED.data,
+          prompt: {
+            requestId: prompt.requestId,
+            kind: prompt.kind,
+            renderedBy: prompt.renderedBy,
+            surfaceOwner: prompt.surfaceOwner,
+            origin: prompt.context?.origin || null,
+            webContentsId: prompt.context?.webContentsId || null,
+          },
+        },
+      },
+      trustedPrompt: prompt,
+    };
+  }
+
+  if (method === 'swarm_createFeed') {
+    const permission = getPermission(normalizedOrigin);
+    if (!permission) {
+      return {
+        result: null,
+        error: notConnected().error,
+      };
+    }
+
+    const prepared = prepareCreateFeedParams(payload.params);
+    if (prepared.error) {
+      return {
+        result: null,
+        error: prepared.error,
+      };
+    }
+
+    const prompt = await defaultTrustedPromptBroker.requestSwarmFeedPrompt(
+      {
+        method,
+        reason: `Swarm feed request from ${normalizedOrigin}`,
+        details: {
+          feedName: prepared.name,
+          identityMode: 'app-scoped',
+        },
+      },
+      {
+        ...trustedContext,
+        presentNativeDialog: presentNativeSwarmFeedPrompt,
+      }
+    );
+
+    if (prompt?.ok !== true) {
+      return {
+        result: null,
+        error: {
+          ...PACKAGE_SWARM_PROVIDER_UNAVAILABLE,
+          message: `${PACKAGE_SWARM_PROVIDER_UNAVAILABLE.message}: ${method}`,
+          data: {
+            reason: 'trusted_prompt_unavailable',
+            promptError: prompt?.error?.code || 'TRUSTED_PROMPT_UNAVAILABLE',
+          },
+        },
+        trustedPrompt: prompt || null,
+      };
+    }
+
+    if (prompt.result?.outcome === 'accepted') {
+      updateLastUsed(normalizedOrigin);
+      ensurePackageFeedGrant(normalizedOrigin);
+      const result = await handleCreateFeed(prepared, normalizedOrigin);
+      if (result.result) resetVaultAutoLockTimer();
+      return {
+        ...result,
         trustedPrompt: prompt,
       };
     }

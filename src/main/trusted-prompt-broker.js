@@ -7,6 +7,7 @@ const TRUSTED_PROMPT_KINDS = Object.freeze({
   X402_VAULT_UNLOCK: 'x402.vaultUnlock',
   SWARM_CONNECT: 'swarm.connect',
   SWARM_PUBLISH: 'swarm.publish',
+  SWARM_FEED: 'swarm.feed',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
   SYNTHETIC: 'synthetic',
@@ -26,6 +27,7 @@ const X402_APPROVAL_METHODS = new Set(['x402_approval']);
 const X402_VAULT_UNLOCK_METHODS = new Set(['x402_vaultUnlock']);
 const SWARM_CONNECT_METHODS = new Set(['swarm_requestAccess']);
 const SWARM_PUBLISH_METHODS = new Set(['swarm_publishData', 'swarm_publishFiles']);
+const SWARM_FEED_METHODS = new Set(['swarm_createFeed']);
 
 function cloneSerializable(value) {
   if (value === null || value === undefined) {
@@ -435,6 +437,18 @@ function createTrustedPromptBroker(options = {}) {
       })),
     requestSwarmPublishPrompt: async (payload, context) =>
       cloneSerializable(await requestSwarmPublishPrompt(payload, context)),
+    requestSwarmFeedPrompt: async (payload, context) =>
+      cloneSerializable(await requestNativeProviderPrompt({
+        payload,
+        context,
+        createRequestId,
+        defaultPresentNativeDialog,
+        kind: TRUSTED_PROMPT_KINDS.SWARM_FEED,
+        supportedMethods: SWARM_FEED_METHODS,
+        unsupportedMessage: 'Unsupported Swarm feed trusted prompt method',
+        defaultReason: (trustedContext) =>
+          `Swarm feed request from ${trustedContext.origin || 'unknown origin'}`,
+      })),
   });
 }
 

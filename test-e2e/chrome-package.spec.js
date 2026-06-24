@@ -2282,6 +2282,7 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="swarm-provider-access">pending</p>
         <p data-test="swarm-provider-publish">pending</p>
         <p data-test="swarm-provider-files">pending</p>
+        <p data-test="swarm-provider-feed">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
@@ -2429,6 +2430,15 @@ test('official browser chrome can launch as a local package with transitional we
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
+                try {
+                  await swarm.createFeed({ name: 'blog' });
+                  setText('[data-test="swarm-provider-feed"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-feed"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
               }
             };
             if (window.ethereum) {
@@ -2563,6 +2573,11 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="swarm-provider-files"]',
       'error:4900:node-stopped'
     );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-feed"]',
+      'error:4900:node-stopped'
+    );
     const swarmPublishPromptDialog = (
       await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
     ).find((dialog) => dialog.options?.title === 'Freedom Swarm Publish');
@@ -2601,6 +2616,26 @@ test('official browser chrome can launch as a local package with transitional we
           'Index: index.html. ' +
           'Choose Publish only if you trust this request.',
         buttons: ['Publish', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      },
+    });
+    const swarmFeedPromptDialog = (
+      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
+    ).find((dialog) => dialog.options?.title === 'Freedom Swarm Feed');
+    expect(swarmFeedPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Swarm Feed',
+        message: 'Swarm feed request',
+        detail:
+          `ipfs://${providerIpfsCid} requested to create a Swarm feed. ` +
+          'Feed: blog. ' +
+          'Choose Allow only if you trust this request.',
+        buttons: ['Allow', 'Reject'],
         defaultId: 1,
         cancelId: 1,
         noLink: true,

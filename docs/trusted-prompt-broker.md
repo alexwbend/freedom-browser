@@ -348,6 +348,37 @@ If the user rejects the prompt, the page still receives a provider-style
 not write feed permissions, expose stamp management, allow feed publish/update,
 or migrate the full Swarm publish/feed approval UI.
 
+### Package-Hosted Swarm Feed Creation Approval
+
+Package-hosted guest content can now route `swarm.createFeed()` to main without
+package chrome brokering the provider request:
+
+```text
+guest webview preload
+  -> swarm:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker swarm.feed
+  -> shell-owned native dialog
+  -> main-owned feed grant plus feed creation or page-facing provider error
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims are not used as final security truth. Feed names are validated in
+main before the prompt opens.
+
+If the user chooses Allow, main ensures the derived origin has an app-scoped
+feed identity and feed grant, then executes the existing `swarm_createFeed`
+provider path. Feed creation still depends on local Bee node readiness, usable
+stamps, and the publisher identity signer, so the page can receive normal
+provider errors such as `4900` with `data.reason: "node-stopped"` under the
+deterministic harness.
+
+If the user rejects the prompt, the page still receives a provider-style
+`4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
+not allow feed update/write, expose stamp management, expose raw feed-store
+IPC, or migrate the full Swarm publish/feed approval UI.
+
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
 Package-hosted guest content can now surface x402 payment approval and
@@ -442,6 +473,9 @@ Swarm publish/feed approval:
 - current package-hosted `swarm_publishFiles` slice can execute file-set
   publish after shell-owned native approval, subject to normal node/stamp
   readiness
+- current package-hosted `swarm_createFeed` slice can establish an app-scoped
+  feed grant and execute feed creation after shell-owned native approval,
+  subject to normal node/stamp/signer readiness
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:
@@ -457,7 +491,7 @@ Vault unlock:
 - no real wallet center migration
 - no richer wallet account-selection implementation
 - no x402 cap-grant, payment-permission, or vault-unlock migration
-- no successful Swarm feed publish/update or full publish-center approval
+- no successful Swarm feed update/write or full publish-center approval
   migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome
