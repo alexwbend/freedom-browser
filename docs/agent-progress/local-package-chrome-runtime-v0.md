@@ -4127,6 +4127,12 @@ Verification in this checkpoint:
   1 test.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `3683388` (`feat(chrome): unlock package x402 vault prompts`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28093016761`, job `test` (`83175430446`), passed for
+  `3683388`.
+- GitHub Actions run `28093016761`, job `e2e-chrome-runtime`
+  (`83175430436`), passed for `3683388`.
 
 Known remaining gaps after this checkpoint:
 
