@@ -2281,6 +2281,7 @@ test('official browser chrome can launch as a local package with transitional we
         <p data-test="swarm-provider-capabilities">pending</p>
         <p data-test="swarm-provider-access">pending</p>
         <p data-test="swarm-provider-publish">pending</p>
+        <p data-test="swarm-provider-files">pending</p>
         <script>
           (() => {
             const setText = (selector, value) => {
@@ -2401,6 +2402,30 @@ test('official browser chrome can launch as a local package with transitional we
                 } catch (error) {
                   setText(
                     '[data-test="swarm-provider-publish"]',
+                    'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
+                  );
+                }
+                try {
+                  const encoder = new TextEncoder();
+                  await swarm.publishFiles({
+                    files: [
+                      {
+                        path: 'index.html',
+                        bytes: encoder.encode('home'),
+                        contentType: 'text/html',
+                      },
+                      {
+                        path: 'style.css',
+                        bytes: encoder.encode('body'),
+                        contentType: 'text/css',
+                      },
+                    ],
+                    indexDocument: 'index.html',
+                  });
+                  setText('[data-test="swarm-provider-files"]', 'unexpected-success');
+                } catch (error) {
+                  setText(
+                    '[data-test="swarm-provider-files"]',
                     'error:' + (error.code || 'unknown') + ':' + (error.data?.reason || error.message || error)
                   );
                 }
@@ -2533,6 +2558,11 @@ test('official browser chrome can launch as a local package with transitional we
       '[data-test="swarm-provider-publish"]',
       'error:4900:node-stopped'
     );
+    await expectActiveWebviewText(
+      page,
+      '[data-test="swarm-provider-files"]',
+      'error:4900:node-stopped'
+    );
     const swarmPublishPromptDialog = (
       await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
     ).find((dialog) => dialog.options?.title === 'Freedom Swarm Publish');
@@ -2547,6 +2577,28 @@ test('official browser chrome can launch as a local package with transitional we
           `ipfs://${providerIpfsCid} requested to publish data to Swarm. ` +
           'Type: text/plain. ' +
           'Size: 5 bytes. ' +
+          'Choose Publish only if you trust this request.',
+        buttons: ['Publish', 'Reject'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+      },
+    });
+    const swarmFilePublishPromptDialog = (
+      await launched.app.evaluate(() => globalThis.__freedomProviderPromptDialogs)
+    ).find((dialog) => dialog.options?.detail?.includes('publish files to Swarm'));
+    expect(swarmFilePublishPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Swarm Publish',
+        message: 'Swarm publish request',
+        detail:
+          `ipfs://${providerIpfsCid} requested to publish files to Swarm. ` +
+          'Files: 2. ' +
+          'Size: 8 bytes. ' +
+          'Index: index.html. ' +
           'Choose Publish only if you trust this request.',
         buttons: ['Publish', 'Reject'],
         defaultId: 1,

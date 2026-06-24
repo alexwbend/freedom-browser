@@ -3389,3 +3389,65 @@ Known remaining gaps after this checkpoint:
   wallet account/review surfaces still need shell-owned UI before the broader
   package runtime can be called complete; these are not user-approved
   completion deferrals
+
+### Trusted Prompt Broker Checkpoint 13: Package Swarm File Publish Approval
+
+Current checkpoint: package-hosted `swarm.publishFiles()` can now proceed from
+a shell-owned native Publish / Reject prompt into the existing main-owned
+Swarm provider file-set publish path. Package chrome still does not receive
+Swarm provider globals, `window.swarmPermissions`, raw Swarm IPC,
+publish-history IPC, stamp-management authority, feed-signing authority, Node,
+Electron, or arbitrary IPC.
+
+Implemented in this checkpoint:
+
+- allowed `swarm_publishFiles` through the Swarm trusted prompt broker as a
+  `swarm.publish` prompt kind
+- changed the package-hosted guest preload to route `swarm_publishFiles` to
+  main trusted-prompt handling alongside `swarm_requestAccess` and
+  `swarm_publishData`
+- refactored main Swarm file-publish handling so validation happens before the
+  prompt and execution happens only after shell-owned approval
+- kept main deriving the guest origin from the requesting guest WebContents URL
+  and package host identity from the registered package host WebContents
+- validated virtual paths, duplicate paths, file count, total byte size,
+  bytes payloads, and index document in main before opening the prompt
+- passed display-only file publish details to the shell-owned prompt: file
+  count, total byte size, and optional index document
+- on accepted package-hosted `swarm_publishFiles`, executed the existing
+  main-owned provider file publish path using the derived origin
+- preserved page-facing `4001` with `data.reason:
+  "shell_trusted_prompt_rejected"` on rejection
+- left feed create/update/write, chunk/SOC signing, `freedom://publish`,
+  publish setup, stamp management, publish history, and full publish/feed
+  approval UI unavailable to package chrome
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/swarm/swarm-provider-ipc.test.js src/main/trusted-prompt-broker.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 197 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  116 suites passed, 5 skipped; 2224 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- package-hosted Swarm file publish now succeeds only for page-supplied
+  file-set payloads after shell-owned approval and normal Bee node/stamp
+  readiness; local file/folder picker UI, feed publish/update, stamp
+  management, publish history, and full publish/feed review UI still need a
+  real shell-owned Swarm surface before Swarm publish can be called complete
+  in package mode
+- identity onboarding, general vault unlock, seed/private-key export, x402 cap
+  grants/payment-permission/vault-unlock flows, richer x402 review, and richer
+  wallet account/review surfaces still need shell-owned UI before the broader
+  package runtime can be called complete; these are not user-approved
+  completion deferrals

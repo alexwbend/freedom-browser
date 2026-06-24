@@ -25,6 +25,7 @@ const WALLET_SIGNATURE_METHODS = new Set([
 const X402_APPROVAL_METHODS = new Set(['x402_approval']);
 const X402_VAULT_UNLOCK_METHODS = new Set(['x402_vaultUnlock']);
 const SWARM_CONNECT_METHODS = new Set(['swarm_requestAccess']);
+const SWARM_PUBLISH_METHODS = new Set(['swarm_publishData', 'swarm_publishFiles']);
 
 function cloneSerializable(value) {
   if (value === null || value === undefined) {
@@ -333,7 +334,7 @@ function createTrustedPromptBroker(options = {}) {
 
   async function requestSwarmPublishPrompt(payload = {}, context = {}) {
     const method = typeof payload?.method === 'string' ? payload.method : '';
-    if (method !== 'swarm_publishData') {
+    if (!SWARM_PUBLISH_METHODS.has(method)) {
       return {
         ok: false,
         error: {

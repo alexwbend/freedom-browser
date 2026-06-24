@@ -611,6 +611,72 @@ describe('webview-preload', () => {
     });
   });
 
+  test('routes package-hosted swarm file publish requests to main trusted-prompt handling', async () => {
+    const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://app.example/',
+        protocol: 'https:',
+        pathname: '/',
+        origin: 'https://app.example',
+      },
+      invokeResponses: {
+        [IPC.SWARM_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+        [IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST]: {
+          result: null,
+          error: {
+            code: 4900,
+            message: 'Node not available: node-stopped',
+            data: { reason: 'node-stopped' },
+          },
+        },
+      },
+    });
+    const params = {
+      files: [{ path: 'index.html', bytes: { type: 'Buffer', data: [104, 111, 109, 101] } }],
+      indexDocument: 'index.html',
+    };
+    const messageHandlers = global.window.addEventListener.mock.calls
+      .filter(([event]) => event === 'message')
+      .map(([, handler]) => handler);
+
+    for (const handler of messageHandlers) {
+      handler({
+        source: global.window,
+        data: {
+          type: 'FREEDOM_SWARM_REQUEST',
+          id: 14,
+          method: 'swarm_publishFiles',
+          params,
+        },
+      });
+    }
+    await flushMicrotasks();
+
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.SWARM_PROVIDER_TRUSTED_PROMPT_REQUEST, {
+      method: 'swarm_publishFiles',
+      params,
+      origin: 'https://app.example',
+    });
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'swarm:provider-request',
+      expect.anything()
+    );
+    expect(postedMessages).toContainEqual({
+      data: {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id: 14,
+        result: null,
+        error: {
+          code: 4900,
+          message: 'Node not available: node-stopped',
+          data: { reason: 'node-stopped' },
+        },
+      },
+      origin: 'https://app.example',
+    });
+  });
+
   test('routes package-hosted swarm access requests to main trusted-prompt handling', async () => {
     const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
       location: {

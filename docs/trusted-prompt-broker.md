@@ -286,13 +286,14 @@ for the derived origin and returns:
 
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
-not expose `window.swarmPermissions`, feed grants, stamp management,
-file/folder publish, or final Swarm approval UI to package chrome.
+not expose `window.swarmPermissions`, feed grants, stamp management, or final
+Swarm approval UI to package chrome.
 
-### Package-Hosted Swarm Data Publish Approval
+### Package-Hosted Swarm Data And File Publish Approval
 
-Package-hosted guest content can now route `swarm.publishData()` to main
-without package chrome brokering the provider request:
+Package-hosted guest content can now route `swarm.publishData()` and
+`swarm.publishFiles()` to main without package chrome brokering the provider
+request:
 
 ```text
 guest webview preload
@@ -307,12 +308,13 @@ Main derives the guest origin from the requesting WebContents URL and the
 package identity from the host WebContents registration. Payload-supplied
 origin claims are not used as final security truth. Payload details are
 validated in main before the prompt opens; the prompt receives display-only
-content type, byte size, and optional name metadata.
+content type, byte size, optional name, file count, and optional index-document
+metadata.
 
-If the user chooses Publish, main executes the existing `swarm_publishData`
-provider path as a one-time shell-owned authorization using the derived origin.
-The publish still depends on the local Bee node and usable stamps, so the page
-can receive normal provider errors such as `4900` with
+If the user chooses Publish, main executes the existing `swarm_publishData` or
+`swarm_publishFiles` provider path as a shell-owned authorization using the
+derived origin. The publish still depends on the local Bee node and usable
+stamps, so the page can receive normal provider errors such as `4900` with
 `data.reason: "node-stopped"` under the deterministic harness.
 
 Successful data publish returns the normal provider result:
@@ -327,9 +329,23 @@ Successful data publish returns the normal provider result:
 }
 ```
 
+Successful file publish returns the normal provider result including upload
+tag identity when Bee provides one:
+
+```json
+{
+  "result": {
+    "reference": "site123",
+    "bzzUrl": "bzz://site123",
+    "tagUid": 42
+  },
+  "error": null
+}
+```
+
 If the user rejects the prompt, the page still receives a provider-style
 `4001` with `data.reason: "shell_trusted_prompt_rejected"`. This slice does
-not write feed permissions, expose stamp management, allow file/folder publish,
+not write feed permissions, expose stamp management, allow feed publish/update,
 or migrate the full Swarm publish/feed approval UI.
 
 ### Package-Hosted x402 Approval And Vault-Unlock Prompts
@@ -423,6 +439,9 @@ Swarm publish/feed approval:
 - current package-hosted `swarm_publishData` slice can execute data-only
   publish after shell-owned native approval, subject to normal node/stamp
   readiness
+- current package-hosted `swarm_publishFiles` slice can execute file-set
+  publish after shell-owned native approval, subject to normal node/stamp
+  readiness
 - package chrome does not broker Swarm access or render final publish approval
 
 Vault unlock:
@@ -438,7 +457,7 @@ Vault unlock:
 - no real wallet center migration
 - no richer wallet account-selection implementation
 - no x402 cap-grant, payment-permission, or vault-unlock migration
-- no successful Swarm feed, file/folder publish, or full publish-center
-  approval migration
+- no successful Swarm feed publish/update or full publish-center approval
+  migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

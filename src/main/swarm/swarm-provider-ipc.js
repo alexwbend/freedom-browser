@@ -481,19 +481,25 @@ async function presentNativeSwarmPublishPrompt(request, context = {}) {
 
   const origin = request.origin || context.origin || 'Unknown site';
   const details = request.details || {};
+  const isFilePublish = Number.isInteger(details.fileCount);
+  const target = isFilePublish ? 'files' : 'data';
+  const fileCount = isFilePublish ? ` Files: ${details.fileCount}.` : '';
   const size = Number.isFinite(details.sizeBytes) ? ` Size: ${details.sizeBytes} bytes.` : '';
   const contentType = details.contentType ? ` Type: ${details.contentType}.` : '';
   const name = details.name ? ` Name: ${details.name}.` : '';
+  const indexDocument = details.indexDocument ? ` Index: ${details.indexDocument}.` : '';
   const ownerWindow = context.ownerWindow || null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
     title: 'Freedom Swarm Publish',
     message: 'Swarm publish request',
     detail:
-      `${origin} requested to publish data to Swarm.` +
+      `${origin} requested to publish ${target} to Swarm.` +
       contentType +
+      fileCount +
       size +
       name +
+      indexDocument +
       ' Choose Publish only if you trust this request.',
     buttons: ['Publish', 'Reject'],
     defaultId: 1,
@@ -547,6 +553,14 @@ function summarizePublishDataPrompt(prepared) {
   };
 }
 
+function summarizePublishFilesPrompt(prepared) {
+  return {
+    fileCount: prepared.normalizedFiles.length,
+    sizeBytes: prepared.totalSize,
+    ...(prepared.indexDocument ? { indexDocument: prepared.indexDocument } : {}),
+  };
+}
+
 async function handleProviderTrustedPromptRequest(event, payload = {}) {
   const method = typeof payload.method === 'string' ? payload.method : '';
   const hostWebContents = getPackageHostWebContents(event);
@@ -561,7 +575,11 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  if (method !== 'swarm_requestAccess' && method !== 'swarm_publishData') {
+  if (
+    method !== 'swarm_requestAccess' &&
+    method !== 'swarm_publishData' &&
+    method !== 'swarm_publishFiles'
+  ) {
     return {
       result: null,
       error: {
@@ -662,7 +680,10 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     };
   }
 
-  const prepared = preparePublishDataParams(payload.params);
+  const isFilePublish = method === 'swarm_publishFiles';
+  const prepared = isFilePublish
+    ? preparePublishFilesParams(payload.params)
+    : preparePublishDataParams(payload.params);
   if (prepared.error) {
     return {
       result: null,
@@ -674,7 +695,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
     {
       method,
       reason: `Swarm publish request from ${normalizedOrigin}`,
-      details: summarizePublishDataPrompt(prepared),
+      details: isFilePublish
+        ? summarizePublishFilesPrompt(prepared)
+        : summarizePublishDataPrompt(prepared),
     },
     {
       ...trustedContext,
@@ -698,7 +721,9 @@ async function handleProviderTrustedPromptRequest(event, payload = {}) {
   }
 
   if (prompt.result?.outcome === 'accepted') {
-    const publishResult = await executePublishData(prepared, normalizedOrigin);
+    const publishResult = isFilePublish
+      ? await executePublishFiles(prepared, normalizedOrigin)
+      : await executePublishData(prepared, normalizedOrigin);
     if (publishResult.result) resetVaultAutoLockTimer();
     return {
       ...publishResult,
@@ -906,10 +931,7 @@ function normalizeBytes(bytes) {
   return null;
 }
 
-/**
- * Handle swarm_publishFiles: validate, enforce limits, write to temp dir, publish.
- */
-async function handlePublishFiles(params, origin) {
+function preparePublishFilesParams(params) {
   if (!params || typeof params !== 'object') {
     return { error: { ...ERRORS.INVALID_PARAMS, message: 'params is required', data: { reason: 'invalid_params' } } };
   }
@@ -973,6 +995,16 @@ async function handlePublishFiles(params, origin) {
     }
   }
 
+  return {
+    normalizedFiles,
+    totalSize,
+    indexDocument,
+  };
+}
+
+async function executePublishFiles(prepared, origin) {
+  const { normalizedFiles, totalSize, indexDocument } = prepared;
+
   const preFlight = await checkSwarmPreFlight();
   if (!preFlight.ok) {
     return { error: { ...ERRORS.NODE_UNAVAILABLE, message: `Node not available: ${preFlight.reason}`, data: { reason: preFlight.reason } } };
@@ -1002,6 +1034,17 @@ async function handlePublishFiles(params, origin) {
     log.error(`[SwarmProvider] publishFiles failed for ${origin}:`, err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };
   }
+}
+
+/**
+ * Handle swarm_publishFiles: validate, enforce limits, write to temp dir, publish.
+ */
+async function handlePublishFiles(params, origin) {
+  const prepared = preparePublishFilesParams(params);
+  if (prepared.error) {
+    return { error: prepared.error };
+  }
+  return executePublishFiles(prepared, origin);
 }
 
 /**

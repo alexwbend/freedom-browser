@@ -704,6 +704,101 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes Swarm file publish prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'accepted',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-swarm-files-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestSwarmPublishPrompt(
+        {
+          method: 'swarm_publishFiles',
+          origin: 'https://spoofed.example',
+          details: {
+            fileCount: 2,
+            sizeBytes: 8,
+            indexDocument: 'index.html',
+          },
+        },
+        {
+          caller,
+          origin: 'ipfs://bafyapp',
+          webContentsId: 54,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-swarm-files-1',
+      kind: 'swarm.publish',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'ipfs://bafyapp',
+        tabId: null,
+        webContentsId: 54,
+      },
+      request: {
+        method: 'swarm_publishFiles',
+        reason: 'Swarm publish request from ipfs://bafyapp',
+        presentation: 'native-dialog',
+        details: {
+          fileCount: 2,
+          sizeBytes: 8,
+          indexDocument: 'index.html',
+        },
+      },
+      result: {
+        outcome: 'accepted',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-swarm-files-1',
+        kind: TRUSTED_PROMPT_KINDS.SWARM_PUBLISH,
+        method: 'swarm_publishFiles',
+        reason: 'Swarm publish request from ipfs://bafyapp',
+        origin: 'ipfs://bafyapp',
+        webContentsId: 54,
+        details: {
+          fileCount: 2,
+          sizeBytes: 8,
+          indexDocument: 'index.html',
+        },
+      },
+      {
+        caller,
+        origin: 'ipfs://bafyapp',
+        webContentsId: 54,
+      }
+    );
+  });
+
   test('rejects unsupported wallet prompt methods', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'unused-wallet',

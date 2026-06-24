@@ -603,6 +603,180 @@ describe('swarm-provider-ipc', () => {
       });
     });
 
+    test('rejects invalid package-hosted swarm_publishFiles before opening a prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishFiles',
+        params: {
+          files: [{ path: '../secret.txt', bytes: Buffer.from('secret') }],
+          indexDocument: '../secret.txt',
+        },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(result).toEqual({
+        result: null,
+        error: {
+          code: -32602,
+          message: 'files[0].path: "." and ".." segments are not allowed',
+          data: { reason: 'invalid_path' },
+        },
+      });
+      expect(mockShowMessageBox).not.toHaveBeenCalled();
+      expect(mockPublishFilesFromContent).not.toHaveBeenCalled();
+    });
+
+    test('routes rejected package-hosted swarm_publishFiles through a shell-owned prompt', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockShowMessageBox.mockResolvedValue({ response: 1 });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishFiles',
+        params: {
+          files: [
+            { path: 'index.html', bytes: Buffer.from('home') },
+            { path: 'style.css', bytes: Buffer.from('body') },
+          ],
+          indexDocument: 'index.html',
+        },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockPublishFilesFromContent).not.toHaveBeenCalled();
+      expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(event.sender.hostWebContents);
+      expect(mockShowMessageBox).toHaveBeenCalledWith(
+        { id: 5 },
+        expect.objectContaining({
+          type: 'info',
+          title: 'Freedom Swarm Publish',
+          message: 'Swarm publish request',
+          detail:
+            'ipfs://bafyfixture requested to publish files to Swarm. ' +
+            'Files: 2. ' +
+            'Size: 8 bytes. ' +
+            'Index: index.html. ' +
+            'Choose Publish only if you trust this request.',
+          buttons: ['Publish', 'Reject'],
+          defaultId: 1,
+          cancelId: 1,
+          noLink: true,
+        })
+      );
+      expect(result).toMatchObject({
+        result: null,
+        error: {
+          code: 4001,
+          message: 'User rejected the request',
+          data: {
+            reason: 'shell_trusted_prompt_rejected',
+            prompt: {
+              kind: 'swarm.publish',
+              renderedBy: 'shell-native-dialog',
+              surfaceOwner: 'shell',
+              origin: 'ipfs://bafyfixture',
+              webContentsId: 42,
+            },
+          },
+        },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          renderedBy: 'shell-native-dialog',
+          request: {
+            method: 'swarm_publishFiles',
+            details: {
+              fileCount: 2,
+              sizeBytes: 8,
+              indexDocument: 'index.html',
+            },
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
+    test('publishes package-hosted swarm_publishFiles after shell-owned approval', async () => {
+      const event = buildPackageHostedEvent();
+      mockIsPackageWebContents.mockReturnValue(true);
+      mockPackageIdentity();
+      mockShowMessageBox.mockResolvedValue({ response: 0 });
+      mockPreFlightOk();
+      mockPublishFilesFromContent.mockResolvedValue({
+        reference: 'site123',
+        bzzUrl: 'bzz://site123',
+        tagUid: 42,
+        batchIdUsed: 'batch1',
+      });
+
+      const result = await handleProviderTrustedPromptRequest(event, {
+        method: 'swarm_publishFiles',
+        params: {
+          files: [
+            { path: 'index.html', bytes: Buffer.from('home'), contentType: 'text/html' },
+            { path: 'style.css', bytes: Buffer.from('body'), contentType: 'text/css' },
+          ],
+          indexDocument: 'index.html',
+        },
+        origin: 'https://spoofed.example',
+      });
+
+      expect(mockPublishFilesFromContent).toHaveBeenCalledWith(
+        [
+          { path: 'index.html', bytes: Buffer.from('home'), contentType: 'text/html' },
+          { path: 'style.css', bytes: Buffer.from('body'), contentType: 'text/css' },
+        ],
+        { indexDocument: 'index.html' }
+      );
+      expect(mockAddEntry).toHaveBeenCalledWith({
+        type: 'directory',
+        name: 'index.html',
+        status: 'uploading',
+        origin: 'ipfs://bafyfixture',
+        bytesSize: 8,
+      });
+      expect(mockUpdateEntry).toHaveBeenCalledWith(
+        'test-id',
+        expect.objectContaining({ status: 'completed', reference: 'site123' })
+      );
+      expect(result).toMatchObject({
+        result: { reference: 'site123', bzzUrl: 'bzz://site123', tagUid: 42 },
+        trustedPrompt: {
+          ok: true,
+          kind: 'swarm.publish',
+          result: {
+            outcome: 'accepted',
+            source: 'shell-native-dialog',
+            response: 0,
+          },
+          request: {
+            method: 'swarm_publishFiles',
+            details: {
+              fileCount: 2,
+              sizeBytes: 8,
+              indexDocument: 'index.html',
+            },
+          },
+          context: {
+            origin: 'ipfs://bafyfixture',
+            webContentsId: 42,
+            caller: {
+              packageId: 'baby.freedom.chrome.official',
+            },
+          },
+        },
+      });
+    });
+
     test('keeps unsupported package-hosted privileged swarm methods unavailable', async () => {
       const event = buildPackageHostedEvent();
       mockIsPackageWebContents.mockReturnValue(true);
