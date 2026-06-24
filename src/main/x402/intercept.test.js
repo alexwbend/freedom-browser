@@ -680,6 +680,7 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
 
   test('package-hosted approval UI shows a shell-owned rejection prompt and passes the 402 through without pending approval', async () => {
     mockIsPackageWebContents.mockReturnValue(true);
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 1 });
 
     const result = await detectPaymentRequiredHandler(detail());
 
@@ -693,11 +694,42 @@ describe('approval-card subresource path (await user decision, then 307)', () =>
       message: 'Payment approval request',
       detail:
         'https://api.example requested an x402 payment. ' +
-        'Package chrome cannot approve this payment; the shell is rejecting it for now.',
-      buttons: ['Reject'],
-      defaultId: 0,
-      cancelId: 0,
+        'Amount: 10000. ' +
+        'Asset: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913. ' +
+        'Network: eip155:8453. ' +
+        'Choose Pay only if you trust this request.',
+      buttons: ['Pay', 'Reject'],
+      defaultId: 1,
+      cancelId: 1,
       noLink: true,
+    });
+  });
+
+  test('package-hosted approval accepted in shell signs with MANUAL authorization and returns 307 for subresources', async () => {
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockDialogShowMessageBox.mockResolvedValueOnce({ response: 0 });
+
+    const result = await detectPaymentRequiredHandler(detail());
+
+    expect(result).toEqual({
+      statusLine: 'HTTP/1.1 307 Temporary Redirect',
+      responseHeaders: { Location: ['https://api.example/segment/0'] },
+    });
+    expect(mockHostSend).not.toHaveBeenCalled();
+    expect(hasPendingApproval('req-1001')).toBe(false);
+    expect(getDetectedPayment(7)).toBeNull();
+    expect(mockSignAndQueueRetry).toHaveBeenCalledWith(7, {
+      detection: {
+        url: 'https://api.example/segment/0',
+        requirements: sampleRequirements,
+        resourceType: 'xhr',
+        requestShape: {
+          method: 'GET',
+          range: null,
+        },
+      },
+      selectedAccept: sampleRequirements.accepts[0],
+      authorizedBy: 'manual',
     });
   });
 

@@ -289,7 +289,7 @@ This proves a Swarm provider request reaches shell-owned prompt presentation
 with main-derived context. It does not publish data, write feed permissions,
 spend stamps, or migrate the full Swarm publish/feed approval UI.
 
-### Package-Hosted x402 Approval And Vault-Unlock Denials
+### Package-Hosted x402 Approval And Vault-Unlock Prompts
 
 Package-hosted guest content can now surface x402 payment approval and
 vault-unlock needs through shell-owned native prompts instead of package chrome
@@ -300,7 +300,7 @@ guest webContents x402 interception
   -> main-owned package host/context derivation
   -> trusted prompt broker x402.approval or x402.vaultUnlock
   -> shell-owned native dialog
-  -> original 402 remains visible to the page
+  -> shell-owned signing/retry or original 402 remains visible to the page
 ```
 
 Main derives the payment origin from the intercepted request URL and the package
@@ -308,11 +308,17 @@ identity from the host WebContents registration. Package chrome does not receive
 raw x402 approval events, raw payment-history IPC, vault-unlock primitives, or
 payment signing authority.
 
-The current result intentionally rejects the payment or vault-unlock request
-and passes the original 402 through. This proves shell-owned prompt presentation
-for package-hosted x402 failures without signing payments, granting caps,
-unlocking vault state, writing payment permissions, or migrating the final x402
-approval UI.
+For non-cap-covered package-hosted paywalls, the shell-owned payment prompt can
+now succeed for a one-time payment when the user chooses Pay and the vault is
+unlocked. Main signs through the existing vault-backed x402 client, queues the
+payment header for the retry, returns a same-URL 307 for subresources, and
+re-navigates main-frame requests through the existing sign-flow path. Rejected
+prompts pass the original 402 through.
+
+Package-hosted x402 still does not grant caps, unlock vault state, write
+payment permissions, expose payment history, or migrate the full x402 approval
+UI. Package-hosted vault-unlock prompts still intentionally reject and pass the
+original 402 through when signing needs an unlock.
 
 ## Future Real Prompt Paths
 
@@ -354,12 +360,14 @@ x402 approvals:
 - main derives URL, charge, origin, payment network, and existing permission
   state
 - broker opens shell-owned payment approval or unlock prompt
-- current package-hosted slices reject after shell-owned native presentation and
-  pass the original 402 through
+- current package-hosted approval slice can sign one-time payments after
+  shell-owned native presentation when the vault is unlocked
+- package-hosted vault-unlock prompts still reject after shell-owned native
+  presentation and pass the original 402 through
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add real payment approval, cap grant, vault
-  unlock, and signing execution handling from main before x402 can succeed in
-  package mode
+- future completion work must add cap grants, vault unlock, payment
+  permission management, and richer review UI before x402 can be called
+  complete in package mode
 
 Swarm publish/feed approval:
 
@@ -383,7 +391,7 @@ Vault unlock:
 
 - no real wallet center migration
 - no richer wallet account-selection implementation
-- no successful x402 payment, cap-grant, or vault-unlock migration
+- no x402 cap-grant, payment-permission, or vault-unlock migration
 - no successful Swarm publish/feed approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

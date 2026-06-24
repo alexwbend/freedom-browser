@@ -663,9 +663,23 @@ async function presentNativeX402ApprovalPrompt(request, context = {}) {
   return presentNativeX402Prompt(request, context, {
     title: 'Freedom x402 Payment',
     message: 'Payment approval request',
-    detail: (origin) =>
-      `${origin} requested an x402 payment. ` +
-      'Package chrome cannot approve this payment; the shell is rejecting it for now.',
+    detail: (origin, promptRequest) => {
+      const details = promptRequest.details || {};
+      const amount = details.amount ? ` Amount: ${details.amount}.` : '';
+      const asset = details.asset ? ` Asset: ${details.asset}.` : '';
+      const network = details.network ? ` Network: ${details.network}.` : '';
+      return (
+        `${origin} requested an x402 payment.` +
+        amount +
+        asset +
+        network +
+        ' Choose Pay only if you trust this request.'
+      );
+    },
+    buttons: ['Pay', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    acceptedResponse: 0,
   });
 }
 
@@ -692,20 +706,44 @@ async function presentNativeX402Prompt(request, context = {}, dialogOptions = {}
 
   const origin = request.origin || context.origin || 'Unknown site';
   const ownerWindow = context.ownerWindow || null;
+  const buttons = Array.isArray(dialogOptions.buttons) && dialogOptions.buttons.length > 0
+    ? dialogOptions.buttons
+    : ['Reject'];
+  const defaultId = Number.isInteger(dialogOptions.defaultId) ? dialogOptions.defaultId : 0;
+  const cancelId = Number.isInteger(dialogOptions.cancelId) ? dialogOptions.cancelId : defaultId;
+  const acceptedResponse = Number.isInteger(dialogOptions.acceptedResponse)
+    ? dialogOptions.acceptedResponse
+    : null;
   const result = await dialog.showMessageBox(ownerWindow, {
     type: 'info',
     title: dialogOptions.title,
     message: dialogOptions.message,
-    detail: dialogOptions.detail(origin),
-    buttons: ['Reject'],
-    defaultId: 0,
-    cancelId: 0,
+    detail: dialogOptions.detail(origin, request),
+    buttons,
+    defaultId,
+    cancelId,
     noLink: true,
   });
   return {
     ok: true,
-    outcome: 'rejected',
+    outcome: acceptedResponse !== null && result?.response === acceptedResponse
+      ? 'accepted'
+      : 'rejected',
     response: result?.response,
+  };
+}
+
+function getX402PaymentPromptDetails(requirements) {
+  const accept = Array.isArray(requirements?.accepts) ? requirements.accepts[0] : null;
+  if (!accept || typeof accept !== 'object') {
+    return null;
+  }
+  return {
+    x402Version: requirements.x402Version,
+    network: accept.network,
+    amount: accept.amount ?? accept.maxAmountRequired,
+    asset: accept.asset,
+    payTo: accept.payTo,
   };
 }
 
@@ -714,6 +752,7 @@ async function requestPackageHostedX402Prompt({
   webContentsId,
   url,
   promptType,
+  requirements,
 }) {
   if (!hostWebContents) {
     return null;
@@ -735,6 +774,7 @@ async function requestPackageHostedX402Prompt({
       {
         method,
         reason,
+        details: promptType === 'approval' ? getX402PaymentPromptDetails(requirements) : null,
       },
       {
         caller:
@@ -754,6 +794,28 @@ async function requestPackageHostedX402Prompt({
     log.warn(`[x402] package-hosted trusted prompt failed: ${err?.message || err}`);
     return null;
   }
+}
+
+async function signPackageHostedX402Approval({
+  webContentsId,
+  url,
+  requirements,
+  resourceType,
+  requestShape,
+}) {
+  const { signAndQueueRetry } = require('./sign-flow');
+  const selectedAccept = Array.isArray(requirements?.accepts) ? requirements.accepts[0] : null;
+  await signAndQueueRetry(webContentsId, {
+    detection: {
+      url,
+      requirements,
+      resourceType,
+      requestShape,
+    },
+    selectedAccept,
+    authorizedBy: AUTHORIZED_BY.MANUAL,
+  });
+  clearDetectedPayment(webContentsId);
 }
 
 // === Dispatcher handlers =================================================
@@ -1033,12 +1095,44 @@ async function detectPaymentRequiredHandler(details) {
     resourceType: details.resourceType,
   });
   if (approvalDispatch.reason === 'package-host') {
-    await requestPackageHostedX402Prompt({
+    const prompt = await requestPackageHostedX402Prompt({
       hostWebContents: approvalDispatch.hostWebContents,
       webContentsId: details.webContentsId,
       url: details.url,
       promptType: 'approval',
+      requirements,
     });
+    if (prompt?.ok === true && prompt.result?.outcome === 'accepted') {
+      try {
+        await signPackageHostedX402Approval({
+          webContentsId: details.webContentsId,
+          url: details.url,
+          requirements,
+          resourceType: details.resourceType,
+          requestShape,
+        });
+        log.info(`[x402:approval] package-hosted ${sanitizeUrlForLog(details.url)} signed through shell-owned prompt`);
+        if (details.resourceType && details.resourceType !== 'mainFrame') {
+          return {
+            statusLine: 'HTTP/1.1 307 Temporary Redirect',
+            responseHeaders: { Location: [details.url] },
+          };
+        }
+        return null;
+      } catch (err) {
+        if (isVaultLockedError(err)) {
+          await requestPackageHostedX402Prompt({
+            hostWebContents: approvalDispatch.hostWebContents,
+            webContentsId: details.webContentsId,
+            url: details.url,
+            promptType: 'vault-unlock',
+          });
+        }
+        log.warn(
+          `[x402:approval] package-hosted shell-owned payment failed: ${err?.message || err}`
+        );
+      }
+    }
     clearDetectedPayment(details.webContentsId);
     log.warn(
       `[x402:approval] approval UI unavailable (${approvalDispatch.reason}); passing 402 through`
