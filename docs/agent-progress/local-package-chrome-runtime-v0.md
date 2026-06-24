@@ -2130,6 +2130,9 @@ Implemented in this checkpoint:
   identity, provider, permission, Node, Electron, and broad preload globals
 - updated `docs/local-package-chrome-runtime.md` and
   `docs/package-chrome-trust-boundaries.md`
+- follow-up documentation also updated the manifest example so future package
+  authors and agents see that official package chrome needs
+  `surfaces.wallet.control` for the visible placeholder affordance
 
 Verification in this checkpoint:
 

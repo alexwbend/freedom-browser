@@ -201,6 +201,7 @@ The local package directory must contain `manifest.json`:
     "chrome.ui.commands",
     "clipboard.write",
     "downloads.saveImage",
+    "surfaces.wallet.control",
     "windows.control",
     "windows.open",
     "app.about",
@@ -277,8 +278,8 @@ The launched package smoke now builds a temporary official chrome package from
 `src/renderer` during the test run. The generated manifest opts into
 `guestContent.transitionalWebviews: true` and declares only the shell
 capabilities needed for startup readiness, deterministic navigation coverage,
-and the ordinary browser-state reads/writes used by the bookmarks bar and
-autocomplete.
+the ordinary browser-state reads/writes used by the bookmarks bar and
+autocomplete, and the shell-owned wallet surface placeholder.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
