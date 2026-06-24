@@ -1,5 +1,6 @@
 const TRUSTED_PROMPT_KINDS = Object.freeze({
   TEST_CONFIRMATION: 'test.confirmation',
+  WALLET_CONNECT: 'wallet.connect',
 });
 const TRUSTED_PROMPT_PRESENTATIONS = Object.freeze({
   SYNTHETIC: 'synthetic',
@@ -39,6 +40,27 @@ function normalizePresentation(presentation) {
   return presentation === TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG
     ? TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG
     : TRUSTED_PROMPT_PRESENTATIONS.SYNTHETIC;
+}
+
+function describeTrustedContext(context = {}) {
+  const trustedContext = {
+    source: 'main',
+    caller: describeCaller(context.caller),
+    origin: context.origin || null,
+    tabId: Number.isInteger(context.tabId) ? context.tabId : null,
+  };
+  if (Number.isInteger(context.webContentsId)) {
+    trustedContext.webContentsId = context.webContentsId;
+  }
+  return trustedContext;
+}
+
+function describeNativeDialogResult(presentationResult = {}) {
+  return {
+    outcome: presentationResult.outcome || 'accepted',
+    source: 'shell-native-dialog',
+    response: Number.isInteger(presentationResult.response) ? presentationResult.response : null,
+  };
 }
 
 function createTrustedPromptBroker(options = {}) {
@@ -102,22 +124,12 @@ function createTrustedPromptBroker(options = {}) {
         trusted: true,
         surfaceOwner: 'shell',
         renderedBy: 'shell-native-dialog',
-        context: {
-          source: 'main',
-          caller: describeCaller(context.caller),
-          origin: context.origin || null,
-          tabId: Number.isInteger(context.tabId) ? context.tabId : null,
-        },
+        context: describeTrustedContext(context),
         request: {
           reason,
           presentation,
         },
-        result: {
-          outcome: presentationResult.outcome || 'accepted',
-          source: 'shell-native-dialog',
-          response:
-            Number.isInteger(presentationResult.response) ? presentationResult.response : null,
-        },
+        result: describeNativeDialogResult(presentationResult),
       };
     }
 
@@ -128,12 +140,7 @@ function createTrustedPromptBroker(options = {}) {
       trusted: true,
       surfaceOwner: 'shell',
       renderedBy: 'trusted-prompt-broker',
-      context: {
-        source: 'main',
-        caller: describeCaller(context.caller),
-        origin: context.origin || null,
-        tabId: Number.isInteger(context.tabId) ? context.tabId : null,
-      },
+      context: describeTrustedContext(context),
       request: {
         reason,
       },
@@ -144,9 +151,84 @@ function createTrustedPromptBroker(options = {}) {
     };
   }
 
+  async function requestWalletConnectPrompt(payload = {}, context = {}) {
+    const method = typeof payload?.method === 'string' ? payload.method : '';
+    if (method !== 'eth_requestAccounts') {
+      return {
+        ok: false,
+        error: {
+          code: 'TRUSTED_PROMPT_UNSUPPORTED',
+          message: 'Unsupported wallet trusted prompt method',
+        },
+      };
+    }
+
+    const requestId = createRequestId();
+    const reason =
+      normalizeReason(payload.reason) ||
+      `Wallet connection request from ${context.origin || 'unknown origin'}`;
+    const presentNativeDialog = context.presentNativeDialog || defaultPresentNativeDialog;
+    if (typeof presentNativeDialog !== 'function') {
+      return {
+        ok: false,
+        error: {
+          code: 'TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE',
+          message: 'Native trusted prompt presentation is unavailable',
+        },
+      };
+    }
+
+    const presentationResult = await presentNativeDialog(
+      {
+        requestId,
+        kind: TRUSTED_PROMPT_KINDS.WALLET_CONNECT,
+        method,
+        reason,
+        origin: context.origin || null,
+        webContentsId: Number.isInteger(context.webContentsId) ? context.webContentsId : null,
+      },
+      context
+    );
+    if (presentationResult?.ok !== true) {
+      return {
+        ok: false,
+        requestId,
+        kind: TRUSTED_PROMPT_KINDS.WALLET_CONNECT,
+        trusted: true,
+        surfaceOwner: 'shell',
+        renderedBy: 'shell-native-dialog',
+        error: presentationResult?.error || {
+          code: 'TRUSTED_PROMPT_PRESENTATION_FAILED',
+          message: 'Native trusted prompt presentation failed',
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      requestId,
+      kind: TRUSTED_PROMPT_KINDS.WALLET_CONNECT,
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: describeTrustedContext(context),
+      request: {
+        method,
+        reason,
+        presentation: TRUSTED_PROMPT_PRESENTATIONS.NATIVE_DIALOG,
+      },
+      result: describeNativeDialogResult({
+        ...presentationResult,
+        outcome: presentationResult.outcome || 'rejected',
+      }),
+    };
+  }
+
   return Object.freeze({
     requestTestPrompt: async (payload, context) =>
       cloneSerializable(await requestTestPrompt(payload, context)),
+    requestWalletConnectPrompt: async (payload, context) =>
+      cloneSerializable(await requestWalletConnectPrompt(payload, context)),
   });
 }
 

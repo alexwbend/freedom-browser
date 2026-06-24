@@ -2330,14 +2330,44 @@ test('official browser chrome can launch as a local package with transitional we
           })();
         </script>`,
     });
+    await launched.app.evaluate(({ dialog }) => {
+      globalThis.__freedomWalletConnectPromptDialog = null;
+      dialog.showMessageBox = async (ownerWindow, options) => {
+        globalThis.__freedomWalletConnectPromptDialog = {
+          hasOwnerWindow: !!ownerWindow,
+          ownerWindowDestroyed: ownerWindow?.isDestroyed?.() ?? null,
+          options,
+        };
+        return { response: 0 };
+      };
+    });
     await navigateAddress(page, `ipfs://${providerIpfsCid}/`);
     await expectActiveWebviewText(page, '[data-test="provider-present"]', 'present');
     await expectActiveWebviewText(page, '[data-test="provider-chain"]', '0x64');
     await expectActiveWebviewText(
       page,
       '[data-test="provider-accounts"]',
-      'error:4100:trusted_prompt_unavailable'
+      'error:4001:shell_trusted_prompt_rejected'
     );
+    const walletConnectPromptDialog = await launched.app.evaluate(
+      () => globalThis.__freedomWalletConnectPromptDialog
+    );
+    expect(walletConnectPromptDialog).toMatchObject({
+      hasOwnerWindow: true,
+      ownerWindowDestroyed: false,
+      options: {
+        type: 'info',
+        title: 'Freedom Wallet Connection',
+        message: 'Wallet connection request',
+        detail:
+          `ipfs://${providerIpfsCid} requested wallet account access. ` +
+          'Package chrome cannot approve this request; the shell is rejecting it for now.',
+        buttons: ['Reject'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+      },
+    });
     await expectActiveWebviewText(page, '[data-test="swarm-provider-present"]', 'present');
     await expectActiveWebviewText(
       page,

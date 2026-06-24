@@ -4,7 +4,7 @@
  * Registers IPC handlers for wallet operations.
  */
 
-const { ipcMain } = require('electron');
+const { dialog, ipcMain } = require('electron');
 const QRCode = require('qrcode');
 const IPC = require('../../shared/ipc-channels');
 const { getAllBalances, getBalancesWithCache, clearBalanceCache } = require('./balance-service');
@@ -27,6 +27,16 @@ const { withVaultPrivateKey } = require('./vault-access');
 
 const READONLY_PROVIDER_ERRORS = Object.freeze({
   UNSUPPORTED_METHOD: { code: 4200, message: 'Method not supported' },
+});
+const PACKAGE_PROVIDER_UNAVAILABLE = Object.freeze({
+  code: 4100,
+  message: 'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists',
+  data: { reason: 'trusted_prompt_unavailable' },
+});
+const PACKAGE_PROVIDER_REJECTED = Object.freeze({
+  code: 4001,
+  message: 'User rejected the request',
+  data: { reason: 'shell_trusted_prompt_rejected' },
 });
 
 /**
@@ -91,6 +101,146 @@ function handleProviderHostContext(event) {
   };
 }
 
+function getPackageHostWebContents(event) {
+  return event?.sender?.hostWebContents || null;
+}
+
+function getPackageHostIdentity(hostWebContents) {
+  if (!hostWebContents) {
+    return null;
+  }
+  const { getPackageWebContentsIdentity } = require('../shell-api');
+  return typeof getPackageWebContentsIdentity === 'function'
+    ? getPackageWebContentsIdentity(hostWebContents)
+    : null;
+}
+
+function deriveProviderOrigin(event) {
+  const url = event?.sender?.getURL?.();
+  if (typeof url !== 'string' || !url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin && parsed.origin !== 'null') {
+      return parsed.origin;
+    }
+    if (parsed.protocol && parsed.host) {
+      return `${parsed.protocol}//${parsed.host}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+async function presentNativeWalletConnectPrompt(request, context = {}) {
+  if (!dialog || typeof dialog.showMessageBox !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_NATIVE_DIALOG_UNAVAILABLE',
+        message: 'Native wallet trusted prompt dialog is unavailable',
+      },
+    };
+  }
+
+  const origin = request.origin || context.origin || 'Unknown site';
+  const ownerWindow = context.ownerWindow || null;
+  const result = await dialog.showMessageBox(ownerWindow, {
+    type: 'info',
+    title: 'Freedom Wallet Connection',
+    message: 'Wallet connection request',
+    detail:
+      `${origin} requested wallet account access. ` +
+      'Package chrome cannot approve this request; the shell is rejecting it for now.',
+    buttons: ['Reject'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  });
+  return {
+    ok: true,
+    outcome: 'rejected',
+    response: result?.response,
+  };
+}
+
+async function handleProviderTrustedPromptRequest(event, payload = {}) {
+  const method = typeof payload.method === 'string' ? payload.method : '';
+  const hostWebContents = getPackageHostWebContents(event);
+  if (!hostWebContents || !isPackageHostedProviderRequest(event)) {
+    return {
+      result: null,
+      error: {
+        code: 4100,
+        message: 'Trusted provider prompt is only available for package-hosted guests',
+        data: { reason: 'not_package_hosted' },
+      },
+    };
+  }
+
+  if (method !== 'eth_requestAccounts') {
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_PROVIDER_UNAVAILABLE,
+        message: `${PACKAGE_PROVIDER_UNAVAILABLE.message}: ${method || 'unknown'}`,
+      },
+    };
+  }
+
+  const { defaultTrustedPromptBroker } = require('../trusted-prompt-broker');
+  const origin = deriveProviderOrigin(event);
+  const prompt = await defaultTrustedPromptBroker.requestWalletConnectPrompt(
+    {
+      method,
+      reason: origin ? `Wallet connection request from ${origin}` : 'Wallet connection request',
+    },
+    {
+      caller: getPackageHostIdentity(hostWebContents),
+      origin,
+      webContentsId: Number.isInteger(event?.sender?.id) ? event.sender.id : null,
+      ownerWindow: hostWebContents.getOwnerBrowserWindow?.() || null,
+      presentNativeDialog: presentNativeWalletConnectPrompt,
+    }
+  );
+
+  if (prompt?.ok !== true) {
+    return {
+      result: null,
+      error: {
+        ...PACKAGE_PROVIDER_UNAVAILABLE,
+        message: `${PACKAGE_PROVIDER_UNAVAILABLE.message}: ${method}`,
+        data: {
+          reason: 'trusted_prompt_unavailable',
+          promptError: prompt?.error?.code || 'TRUSTED_PROMPT_UNAVAILABLE',
+        },
+      },
+      trustedPrompt: prompt || null,
+    };
+  }
+
+  return {
+    result: null,
+    error: {
+      ...PACKAGE_PROVIDER_REJECTED,
+      data: {
+        ...PACKAGE_PROVIDER_REJECTED.data,
+        prompt: {
+          requestId: prompt.requestId,
+          kind: prompt.kind,
+          renderedBy: prompt.renderedBy,
+          surfaceOwner: prompt.surfaceOwner,
+          origin: prompt.context?.origin || null,
+          webContentsId: prompt.context?.webContentsId || null,
+        },
+      },
+    },
+    trustedPrompt: prompt,
+  };
+}
+
 async function handleSendTransaction(walletIndex, params, kind, context = {}) {
   try {
     const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
@@ -119,6 +269,7 @@ function registerWalletIpc() {
     handleReadonlyProviderRequest(payload)
   );
   ipcMain.handle(IPC.DAPP_PROVIDER_HOST_CONTEXT, handleProviderHostContext);
+  ipcMain.handle(IPC.DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST, handleProviderTrustedPromptRequest);
 
   // Get all balances for an address (always fetches fresh)
   ipcMain.handle('wallet:get-balances', async (_event, address) => {
@@ -390,6 +541,7 @@ function registerWalletIpc() {
 module.exports = {
   buildTxRecordContext,
   handleProviderHostContext,
+  handleProviderTrustedPromptRequest,
   handleReadonlyProviderRequest,
   registerWalletIpc,
 };

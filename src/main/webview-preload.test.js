@@ -396,7 +396,7 @@ describe('webview-preload', () => {
     });
   });
 
-  test('fails higher-risk provider requests before package chrome can broker them', async () => {
+  test('routes package-hosted provider requests to main trusted prompt handling', async () => {
     const { ipcRenderer, postedMessages } = loadWebviewPreloadModule({
       location: {
         href: 'https://app.example/',
@@ -406,6 +406,14 @@ describe('webview-preload', () => {
       },
       invokeResponses: {
         [IPC.DAPP_PROVIDER_HOST_CONTEXT]: { packageHosted: true },
+        [IPC.DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST]: {
+          result: null,
+          error: {
+            code: 4001,
+            message: 'User rejected the request',
+            data: { reason: 'shell_trusted_prompt_rejected' },
+          },
+        },
       },
     });
     const messageHandler = global.window.addEventListener.mock.calls.find(
@@ -424,6 +432,11 @@ describe('webview-preload', () => {
     await flushMicrotasks();
 
     expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DAPP_PROVIDER_HOST_CONTEXT);
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith(IPC.DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST, {
+      method: 'eth_requestAccounts',
+      params: [],
+      origin: 'https://app.example',
+    });
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
       'dapp:provider-request',
       expect.anything()
@@ -434,10 +447,9 @@ describe('webview-preload', () => {
         id: 9,
         result: null,
         error: {
-          code: 4100,
-          message:
-            'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: eth_requestAccounts',
-          data: { reason: 'trusted_prompt_unavailable' },
+          code: 4001,
+          message: 'User rejected the request',
+          data: { reason: 'shell_trusted_prompt_rejected' },
         },
       },
       origin: 'https://app.example',

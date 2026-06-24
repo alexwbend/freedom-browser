@@ -1,4 +1,5 @@
 jest.mock('electron', () => ({
+  dialog: { showMessageBox: jest.fn() },
   ipcMain: { handle: jest.fn() },
 }));
 
@@ -16,7 +17,9 @@ jest.mock('./rpc-manager', () => ({}));
 jest.mock('./vault-access', () => ({}));
 
 const mockIsPackageWebContents = jest.fn();
+const mockGetPackageWebContentsIdentity = jest.fn();
 jest.mock('../shell-api', () => ({
+  getPackageWebContentsIdentity: mockGetPackageWebContentsIdentity,
   isPackageWebContents: mockIsPackageWebContents,
 }));
 
@@ -24,6 +27,7 @@ const IPC = require('../../shared/ipc-channels');
 const {
   buildTxRecordContext,
   handleProviderHostContext,
+  handleProviderTrustedPromptRequest,
   handleReadonlyProviderRequest,
   registerWalletIpc,
 } = require('./wallet-ipc');
@@ -61,6 +65,10 @@ describe('wallet-ipc', () => {
       IPC.DAPP_PROVIDER_HOST_CONTEXT,
       handleProviderHostContext
     );
+    expect(require('electron').ipcMain.handle).toHaveBeenCalledWith(
+      IPC.DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST,
+      handleProviderTrustedPromptRequest
+    );
   });
 
   test('reports package-hosted guest webviews from the main-owned host sender', () => {
@@ -78,5 +86,110 @@ describe('wallet-ipc', () => {
       packageHosted: false,
     });
     expect(mockIsPackageWebContents).not.toHaveBeenCalled();
+  });
+
+  test('routes package-hosted wallet connect requests through a shell-owned prompt', async () => {
+    const ownerWindow = { id: 77 };
+    const hostWebContents = {
+      id: 20,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    };
+    const sender = {
+      id: 42,
+      hostWebContents,
+      getURL: jest.fn(() => 'https://app.example/path?ignored=1'),
+    };
+    mockIsPackageWebContents.mockReturnValue(true);
+    mockGetPackageWebContentsIdentity.mockReturnValue({
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    });
+    require('electron').dialog.showMessageBox.mockResolvedValue({ response: 0 });
+
+    const result = await handleProviderTrustedPromptRequest(
+      { sender },
+      {
+        method: 'eth_requestAccounts',
+        origin: 'https://spoofed.example',
+      }
+    );
+
+    expect(result).toMatchObject({
+      result: null,
+      error: {
+        code: 4001,
+        message: 'User rejected the request',
+        data: {
+          reason: 'shell_trusted_prompt_rejected',
+          prompt: {
+            kind: 'wallet.connect',
+            renderedBy: 'shell-native-dialog',
+            surfaceOwner: 'shell',
+            origin: 'https://app.example',
+            webContentsId: 42,
+          },
+        },
+      },
+      trustedPrompt: {
+        ok: true,
+        kind: 'wallet.connect',
+        renderedBy: 'shell-native-dialog',
+        context: {
+          source: 'main',
+          origin: 'https://app.example',
+          webContentsId: 42,
+          caller: {
+            packageId: 'baby.freedom.chrome.official',
+            packageType: 'browser-chrome',
+          },
+        },
+      },
+    });
+    expect(mockIsPackageWebContents).toHaveBeenCalledWith(hostWebContents);
+    expect(mockGetPackageWebContentsIdentity).toHaveBeenCalledWith(hostWebContents);
+    expect(hostWebContents.getOwnerBrowserWindow).toHaveBeenCalledTimes(1);
+    expect(require('electron').dialog.showMessageBox).toHaveBeenCalledWith(ownerWindow, {
+      type: 'info',
+      title: 'Freedom Wallet Connection',
+      message: 'Wallet connection request',
+      detail:
+        'https://app.example requested wallet account access. ' +
+        'Package chrome cannot approve this request; the shell is rejecting it for now.',
+      buttons: ['Reject'],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true,
+    });
+  });
+
+  test('keeps unsupported package-hosted provider methods unavailable', async () => {
+    const hostWebContents = { id: 20 };
+    mockIsPackageWebContents.mockReturnValue(true);
+
+    await expect(
+      handleProviderTrustedPromptRequest(
+        {
+          sender: {
+            id: 42,
+            hostWebContents,
+            getURL: jest.fn(() => 'https://app.example/'),
+          },
+        },
+        { method: 'eth_sendTransaction' }
+      )
+    ).resolves.toEqual({
+      result: null,
+      error: {
+        code: 4100,
+        message:
+          'Ethereum provider method is unavailable in package mode until a shell-owned trusted prompt exists: eth_sendTransaction',
+        data: { reason: 'trusted_prompt_unavailable' },
+      },
+    });
+    expect(require('electron').dialog.showMessageBox).not.toHaveBeenCalled();
   });
 });

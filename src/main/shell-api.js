@@ -1058,6 +1058,10 @@ function isPackageWebContents(sender) {
   return packageCallers.has(sender);
 }
 
+function getPackageWebContentsIdentity(sender) {
+  return packageCallers.get(sender)?.identity || null;
+}
+
 function getPackageCaller(event) {
   const sender = event?.sender || null;
   if (!sender) {
@@ -1341,6 +1345,7 @@ module.exports = {
   describePackageCaller,
   emitShellEventToPackageWebContents,
   getInfo,
+  getPackageWebContentsIdentity,
   handleShellRequest,
   isPackageWebContents,
   markReady,

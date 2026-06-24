@@ -2751,3 +2751,59 @@ Known remaining gaps after this checkpoint:
 - the native-dialog test path proves shell-owned prompt presentation wiring
   only; it does not bind a real guest WebContents origin or provider request
   context yet
+
+### Trusted Prompt Broker Checkpoint 3: Package Wallet Connect Denial Prompt
+
+Current checkpoint: package-hosted `eth_requestAccounts` now reaches a
+shell-owned native wallet-connect prompt with main-derived guest context and
+returns a page-facing user rejection. This still does not grant accounts, write
+dApp permissions, or migrate signing approval UI.
+
+Implemented in this checkpoint:
+
+- added `dapp:provider-trusted-prompt-request` as a main-owned provider IPC
+  path for package-hosted privileged Ethereum provider requests
+- changed the guest webview preload so package-hosted higher-risk Ethereum
+  requests go to main trusted-prompt handling instead of returning an immediate
+  package-mode unavailable error
+- added a `wallet.connect` trusted prompt kind in
+  `src/main/trusted-prompt-broker.js`
+- derived the provider prompt origin from the requesting guest WebContents URL
+  and the package host identity from the registered host WebContents in main
+- presented `eth_requestAccounts` through a shell-owned native dialog attached
+  to the package BrowserWindow
+- returned EIP-1193-style `4001` with
+  `data.reason: "shell_trusted_prompt_rejected"` to the page
+- kept unsupported package-hosted Ethereum methods on structured
+  `trusted_prompt_unavailable`
+- kept package chrome without wallet, identity, provider, permission, signing,
+  Node, Electron, or arbitrary IPC authority
+- expanded official package smoke to prove the wallet-connect prompt is
+  shell-owned and attached to the package BrowserWindow
+- updated `docs/trusted-prompt-broker.md`,
+  `docs/local-package-chrome-runtime.md`, and
+  `docs/package-chrome-trust-boundaries.md`
+
+Verification in this checkpoint so far:
+
+- `npm test -- src/main/trusted-prompt-broker.test.js src/main/wallet/wallet-ipc.test.js src/main/webview-preload.test.js` passed:
+  3 suites, 35 tests.
+- `npm test -- src/main/trusted-prompt-broker.test.js src/main/wallet/wallet-ipc.test.js src/main/webview-preload.test.js src/main/shell-api.test.js` passed:
+  4 suites, 71 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch"` passed:
+  1 test.
+- `git diff --check` passed.
+- `npm run lint` passed.
+- `npm test` passed: 116 suites passed, 5 skipped; 2187 passed, 17 skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
+  14 tests.
+
+Known remaining gaps after this checkpoint:
+
+- wallet connect still cannot succeed in package mode because account grants
+  and dApp permission writes are not yet migrated to shell-owned prompt
+  approval
+- transaction signing, typed-data signing, identity, vault, x402
+  approval/unlock, Swarm publish/feed, and seed/private-key export prompt
+  surfaces still need shell-owned UI before they can be called complete in
+  package mode; these are not user-approved completion deferrals

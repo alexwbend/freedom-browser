@@ -323,9 +323,9 @@ The official package smoke currently proves:
   through the page controls
 - guest content receives the page-facing Ethereum provider in package mode and
   a low-risk `eth_chainId` request bypasses package chrome through main
-- higher-risk Ethereum provider requests from package-hosted guests fail
-  directly through main with a structured `trusted_prompt_unavailable` error
-  instead of being brokered by package chrome
+- package-hosted `eth_requestAccounts` reaches a shell-owned native wallet
+  connect prompt with main-derived guest context and returns a page-facing
+  `4001` user rejection instead of being brokered by package chrome
 - guest content receives the page-facing Swarm provider in package mode and a
   low-risk `swarm_getCapabilities` request bypasses package chrome through main
   with a deterministic `not-connected` result under the harness
@@ -740,17 +740,18 @@ package-mode proofs route guest
 read-only provider channels. The Swarm path only accepts
 `swarm_getCapabilities`; publish, feed, signing, and access-request methods do
 not use this bypass. The Ethereum path only accepts `eth_chainId`; wallet
-connect, account access, signing, and transaction methods do not use it. When a
-package-hosted guest calls a higher-risk Ethereum or Swarm method before the
-shell-owned prompt migration exists, the guest preload asks main for its host
-context and receives a structured `trusted_prompt_unavailable` provider error
-without sending the request through package chrome. Bundled chrome still uses
-the legacy renderer prompt path for those methods until the trusted
-prompt/surface broker migration gives them shell-owned approval UI. The broker
-foundation currently exists as the test-only `requestTestTrustedPrompt()` path;
-real wallet connect, signing, x402, Swarm publish, and vault unlock flows still
-need main-derived request context and shell-owned prompt UI before they can move
-through the broker.
+connect and account access now use a denial-only package-hosted prompt slice:
+`eth_requestAccounts` asks main for its host context, main derives the guest
+origin and package host identity, the broker presents a shell-owned native
+dialog, and the page receives a structured `4001` user rejection. It does not
+grant accounts or write dApp permissions. Other higher-risk Ethereum methods
+and higher-risk Swarm methods still fail with structured
+`trusted_prompt_unavailable` provider errors before package chrome can broker
+them. Bundled chrome keeps the legacy renderer prompt path for those methods
+until the trusted prompt/surface broker migration gives them shell-owned
+approval UI. Real account grants, signing, x402, Swarm publish, and vault
+unlock flows still need main-derived request context and shell-owned prompt UI
+before they can move fully through the broker.
 
 ## Package Store
 

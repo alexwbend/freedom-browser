@@ -9,6 +9,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const DAPP_PROVIDER_READONLY_REQUEST = 'dapp:provider-readonly-request';
 const DAPP_PROVIDER_HOST_CONTEXT = 'dapp:provider-host-context';
+const DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST = 'dapp:provider-trusted-prompt-request';
 const SWARM_PROVIDER_READONLY_REQUEST = 'swarm:provider-readonly-request';
 const SWARM_PROVIDER_HOST_CONTEXT = 'swarm:provider-host-context';
 
@@ -575,7 +576,18 @@ window.addEventListener('message', (event) => {
       .invoke(DAPP_PROVIDER_HOST_CONTEXT)
       .then(({ packageHosted = false } = {}) => {
         if (packageHosted) {
-          sendEthereumResponseToPage(id, null, buildPackageEthereumUnavailableError(method));
+          ipcRenderer
+            .invoke(DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST, { method, params, origin })
+            .then(({ result = null, error = null } = {}) => {
+              sendEthereumResponseToPage(id, result, error);
+            })
+            .catch((error) => {
+              sendEthereumResponseToPage(
+                id,
+                null,
+                error?.providerError || buildPackageEthereumUnavailableError(method)
+              );
+            });
           return;
         }
 

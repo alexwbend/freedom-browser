@@ -10,9 +10,11 @@ Package chrome can display non-authoritative status around that result, but it
 does not render the final approval moment and does not receive wallet,
 identity, provider, x402, Swarm, vault, or signing authority.
 
-## Implemented Slice
+## Implemented Slices
 
-The current implemented slice is test-only:
+### Test-Only Package Prompt
+
+The package-requested prompt slice is test-only:
 
 ```text
 window.freedomShell.requestTestTrustedPrompt(payload)
@@ -129,6 +131,44 @@ cannot present it, the broker returns
 `TRUSTED_PROMPT_PRESENTATION_UNAVAILABLE`. Package chrome cannot provide its own
 native presenter or fall back to package-rendered prompt UI.
 
+### Package-Hosted Wallet Connect Denial
+
+Package-hosted guest content can now route
+`ethereum.request({ method: "eth_requestAccounts" })` to main without package
+chrome brokering the provider request:
+
+```text
+guest webview preload
+  -> dapp:provider-trusted-prompt-request
+  -> main-owned package host/context derivation
+  -> trusted prompt broker wallet.connect
+  -> shell-owned native dialog
+  -> page-facing EIP-1193 user rejection
+```
+
+Main derives the guest origin from the requesting WebContents URL and the
+package identity from the host WebContents registration. Payload-supplied
+origin claims are not used as final security truth.
+
+The current result intentionally rejects the connection:
+
+```json
+{
+  "result": null,
+  "error": {
+    "code": 4001,
+    "message": "User rejected the request",
+    "data": {
+      "reason": "shell_trusted_prompt_rejected"
+    }
+  }
+}
+```
+
+This proves a real provider request reaches shell-owned prompt presentation
+with main-derived context. It does not grant accounts, write dApp permissions,
+or migrate transaction/signing approval UI.
+
 ## Future Real Prompt Paths
 
 Real prompt paths should use the same broker shape, but with main-derived
@@ -140,7 +180,9 @@ Wallet connect:
 - initiated by website provider path, not package chrome
 - main derives committed origin and permission key from the guest WebContents
 - broker opens shell-owned wallet-connect prompt
-- result grants or rejects provider permissions from main
+- current package-hosted slice rejects after shell-owned native presentation
+- future completion work must add real account-grant permission handling from
+  main before wallet connect can succeed in package mode
 
 Transaction and typed-data signing:
 

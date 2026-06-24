@@ -90,6 +90,7 @@ module.exports = {
   // dApp provider
   DAPP_PROVIDER_READONLY_REQUEST: 'dapp:provider-readonly-request',
   DAPP_PROVIDER_HOST_CONTEXT: 'dapp:provider-host-context',
+  DAPP_PROVIDER_TRUSTED_PROMPT_REQUEST: 'dapp:provider-trusted-prompt-request',
 
   // Internal
   GET_WEBVIEW_PRELOAD_PATH: 'internal:get-webview-preload-path',

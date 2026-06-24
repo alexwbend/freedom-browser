@@ -129,6 +129,104 @@ describe('trusted-prompt-broker', () => {
     );
   });
 
+  test('routes wallet connect prompts through a shell-owned native dialog presenter', async () => {
+    const presentNativeDialog = jest.fn().mockResolvedValue({
+      ok: true,
+      outcome: 'rejected',
+      response: 0,
+    });
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'trusted-prompt-wallet-1',
+      presentNativeDialog,
+    });
+    const caller = {
+      runtimeMode: 'local-package',
+      source: 'local',
+      packageId: 'baby.freedom.chrome.official',
+      packageType: 'browser-chrome',
+      name: 'Freedom Official Chrome',
+      version: '0.7.5',
+    };
+
+    await expect(
+      broker.requestWalletConnectPrompt(
+        {
+          method: 'eth_requestAccounts',
+          origin: 'https://spoofed.example',
+        },
+        {
+          caller,
+          origin: 'https://app.example',
+          webContentsId: 42,
+        }
+      )
+    ).resolves.toEqual({
+      ok: true,
+      requestId: 'trusted-prompt-wallet-1',
+      kind: 'wallet.connect',
+      trusted: true,
+      surfaceOwner: 'shell',
+      renderedBy: 'shell-native-dialog',
+      context: {
+        source: 'main',
+        caller: {
+          runtimeMode: 'local-package',
+          source: 'local',
+          packageId: 'baby.freedom.chrome.official',
+          packageType: 'browser-chrome',
+          name: 'Freedom Official Chrome',
+          version: '0.7.5',
+        },
+        origin: 'https://app.example',
+        tabId: null,
+        webContentsId: 42,
+      },
+      request: {
+        method: 'eth_requestAccounts',
+        reason: 'Wallet connection request from https://app.example',
+        presentation: 'native-dialog',
+      },
+      result: {
+        outcome: 'rejected',
+        source: 'shell-native-dialog',
+        response: 0,
+      },
+    });
+    expect(presentNativeDialog).toHaveBeenCalledWith(
+      {
+        requestId: 'trusted-prompt-wallet-1',
+        kind: TRUSTED_PROMPT_KINDS.WALLET_CONNECT,
+        method: 'eth_requestAccounts',
+        reason: 'Wallet connection request from https://app.example',
+        origin: 'https://app.example',
+        webContentsId: 42,
+      },
+      {
+        caller,
+        origin: 'https://app.example',
+        webContentsId: 42,
+      }
+    );
+  });
+
+  test('rejects unsupported wallet prompt methods', async () => {
+    const broker = createTrustedPromptBroker({
+      createRequestId: () => 'unused-wallet',
+    });
+
+    await expect(
+      broker.requestWalletConnectPrompt({
+        method: 'eth_sendTransaction',
+      })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'TRUSTED_PROMPT_UNSUPPORTED',
+        message: 'Unsupported wallet trusted prompt method',
+      },
+    });
+  });
+
   test('returns structured errors when native presentation is unavailable', async () => {
     const broker = createTrustedPromptBroker({
       createRequestId: () => 'trusted-prompt-native-2',
