@@ -59,6 +59,8 @@ const mockCreateNewVault = jest.fn();
 const mockImportExistingMnemonic = jest.fn();
 const mockUnlockVault = jest.fn();
 const mockLockVault = jest.fn();
+const mockChangeVaultPassword = jest.fn();
+const mockDeleteVaultData = jest.fn();
 jest.mock('./identity-manager', () => ({
   hasVault: (...args) => mockHasVault(...args),
   isVaultUnlocked: (...args) => mockIsVaultUnlocked(...args),
@@ -68,6 +70,21 @@ jest.mock('./identity-manager', () => ({
   importExistingMnemonic: (...args) => mockImportExistingMnemonic(...args),
   unlockVault: (...args) => mockUnlockVault(...args),
   lockVault: (...args) => mockLockVault(...args),
+  changeVaultPassword: (...args) => mockChangeVaultPassword(...args),
+  deleteVaultData: (...args) => mockDeleteVaultData(...args),
+}));
+
+const mockCanUseTouchId = jest.fn();
+const mockIsSecureStorageAvailable = jest.fn();
+const mockIsQuickUnlockEnabled = jest.fn();
+const mockEnableQuickUnlock = jest.fn();
+const mockDisableQuickUnlock = jest.fn();
+jest.mock('./quick-unlock', () => ({
+  canUseTouchId: (...args) => mockCanUseTouchId(...args),
+  isSecureStorageAvailable: (...args) => mockIsSecureStorageAvailable(...args),
+  isQuickUnlockEnabled: (...args) => mockIsQuickUnlockEnabled(...args),
+  enableQuickUnlock: (...args) => mockEnableQuickUnlock(...args),
+  disableQuickUnlock: (...args) => mockDisableQuickUnlock(...args),
 }));
 
 const {
@@ -100,6 +117,19 @@ function seedIdentityState() {
   mockImportExistingMnemonic.mockResolvedValue(undefined);
   mockUnlockVault.mockResolvedValue(undefined);
   mockLockVault.mockResolvedValue(undefined);
+  mockChangeVaultPassword.mockResolvedValue(undefined);
+  mockDeleteVaultData.mockResolvedValue(undefined);
+  mockCanUseTouchId.mockReturnValue(true);
+  mockIsSecureStorageAvailable.mockReturnValue(true);
+  mockIsQuickUnlockEnabled.mockReturnValue(false);
+  mockEnableQuickUnlock.mockImplementation(async () => {
+    mockIsQuickUnlockEnabled.mockReturnValue(true);
+    return { success: true };
+  });
+  mockDisableQuickUnlock.mockImplementation(() => {
+    mockIsQuickUnlockEnabled.mockReturnValue(false);
+    return { success: true };
+  });
 }
 
 beforeEach(() => {
@@ -173,6 +203,11 @@ test('opens a shell-owned identity window with dedicated preload and scoped chan
       },
       status: {
         beeInjected: false,
+      },
+      quickUnlock: {
+        canUseTouchId: true,
+        secureStorageAvailable: true,
+        enabled: false,
       },
       identityError: null,
     },
@@ -274,6 +309,104 @@ test('unlocks and locks vault through scoped trusted-window channels', async () 
     },
   });
   expect(mockLockVault).toHaveBeenCalled();
+});
+
+test('changes vault password through scoped trusted-window channel', async () => {
+  mockIsQuickUnlockEnabled.mockReturnValue(true);
+  await openTrustedIdentitySurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('change-password', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { currentPassword: 'oldpassword', newPassword: 'newpassword123' }
+  );
+
+  expect(result).toMatchObject({
+    ok: true,
+    snapshot: {
+      quickUnlock: {
+        enabled: false,
+      },
+    },
+  });
+  expect(mockChangeVaultPassword).toHaveBeenCalledWith('oldpassword', 'newpassword123');
+  expect(mockDisableQuickUnlock).toHaveBeenCalledTimes(1);
+});
+
+test('deletes the vault only after typed confirmation', async () => {
+  mockDeleteVaultData.mockImplementation(async () => {
+    mockHasVault.mockResolvedValue(false);
+    mockIsVaultUnlocked.mockResolvedValue(false);
+    mockGetVaultMeta.mockReturnValue(null);
+  });
+  await openTrustedIdentitySurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const rejected = await mockHandlers.get(channelFor('delete-vault', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { password: 'password123', confirmation: 'delete' }
+  );
+
+  expect(rejected).toEqual({
+    ok: false,
+    error: expect.objectContaining({
+      code: 'TRUSTED_IDENTITY_SURFACE_DELETE_VAULT_FAILED',
+    }),
+  });
+  expect(mockDeleteVaultData).not.toHaveBeenCalled();
+
+  const accepted = await mockHandlers.get(channelFor('delete-vault', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { password: 'password123', confirmation: 'DELETE' }
+  );
+
+  expect(accepted).toMatchObject({
+    ok: true,
+    snapshot: {
+      hasVault: false,
+    },
+  });
+  expect(mockDeleteVaultData).toHaveBeenCalledWith('password123');
+  expect(mockDisableQuickUnlock).toHaveBeenCalledTimes(1);
+});
+
+test('enables and disables quick unlock through scoped trusted-window channels', async () => {
+  await openTrustedIdentitySurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const enabled = await mockHandlers.get(channelFor('enable-quick-unlock', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { password: 'password123' }
+  );
+
+  expect(enabled).toMatchObject({
+    ok: true,
+    snapshot: {
+      quickUnlock: {
+        canUseTouchId: true,
+        enabled: true,
+      },
+    },
+  });
+  expect(mockEnableQuickUnlock).toHaveBeenCalledWith('password123');
+
+  const disabled = await mockHandlers.get(channelFor('disable-quick-unlock', surfaceId))({
+    sender: surfaceWindow.webContents,
+  });
+
+  expect(disabled).toMatchObject({
+    ok: true,
+    snapshot: {
+      quickUnlock: {
+        secureStorageAvailable: true,
+        enabled: false,
+      },
+    },
+  });
+  expect(mockDisableQuickUnlock).toHaveBeenCalledTimes(1);
 });
 
 test('reuses and closes the active trusted identity window', async () => {

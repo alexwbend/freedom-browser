@@ -5033,10 +5033,60 @@ Verification in this checkpoint:
   skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
   passed: 14 launched Electron tests.
+- committed as `01270a4` (`feat(chrome): open trusted identity surface`)
+  and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28115556885`, job `test` (`83253965920`), passed for
+  `01270a4`.
+- GitHub Actions run `28115556885`, job `e2e-chrome-runtime`
+  (`83253965906`), passed for `01270a4`.
 
 Known remaining gaps after this checkpoint:
 
 - broader non-provider vault management remains shell-owned future work before
   wallet/identity UX can be called complete in package mode
+- richer feed-review UX remains pending as a separate shell-owned surface or
+  trusted prompt path
+
+### Trusted Prompt Broker Checkpoint 40: Trusted Identity Vault Management
+
+Current checkpoint: the shell-owned trusted identity window now owns the
+remaining non-provider vault management actions needed by package-mode
+identity UX. Package chrome remains limited to `surfaces.identity.control` and
+still receives no raw identity, vault, mnemonic, quick-unlock, wallet, Node,
+Electron, filesystem, or arbitrary IPC authority.
+
+Implemented in this checkpoint:
+
+- added trusted identity surface channels for changing the vault password,
+  deleting the vault after typed `DELETE` confirmation, enabling quick unlock,
+  and disabling quick unlock
+- kept all new channels sender-scoped to the trusted identity WebContents
+- added quick-unlock status to the trusted identity snapshot while keeping
+  quick-unlock credential handles and passwords out of package chrome
+- disabled stored quick-unlock credentials after password change or vault
+  deletion so stale credentials do not remain active
+- made `identityManager.deleteVaultData(...)` remove stale vault metadata
+  after verified deletion
+- updated the trusted identity UI and official package smoke so package mode
+  proves the management controls are part of the shell-owned trusted window
+- updated `docs/local-package-chrome-runtime.md`,
+  `docs/package-chrome-trust-boundaries.md`, and
+  `docs/trusted-prompt-broker.md`
+
+Verification in this checkpoint:
+
+- `npm test -- src/main/trusted-identity-surface.test.js src/main/identity-manager.test.js`
+  passed: 2 suites, 16 tests.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+- `git diff --check` passed.
+- `npm test` passed: 125 suites passed, 5 skipped; 2346 passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 14 launched Electron tests.
+
+Known remaining gaps after this checkpoint:
+
 - richer feed-review UX remains pending as a separate shell-owned surface or
   trusted prompt path

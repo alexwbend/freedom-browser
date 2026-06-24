@@ -167,6 +167,22 @@
       overflow-wrap: anywhere;
     }
 
+    .note {
+      color: #687385;
+      font-size: 13px;
+    }
+
+    .danger {
+      border-color: #f0b6ad;
+      background: #fff8f7;
+    }
+
+    button.danger-action {
+      border-color: #b42318;
+      background: #b42318;
+      color: #ffffff;
+    }
+
     .recovery {
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       line-height: 1.5;
@@ -199,6 +215,14 @@
       <div class="status-item">
         <span class="status-label">Ant identity</span>
         <span class="status-value" id="ant-state">Loading</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Password</span>
+        <span class="status-value" id="password-state">Loading</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Quick unlock</span>
+        <span class="status-value" id="quick-unlock-state">Loading</span>
       </div>
     </div>
 
@@ -259,6 +283,60 @@
       </form>
       <p id="unlock-error" class="error"></p>
       <p id="unlock-success" class="success"></p>
+    </section>
+
+    <section id="change-password-section">
+      <h2>Change Password</h2>
+      <form id="change-password-form">
+        <label>Current password
+          <input id="change-current-password" type="password" autocomplete="current-password">
+        </label>
+        <label>New password
+          <input id="change-new-password" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <label>Confirm new password
+          <input id="change-confirm-password" type="password" autocomplete="new-password" minlength="8">
+        </label>
+        <div class="actions">
+          <button id="change-password-submit" class="primary" type="submit">Change password</button>
+        </div>
+      </form>
+      <p class="note" id="change-password-note"></p>
+      <p id="change-password-error" class="error"></p>
+      <p id="change-password-success" class="success"></p>
+    </section>
+
+    <section id="quick-unlock-section">
+      <h2>Quick Unlock</h2>
+      <p class="note" id="quick-unlock-note"></p>
+      <form id="quick-unlock-form">
+        <label>Password
+          <input id="quick-unlock-password" type="password" autocomplete="current-password">
+        </label>
+        <div class="actions">
+          <button id="quick-unlock-enable" class="primary" type="submit">Enable quick unlock</button>
+          <button id="quick-unlock-disable" type="button">Disable quick unlock</button>
+        </div>
+      </form>
+      <p id="quick-unlock-error" class="error"></p>
+      <p id="quick-unlock-success" class="success"></p>
+    </section>
+
+    <section id="delete-vault-section" class="danger">
+      <h2>Delete Vault</h2>
+      <form id="delete-vault-form">
+        <label>Password
+          <input id="delete-vault-password" type="password" autocomplete="current-password">
+        </label>
+        <label>Type DELETE
+          <input id="delete-vault-confirm" type="text" autocomplete="off">
+        </label>
+        <div class="actions">
+          <button id="delete-vault-submit" class="danger-action" type="submit">Delete vault</button>
+        </div>
+      </form>
+      <p id="delete-vault-error" class="error"></p>
+      <p id="delete-vault-success" class="success"></p>
     </section>
   </main>
   <script src="./trusted-identity-renderer.js"></script>

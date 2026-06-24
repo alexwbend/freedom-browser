@@ -2140,9 +2140,14 @@ test('official browser chrome can launch as a local package with transitional we
     const trustedIdentityWindow = await waitForTrustedIdentityWindow(launched.app);
     await expect(trustedIdentityWindow.locator('#heading')).toHaveText('Identity And Vault');
     await expect(trustedIdentityWindow.locator('#vault-state')).toHaveText('Not created');
+    await expect(trustedIdentityWindow.locator('#password-state')).toHaveText('Unavailable');
+    await expect(trustedIdentityWindow.locator('#quick-unlock-state')).toHaveText('Unavailable');
     await expect(trustedIdentityWindow.locator('#wallet-address')).toContainText('0x');
     await expect(trustedIdentityWindow.locator('#create-submit')).toBeVisible();
     await expect(trustedIdentityWindow.locator('#import-submit')).toBeVisible();
+    await expect(trustedIdentityWindow.locator('#change-password-section')).toBeHidden();
+    await expect(trustedIdentityWindow.locator('#quick-unlock-section')).toBeHidden();
+    await expect(trustedIdentityWindow.locator('#delete-vault-section')).toBeHidden();
     const closedIdentitySurface = await page.evaluate(() =>
       window.freedomShell.closeSurface('identity')
     );

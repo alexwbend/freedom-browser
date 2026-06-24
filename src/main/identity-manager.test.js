@@ -156,6 +156,44 @@ describe('identity-manager profile paths', () => {
   });
 });
 
+describe('identity-manager vault management', () => {
+  let tmpDir;
+  let envSnapshot;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-manager-vault-'));
+    envSnapshot = snapshotEnv();
+    process.env.FREEDOM_IDENTITY_DATA = tmpDir;
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    restoreEnv(envSnapshot);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    jest.restoreAllMocks();
+  });
+
+  test('deleteVaultData removes display metadata after verified vault deletion', async () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const metaPath = path.join(tmpDir, 'vault-meta.json');
+    fs.writeFileSync(metaPath, JSON.stringify({ addresses: { userWallet: '0xuser' } }));
+    const identityMock = {
+      deleteVault: jest.fn().mockResolvedValue(undefined),
+    };
+    const identityManager = loadMainModule(require.resolve('./identity-manager'), {
+      userDataDir: tmpDir,
+      extraMocks: {
+        [require.resolve('./identity')]: () => identityMock,
+      },
+    }).mod;
+
+    await identityManager.deleteVaultData('password123');
+
+    expect(identityMock.deleteVault).toHaveBeenCalledWith(tmpDir, 'password123');
+    expect(fs.existsSync(metaPath)).toBe(false);
+  });
+});
+
 describe('identity-manager wallet deletion', () => {
   let tmpDir;
   let envSnapshot;

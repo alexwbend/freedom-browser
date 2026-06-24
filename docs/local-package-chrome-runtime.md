@@ -387,9 +387,10 @@ The official package smoke currently proves:
   key after password verification
 - package chrome can open the shell-owned trusted identity window through
   `surfaces.identity.control`; the trusted window can create or import the
-  recovery phrase vault and unlock or lock it through scoped trusted-window
-  IPC without exposing raw identity, mnemonic, vault, or quick-unlock APIs to
-  package chrome
+  recovery phrase vault, unlock or lock it, change the vault password, delete
+  the vault after typed confirmation, and enable/disable quick unlock through
+  scoped trusted-window IPC without exposing raw identity, mnemonic, vault, or
+  quick-unlock APIs to package chrome
 - the main menu opens, and the node menu opens with sanitized service status
   available through `services.read`
 - package chrome does not receive broad node globals such as `ant`, `ipfs`,
@@ -636,9 +637,10 @@ connected dApp permission rows, revoke dApp wallet permissions, and export the
 vault seed phrase or a selected wallet private key after vault-password
 verification from trusted bundled code. `surfaces.identity.control` controls
 the shell-owned trusted identity window with the same trusted-window mode. It
-can create or import the recovery phrase vault and unlock or lock it through
-scoped trusted-window IPC. `surfaces.payments.control` controls the
-shell-owned trusted payments window with the same trusted-window mode. Package
+can create or import the recovery phrase vault, unlock or lock it, change the
+vault password, delete the vault after typed confirmation, and enable/disable
+quick unlock through scoped trusted-window IPC. `surfaces.payments.control`
+controls the shell-owned trusted payments window with the same trusted-window mode. Package
 chrome can read, open, close, or toggle only the surfaces it declares.
 `surfaces.swarmPublish.control` controls the shell-owned trusted Swarm publish
 window. The caller-scoped `surfaces.stateChanged` event is gated by the
@@ -907,8 +909,7 @@ recognized tokens, vault-unlock prompts now have main-derived request/payment
 context and can unlock through a shell-owned trusted window before retrying the
 x402 sign path, and x402 cap editing/revocation plus payment-history review
 now live in the shell-owned trusted payments window. Full Swarm publish/feed
-UX and broader non-provider vault management flows still need real shell-owned
-UI before they can move fully through the broker.
+UX still needs real shell-owned UI before it can move fully through the broker.
 
 ## Package Store
 

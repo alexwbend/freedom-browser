@@ -1101,6 +1101,10 @@ async function deleteVaultData(password) {
   const identity = await loadIdentityModule();
   const dataDir = getIdentityDataDir();
   await identity.deleteVault(dataDir, password);
+  const metaPath = getVaultMetaPath();
+  if (fs.existsSync(metaPath)) {
+    fs.unlinkSync(metaPath);
+  }
   derivedKeys = null;
   injectedNodes = { bee: false, ipfs: false, radicle: false };
   console.log('[IdentityManager] Vault deleted');

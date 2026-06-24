@@ -3,6 +3,7 @@ const path = require('path');
 
 const { BrowserWindow, ipcMain } = require('electron');
 const identityManager = require('./identity-manager');
+const quickUnlock = require('./quick-unlock');
 
 const CHANNEL_PREFIX = 'trusted-identity-surface';
 const SURFACE_WIDTH = 900;
@@ -66,6 +67,14 @@ function normalizePassword(password) {
   return password;
 }
 
+function normalizeNewPassword(password) {
+  const value = normalizePassword(password);
+  if (value.length < 8) {
+    throw new Error('new password must be at least 8 characters');
+  }
+  return value;
+}
+
 function normalizeMnemonic(mnemonic) {
   const text = typeof mnemonic === 'string' ? mnemonic.trim().replace(/\s+/g, ' ') : '';
   if (!text) {
@@ -81,6 +90,13 @@ function normalizeStrength(strength) {
   return 256;
 }
 
+function normalizeDeleteConfirmation(confirmation) {
+  if (typeof confirmation !== 'string' || confirmation.trim() !== 'DELETE') {
+    throw new Error('type DELETE to confirm vault deletion');
+  }
+  return 'DELETE';
+}
+
 function buildSurfaceContext(context = {}) {
   const caller = context.caller && typeof context.caller === 'object'
     ? cloneSerializable(context.caller)
@@ -92,6 +108,29 @@ function buildSurfaceContext(context = {}) {
     trusted: true,
     caller,
   };
+}
+
+function readQuickUnlockStatus() {
+  const status = {
+    canUseTouchId: false,
+    secureStorageAvailable: false,
+    enabled: false,
+    error: null,
+  };
+  try {
+    if (typeof quickUnlock.canUseTouchId === 'function') {
+      status.canUseTouchId = quickUnlock.canUseTouchId() === true;
+    }
+    if (typeof quickUnlock.isSecureStorageAvailable === 'function') {
+      status.secureStorageAvailable = quickUnlock.isSecureStorageAvailable() === true;
+    }
+    if (typeof quickUnlock.isQuickUnlockEnabled === 'function') {
+      status.enabled = quickUnlock.isQuickUnlockEnabled() === true;
+    }
+  } catch (err) {
+    status.error = err?.message || 'Failed to read quick unlock state';
+  }
+  return status;
 }
 
 async function buildSnapshot() {
@@ -133,6 +172,7 @@ async function buildSnapshot() {
     isUnlocked: isUnlocked === true,
     status,
     vaultMeta,
+    quickUnlock: readQuickUnlockStatus(),
     identityError,
   });
 }
@@ -219,6 +259,10 @@ async function openTrustedIdentitySurface(context = {}, deps = {}) {
     importMnemonic: channelFor('import-mnemonic', surfaceId),
     unlock: channelFor('unlock', surfaceId),
     lock: channelFor('lock', surfaceId),
+    changePassword: channelFor('change-password', surfaceId),
+    deleteVault: channelFor('delete-vault', surfaceId),
+    enableQuickUnlock: channelFor('enable-quick-unlock', surfaceId),
+    disableQuickUnlock: channelFor('disable-quick-unlock', surfaceId),
     close: channelFor('close', surfaceId),
   };
   const preload = path.join(__dirname, 'trusted-identity-preload.js');
@@ -284,7 +328,7 @@ async function openTrustedIdentitySurface(context = {}, deps = {}) {
     const mismatch = requireSurfaceSender(event);
     if (mismatch) return mismatch;
     try {
-      const password = normalizePassword(payload.password);
+      const password = normalizeNewPassword(payload.password);
       const strength = normalizeStrength(payload.strength);
       const userKnowsPassword = payload.userKnowsPassword !== false;
       const mnemonic = await identityManager.createNewVault(
@@ -307,7 +351,7 @@ async function openTrustedIdentitySurface(context = {}, deps = {}) {
     const mismatch = requireSurfaceSender(event);
     if (mismatch) return mismatch;
     try {
-      const password = normalizePassword(payload.password);
+      const password = normalizeNewPassword(payload.password);
       const mnemonic = normalizeMnemonic(payload.mnemonic);
       const userKnowsPassword = payload.userKnowsPassword !== false;
       await identityManager.importExistingMnemonic(password, mnemonic, userKnowsPassword);
@@ -351,6 +395,91 @@ async function openTrustedIdentitySurface(context = {}, deps = {}) {
       return errorResult(
         'TRUSTED_IDENTITY_SURFACE_LOCK_FAILED',
         err?.message || 'Failed to lock vault'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.changePassword, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const currentPassword = normalizePassword(payload.currentPassword);
+      const newPassword = normalizeNewPassword(payload.newPassword);
+      await identityManager.changeVaultPassword(currentPassword, newPassword);
+      if (typeof quickUnlock.disableQuickUnlock === 'function') {
+        quickUnlock.disableQuickUnlock();
+      }
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_IDENTITY_SURFACE_CHANGE_PASSWORD_FAILED',
+        err?.message || 'Failed to change vault password'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.deleteVault, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const password = normalizePassword(payload.password);
+      normalizeDeleteConfirmation(payload.confirmation);
+      await identityManager.deleteVaultData(password);
+      if (typeof quickUnlock.disableQuickUnlock === 'function') {
+        quickUnlock.disableQuickUnlock();
+      }
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_IDENTITY_SURFACE_DELETE_VAULT_FAILED',
+        err?.message || 'Failed to delete identity vault'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.enableQuickUnlock, async (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const password = normalizePassword(payload.password);
+      const result = typeof quickUnlock.enableQuickUnlock === 'function'
+        ? await quickUnlock.enableQuickUnlock(password)
+        : { success: false, error: 'Quick unlock is unavailable' };
+      if (result?.success !== true) {
+        throw new Error(result?.error || 'Failed to enable quick unlock');
+      }
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_IDENTITY_SURFACE_ENABLE_QUICK_UNLOCK_FAILED',
+        err?.message || 'Failed to enable quick unlock'
+      );
+    }
+  });
+
+  registerSurfaceHandler(electronIpcMain, channels.disableQuickUnlock, async (event) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    try {
+      const result = typeof quickUnlock.disableQuickUnlock === 'function'
+        ? quickUnlock.disableQuickUnlock()
+        : { success: false, error: 'Quick unlock is unavailable' };
+      if (result?.success !== true) {
+        throw new Error(result?.error || 'Failed to disable quick unlock');
+      }
+      const snapshot = await buildSnapshot();
+      await notifySnapshotUpdated();
+      return { ok: true, snapshot };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_IDENTITY_SURFACE_DISABLE_QUICK_UNLOCK_FAILED',
+        err?.message || 'Failed to disable quick unlock'
       );
     }
   });
