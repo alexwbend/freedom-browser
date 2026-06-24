@@ -207,6 +207,7 @@ module.exports = {
   PAYMENTS_GET_BY_ID: 'payments:get-by-id',
   PAYMENTS_GET_COUNT: 'payments:get-count',
   PAYMENTS_CLEAR: 'payments:clear',
+  PAYMENTS_OPEN_TRUSTED_SURFACE: 'payments:open-trusted-surface',
   // Main→renderer broadcast on every row mutation (append / mark-
   // confirmed / mark-failed). Recent-payments mini-section + the
   // freedom://payments page subscribe; the row is already written by

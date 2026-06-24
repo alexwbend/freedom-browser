@@ -1,0 +1,252 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    >
+    <title>Freedom Payments</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8f7f3;
+        --panel: #ffffff;
+        --text: #1f2933;
+        --muted: #5d6874;
+        --line: #d8dde4;
+        --accent: #0f766e;
+        --danger: #b42318;
+        --soft: #eef7f5;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 720px;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px 14px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: 19px;
+      }
+
+      h2 {
+        font-size: 15px;
+      }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--text);
+        padding: 7px 10px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+
+      button:disabled {
+        cursor: default;
+        opacity: 0.55;
+      }
+
+      button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: white;
+      }
+
+      button.danger {
+        color: var(--danger);
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(360px, 0.95fr) minmax(360px, 1.05fr);
+        gap: 16px;
+        padding: 16px;
+      }
+
+      section {
+        min-width: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        overflow: hidden;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .count {
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--accent);
+        padding: 2px 8px;
+        white-space: nowrap;
+      }
+
+      .list {
+        max-height: calc(100vh - 170px);
+        overflow: auto;
+      }
+
+      .empty {
+        padding: 28px 16px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .permission,
+      .payment {
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .permission:last-child,
+      .payment:last-child {
+        border-bottom: 0;
+      }
+
+      .row-main {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .origin {
+        overflow-wrap: anywhere;
+        font-weight: 600;
+      }
+
+      .meta {
+        margin-top: 6px;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+
+      .permission-controls {
+        display: grid;
+        grid-template-columns: 1fr 110px 78px 78px;
+        gap: 8px;
+        margin-top: 10px;
+        align-items: end;
+      }
+
+      label {
+        display: grid;
+        gap: 4px;
+        color: var(--muted);
+      }
+
+      input {
+        min-width: 0;
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 8px;
+        color: var(--text);
+        font: inherit;
+      }
+
+      .payment-grid {
+        display: grid;
+        grid-template-columns: 96px 1fr auto;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        border-radius: 999px;
+        background: #eef2f6;
+        padding: 2px 8px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      .status {
+        text-align: right;
+      }
+
+      #error {
+        color: var(--danger);
+        min-height: 18px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1 id="heading">Payment Permissions</h1>
+        <div class="muted" id="summary">Shell-owned payment review and cap management</div>
+      </div>
+      <div>
+        <button id="refresh">Refresh</button>
+        <button id="close">Close</button>
+      </div>
+    </header>
+
+    <main>
+      <section>
+        <div class="section-head">
+          <h2>x402 Caps</h2>
+          <span class="count" id="permission-count">0</span>
+        </div>
+        <div class="list" id="permissions"></div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Recent Payments</h2>
+          <div>
+            <span class="count" id="payment-count">0</span>
+            <button class="danger" id="clear-history">Clear</button>
+          </div>
+        </div>
+        <div class="list" id="payments"></div>
+      </section>
+    </main>
+
+    <div id="error" role="status" aria-live="polite"></div>
+    <script src="./trusted-payments-renderer.js"></script>
+  </body>
+</html>

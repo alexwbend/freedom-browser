@@ -35,6 +35,8 @@ const mockRadicleGetStatus = jest.fn();
 const mockRadicleCheckBinary = jest.fn();
 const mockFetchBuffer = jest.fn();
 const mockFetchToFile = jest.fn();
+const mockOpenTrustedPaymentsSurface = jest.fn();
+const mockCloseTrustedPaymentsSurface = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
@@ -47,6 +49,7 @@ const ANT_MANAGER_MODULE = require.resolve('./ant-manager');
 const IPFS_MANAGER_MODULE = require.resolve('./ipfs-manager');
 const RADICLE_MANAGER_MODULE = require.resolve('./radicle-manager');
 const HTTP_FETCH_MODULE = require.resolve('./http-fetch');
+const TRUSTED_PAYMENTS_SURFACE_MODULE = require.resolve('./trusted-payments-surface');
 
 function makeSender(overrides = {}) {
   return {
@@ -132,6 +135,10 @@ function loadShellApi(options = {}) {
         fetchBuffer: mockFetchBuffer,
         fetchToFile: mockFetchToFile,
       }),
+      [TRUSTED_PAYMENTS_SURFACE_MODULE]: () => ({
+        openTrustedPaymentsSurface: (...args) => mockOpenTrustedPaymentsSurface(...args),
+        closeTrustedPaymentsSurface: (...args) => mockCloseTrustedPaymentsSurface(...args),
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -174,6 +181,8 @@ describe('shell-api', () => {
     mockRadicleCheckBinary.mockReset();
     mockFetchBuffer.mockReset();
     mockFetchToFile.mockReset();
+    mockOpenTrustedPaymentsSurface.mockReset();
+    mockCloseTrustedPaymentsSurface.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
@@ -1358,6 +1367,116 @@ describe('shell-api', () => {
         message: 'Unsupported shell surface',
       },
     });
+  });
+
+  test('opens the shell-owned payments surface behind a separate capability', async () => {
+    mockOpenTrustedPaymentsSurface.mockResolvedValue({
+      ok: true,
+      surface: 'payments',
+      owner: 'shell',
+      trusted: true,
+    });
+    mockCloseTrustedPaymentsSurface.mockReturnValue({
+      ok: true,
+      surface: 'payments',
+      owner: 'shell',
+      trusted: true,
+    });
+
+    const { mod } = loadShellApi();
+    const ownerWindow = { id: 501 };
+    const sender = makeSender({
+      id: 109,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.payments.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: [{ surface: 'payments' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'payments' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: true,
+      mode: 'shell-owned-trusted-window',
+    });
+    expect(mockOpenTrustedPaymentsSurface).toHaveBeenCalledWith({
+      ownerWindow,
+      caller: expect.objectContaining({
+        packageId: 'baby.freedom.chrome.fixture',
+      }),
+      onClosed: expect.any(Function),
+    });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'payments',
+        open: true,
+        mode: 'shell-owned-trusted-window',
+      }),
+    });
+
+    sender.send.mockClear();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_CLOSE, args: [{ surface: 'payments' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: false,
+    });
+    expect(mockCloseTrustedPaymentsSurface).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'payments',
+        open: false,
+      }),
+    });
+  });
+
+  test('does not let wallet surface capability control payments surface', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 110 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.wallet.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'payments' }] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SURFACES_OPEN,
+        requiredCapability: 'surfaces.payments.control',
+      },
+    });
+    expect(mockOpenTrustedPaymentsSurface).not.toHaveBeenCalled();
   });
 
   test('rejects shell-owned surface requests without declared capabilities', async () => {

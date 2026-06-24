@@ -253,6 +253,7 @@ function writeOfficialChromePackage(root) {
           'clipboard.write',
           'downloads.saveImage',
           'surfaces.wallet.control',
+          'surfaces.payments.control',
           'windows.control',
           'windows.open',
           'app.about',
@@ -504,6 +505,7 @@ async function getActiveWebviewPaymentsPageState(page) {
             kindDisabled: byId('kind-select')?.disabled ?? null,
             chainDisabled: byId('chain-select')?.disabled ?? null,
             clearDisabled: byId('clear-btn')?.disabled ?? null,
+            openTrustedExists: Boolean(byId('open-trusted-payments-surface')),
           };
         })()
       `);
@@ -1894,6 +1896,40 @@ test('official browser chrome can launch as a local package with transitional we
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(false);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+
+    const initialPaymentsSurface = await page.evaluate(() =>
+      window.freedomShell.getSurfaceState('payments')
+    );
+    expect(initialPaymentsSurface).toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+    const openedPaymentsSurface = await page.evaluate(() =>
+      window.freedomShell.openSurface('payments')
+    );
+    expect(openedPaymentsSurface).toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-trusted-window',
+      trusted: true,
+    });
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('payments').then((state) => state.open))
+    ).toBe(true);
+    const closedPaymentsSurface = await page.evaluate(() =>
+      window.freedomShell.closeSurface('payments')
+    );
+    expect(closedPaymentsSurface).toMatchObject({
+      ok: true,
+      surface: 'payments',
+      open: false,
+    });
 
     const settingsWriteResult = await page.evaluate(async () => {
       const before = await window.freedomShell.getSettings();
@@ -3331,10 +3367,21 @@ test('official browser chrome can launch as a local package with transitional we
         kindDisabled: true,
         chainDisabled: true,
         clearDisabled: true,
+        openTrustedExists: true,
       });
     expect((await getActiveWebviewPaymentsPageState(page)).message).toContain(
       'Payment history is shell-owned and unavailable in package mode'
     );
+    await page.evaluate(async () => {
+      const webview = document.querySelector('webview:not(.hidden)');
+      await webview.executeJavaScript(`
+        document.getElementById('open-trusted-payments-surface').click();
+      `);
+    });
+    await expect.poll(() =>
+      page.evaluate(() => window.freedomShell.getSurfaceState('payments').then((state) => state.open))
+    ).toBe(true);
+    await page.evaluate(() => window.freedomShell.closeSurface('payments'));
 
     await navigateAddress(page, 'freedom://home', '');
     await expectHomeReady(page);

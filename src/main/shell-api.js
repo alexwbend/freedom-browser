@@ -7,7 +7,9 @@ const log = require('./logger');
 const { resolveNavigationInput } = require('../shared/navigation-input');
 const { createShellTabRegistry } = require('./shell-tabs');
 const { defaultTrustedPromptBroker } = require('./trusted-prompt-broker');
+const trustedPaymentsSurface = require('./trusted-payments-surface');
 const {
+  SHELL_API_CAPABILITIES,
   SHELL_API_EVENTS,
   SHELL_API_METHODS,
   SHELL_API_VERSION,
@@ -25,10 +27,17 @@ const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_RELOAD,
   SHELL_API_METHODS.TABS_GO_HOME,
 ]);
-const SUPPORTED_SURFACES = new Set(['wallet']);
+const SUPPORTED_SURFACES = new Set(['wallet', 'payments']);
+const SURFACE_CONTROL_CAPABILITIES = Object.freeze({
+  wallet: SHELL_API_CAPABILITIES.SURFACES_WALLET_CONTROL,
+  payments: SHELL_API_CAPABILITIES.SURFACES_PAYMENTS_CONTROL,
+});
 const SUPPORTED_SERVICES = new Set(['ant', 'ipfs', 'radicle']);
 const SURFACE_CAPABILITIES = Object.freeze(['open', 'close', 'toggle']);
-const SURFACE_MODE = 'shell-owned-placeholder';
+const SURFACE_MODES = Object.freeze({
+  wallet: 'shell-owned-placeholder',
+  payments: 'shell-owned-trusted-window',
+});
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
 const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
 const MAX_CONTEXT_URL_LENGTH = 4096;
@@ -499,13 +508,22 @@ function getSurfaceName(payload) {
   return '';
 }
 
+function getSurfaceControlCapability(surface) {
+  return SURFACE_CONTROL_CAPABILITIES[surface] || null;
+}
+
+function getSurfaceMode(surface) {
+  return SURFACE_MODES[surface] || 'shell-owned-placeholder';
+}
+
 function describeSurfaceState(caller, surface) {
+  const mode = getSurfaceMode(surface);
   if (!SUPPORTED_SURFACES.has(surface)) {
     return {
       ok: false,
       surface,
       owner: 'shell',
-      mode: SURFACE_MODE,
+      mode,
       trusted: true,
       error: {
         code: 'SURFACE_UNSUPPORTED',
@@ -519,7 +537,7 @@ function describeSurfaceState(caller, surface) {
     surface,
     open: caller.surfaces.get(surface) === true,
     owner: 'shell',
-    mode: SURFACE_MODE,
+    mode,
     trusted: true,
     capabilities: [...SURFACE_CAPABILITIES],
   };
@@ -532,27 +550,78 @@ function emitSurfaceStateChanged(event, caller, state, previousOpen) {
   emitShellEvent(event, caller, SHELL_API_EVENTS.SURFACES_STATE_CHANGED, state);
 }
 
-function setSurfaceOpen(caller, payload, open, event) {
+async function openTrustedPaymentsSurfaceForCaller(caller, event) {
+  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  return trustedPaymentsSurface.openTrustedPaymentsSurface({
+    ownerWindow,
+    caller: caller.identity,
+    onClosed: () => {
+      const previousOpen = caller.surfaces.get('payments') === true;
+      caller.surfaces.set('payments', false);
+      const state = describeSurfaceState(caller, 'payments');
+      emitSurfaceStateChanged(event, caller, state, previousOpen);
+    },
+  });
+}
+
+async function setSurfaceOpen(caller, payload, open, event) {
   const surface = getSurfaceName(payload);
   if (!SUPPORTED_SURFACES.has(surface)) {
     return describeSurfaceState(caller, surface);
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
+  if (surface === 'payments') {
+    const result = open
+      ? await openTrustedPaymentsSurfaceForCaller(caller, event)
+      : trustedPaymentsSurface.closeTrustedPaymentsSurface();
+    if (result?.ok !== true) {
+      return {
+        ok: false,
+        surface,
+        owner: 'shell',
+        mode: getSurfaceMode(surface),
+        trusted: true,
+        error: result?.error || {
+          code: 'SURFACE_OPEN_FAILED',
+          message: 'Failed to update trusted payments surface',
+        },
+      };
+    }
+  }
   caller.surfaces.set(surface, open);
   const state = describeSurfaceState(caller, surface);
   emitSurfaceStateChanged(event, caller, state, previousOpen);
   return state;
 }
 
-function toggleSurfaceOpen(caller, payload, event) {
+async function toggleSurfaceOpen(caller, payload, event) {
   const surface = getSurfaceName(payload);
   if (!SUPPORTED_SURFACES.has(surface)) {
     return describeSurfaceState(caller, surface);
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
-  caller.surfaces.set(surface, !previousOpen);
+  const nextOpen = !previousOpen;
+  if (surface === 'payments') {
+    const result = nextOpen
+      ? await openTrustedPaymentsSurfaceForCaller(caller, event)
+      : trustedPaymentsSurface.closeTrustedPaymentsSurface();
+    if (result?.ok !== true) {
+      return {
+        ok: false,
+        surface,
+        owner: 'shell',
+        mode: getSurfaceMode(surface),
+        trusted: true,
+        error: result?.error || {
+          code: 'SURFACE_OPEN_FAILED',
+          message: 'Failed to update trusted payments surface',
+        },
+      };
+    }
+  }
+  caller.surfaces.set(surface, nextOpen);
   const state = describeSurfaceState(caller, surface);
   emitSurfaceStateChanged(event, caller, state, previousOpen);
   return state;
@@ -1045,7 +1114,7 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
     identity,
     capabilities: new Set(identity.capabilities || []),
     tabRegistry: options.tabRegistry || createShellTabRegistry(),
-    surfaces: options.surfaces || new Map([['wallet', false]]),
+    surfaces: options.surfaces || new Map([['wallet', false], ['payments', false]]),
   };
   packageCallers.set(sender, caller);
 
@@ -1241,8 +1310,31 @@ const METHODS = Object.freeze({
   },
 });
 
-function assertMethodCapability(caller, method) {
-  const requiredCapability = getRequiredCapabilityForMethod(method);
+function isSurfaceMethod(method) {
+  return (
+    method === SHELL_API_METHODS.SURFACES_GET_STATE ||
+    method === SHELL_API_METHODS.SURFACES_OPEN ||
+    method === SHELL_API_METHODS.SURFACES_CLOSE ||
+    method === SHELL_API_METHODS.SURFACES_TOGGLE
+  );
+}
+
+function getRequiredCapabilityForShellMethod(method, args = []) {
+  if (isSurfaceMethod(method)) {
+    return getSurfaceControlCapability(getSurfaceName(args[0])) || getRequiredCapabilityForMethod(method);
+  }
+  return getRequiredCapabilityForMethod(method);
+}
+
+function getRequiredCapabilityForShellEvent(eventName, data = {}) {
+  if (eventName === SHELL_API_EVENTS.SURFACES_STATE_CHANGED) {
+    return getSurfaceControlCapability(getSurfaceName(data)) || getRequiredCapabilityForEvent(eventName);
+  }
+  return getRequiredCapabilityForEvent(eventName);
+}
+
+function assertMethodCapability(caller, method, args = []) {
+  const requiredCapability = getRequiredCapabilityForShellMethod(method, args);
   if (!requiredCapability) {
     throw createShellApiError('SHELL_METHOD_UNSUPPORTED', `Unsupported shell API method: ${method}`);
   }
@@ -1260,7 +1352,7 @@ function assertMethodCapability(caller, method) {
 }
 
 function emitShellEvent(event, caller, eventName, data) {
-  const requiredCapability = getRequiredCapabilityForEvent(eventName);
+  const requiredCapability = getRequiredCapabilityForShellEvent(eventName, data);
   if (!requiredCapability || !caller.capabilities.has(requiredCapability)) {
     return;
   }
@@ -1281,7 +1373,7 @@ function emitShellEventToPackageWebContents(sender, eventName, data = {}) {
     return { delivered: false, reason: 'not-package' };
   }
 
-  const requiredCapability = getRequiredCapabilityForEvent(eventName);
+  const requiredCapability = getRequiredCapabilityForShellEvent(eventName, data);
   if (!requiredCapability) {
     return { delivered: false, reason: 'unsupported-event' };
   }
@@ -1318,7 +1410,7 @@ async function handleShellRequest(event, payload = {}) {
   }
 
   const caller = getPackageCaller(event);
-  assertMethodCapability(caller, method);
+  assertMethodCapability(caller, method, payload.args);
 
   const result = cloneShellApiValue(await METHODS[method].handler(payload.args, event, caller));
   if (TAB_COMMAND_METHODS.has(method)) {

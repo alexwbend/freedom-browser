@@ -476,7 +476,37 @@ path, and reports acceptance only after unlock succeeds. Accepted unlocks retry
 the existing main-owned x402 sign/retry path for package-hosted cap-covered
 auto-pay and accepted manual payment flows; rejected or failed unlocks pass the
 original 402 through. Package-hosted x402 still does not expose payment
-history, expose cap edit/revoke APIs, or migrate the full x402 approval UI.
+history or cap edit/revoke APIs to package chrome. Cap editing/revocation and
+payment-history review now live in the separate shell-owned trusted payments
+surface opened through `surfaces.payments.control`; the full x402 approval UI
+and richer payment review still are not migrated into package chrome.
+
+### Package-Hosted Trusted Payments Surface
+
+Package chrome can request the shell-owned trusted payments surface without
+receiving payment-history or x402 permission-store authority:
+
+```text
+window.freedomShell.openSurface("payments")
+  -> shell API method surfaces.open
+  -> capability surfaces.payments.control
+  -> src/main/trusted-payments-surface.js
+  -> bundled trusted payments BrowserWindow/preload
+```
+
+The package-hosted `freedom://payments` page remains unavailable for raw
+history reads. Main still rejects `payments:get-recent`, `payments:get-by-id`,
+`payments:get-count`, and `payments:clear` from package-hosted internal pages
+with `PAYMENTS_UNAVAILABLE`. The page's Open trusted payments window action
+only forwards to the host package WebContents' capability-gated
+`surfaces.open("payments")` path.
+
+The trusted payments surface is bundled shell code with a dedicated preload and
+per-window scoped IPC channels. Only the trusted surface WebContents can call
+those channels. It can list recent payment history, list active x402 caps,
+update cap amount or window, revoke one cap, revoke every cap for an origin,
+and clear payment history. Package chrome receives only surface open/close
+state, not the payment rows, cap rows, mutation APIs, or store internals.
 
 ## Future Real Prompt Paths
 
@@ -524,10 +554,12 @@ x402 approvals:
 - package-hosted vault-unlock prompts show main-derived payment details in a
   shell-owned trusted window, unlock through main on accepted passwords, and
   retry x402 signing without exposing vault APIs to package chrome
+- package-hosted payment-history and cap-management UX uses the shell-owned
+  trusted payments window; package chrome can request only surface open/close
+  state through `surfaces.payments.control`
 - package chrome may receive status after the decision, not raw approval APIs
-- future completion work must add payment permission management, cap
-  editing/revocation surfaces, richer review UI, and broader/general vault
-  unlock UX before x402 can be called complete in package mode
+- future completion work must add richer payment review UI and broader/general
+  vault unlock UX before x402 can be called complete in package mode
 
 Swarm publish/feed/signing approval:
 
@@ -568,7 +600,7 @@ Vault unlock:
 
 - no real wallet center migration
 - no richer wallet account-selection implementation
-- no x402 cap-grant, payment-permission, or vault-unlock migration
+- no richer x402 approval-review surface or general vault-unlock migration
 - no full publish-center approval migration
 - no package-rendered prompt UI
 - no production prompt capability granted to official package chrome

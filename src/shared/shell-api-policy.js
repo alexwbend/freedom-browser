@@ -100,6 +100,7 @@ const SHELL_API_CAPABILITIES = Object.freeze({
   BROWSER_STATE_PROFILES_READ: 'browserState.profiles.read',
   SERVICES_READ: 'services.read',
   SURFACES_WALLET_CONTROL: 'surfaces.wallet.control',
+  SURFACES_PAYMENTS_CONTROL: 'surfaces.payments.control',
   TRUSTED_PROMPTS_TEST: 'trustedPrompts.test',
   APP_ABOUT: 'app.about',
   APP_UPDATES: 'app.updates',
@@ -224,6 +225,7 @@ const SHELL_API_EVENT_CAPABILITIES = Object.freeze({
 const KNOWN_SHELL_CAPABILITIES = Object.freeze(
   [
     ...new Set([
+      ...Object.values(SHELL_API_CAPABILITIES),
       ...Object.values(SHELL_API_METHOD_CAPABILITIES),
       ...Object.values(SHELL_API_EVENT_CAPABILITIES),
     ]),

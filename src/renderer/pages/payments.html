@@ -487,8 +487,20 @@
               <circle cx="12" cy="12" r="2"></circle>
             </svg>
             <p>${escapeHtml(message)}</p>
+            <button id="open-trusted-payments-surface" type="button">Open trusted payments window</button>
           </div>
         `;
+        document
+          .getElementById('open-trusted-payments-surface')
+          ?.addEventListener('click', async () => {
+            const result = await window.freedomAPI.openTrustedPaymentsSurface?.();
+            if (!result?.success) {
+              resultsEl.insertAdjacentHTML(
+                'beforeend',
+                `<p class="error">Failed to open trusted payments window: ${escapeHtml(resultErrorMessage(result))}</p>`
+              );
+            }
+          });
       }
 
       function formatWhen(createdAt) {

@@ -23,6 +23,7 @@ const {
   isPackageHostedInternalPage,
   packageHostedPaymentsUnavailable,
 } = require('./package-hosted-internal-page');
+const { SHELL_API_METHODS } = require('../shared/shell-api-policy');
 
 const SCHEMA_VERSION = 1;
 const DB_FILE = 'payment-history.sqlite';
@@ -553,6 +554,44 @@ function registerPaymentHistoryIpc() {
     } catch (err) {
       log.error('[PaymentHistory] clear failed:', err.message);
       return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle(IPC.PAYMENTS_OPEN_TRUSTED_SURFACE, async (event) => {
+    if (!isPackageHostedInternalPage(event)) {
+      return {
+        success: false,
+        error: {
+          code: 'PAYMENTS_TRUSTED_SURFACE_NOT_REQUIRED',
+          message: 'Trusted payments surface requests are only available from package-hosted payments pages',
+        },
+      };
+    }
+
+    const hostWebContents = event?.sender?.hostWebContents || null;
+    try {
+      const { handleShellRequest } = require('./shell-api');
+      const surface = await handleShellRequest(
+        { sender: hostWebContents },
+        {
+          method: SHELL_API_METHODS.SURFACES_OPEN,
+          args: [{ surface: 'payments' }],
+        }
+      );
+      return {
+        success: surface?.ok === true,
+        surface,
+        ...(surface?.ok === true ? {} : { error: surface?.error }),
+      };
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: err?.code || 'PAYMENTS_TRUSTED_SURFACE_OPEN_FAILED',
+          message: err?.message || 'Failed to open trusted payments surface',
+          details: err?.details,
+        },
+      };
     }
   });
 

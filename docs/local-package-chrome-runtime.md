@@ -202,6 +202,7 @@ The local package directory must contain `manifest.json`:
     "clipboard.write",
     "downloads.saveImage",
     "surfaces.wallet.control",
+    "surfaces.payments.control",
     "windows.control",
     "windows.open",
     "app.about",
@@ -600,18 +601,19 @@ local file/folder picker UI, stamp management, or the full publish/feed
 approval UX.
 
 The surface-control methods expose a narrow shell-owned request path for
-trusted surfaces. The current implemented surface is `wallet`, backed by
-caller-scoped placeholder state with `owner: "shell"` and
-`mode: "shell-owned-placeholder"`. Package chrome can read, open, close, or
-toggle that placeholder state only when it declares `surfaces.wallet.control`.
-The same capability gates the caller-scoped `surfaces.stateChanged` event
-exposed as `onSurfaceStateChanged(callback)`, so package chrome can mirror
-shell-owned state changes without polling or broad IPC. This does not expose
-wallet, identity, provider, signing, or vault APIs, and it does not mean the
-real wallet center has been migrated. The official package smoke exercises the
-visible wallet/sidebar affordance against this shell-owned placeholder state
-and verifies direct shell state changes update the package UI through the event.
-The fixture package smoke also exercises the placeholder control path.
+trusted surfaces. `surfaces.wallet.control` controls the caller-scoped wallet
+placeholder state with `owner: "shell"` and
+`mode: "shell-owned-placeholder"`. `surfaces.payments.control` controls the
+shell-owned trusted payments window with `mode:
+"shell-owned-trusted-window"`. Package chrome can read, open, close, or toggle
+only the surfaces it declares. The caller-scoped `surfaces.stateChanged` event
+is gated by the requested surface capability, so payment surface events do not
+grant wallet control and wallet events do not grant payment control. This does
+not expose wallet, identity, provider, signing, vault, x402 permission-store,
+or payment-history APIs to package chrome. The official package smoke exercises
+the visible wallet/sidebar affordance against the shell-owned placeholder and
+opens/closes the trusted payments surface from package mode. The fixture
+package smoke also exercises the placeholder wallet control path.
 
 `requestTestTrustedPrompt(payload)` is a test-only trusted prompt broker slice
 documented in `docs/trusted-prompt-broker.md`. It proves package chrome can
@@ -643,9 +645,11 @@ call the main-owned identity vault unlock path and then retry the existing x402
 sign/retry flow; rejected or failed unlocks pass the original 402 through. This
 keeps package mode from silently hanging while preserving the boundary that
 final payment approval and vault unlock must stay shell-owned. The native x402
-path does not expose payment history, expose cap edit/revoke APIs, or migrate
-the full payment review UI. Raw package runtime x402 adapter methods also
-return structured
+path does not expose raw payment history or raw cap edit/revoke APIs to
+package chrome. Cap editing/revocation and payment-history review are now
+available through the separate shell-owned trusted payments surface described
+below; the full x402 approval/review UI is still not migrated into package
+chrome. Raw package runtime x402 adapter methods also return structured
 `X402_PACKAGE_API_UNAVAILABLE` results instead of quiet `null`, `false`, or
 empty-array defaults.
 
@@ -654,8 +658,14 @@ by package chrome. Its internal page preload can normally read unified payment
 history covering x402 micropayments, wallet sends, and dApp-routed sends, and
 the page includes a clear-history mutation. Main rejects package-hosted
 payment-history IPC with structured `PAYMENTS_UNAVAILABLE`; the page surfaces
-that result and disables search, filters, and Clear all. Bundled trusted chrome
-keeps the existing payment-history page.
+that result, disables search, filters, and Clear all, and offers an "Open
+trusted payments window" action. That action does not read payment history
+through the package-hosted webview; it asks main to open the `payments` shell
+surface through the host package window's capability-gated `surfaces.open`
+path. The trusted payments window is bundled shell code with its own preload.
+It can list recent payment history, list active x402 caps, update cap amount or
+window, revoke one cap, revoke every cap for an origin, and clear payment
+history. Bundled trusted chrome keeps the existing payment-history page.
 
 The window-control methods expose a narrow shell-owned command path for the
 calling package window only. They let visible chrome affordances set the window
@@ -746,6 +756,9 @@ must be allowed by the package manifest's declared capabilities:
 - `surfaces.wallet.control` allows `getSurfaceState("wallet")`,
   `openSurface("wallet")`, `closeSurface("wallet")`, and
   `toggleSurface("wallet")`
+- `surfaces.payments.control` allows `getSurfaceState("payments")`,
+  `openSurface("payments")`, `closeSurface("payments")`, and
+  `toggleSurface("payments")` for the shell-owned trusted payments window
 - `trustedPrompts.test` allows `requestTestTrustedPrompt(payload)` for the
   test-only broker slice
 - `windows.control` allows `setWindowTitle(title)`, `closeWindow()`,
@@ -824,11 +837,12 @@ with structured
 them. Bundled chrome keeps the legacy renderer prompt path for those methods
 until the trusted prompt/surface broker migration gives them shell-owned
 approval UI. Package-hosted x402 approval prompts can now create the bounded
-default cap for recognized tokens, and vault-unlock prompts now have
-main-derived request/payment context and can unlock through a shell-owned
-trusted window before retrying the x402 sign path. x402 cap editing/revocation,
-payment permission management, full Swarm publish/feed UX, richer wallet
-account selection/review, and general vault unlock flows still need real
+default cap for recognized tokens, vault-unlock prompts now have main-derived
+request/payment context and can unlock through a shell-owned trusted window
+before retrying the x402 sign path, and x402 cap editing/revocation plus
+payment-history review now live in the shell-owned trusted payments window.
+Full Swarm publish/feed UX, richer wallet account selection/review, richer
+x402 approval review, and general vault unlock flows still need real
 shell-owned prompt UI before they can move fully through the broker.
 
 ## Package Store

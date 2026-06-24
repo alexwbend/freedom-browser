@@ -81,6 +81,7 @@ async function runPaymentsPage(options = {}) {
     'kind-select': new FakeElement(),
     'chain-select': new FakeElement(),
     'clear-btn': new FakeElement(),
+    'open-trusted-payments-surface': new FakeElement(),
   };
   const timers = [];
   let paymentRecordedHandler = null;
@@ -107,6 +108,14 @@ async function runPaymentsPage(options = {}) {
       payments: options.payments || [createPayment()],
     }),
     clearPayments: jest.fn().mockResolvedValue({ success: true }),
+    openTrustedPaymentsSurface: jest.fn().mockResolvedValue({
+      success: true,
+      surface: {
+        ok: true,
+        surface: 'payments',
+        owner: 'shell',
+      },
+    }),
     onPaymentRecorded: jest.fn((handler) => {
       paymentRecordedHandler = handler;
     }),
@@ -233,6 +242,10 @@ describe('payments internal page', () => {
       'Payment history is shell-owned and unavailable in package mode'
     );
     expect(ctx.elements['clear-btn'].disabled).toBe(true);
+
+    await ctx.elements['open-trusted-payments-surface'].fire('click');
+    expect(ctx.freedomAPI.openTrustedPaymentsSurface).toHaveBeenCalledTimes(1);
+    expect(ctx.freedomAPI.getPayments).toHaveBeenCalledTimes(2);
 
     await ctx.elements['clear-btn'].fire('click');
     expect(ctx.confirm).not.toHaveBeenCalled();

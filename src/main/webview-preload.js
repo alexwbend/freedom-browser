@@ -229,6 +229,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   getPayments: guardInternal('getPayments', (filters) => ipcRenderer.invoke('payments:get-recent', filters)),
   getPaymentsCount: guardInternal('getPaymentsCount', (filters) => ipcRenderer.invoke('payments:get-count', filters)),
   clearPayments: guardInternal('clearPayments', () => ipcRenderer.invoke('payments:clear')),
+  openTrustedPaymentsSurface: guardInternal('openTrustedPaymentsSurface', () =>
+    ipcRenderer.invoke('payments:open-trusted-surface')
+  ),
 
   // Token registry — used by the payments page to resolve asset
   // metadata (symbol, decimals) per chainId:address.

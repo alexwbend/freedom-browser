@@ -582,5 +582,53 @@ expect(mod.KINDS).toMatchObject({ X402: 'x402', WALLET_SEND: 'wallet-send', DAPP
       expect(isPackageWebContents).toHaveBeenCalledWith(event.sender.hostWebContents);
       expect(mod.getCount({})).toBe(1);
     });
+
+    test('package-hosted payments page can request the shell-owned trusted payments surface', async () => {
+      const hostWebContents = { id: 77 };
+      const isPackageWebContents = jest.fn(() => true);
+      const handleShellRequest = jest.fn().mockResolvedValue({
+        ok: true,
+        surface: 'payments',
+        open: true,
+        owner: 'shell',
+        mode: 'shell-owned-trusted-window',
+        trusted: true,
+      });
+      if (mod?.closeDb) mod.closeDb();
+      ({ mod, ipcMain } = loadPaymentHistoryModule({
+        userDataDir,
+        extraMocks: {
+          [require.resolve('./shell-api')]: () => ({
+            isPackageWebContents,
+            handleShellRequest,
+          }),
+        },
+      }));
+      mod.registerPaymentHistoryIpc();
+
+      const result = await ipcMain.handlers.get('payments:open-trusted-surface')({
+        sender: { hostWebContents },
+      });
+
+      expect(result).toEqual({
+        success: true,
+        surface: {
+          ok: true,
+          surface: 'payments',
+          open: true,
+          owner: 'shell',
+          mode: 'shell-owned-trusted-window',
+          trusted: true,
+        },
+      });
+      expect(isPackageWebContents).toHaveBeenCalledWith(hostWebContents);
+      expect(handleShellRequest).toHaveBeenCalledWith(
+        { sender: hostWebContents },
+        {
+          method: 'surfaces.open',
+          args: [{ surface: 'payments' }],
+        }
+      );
+    });
   });
 });
