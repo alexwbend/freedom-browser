@@ -3959,6 +3959,12 @@ Verification in this checkpoint:
   116 suites passed, 5 skipped; 2258 passed, 17 skipped.
 - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js` passed:
   14 tests.
+- committed as `29aaae4` (`feat(chrome): grant package x402 caps via shell
+  prompt`) and pushed to `origin/goal/local-package-chrome-runtime-v0`.
+- GitHub Actions run `28090465360`, job `test` (`83166912388`), passed for
+  `29aaae4`.
+- GitHub Actions run `28090465360`, job `e2e-chrome-runtime`
+  (`83166912443`), passed for `29aaae4`.
 
 Known remaining gaps after this checkpoint:
 
