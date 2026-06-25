@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; script-src 'unsafe-inline';"
+  >
+  <title>Freedom Shell Compositor Test Surface</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #00d6a3;
+      color: #061512;
+      font: 14px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      box-sizing: border-box;
+      border-left: 1px solid rgba(0, 0, 0, 0.35);
+      display: grid;
+      place-items: center;
+    }
+
+    main {
+      width: calc(100% - 48px);
+      max-width: 280px;
+    }
+
+    h1 {
+      font-size: 18px;
+      line-height: 1.2;
+      margin: 0 0 8px;
+    }
+
+    p {
+      line-height: 1.45;
+      margin: 0;
+    }
+  </style>
+</head>
+<body data-test="shell-compositor-test-surface">
+  <main>
+    <h1>Shell-owned surface</h1>
+    <p>
+      This WebContentsView is owned by main, not package chrome.
+    </p>
+  </main>
+</body>
+</html>

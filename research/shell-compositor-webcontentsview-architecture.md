@@ -244,6 +244,28 @@ alongside the primary BrowserWindow webContents. If that is not reliable, the
 real migration should move directly to `BaseWindow` + explicit
 `WebContentsView` composition.
 
+### Spike Result: 2026-06-25
+
+The feature-flagged spike answered the near-term question:
+
+- Adding a shell-owned `WebContentsView` as a child of the existing
+  `BrowserWindow` content view creates and loads the surface webContents, but
+  does not reliably overlay the primary `BrowserWindow.webContents`.
+- The viable topology is to make package chrome itself a `WebContentsView`
+  hosted by main, then add shell-owned surfaces as sibling `WebContentsView`s
+  in the same native window.
+- The experiment is gated by `FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR=1` and only
+  applies to local package chrome.
+- The smoke test proves that package chrome, the host window, and the
+  shell-owned test surface are separate webContents with separate bounds and
+  that the shell-owned surface renders from main-owned HTML, not package DOM.
+
+Concrete conclusion:
+
+> The production refactor should not try to bolt trusted surfaces onto the old
+> BrowserWindow page. It should introduce an explicit shell window/compositor
+> host where chrome is only one child view among other shell-owned views.
+
 ---
 
 ## Authority And Presentation Matrix
@@ -727,4 +749,3 @@ also makes the product model clearer:
   code
 - future app-specific frontends can exist without taking over the security
   boundary
-

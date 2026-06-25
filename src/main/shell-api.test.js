@@ -43,7 +43,11 @@ const mockOpenTrustedPaymentsSurface = jest.fn();
 const mockCloseTrustedPaymentsSurface = jest.fn();
 const mockOpenTrustedSwarmPublishSurface = jest.fn();
 const mockCloseTrustedSwarmPublishSurface = jest.fn();
+const mockOpenExperimentalShellCompositorSurface = jest.fn();
+const mockCloseExperimentalShellCompositorSurface = jest.fn();
 const ORIGINAL_FREEDOM_TEST_MODE = process.env.FREEDOM_TEST_MODE;
+const ORIGINAL_FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR =
+  process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR;
 const ENS_RESOLVER_MODULE = require.resolve('./ens-resolver');
 const SETTINGS_STORE_MODULE = require.resolve('./settings-store');
 const BOOKMARKS_STORE_MODULE = require.resolve('./bookmarks-store');
@@ -59,6 +63,9 @@ const TRUSTED_WALLET_SURFACE_MODULE = require.resolve('./trusted-wallet-surface'
 const TRUSTED_IDENTITY_SURFACE_MODULE = require.resolve('./trusted-identity-surface');
 const TRUSTED_PAYMENTS_SURFACE_MODULE = require.resolve('./trusted-payments-surface');
 const TRUSTED_SWARM_PUBLISH_SURFACE_MODULE = require.resolve('./trusted-swarm-publish-surface');
+const EXPERIMENTAL_SHELL_COMPOSITOR_SURFACE_MODULE = require.resolve(
+  './experimental-shell-compositor-surface'
+);
 
 function makeSender(overrides = {}) {
   return {
@@ -162,6 +169,16 @@ function loadShellApi(options = {}) {
         closeTrustedSwarmPublishSurface: (...args) =>
           mockCloseTrustedSwarmPublishSurface(...args),
       }),
+      [EXPERIMENTAL_SHELL_COMPOSITOR_SURFACE_MODULE]: () => ({
+        TEST_SURFACE_MODE: 'shell-owned-webcontents-view',
+        isExperimentalSurfaceSupported: (surface) =>
+          surface === 'testSurface' &&
+          process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR === '1',
+        openExperimentalShellCompositorSurface: (...args) =>
+          mockOpenExperimentalShellCompositorSurface(...args),
+        closeExperimentalShellCompositorSurface: (...args) =>
+          mockCloseExperimentalShellCompositorSurface(...args),
+      }),
       ...(options.extraMocks || {}),
     },
   });
@@ -212,11 +229,19 @@ describe('shell-api', () => {
     mockCloseTrustedPaymentsSurface.mockReset();
     mockOpenTrustedSwarmPublishSurface.mockReset();
     mockCloseTrustedSwarmPublishSurface.mockReset();
+    mockOpenExperimentalShellCompositorSurface.mockReset();
+    mockCloseExperimentalShellCompositorSurface.mockReset();
     delete globalThis.__FREEDOM_TEST_HARNESS__;
     if (ORIGINAL_FREEDOM_TEST_MODE === undefined) {
       delete process.env.FREEDOM_TEST_MODE;
     } else {
       process.env.FREEDOM_TEST_MODE = ORIGINAL_FREEDOM_TEST_MODE;
+    }
+    if (ORIGINAL_FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR === undefined) {
+      delete process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR;
+    } else {
+      process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR =
+        ORIGINAL_FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR;
     }
     jest.restoreAllMocks();
   });
@@ -1752,6 +1777,146 @@ describe('shell-api', () => {
       },
     });
     expect(mockOpenTrustedSwarmPublishSurface).not.toHaveBeenCalled();
+  });
+
+  test('keeps the shell compositor test surface unsupported until the experiment is enabled', async () => {
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 121 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.wallet.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'testSurface' }] }
+      )
+    ).resolves.toEqual({
+      ok: false,
+      surface: 'testSurface',
+      owner: 'shell',
+      mode: 'shell-owned-placeholder',
+      trusted: true,
+      error: {
+        code: 'SURFACE_UNSUPPORTED',
+        message: 'Unsupported shell surface',
+      },
+    });
+    expect(mockOpenExperimentalShellCompositorSurface).not.toHaveBeenCalled();
+  });
+
+  test('opens the experimental shell compositor test surface through surface control', async () => {
+    process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR = '1';
+    mockOpenExperimentalShellCompositorSurface.mockResolvedValue({
+      ok: true,
+      surface: 'testSurface',
+      owner: 'shell',
+      trusted: true,
+      mode: 'shell-owned-webcontents-view',
+      bounds: { x: 840, y: 0, width: 360, height: 800 },
+      webContentsId: 909,
+    });
+    mockCloseExperimentalShellCompositorSurface.mockReturnValue({
+      ok: true,
+      surface: 'testSurface',
+      owner: 'shell',
+      trusted: true,
+      mode: 'shell-owned-webcontents-view',
+    });
+
+    const { mod } = loadShellApi();
+    const ownerWindow = { id: 905 };
+    const sender = makeSender({
+      id: 122,
+      getOwnerBrowserWindow: jest.fn(() => ownerWindow),
+    });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.wallet.control'] })
+    );
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_GET_STATE, args: [{ surface: 'testSurface' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-webcontents-view',
+      trusted: true,
+    });
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'testSurface' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-webcontents-view',
+    });
+    expect(mockOpenExperimentalShellCompositorSurface).toHaveBeenCalledWith({
+      ownerWindow,
+      onClosed: expect.any(Function),
+    });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'testSurface',
+        open: true,
+        mode: 'shell-owned-webcontents-view',
+      }),
+    });
+
+    sender.send.mockClear();
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_CLOSE, args: [{ surface: 'testSurface' }] }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: false,
+      mode: 'shell-owned-webcontents-view',
+    });
+    expect(mockCloseExperimentalShellCompositorSurface).toHaveBeenCalledTimes(1);
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.SURFACES_STATE_CHANGED,
+      data: expect.objectContaining({
+        surface: 'testSurface',
+        open: false,
+        mode: 'shell-owned-webcontents-view',
+      }),
+    });
+  });
+
+  test('denies the experimental shell compositor test surface without surface control', async () => {
+    process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR = '1';
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 123 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    await expect(
+      mod.handleShellRequest(
+        { sender },
+        { method: SHELL_API_METHODS.SURFACES_OPEN, args: [{ surface: 'testSurface' }] }
+      )
+    ).rejects.toMatchObject({
+      code: 'SHELL_CAPABILITY_DENIED',
+      details: {
+        method: SHELL_API_METHODS.SURFACES_OPEN,
+        requiredCapability: 'surfaces.wallet.control',
+      },
+    });
+    expect(mockOpenExperimentalShellCompositorSurface).not.toHaveBeenCalled();
   });
 
   test('rejects shell-owned surface requests without declared capabilities', async () => {

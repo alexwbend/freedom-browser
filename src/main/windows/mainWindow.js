@@ -1,5 +1,5 @@
 const log = require('../logger');
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, WebContentsView } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const {
@@ -95,6 +95,127 @@ function getChromeWindowWebPreferences(chromePackage) {
   };
 }
 
+function getCompositorHostWebPreferences() {
+  return {
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webviewTag: false,
+    enableRemoteModule: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false,
+  };
+}
+
+function shouldUseExperimentalShellCompositor(chromePackage, env = process.env) {
+  return (
+    env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR === '1' &&
+    chromePackage?.kind === 'local-package'
+  );
+}
+
+function getWindowContentSize(window) {
+  if (typeof window.getContentSize === 'function') {
+    const [width, height] = window.getContentSize();
+    return { width, height };
+  }
+  if (typeof window.getContentBounds === 'function') {
+    const bounds = window.getContentBounds();
+    return { width: bounds.width, height: bounds.height };
+  }
+  return { width: 0, height: 0 };
+}
+
+function setViewToWindowBounds(window, view) {
+  const { width, height } = getWindowContentSize(window);
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: Math.max(0, width),
+    height: Math.max(0, height),
+  };
+  view.setBounds(bounds);
+  return bounds;
+}
+
+function removeWindowListener(window, eventName, listener) {
+  if (typeof window.off === 'function') {
+    window.off(eventName, listener);
+  } else if (typeof window.removeListener === 'function') {
+    window.removeListener(eventName, listener);
+  }
+}
+
+function createChromeCompositorView(chromePackage) {
+  return new WebContentsView({
+    webPreferences: getChromeWindowWebPreferences(chromePackage),
+  });
+}
+
+function attachChromeCompositorView(window, chromePackage, options = {}) {
+  const createView = options.createView || createChromeCompositorView;
+  const chromeView = createView(chromePackage);
+  const updateBounds = () => setViewToWindowBounds(window, chromeView);
+  const cleanupListeners = () => {
+    removeWindowListener(window, 'resize', updateBounds);
+    removeWindowListener(window, 'resized', updateBounds);
+    removeWindowListener(window, 'enter-full-screen', updateBounds);
+    removeWindowListener(window, 'leave-full-screen', updateBounds);
+  };
+  const cleanup = () => {
+    cleanupListeners();
+    delete window.__freedomExperimentalShellCompositor;
+    try {
+      window.getContentView?.().removeChildView(chromeView);
+    } catch {
+      // The host may already be destroyed during app shutdown.
+    }
+    try {
+      if (!chromeView.webContents.isDestroyed?.()) {
+        chromeView.webContents.close({ waitForBeforeUnload: false });
+      }
+    } catch {
+      // The WebContents may already be gone.
+    }
+  };
+
+  window.getContentView().addChildView(chromeView);
+  updateBounds();
+  window.on?.('resize', updateBounds);
+  window.on?.('resized', updateBounds);
+  window.on?.('enter-full-screen', updateBounds);
+  window.on?.('leave-full-screen', updateBounds);
+  window.__freedomExperimentalShellCompositor = {
+    getDebugState: () => ({
+      mode: 'webcontents-view-compositor',
+      chromeWebContentsId: chromeView.webContents?.id ?? null,
+      chromeUrl:
+        typeof chromeView.webContents?.getURL === 'function'
+          ? chromeView.webContents.getURL()
+          : '',
+      chromeBounds:
+        typeof chromeView.getBounds === 'function'
+          ? chromeView.getBounds()
+          : setViewToWindowBounds(window, chromeView),
+      chromeVisible:
+        typeof chromeView.getVisible === 'function'
+          ? chromeView.getVisible()
+          : undefined,
+      hostWebContentsId: window.webContents?.id ?? null,
+    }),
+  };
+
+  return {
+    chromeView,
+    webContents: chromeView.webContents,
+    cleanup,
+    updateBounds,
+  };
+}
+
 function enforcePackageGuestWebPreferences(webPreferences = {}) {
   Object.assign(webPreferences, {
     preload: getPackageGuestPreloadPath(),
@@ -131,12 +252,25 @@ function sanitizePackageGuestWebviewParams(params = {}) {
   return params;
 }
 
-function registerPackageWebviewSecurity(window, chromePackage) {
+function getPackageWebContents(target) {
+  if (!target) {
+    return null;
+  }
+  if (typeof target.on === 'function') {
+    return target;
+  }
+  return target.webContents || null;
+}
+
+function registerPackageWebviewSecurity(target, chromePackage) {
   if (!packageUsesTransitionalWebviews(chromePackage)) {
     return () => {};
   }
 
-  const webContents = window.webContents;
+  const webContents = getPackageWebContents(target);
+  if (!webContents) {
+    return () => {};
+  }
   const handler = (_event, webPreferences, params) => {
     sanitizePackageGuestWebviewParams(params);
     enforcePackageGuestWebPreferences(webPreferences);
@@ -167,6 +301,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   // Playwright (DOM/JS), it just never paints to screen.
   const hideWindow = process.env.FREEDOM_TEST_HIDE_WINDOW === '1';
 
+  const useExperimentalCompositor = shouldUseExperimentalShellCompositor(chromePackage);
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -184,16 +319,28 @@ function createMainWindow(initialUrl = null, options = {}) {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 14, y: 14 },
     }),
-    webPreferences: getChromeWindowWebPreferences(chromePackage),
+    webPreferences: useExperimentalCompositor
+      ? getCompositorHostWebPreferences()
+      : getChromeWindowWebPreferences(chromePackage),
   });
 
   // Track this window
   mainWindows.add(window);
 
+  let chromeWebContents = window.webContents;
+  let chromeLoadTarget = window;
+  let cleanupChromeCompositorView = () => {};
+  if (useExperimentalCompositor) {
+    const compositor = attachChromeCompositorView(window, chromePackage);
+    chromeWebContents = compositor.webContents;
+    chromeLoadTarget = chromeWebContents;
+    cleanupChromeCompositorView = compositor.cleanup;
+  }
+
   let recoveredFromPackageLoadFailure = false;
   let cleanupPackageReadyWait = () => {};
   let cleanupPackageCaller = () => {};
-  let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(window, chromePackage);
+  let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(chromeWebContents, chromePackage);
   const tryPackageRollback = (details = {}) => {
     if (
       chromePackage.kind !== 'local-package' ||
@@ -236,6 +383,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     cleanupPackageReadyWait();
     cleanupPackageCaller();
     cleanupPackageWebviewSecurity();
+    cleanupChromeCompositorView();
     const rollbackWindow = tryPackageRollback(details);
     if (rollbackWindow) {
       if (!window.isDestroyed()) {
@@ -263,7 +411,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   };
 
   if (chromePackage.kind === 'local-package') {
-    cleanupPackageCaller = registerPackageWebContents(window.webContents, chromePackage);
+    cleanupPackageCaller = registerPackageWebContents(chromeWebContents, chromePackage);
 
     const readyTimeout = setTimeout(() => {
       recoverFromPackageLoadFailure({
@@ -273,7 +421,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     }, getPackageReadyTimeoutMs());
 
     const disposePackageReady = onPackageReady(({ sender }) => {
-      if (sender !== window.webContents) {
+      if (sender !== chromeWebContents) {
         return;
       }
       cleanupPackageReadyWait();
@@ -302,6 +450,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     cleanupPackageReadyWait();
     cleanupPackageCaller();
     cleanupPackageWebviewSecurity();
+    cleanupChromeCompositorView();
     mainWindows.delete(window);
   });
 
@@ -309,15 +458,15 @@ function createMainWindow(initialUrl = null, options = {}) {
   // Close renderer menus when window loses focus (e.g., clicking system menu)
   window.on('blur', () => {
     const delivery = emitShellEventToPackageWebContents(
-      window.webContents,
+      chromeWebContents,
       SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED
     );
     if (delivery.reason === 'not-package') {
-      window.webContents.send('menus:close');
+      chromeWebContents.send('menus:close');
     }
   });
 
-  const wc = window.webContents;
+  const wc = chromeWebContents;
   if (wc) {
     wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (isMainFrame === false) {
@@ -346,7 +495,7 @@ function createMainWindow(initialUrl = null, options = {}) {
   // Load bundled chrome with optional initial URL. Local package chrome gets
   // only its manifest entry; persisted activation/launch parameters are out of
   // scope for the dev-only v0 runtime.
-  const loadPromise = loadChromeEntry(window, chromePackage, initialUrl);
+  const loadPromise = loadChromeEntry(chromeLoadTarget, chromePackage, initialUrl);
   if (loadPromise && typeof loadPromise.catch === 'function') {
     loadPromise.catch((error) => {
       recoverFromPackageLoadFailure({ message: error?.message || String(error) });
@@ -408,11 +557,14 @@ function getMainWindows() {
 }
 
 module.exports = {
+  attachChromeCompositorView,
   createMainWindow,
   enforcePackageGuestWebPreferences,
+  getCompositorHostWebPreferences,
   getPackageGuestPreloadPath,
   registerPackageWebviewSecurity,
   sanitizePackageGuestWebviewParams,
+  shouldUseExperimentalShellCompositor,
   getChromeWindowWebPreferences,
   loadChromeEntry,
   focusOrCreateMainWindow,

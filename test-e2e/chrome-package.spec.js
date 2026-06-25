@@ -4,6 +4,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { PNG } = require('pngjs');
 const defaultBookmarks = require('../config/default-bookmarks.json');
 const { buildOfficialChromePackage } = require('../scripts/build-official-chrome-package');
 
@@ -138,6 +139,46 @@ async function closeElectronApp(app, timeoutMs = 5000) {
       }
     }),
   ]);
+}
+
+async function getExperimentalShellCompositorDebugState(app) {
+  return app.evaluate(() => {
+    const nodeRequire =
+      (typeof require === 'function' && require) ||
+      globalThis.require ||
+      process.mainModule?.require?.bind(process.mainModule);
+    if (!nodeRequire) {
+      throw new Error('Node require is unavailable in Electron main evaluation context');
+    }
+    const pathModule = nodeRequire('path');
+    const surface = nodeRequire(
+      pathModule.join(process.cwd(), 'src', 'main', 'experimental-shell-compositor-surface.js')
+    );
+    return surface.getExperimentalShellCompositorSurfaceDebugState();
+  });
+}
+
+async function getExperimentalChromeCompositorDebugState(app) {
+  return app.evaluate(({ BrowserWindow }) => {
+    return BrowserWindow.getAllWindows()
+      .filter((window) => !window.isDestroyed())
+      .map((window) => window.__freedomExperimentalShellCompositor?.getDebugState?.())
+      .filter(Boolean);
+  });
+}
+
+async function captureWebContentsPng(app, webContentsId) {
+  const base64 = await app.evaluate(async ({ webContents }, id) => {
+    const target = webContents.fromId(id);
+    if (!target || target.isDestroyed()) {
+      throw new Error(`No live WebContents available for capture: ${id}`);
+    }
+    const image = await target.capturePage();
+    return {
+      png: image.toPNG().toString('base64'),
+    };
+  }, webContentsId);
+  return PNG.sync.read(Buffer.from(base64.png, 'base64'));
 }
 
 function startFaviconFixtureServer() {
@@ -2108,6 +2149,125 @@ test('official browser chrome launch truth markers prove package mode', async ()
         packageId: 'baby.freedom.chrome.official-local',
       },
     });
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('experimental shell compositor renders a shell-owned WebContentsView surface', async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-compositor-package-'));
+  const packageDir = path.join(parent, 'official');
+  writeOfficialChromePackage(packageDir);
+
+  const launched = await launchFreedom({
+    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+    FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR: '1',
+  });
+  try {
+    const page = await waitForOfficialPackageChromeWindow(launched.app, { source: 'local' });
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
+    await expect
+      .poll(async () => getExperimentalChromeCompositorDebugState(launched.app), {
+        timeout: 5000,
+      })
+      .toHaveLength(1);
+    const [chromeCompositor] = await getExperimentalChromeCompositorDebugState(launched.app);
+    expect(chromeCompositor).toMatchObject({
+      mode: 'webcontents-view-compositor',
+      chromeWebContentsId: expect.any(Number),
+      chromeUrl: expect.stringContaining('/official/index.html'),
+      chromeBounds: {
+        x: 0,
+        y: 0,
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+      chromeVisible: true,
+      hostWebContentsId: expect.any(Number),
+    });
+    expect(chromeCompositor.chromeWebContentsId).not.toBe(chromeCompositor.hostWebContentsId);
+
+    await expect(
+      page.evaluate(() => window.freedomShell.getSurfaceState('testSurface'))
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: false,
+      owner: 'shell',
+      mode: 'shell-owned-webcontents-view',
+      trusted: true,
+    });
+
+    await expect(
+      page.evaluate(() => window.freedomShell.openSurface('testSurface'))
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: true,
+      owner: 'shell',
+      mode: 'shell-owned-webcontents-view',
+      trusted: true,
+    });
+
+    await expect(
+      page.evaluate(() => Boolean(document.querySelector('[data-test="shell-compositor-test-surface"]')))
+    ).resolves.toBe(false);
+
+    await expect
+      .poll(async () => getExperimentalShellCompositorDebugState(launched.app), {
+        timeout: 5000,
+      })
+      .toHaveLength(1);
+    const [surface] = await getExperimentalShellCompositorDebugState(launched.app);
+    expect(surface).toMatchObject({
+      surface: 'testSurface',
+      url: expect.stringContaining('experimental-shell-compositor-test-surface.html'),
+      bounds: {
+        y: 0,
+        width: 360,
+      },
+      visible: true,
+      closed: false,
+    });
+    expect(surface.webContentsId).not.toBe(chromeCompositor.chromeWebContentsId);
+    expect(surface.bounds.height).toBe(chromeCompositor.chromeBounds.height);
+    expect(surface.bounds.x + surface.bounds.width).toBe(chromeCompositor.chromeBounds.width);
+
+    const image = await captureWebContentsPng(launched.app, surface.webContentsId);
+    const sampleX = Math.min(image.width - 1, 24);
+    const sampleY = Math.min(image.height - 1, 24);
+    const offset = (sampleY * image.width + sampleX) * 4;
+    const pixel = {
+      r: image.data[offset],
+      g: image.data[offset + 1],
+      b: image.data[offset + 2],
+      a: image.data[offset + 3],
+    };
+    expect(pixel).toMatchObject({
+      r: expect.any(Number),
+      g: expect.any(Number),
+      b: expect.any(Number),
+      a: 255,
+    });
+    expect(pixel.g).toBeGreaterThan(160);
+    expect(pixel.b).toBeGreaterThan(120);
+    expect(pixel.g - pixel.r).toBeGreaterThan(80);
+
+    await expect(
+      page.evaluate(() => window.freedomShell.closeSurface('testSurface'))
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'testSurface',
+      open: false,
+      mode: 'shell-owned-webcontents-view',
+    });
+    await expect
+      .poll(async () => getExperimentalShellCompositorDebugState(launched.app), {
+        timeout: 5000,
+      })
+      .toHaveLength(0);
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });

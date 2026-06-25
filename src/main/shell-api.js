@@ -11,6 +11,7 @@ const trustedIdentitySurface = require('./trusted-identity-surface');
 const trustedPaymentsSurface = require('./trusted-payments-surface');
 const trustedSwarmPublishSurface = require('./trusted-swarm-publish-surface');
 const trustedWalletSurface = require('./trusted-wallet-surface');
+const experimentalShellCompositorSurface = require('./experimental-shell-compositor-surface');
 const {
   SHELL_API_CAPABILITIES,
   SHELL_API_EVENTS,
@@ -516,16 +517,29 @@ function getSurfaceName(payload) {
 }
 
 function getSurfaceControlCapability(surface) {
+  if (experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)) {
+    return SHELL_API_CAPABILITIES.SURFACES_WALLET_CONTROL;
+  }
   return SURFACE_CONTROL_CAPABILITIES[surface] || null;
 }
 
 function getSurfaceMode(surface) {
+  if (experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)) {
+    return experimentalShellCompositorSurface.TEST_SURFACE_MODE;
+  }
   return SURFACE_MODES[surface] || 'shell-owned-placeholder';
+}
+
+function isSurfaceSupported(surface) {
+  return (
+    SUPPORTED_SURFACES.has(surface) ||
+    experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)
+  );
 }
 
 function describeSurfaceState(caller, surface) {
   const mode = getSurfaceMode(surface);
-  if (!SUPPORTED_SURFACES.has(surface)) {
+  if (!isSurfaceSupported(surface)) {
     return {
       ok: false,
       surface,
@@ -615,6 +629,18 @@ async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
 }
 
 async function openTrustedSurfaceForCaller(surface, caller, event) {
+  if (experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)) {
+    const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+    return experimentalShellCompositorSurface.openExperimentalShellCompositorSurface({
+      ownerWindow,
+      onClosed: () => {
+        const previousOpen = caller.surfaces.get(surface) === true;
+        caller.surfaces.set(surface, false);
+        const state = describeSurfaceState(caller, surface);
+        emitSurfaceStateChanged(event, caller, state, previousOpen);
+      },
+    });
+  }
   if (surface === 'wallet') {
     return openTrustedWalletSurfaceForCaller(caller, event);
   }
@@ -630,7 +656,11 @@ async function openTrustedSurfaceForCaller(surface, caller, event) {
   return null;
 }
 
-function closeTrustedSurface(surface) {
+function closeTrustedSurface(surface, event) {
+  if (experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)) {
+    const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+    return experimentalShellCompositorSurface.closeExperimentalShellCompositorSurface(ownerWindow);
+  }
   if (surface === 'wallet') {
     return trustedWalletSurface.closeTrustedWalletSurface();
   }
@@ -648,15 +678,18 @@ function closeTrustedSurface(surface) {
 
 async function setSurfaceOpen(caller, payload, open, event) {
   const surface = getSurfaceName(payload);
-  if (!SUPPORTED_SURFACES.has(surface)) {
+  if (!isSurfaceSupported(surface)) {
     return describeSurfaceState(caller, surface);
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
-  if (getSurfaceMode(surface) === 'shell-owned-trusted-window') {
+  if (
+    getSurfaceMode(surface) === 'shell-owned-trusted-window' ||
+    getSurfaceMode(surface) === experimentalShellCompositorSurface.TEST_SURFACE_MODE
+  ) {
     const result = open
       ? await openTrustedSurfaceForCaller(surface, caller, event)
-      : closeTrustedSurface(surface);
+      : closeTrustedSurface(surface, event);
     if (result?.ok !== true) {
       return {
         ok: false,
@@ -679,13 +712,16 @@ async function setSurfaceOpen(caller, payload, open, event) {
 
 async function toggleSurfaceOpen(caller, payload, event) {
   const surface = getSurfaceName(payload);
-  if (!SUPPORTED_SURFACES.has(surface)) {
+  if (!isSurfaceSupported(surface)) {
     return describeSurfaceState(caller, surface);
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
   const nextOpen = !previousOpen;
-  if (getSurfaceMode(surface) === 'shell-owned-trusted-window') {
+  if (
+    getSurfaceMode(surface) === 'shell-owned-trusted-window' ||
+    getSurfaceMode(surface) === experimentalShellCompositorSurface.TEST_SURFACE_MODE
+  ) {
     const result = nextOpen
       ? await openTrustedSurfaceForCaller(surface, caller, event)
       : closeTrustedSurface(surface);
