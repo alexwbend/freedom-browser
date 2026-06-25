@@ -130,12 +130,12 @@ const cancelPendingSwarmProbe = (navState) => {
   if (!navState.pendingSwarmProbeId) return;
   const probeId = navState.pendingSwarmProbeId;
   navState.pendingSwarmProbeId = null;
-  electronAPI?.cancelSwarmProbe?.(probeId).catch((err) => {
+  runtimeApi?.cancelSwarmProbe?.(probeId).catch((err) => {
     pushDebug(`[Swarm] cancelSwarmProbe failed: ${err?.message || err}`);
   });
 };
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 const RADICLE_DISABLED_MESSAGE =
   'Radicle integration is disabled. Enable it in Settings > Experimental';
 
@@ -504,7 +504,7 @@ const toggleTrustPopover = () => {
         const text = valueSpan.dataset.copy || '';
         if (!text) return;
         try {
-          await electronAPI?.copyText?.(text);
+          await runtimeApi?.copyText?.(text);
         } catch (err) {
           console.warn('[trust] copy failed:', err);
         }
@@ -650,7 +650,7 @@ const ensureWebContentsId = () => {
 
 const syncBzzBase = (nextBase) => {
   const navState = getNavState();
-  if (!electronAPI || (!electronAPI.setBzzBase && !electronAPI.clearBzzBase)) {
+  if (!runtimeApi || (!runtimeApi.setBzzBase && !runtimeApi.clearBzzBase)) {
     return;
   }
   if (navState.currentBzzBase === nextBase) {
@@ -661,9 +661,9 @@ const syncBzzBase = (nextBase) => {
     .then((id) => {
       if (!id) return;
       if (navState.currentBzzBase) {
-        electronAPI.setBzzBase?.(id, navState.currentBzzBase);
+        runtimeApi.setBzzBase?.(id, navState.currentBzzBase);
       } else {
-        electronAPI.clearBzzBase?.(id);
+        runtimeApi.clearBzzBase?.(id);
       }
     })
     .catch((err) => {
@@ -673,7 +673,7 @@ const syncBzzBase = (nextBase) => {
 
 const syncRadBase = (nextBase) => {
   const navState = getNavState();
-  if (!electronAPI || (!electronAPI.setRadBase && !electronAPI.clearRadBase)) {
+  if (!runtimeApi || (!runtimeApi.setRadBase && !runtimeApi.clearRadBase)) {
     return;
   }
   if (navState.currentRadBase === nextBase) {
@@ -684,9 +684,9 @@ const syncRadBase = (nextBase) => {
     .then((id) => {
       if (!id) return;
       if (navState.currentRadBase) {
-        electronAPI.setRadBase?.(id, navState.currentRadBase);
+        runtimeApi.setRadBase?.(id, navState.currentRadBase);
       } else {
-        electronAPI.clearRadBase?.(id);
+        runtimeApi.clearRadBase?.(id);
       }
     })
     .catch((err) => {
@@ -705,7 +705,7 @@ const handleEthereumUri = (value) => {
     return;
   }
 
-  electronAPI?.openSurface?.('wallet');
+  runtimeApi?.openSurface?.('wallet');
   alert('Ethereum URI sending is handled by the shell-owned wallet surface in package mode.');
 };
 
@@ -732,7 +732,7 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   const hash = target.swarmHash || extractBzzHash(gatewayUrl);
   const errorDisplayUrl = displayUrl || target.displayValue || gatewayUrl;
 
-  if (!hash || !electronAPI?.startSwarmProbe) {
+  if (!hash || !runtimeApi?.startSwarmProbe) {
     // No hash or no probe support — fall back to the pre-existing behaviour.
     const fallbackLoadUrl = target.bzzLoadUrl || gatewayUrl;
     webview.loadURL(fallbackLoadUrl);
@@ -759,7 +759,7 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   }
   pushDebug(`[Swarm] Probing ${gatewayUrl} before navigating`);
 
-  electronAPI
+  runtimeApi
     .startSwarmProbe(hash)
     .then((startResult) => {
       if (!startResult || startResult.success === false) {
@@ -773,13 +773,13 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
       // completion and waste cycles.
       if (navState.swarmProbeVersion !== myVersion) {
         pushDebug(`[Swarm] Probe ${probeId} cancelled before start IPC resolved`);
-        electronAPI?.cancelSwarmProbe?.(probeId).catch((err) => {
+        runtimeApi?.cancelSwarmProbe?.(probeId).catch((err) => {
           pushDebug(`[Swarm] cancelSwarmProbe failed: ${err?.message || err}`);
         });
         return null;
       }
       navState.pendingSwarmProbeId = probeId;
-      return electronAPI.awaitSwarmProbe(probeId).then((awaitResult) => ({
+      return runtimeApi.awaitSwarmProbe(probeId).then((awaitResult) => ({
         probeId,
         awaitResult,
       }));
@@ -816,8 +816,8 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
           : null;
       })();
       const invalidateOnContentFailure = () => {
-        if (!ensNameForInvalidation || !electronAPI?.invalidateEnsContent) return;
-        electronAPI.invalidateEnsContent(ensNameForInvalidation).catch((err) => {
+        if (!ensNameForInvalidation || !runtimeApi?.invalidateEnsContent) return;
+        runtimeApi.invalidateEnsContent(ensNameForInvalidation).catch((err) => {
           pushDebug(`[Swarm] invalidateEnsContent failed: ${err?.message || err}`);
         });
       };
@@ -927,7 +927,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     // If inner URL is a dweb URL, we need to resolve it first
     // Check for ENS
     const ens = parseEnsInput(innerUrl);
-    if (ens && electronAPI?.resolveEns) {
+    if (ens && runtimeApi?.resolveEns) {
       const capturedWebview = webview;
       // Tab id pinned for the duration of this async resolution so a tab
       // switch can't redirect the spinner to the wrong tab when the
@@ -945,7 +945,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         capturedTabId,
         { isViewingSourceForTab: true }
       );
-      electronAPI
+      runtimeApi
         .resolveEns(ens.name)
         .then((result) => {
           setLoading(false, capturedTabId);
@@ -1042,7 +1042,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try ENS first (ens:// or .eth/.box addresses)
   const ens = parseEnsInput(value);
-  if (ens && electronAPI?.resolveEns) {
+  if (ens && runtimeApi?.resolveEns) {
     // Capture the webview reference before async operation to prevent loading in wrong tab
     const capturedWebview = webview;
     // Capture the tab id too so async callbacks can route per-tab UI
@@ -1079,7 +1079,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         alert(alertMessage);
       }
     };
-    electronAPI
+    runtimeApi
       .resolveEns(ens.name)
       .then((result) => {
         setLoading(false, capturedTabId);
@@ -1399,7 +1399,7 @@ export const loadHomePage = () => {
   navState.hasNavigatedDuringCurrentLoad = false;
   webview.loadURL(homeUrl);
   updateActiveTabTitle('New Tab');
-  electronAPI?.setWindowTitle?.('');
+  runtimeApi?.setWindowTitle?.('');
   // Clear favicon for home page
   const activeTab = getActiveTab();
   if (activeTab) {
@@ -1415,9 +1415,9 @@ export const loadHomePage = () => {
 // the subsequent `loadTarget` call kicks off a fresh `resolveEns` that misses
 // the now-empty cache.
 const invalidateEnsContentForHardReload = (ensName) => {
-  if (!ensName || !electronAPI?.invalidateEnsContent) return;
+  if (!ensName || !runtimeApi?.invalidateEnsContent) return;
   pushDebug(`Hard reload: invalidating ENS contenthash cache for ${ensName}`);
-  electronAPI.invalidateEnsContent(ensName).catch((err) => {
+  runtimeApi.invalidateEnsContent(ensName).catch((err) => {
     pushDebug(`[ENS] invalidateEnsContent failed: ${err?.message || err}`);
   });
 };
@@ -1536,7 +1536,7 @@ const handleNavigationEvent = (event) => {
       navState.currentPageUrl = webviewUrl;
       // Update tab title to "view-source:<address>"
       updateActiveTabTitle(displayUrl);
-      electronAPI?.setWindowTitle?.(displayUrl);
+      runtimeApi?.setWindowTitle?.(displayUrl);
       updateNavigationState();
       updateBookmarkButtonVisibility();
       updateGithubBridgeIcon();
@@ -1550,7 +1550,7 @@ const handleNavigationEvent = (event) => {
     if (internalPageName && internalPageName !== 'home') {
       addressInput.value = `freedom://${internalPageName}`;
       pushDebug(`[AddressBar] Internal page: freedom://${internalPageName}`);
-      electronAPI?.setWindowTitle?.(
+      runtimeApi?.setWindowTitle?.(
         `${internalPageName.charAt(0).toUpperCase() + internalPageName.slice(1)}`
       );
       navState.pendingTitleForUrl = event.url;
@@ -1607,7 +1607,7 @@ const handleNavigationEvent = (event) => {
         pushDebug(`[Nav] Could not parse error page URL: ${err.message}`);
         addressInput.value = 'Error';
       }
-      electronAPI?.setWindowTitle?.('Error');
+      runtimeApi?.setWindowTitle?.('Error');
     } else {
       const derived = deriveDisplayAddress({
         url: event.url,
@@ -1677,7 +1677,7 @@ const updateBookmarkBarState = (url) => {
     bookmarksBar.classList.add('hidden');
   }
   // Disable the menu item on the new tab page (toggle has no effect there)
-  electronAPI?.setBookmarkBarToggleEnabled?.(!bookmarkBarState.isHomePage);
+  runtimeApi?.setBookmarkBarToggleEnabled?.(!bookmarkBarState.isHomePage);
 };
 
 // Toggle bookmark bar visibility and persist to settings
@@ -1688,13 +1688,13 @@ export const toggleBookmarkBar = async () => {
   const url = webview?.getURL?.() || '';
   updateBookmarkBarState(url);
   // Sync checkbox state in system menu
-  electronAPI?.setBookmarkBarChecked?.(bookmarkBarOverride);
+  runtimeApi?.setBookmarkBarChecked?.(bookmarkBarOverride);
   pushDebug(`Bookmark bar: ${bookmarkBarOverride ? 'always shown' : 'always hidden'}`);
   // Persist to settings
-  const settings = await electronAPI?.getSettings?.();
+  const settings = await runtimeApi?.getSettings?.();
   if (settings) {
     settings.showBookmarkBar = bookmarkBarOverride;
-    await electronAPI?.saveSettings?.(settings);
+    await runtimeApi?.saveSettings?.(settings);
   }
 };
 
@@ -1762,10 +1762,10 @@ export const initNavigation = () => {
   });
 
   // Load bookmark bar visibility from saved settings
-  electronAPI?.getSettings?.().then((settings) => {
+  runtimeApi?.getSettings?.().then((settings) => {
     if (settings && typeof settings.showBookmarkBar === 'boolean') {
       bookmarkBarOverride = settings.showBookmarkBar;
-      electronAPI?.setBookmarkBarChecked?.(bookmarkBarOverride);
+      runtimeApi?.setBookmarkBarChecked?.(bookmarkBarOverride);
     }
   });
 
@@ -1892,7 +1892,7 @@ export const initNavigation = () => {
             // Fetch and cache favicon in background, then update tab favicon
             // Use displayUrl as cache key (so bzz://, ipfs:// sites get unique favicons)
             // Use internalUrl for fetching (the actual HTTP gateway URL)
-            electronAPI
+            runtimeApi
               ?.fetchFaviconWithKey?.(internalUrl, displayUrl)
               .then((favicon) => {
                 if (favicon) {
@@ -1912,7 +1912,7 @@ export const initNavigation = () => {
             const title = activeTab?.title || '';
             const protocol = detectProtocol(displayUrl);
 
-            electronAPI
+            runtimeApi
               ?.addHistory?.({
                 url: displayUrl,
                 title,
@@ -2142,7 +2142,7 @@ export const initNavigation = () => {
   });
 
   // IPC handler for toggle bookmark bar
-  electronAPI?.onToggleBookmarkBar?.(() => {
+  runtimeApi?.onToggleBookmarkBar?.(() => {
     toggleBookmarkBar();
   });
 

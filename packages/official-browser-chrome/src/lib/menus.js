@@ -8,7 +8,7 @@ import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 // DOM elements (initialized in initMenus)
 let menuButton = null;
@@ -130,7 +130,7 @@ const formatShortcut = (shortcut, isMac) => {
 
 // Initialize keyboard shortcuts based on platform
 const initKeyboardShortcuts = async () => {
-  const platform = await electronAPI?.getPlatform?.();
+  const platform = await runtimeApi?.getPlatform?.();
   const isMac = platform === 'darwin';
 
   document.querySelectorAll('.menu-item-shortcut[data-shortcut]').forEach((el) => {
@@ -181,7 +181,7 @@ export const initMenus = () => {
   // New Window button
   newWindowMenuBtn?.addEventListener('click', () => {
     setMenuOpen(false);
-    electronAPI?.newWindow?.();
+    runtimeApi?.newWindow?.();
   });
 
   // History button
@@ -214,7 +214,7 @@ export const initMenus = () => {
   // Fullscreen button
   fullscreenBtn?.addEventListener('click', () => {
     setMenuOpen(false);
-    electronAPI?.toggleFullscreen?.();
+    runtimeApi?.toggleFullscreen?.();
   });
 
   // Print
@@ -242,13 +242,13 @@ export const initMenus = () => {
   // About
   aboutBtn?.addEventListener('click', () => {
     setMenuOpen(false);
-    electronAPI?.showAbout?.();
+    runtimeApi?.showAbout?.();
   });
 
   // Check for Updates
   checkUpdatesBtn?.addEventListener('click', () => {
     setMenuOpen(false);
-    electronAPI?.checkForUpdates?.();
+    runtimeApi?.checkForUpdates?.();
   });
 
   beeMenuButton?.addEventListener('click', (event) => {

@@ -63,7 +63,7 @@ import { getServiceRuntimeApi } from './lib/service-runtime-api.js';
 import { pushDebug } from './lib/debug.js';
 import { initSidebar } from './lib/sidebar.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 const serviceRuntime = getServiceRuntimeApi();
 
 // Apply theme early to avoid flash
@@ -73,7 +73,7 @@ let closeProfileMenu = () => {};
 let externalNodeCandidatesHandler = null;
 const queuedExternalNodeCandidatePayloads = [];
 
-electronAPI.onExternalNodeCandidates?.((payload) => {
+runtimeApi.onExternalNodeCandidates?.((payload) => {
   if (externalNodeCandidatesHandler) {
     externalNodeCandidatesHandler(payload);
   } else {
@@ -125,7 +125,7 @@ setOnBookmarkContextMenuOpening(onAnyMenuOpening);
 
 // Initialize platform-specific UI adjustments
 async function initPlatformUI() {
-  const platform = await electronAPI.getPlatform();
+  const platform = await runtimeApi.getPlatform();
 
   if (platform === 'linux') {
     document.body.classList.add('platform-linux');
@@ -173,7 +173,7 @@ function initExternalNodeCandidatesModal() {
   const sendDecision = (choices) => {
     if (!currentRequestId || hasResponded) return;
     hasResponded = true;
-    electronAPI.resolveExternalNodeCandidates?.({
+    runtimeApi.resolveExternalNodeCandidates?.({
       requestId: currentRequestId,
       choices,
     });
@@ -430,7 +430,7 @@ async function initProfileIndicator() {
           button.disabled = true;
           setMenuStatus(`Opening ${displayName}...`, 'success');
           try {
-            const result = await electronAPI.openProfile?.(profile.id);
+            const result = await runtimeApi.openProfile?.(profile.id);
             if (!result?.success) {
               throw new Error(result?.error?.message || 'Profile could not be opened');
             }
@@ -450,7 +450,7 @@ async function initProfileIndicator() {
     if (!profileList) return;
     setMenuStatus('', '');
     try {
-      const result = await electronAPI.listProfiles?.();
+      const result = await runtimeApi.listProfiles?.();
       if (!result?.success) {
         throw new Error(result?.error?.message || 'Profile list unavailable');
       }
@@ -510,7 +510,7 @@ async function initProfileIndicator() {
     setCreateBusy(true);
     setCreateStatus('Creating profile...', 'success');
     try {
-      const createResult = await electronAPI.createProfile?.({ displayName });
+      const createResult = await runtimeApi.createProfile?.({ displayName });
       if (!createResult?.success) {
         throw new Error(createResult?.error?.message || 'Profile could not be created');
       }
@@ -522,7 +522,7 @@ async function initProfileIndicator() {
       }
 
       setCreateStatus(`Opening ${profile.displayName || displayName}...`, 'success');
-      const openResult = await electronAPI.openProfile?.(profileId);
+      const openResult = await runtimeApi.openProfile?.(profileId);
       if (!openResult?.success) {
         throw new Error(openResult?.error?.message || 'Profile was created but could not be opened');
       }
@@ -565,10 +565,10 @@ async function initProfileIndicator() {
     if (menu?.hidden === false) refreshProfileList();
   };
 
-  electronAPI.onProfileUpdated?.(renderProfile);
+  runtimeApi.onProfileUpdated?.(renderProfile);
 
   try {
-    const profile = await electronAPI.getActiveProfile?.();
+    const profile = await runtimeApi.getActiveProfile?.();
     renderProfile(profile);
   } catch (err) {
     pushDebug(`[profile] Failed to load active profile: ${err?.message || err}`);
@@ -593,7 +593,7 @@ const closeAllOverlays = () => {
 
 // Listen for close menus from main process (e.g., system menu clicked)
 // Don't close autocomplete here - mirrors browser behavior where address bar stays open
-electronAPI.onCloseMenus?.(closeAllMenus);
+runtimeApi.onCloseMenus?.(closeAllMenus);
 
 // Initialize update notification toast
 function initUpdateNotifications() {
@@ -631,11 +631,11 @@ function initUpdateNotifications() {
   actionBtn.addEventListener('click', () => {
     actionBtn.textContent = 'Installing…';
     actionBtn.disabled = true;
-    electronAPI.restartAndInstallUpdate?.();
+    runtimeApi.restartAndInstallUpdate?.();
   });
 
   // Listen for update notifications from main process
-  electronAPI.onUpdateNotification?.((data) => {
+  runtimeApi.onUpdateNotification?.((data) => {
     pushDebug(`[update] Received notification: ${data.type}`);
     if (data.type === 'ready') {
       showToast(data.message, true, data.actionLabel || 'Install now');
@@ -657,7 +657,7 @@ document.addEventListener('open-url-new-tab', (e) => {
 // Initialize all modules
 window.addEventListener('DOMContentLoaded', async () => {
   try {
-    const settings = await electronAPI.getSettings();
+    const settings = await runtimeApi.getSettings();
     setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
     setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
   } catch {

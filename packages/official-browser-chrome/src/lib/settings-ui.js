@@ -4,7 +4,7 @@
 import { pushDebug } from './debug.js';
 import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 let previous = { theme: 'system', antNodeMode: 'ultraLight', enableRadicleIntegration: false };
 
@@ -20,7 +20,7 @@ export const applyTheme = (mode) => {
 };
 
 export const initTheme = async () => {
-  const settings = await electronAPI.getSettings();
+  const settings = await runtimeApi.getSettings();
   previous = {
     theme: settings?.theme || 'system',
     antNodeMode: settings?.antNodeMode === 'light' ? 'light' : 'ultraLight',

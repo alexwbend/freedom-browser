@@ -2,7 +2,7 @@
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { getChromeRuntimeApi, isPackageChromeRuntime } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 const packageChromeRuntime = isPackageChromeRuntime();
 
 let contextMenu = null;
@@ -94,7 +94,7 @@ async function writeClipboard(text) {
   if (!text) return { success: false };
 
   try {
-    const result = await electronAPI?.copyText?.(text);
+    const result = await runtimeApi?.copyText?.(text);
     if (result?.success) {
       return { success: true };
     }
@@ -120,7 +120,7 @@ function selectAllInInput(input) {
 }
 
 async function readClipboard() {
-  const result = await electronAPI?.readClipboardText?.();
+  const result = await runtimeApi?.readClipboardText?.();
   if (result?.success) {
     return result.text ?? '';
   }

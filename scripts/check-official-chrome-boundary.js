@@ -28,6 +28,10 @@ const DISALLOWED_PATTERNS = Object.freeze([
     name: 'main-process source import',
     pattern: /\b(?:import|from|require)\b[^\n;]*['"][^'"]*src\/main[^'"]*['"]/,
   },
+  {
+    name: 'broad preload adapter token',
+    pattern: /\belectronAPI\b/,
+  },
 ]);
 const DISALLOWED_RESIDUE_MARKERS = Object.freeze([
   'id="sidebar-export-mnemonic"',

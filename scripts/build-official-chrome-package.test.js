@@ -67,13 +67,60 @@ test('official chrome boundary guard catches broad preload globals', () => {
   const outputDir = makeOutputDir('bad-boundary');
   fs.writeFileSync(path.join(outputDir, 'index.js'), 'window.electronAPI.getSettings();\n');
 
-  expect(checkOfficialChromeBoundary([outputDir])).toEqual([
-    expect.objectContaining({
-      file: expect.stringContaining('index.js'),
-      line: 1,
-      rule: 'broad preload global',
-    }),
-  ]);
+  expect(checkOfficialChromeBoundary([outputDir])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 1,
+        rule: 'broad preload global',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 1,
+        rule: 'broad preload adapter token',
+      }),
+    ])
+  );
+});
+
+test('official chrome boundary guard catches indirect broad preload adapter tokens', () => {
+  const outputDir = makeOutputDir('bad-broad-token');
+  fs.writeFileSync(
+    path.join(outputDir, 'index.js'),
+    [
+      'const runtimeWindow = window;',
+      'runtimeWindow.electronAPI?.getSettings();',
+      'globalThis.electronAPI?.getSettings();',
+      'const { electronAPI } = runtimeWindow;',
+      'electronAPI?.getSettings();',
+    ].join('\n')
+  );
+
+  const violations = checkOfficialChromeBoundary([outputDir]);
+  expect(violations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 2,
+        rule: 'broad preload adapter token',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 3,
+        rule: 'broad preload adapter token',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 4,
+        rule: 'broad preload adapter token',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('index.js'),
+        line: 5,
+        rule: 'broad preload adapter token',
+      }),
+    ])
+  );
 });
 
 test('official chrome boundary guard catches trusted-only source files', () => {

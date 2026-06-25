@@ -5,7 +5,7 @@ import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { deriveDisplayValue, applyEnsNamePreservation } from './url-utils.js';
 import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 // DOM elements (initialized in initPageContextMenu)
 let pageContextMenu = null;
@@ -184,14 +184,14 @@ const handleAction = async (action) => {
         // Use dweb URL - the new window's loadTarget will resolve it properly
         const dwebUrl = toDwebUrl(currentContext.linkUrl);
         pushDebug(`Opening link in new window: ${dwebUrl}`);
-        electronAPI?.openUrlInNewWindow?.(dwebUrl);
+        runtimeApi?.openUrlInNewWindow?.(dwebUrl);
       }
       break;
 
     case 'copy-link':
       if (currentContext.linkUrl) {
         const dwebUrl = toDwebUrl(currentContext.linkUrl);
-        electronAPI?.copyText?.(dwebUrl);
+        runtimeApi?.copyText?.(dwebUrl);
         pushDebug(`Copied link: ${dwebUrl}`);
       }
       break;
@@ -223,7 +223,7 @@ const handleAction = async (action) => {
     case 'save-image':
       if (currentContext.imageSrc) {
         pushDebug(`Saving image: ${currentContext.imageSrc}`);
-        const result = await electronAPI?.saveImage?.(currentContext.imageSrc);
+        const result = await runtimeApi?.saveImage?.(currentContext.imageSrc);
         if (result?.success) {
           pushDebug(result.filePath ? `Image saved to: ${result.filePath}` : 'Image saved');
         } else if (result?.error) {
@@ -234,7 +234,7 @@ const handleAction = async (action) => {
 
     case 'copy-image':
       if (currentContext.imageSrc) {
-        const result = await electronAPI?.copyImageFromUrl?.(currentContext.imageSrc);
+        const result = await runtimeApi?.copyImageFromUrl?.(currentContext.imageSrc);
         if (result?.success) {
           pushDebug('Copied image to clipboard');
         } else if (result?.error) {
@@ -246,7 +246,7 @@ const handleAction = async (action) => {
     case 'copy-image-address':
       if (currentContext.imageSrc) {
         const dwebUrl = toDwebUrl(currentContext.imageSrc);
-        electronAPI?.copyText?.(dwebUrl);
+        runtimeApi?.copyText?.(dwebUrl);
         pushDebug(`Copied image address: ${dwebUrl}`);
       }
       break;

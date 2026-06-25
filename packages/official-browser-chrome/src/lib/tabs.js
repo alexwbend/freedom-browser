@@ -13,7 +13,7 @@ import {
   setLinkStatusSide,
 } from './link-status.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 // Callback for when context menu opens (to close other dropdowns like autocomplete)
 let onContextMenuOpening = null;
@@ -48,7 +48,7 @@ export const updateTabFavicon = async (tabId, pageUrl) => {
 
   // Try to get cached favicon
   try {
-    const favicon = await electronAPI?.getCachedFavicon?.(pageUrl);
+    const favicon = await runtimeApi?.getCachedFavicon?.(pageUrl);
     if (favicon) {
       tab.favicon = favicon;
       renderTabs();
@@ -76,7 +76,7 @@ const MAX_CLOSED_TABS = 20;
 // Push current tab state to the main process for menu item enable/disable
 const pushTabMenuState = () => {
   const activeIndex = tabState.tabs.findIndex((t) => t.id === tabState.activeTabId);
-  electronAPI?.updateTabMenuState?.({
+  runtimeApi?.updateTabMenuState?.({
     tabCount: tabState.tabs.length,
     activeIndex,
     hasClosedTabs: closedTabsStack.length > 0,
@@ -440,7 +440,7 @@ const createWebview = (tabId, initialUrl) => {
           tab.title = 'New Tab';
           renderTabs();
           if (tabId === tabState.activeTabId) {
-            electronAPI?.setWindowTitle?.('');
+            runtimeApi?.setWindowTitle?.('');
           }
         }
         // Clear favicon for view-source pages (they should use default globe icon)
@@ -481,7 +481,7 @@ const createWebview = (tabId, initialUrl) => {
             tab.title = 'New Tab';
             renderTabs();
             if (tabId === tabState.activeTabId) {
-              electronAPI?.setWindowTitle?.('');
+              runtimeApi?.setWindowTitle?.('');
             }
           }
           return;
@@ -497,7 +497,7 @@ const createWebview = (tabId, initialUrl) => {
           tab.title = title;
           renderTabs();
           if (tabId === tabState.activeTabId) {
-            electronAPI?.setWindowTitle?.(title);
+            runtimeApi?.setWindowTitle?.(title);
           }
         }
       }
@@ -1012,7 +1012,7 @@ export const closeTab = (tabId) => {
     } else {
       // No more tabs - close window via IPC
       tabState.activeTabId = null;
-      electronAPI?.closeWindow?.();
+      runtimeApi?.closeWindow?.();
     }
   }
 
@@ -1201,7 +1201,7 @@ export const switchTab = (tabId, options = {}) => {
 
   // Update window title
   if (tab.title) {
-    electronAPI?.setWindowTitle?.(tab.title);
+    runtimeApi?.setWindowTitle?.(tab.title);
   }
 
   // Notify navigation module
@@ -1332,7 +1332,7 @@ export const initTabs = async () => {
 
   // Fetch webview preload path for internal pages
   try {
-    webviewPreloadPath = await electronAPI?.getWebviewPreloadPath?.();
+    webviewPreloadPath = await runtimeApi?.getWebviewPreloadPath?.();
     if (webviewPreloadPath) {
       pushDebug(`[Tabs] Webview preload path: ${webviewPreloadPath}`);
     }
@@ -1346,23 +1346,23 @@ export const initTabs = async () => {
   });
 
   // Menu IPC handlers
-  electronAPI?.onNewTab?.(() => {
+  runtimeApi?.onNewTab?.(() => {
     createTab(homeUrl);
   });
 
-  electronAPI?.onCloseTab?.(() => {
+  runtimeApi?.onCloseTab?.(() => {
     if (tabState.activeTabId) {
       closeTab(tabState.activeTabId);
     }
   });
 
-  electronAPI?.onNewTabWithUrl?.((url, targetName) => {
+  runtimeApi?.onNewTabWithUrl?.((url, targetName) => {
     if (url) {
       openInNewTabWithTarget(url, targetName || null);
     }
   });
 
-  electronAPI?.onNavigateToUrl?.((url) => {
+  runtimeApi?.onNavigateToUrl?.((url) => {
     if (url && onLoadTarget) {
       pushDebug(`Navigating to URL: ${url}`);
       // The main process intercepted a will-navigate for a custom protocol
@@ -1419,26 +1419,26 @@ export const initTabs = async () => {
   });
 
   // Handle loading URL in current tab (used by new window with URL)
-  electronAPI?.onLoadUrl?.((url) => {
+  runtimeApi?.onLoadUrl?.((url) => {
     if (url && onLoadTarget) {
       pushDebug(`Loading URL: ${url}`);
       onLoadTarget(url);
     }
   });
 
-  electronAPI?.onToggleDevTools?.(() => {
+  runtimeApi?.onToggleDevTools?.(() => {
     toggleDevTools();
   });
 
-  electronAPI?.onCloseDevTools?.(() => {
+  runtimeApi?.onCloseDevTools?.(() => {
     closeDevTools();
   });
 
-  electronAPI?.onCloseAllDevTools?.(() => {
+  runtimeApi?.onCloseAllDevTools?.(() => {
     closeAllDevTools();
   });
 
-  electronAPI?.onFocusAddressBar?.(() => {
+  runtimeApi?.onFocusAddressBar?.(() => {
     const addressInput = document.getElementById('address-input');
     if (addressInput) {
       addressInput.focus();
@@ -1446,35 +1446,35 @@ export const initTabs = async () => {
     }
   });
 
-  electronAPI?.onReload?.(() => {
+  runtimeApi?.onReload?.(() => {
     if (onReload) {
       onReload();
     }
   });
 
-  electronAPI?.onHardReload?.(() => {
+  runtimeApi?.onHardReload?.(() => {
     if (onHardReload) {
       onHardReload();
     }
   });
 
-  electronAPI?.onNextTab?.(() => {
+  runtimeApi?.onNextTab?.(() => {
     switchToNextTab();
   });
 
-  electronAPI?.onPrevTab?.(() => {
+  runtimeApi?.onPrevTab?.(() => {
     switchToPrevTab();
   });
 
-  electronAPI?.onMoveTabLeft?.(() => {
+  runtimeApi?.onMoveTabLeft?.(() => {
     moveTab('left');
   });
 
-  electronAPI?.onMoveTabRight?.(() => {
+  runtimeApi?.onMoveTabRight?.(() => {
     moveTab('right');
   });
 
-  electronAPI?.onReopenClosedTab?.(() => {
+  runtimeApi?.onReopenClosedTab?.(() => {
     reopenLastClosedTab();
   });
 
@@ -1560,7 +1560,7 @@ export const initTabs = async () => {
     // F11 - Toggle fullscreen
     if (event.key === 'F11') {
       event.preventDefault();
-      electronAPI?.toggleFullscreen?.();
+      runtimeApi?.toggleFullscreen?.();
     }
     // F12 - Toggle DevTools
     if (event.key === 'F12') {

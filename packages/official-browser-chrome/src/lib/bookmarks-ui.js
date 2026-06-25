@@ -6,7 +6,7 @@ import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { normalizeLegacyEnsBookmarkUrl } from './url-utils.js';
 import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 // Bookmarks bar visibility state
 let bookmarksBarVisible = false; // User preference for non-home pages
@@ -96,8 +96,8 @@ const createBookmarkButton = (item, isOverflowItem = false) => {
   button.appendChild(labelEl);
 
   // Try to load cached favicon asynchronously
-  if (electronAPI?.getCachedFavicon) {
-    electronAPI
+  if (runtimeApi?.getCachedFavicon) {
+    runtimeApi
       .getCachedFavicon(item.target)
       .then((favicon) => {
         if (favicon) {
@@ -215,7 +215,7 @@ const renderBookmarks = async (items = []) => {
 export const loadBookmarks = async () => {
   if (!bookmarksBar) return;
   try {
-    const bookmarks = await electronAPI.getBookmarks();
+    const bookmarks = await runtimeApi.getBookmarks();
     if (Array.isArray(bookmarks)) {
       renderBookmarks(bookmarks);
     } else {
@@ -240,7 +240,7 @@ export const updateBookmarkButtonVisibility = async () => {
     addBookmarkBtn?.classList.remove('hidden');
 
     try {
-      const bookmarks = await electronAPI.getBookmarks();
+      const bookmarks = await runtimeApi.getBookmarks();
       const isBookmarked = bookmarks.some((b) => b.target === currentDisplay);
       if (isBookmarked) {
         addBookmarkBtn.classList.add('bookmarked');
@@ -412,7 +412,7 @@ export const initBookmarks = () => {
     if (action === 'edit' && contextMenuTarget) {
       // Open edit modal
       try {
-        const bookmarks = await electronAPI.getBookmarks();
+        const bookmarks = await runtimeApi.getBookmarks();
         const bookmark = bookmarks.find((b) => b.target === contextMenuTarget);
         if (bookmark && addBookmarkModal) {
           isEditMode = true;
@@ -431,7 +431,7 @@ export const initBookmarks = () => {
         pushDebug(`Failed to load bookmark for editing: ${err.message}`);
       }
     } else if (action === 'delete' && contextMenuTarget) {
-      await electronAPI.removeBookmark(contextMenuTarget);
+      await runtimeApi.removeBookmark(contextMenuTarget);
       await loadBookmarks();
       updateBookmarkButtonVisibility();
     }
@@ -483,12 +483,12 @@ export const initBookmarks = () => {
         return;
       }
 
-      const bookmarks = await electronAPI.getBookmarks();
+      const bookmarks = await runtimeApi.getBookmarks();
       const existing = bookmarks.find((b) => b.target === currentDisplay);
 
       if (existing) {
         if (confirm(`Remove bookmark "${existing.label || existing.target}"?`)) {
-          await electronAPI.removeBookmark(currentDisplay);
+          await runtimeApi.removeBookmark(currentDisplay);
           await loadBookmarks();
           updateBookmarkButtonVisibility();
           pushDebug(`Bookmark removed: ${existing.label}`);
@@ -517,7 +517,7 @@ export const initBookmarks = () => {
         const suggestedTitle = title && title !== 'New Tab' ? title : currentDisplay;
         const label = prompt('Enter a name for this bookmark:', suggestedTitle);
         if (label) {
-          const success = await electronAPI.addBookmark({ label, target: currentDisplay });
+          const success = await runtimeApi.addBookmark({ label, target: currentDisplay });
           if (success) {
             pushDebug(`Bookmark added: ${label}`);
             loadBookmarks();
@@ -564,7 +564,7 @@ export const initBookmarks = () => {
       let success;
       if (isEditMode && editOriginalTarget) {
         // Edit existing bookmark
-        success = await electronAPI.updateBookmark(editOriginalTarget, { label, target });
+        success = await runtimeApi.updateBookmark(editOriginalTarget, { label, target });
         if (success) {
           pushDebug(`Bookmark updated: ${label}`);
         } else {
@@ -574,7 +574,7 @@ export const initBookmarks = () => {
         }
       } else {
         // Add new bookmark
-        success = await electronAPI.addBookmark({ label, target });
+        success = await runtimeApi.addBookmark({ label, target });
         if (success) {
           pushDebug(`Bookmark added: ${label}`);
         } else {
@@ -599,7 +599,7 @@ export const initBookmarks = () => {
   });
 
   // Initialize bookmarks bar visibility from settings
-  electronAPI?.getSettings?.().then((settings) => {
+  runtimeApi?.getSettings?.().then((settings) => {
     bookmarksBarVisible = settings?.showBookmarkBar === true;
     updateBookmarksBarVisibility();
   });

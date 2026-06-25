@@ -47,8 +47,7 @@ let packageRuntimeApi = null;
 let packageInfoPromise = null;
 
 export const isPackageChromeRuntime = () => {
-  const runtimeWindow = getRuntimeWindow();
-  return !runtimeWindow.electronAPI && !!runtimeWindow.freedomShell;
+  return !!getRuntimeWindow().freedomShell;
 };
 
 const getPackageInfo = async () => {
@@ -230,10 +229,6 @@ const createPackageRuntimeApi = () =>
   });
 
 export const getChromeRuntimeApi = () => {
-  const runtimeWindow = getRuntimeWindow();
-  if (runtimeWindow.electronAPI) {
-    return runtimeWindow.electronAPI;
-  }
   if (!packageRuntimeApi) {
     packageRuntimeApi = createPackageRuntimeApi();
   }

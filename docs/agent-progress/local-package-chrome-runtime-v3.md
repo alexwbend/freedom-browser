@@ -115,3 +115,55 @@ changing visible behavior:
 - Implement boundary and unit ratchets.
 - Implement package-only adapter cleanup and neutral package runtime naming.
 - Run final local verification and GitHub target jobs.
+
+## Checkpoint 2: Package Adapter Purity Ratchet
+
+Status: implemented locally; ready to commit and push after this ledger update.
+
+### Changes
+
+- Extended `scripts/check-official-chrome-boundary.js` with a broad preload
+  adapter token rule for `electronAPI`.
+- Added boundary coverage proving the guard catches both direct
+  `window.electronAPI` and indirect package-source fallback shapes such as
+  `runtimeWindow.electronAPI`, `globalThis.electronAPI`, destructuring, and
+  bare adapter token usage.
+- Added package-source unit coverage in
+  `packages/official-browser-chrome/src/lib/chrome-runtime-api.test.js`.
+- Made `packages/official-browser-chrome/src/lib/chrome-runtime-api.js`
+  package-only:
+  - `isPackageChromeRuntime()` now derives package mode from `freedomShell`
+  - `getChromeRuntimeApi()` can only return the `freedomShell`-backed package
+    adapter
+  - existing structured unavailable results remain intact
+  - `markPackageChromeReady()` still calls `freedomShell.markReady()` and sets
+    `document.body.dataset.packageReady`
+- Renamed package-source local adapter variables from the old broad-preload
+  name to `runtimeApi`.
+- Left `src/renderer/lib/chrome-runtime-api.js` unchanged so bundled chrome
+  still keeps its broad-preload adapter path.
+
+### Verification
+
+- `npm test -- scripts/build-official-chrome-package.test.js packages/official-browser-chrome/src/lib/chrome-runtime-api.test.js src/renderer/lib/chrome-runtime-api.test.js`
+  passed:
+  - 3 suites passed
+  - 15 tests passed
+- `npm run chrome:package:check-boundary` passed.
+- `rg -n "\belectronAPI\b" packages/official-browser-chrome/src dist/chrome-packages/official-browser-chrome`
+  returned no matches after the boundary build.
+- `npm run lint` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js -g "bundled chrome starts|official browser chrome can launch as a local package"`
+  passed:
+  - bundled chrome smoke passed
+  - official package chrome smoke passed
+- `git diff --check` passed.
+
+### Remaining
+
+- Run full local verification:
+  - `npm run chrome:package:check-boundary`
+  - `npm run lint`
+  - `npm test`
+  - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+- Push final head and verify GitHub `test` and `e2e-chrome-runtime`.

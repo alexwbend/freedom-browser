@@ -10,7 +10,7 @@ import {
 } from './autocomplete-utils.js';
 import { getChromeRuntimeApi } from './chrome-runtime-api.js';
 
-const electronAPI = getChromeRuntimeApi();
+const runtimeApi = getChromeRuntimeApi();
 
 // Cache for suggestions data
 let historyCache = [];
@@ -43,8 +43,8 @@ export const setOnNavigate = (callback) => {
 export const refreshCache = async () => {
   try {
     const [history, bookmarks] = await Promise.all([
-      electronAPI?.getHistory?.() || [],
-      electronAPI?.getBookmarks?.() || [],
+      runtimeApi?.getHistory?.() || [],
+      runtimeApi?.getBookmarks?.() || [],
     ]);
     historyCache = history;
     bookmarksCache = bookmarks;
@@ -118,7 +118,7 @@ const renderSuggestions = (suggestions) => {
  * Load favicons for suggestions
  */
 const loadFavicons = async () => {
-  if (!electronAPI?.getCachedFavicon) return;
+  if (!runtimeApi?.getCachedFavicon) return;
 
   const containers = dropdown.querySelectorAll('.autocomplete-icon-container');
   for (const container of containers) {
@@ -126,7 +126,7 @@ const loadFavicons = async () => {
     if (!url) continue;
 
     try {
-      const favicon = await electronAPI.getCachedFavicon(url);
+      const favicon = await runtimeApi.getCachedFavicon(url);
       if (favicon && isOpen) {
         // Only update if dropdown still open
         const placeholder = container.querySelector('.autocomplete-icon-placeholder');
