@@ -634,12 +634,34 @@ Finding:
 - the production direction should be explicit shell composition, with chrome
   itself hosted as a child `WebContentsView`
 
-### Phase 2: Promote ShellWindow Compositor Host
+### Phase 2: Promote ShellWindow Compositor Host - First Checkpoint Complete
 
 Goal: turn the successful spike topology into a real `ShellWindow`
 architecture.
 
-This is the first major todo.
+First checkpoint implemented:
+
+- `src/main/windows/shell-window.js` now owns the shell window abstraction
+- local package chrome runs as `ShellWindow.chromeView` without the experiment
+  flag
+- bundled chrome remains on the legacy `BrowserWindow.webContents` path for
+  compatibility during this checkpoint
+- package registration, readiness, rollback, recovery, blur/menu events, and
+  application-menu commands target `ShellWindow.chromeWebContents`
+- the host `BrowserWindow.webContents` is a hardened blank compositor host in
+  local package mode
+- smoke coverage proves package mode, fallback/rollback, native menu commands,
+  external package-window close behavior, and bundled smoke
+
+Remaining Phase 2 work:
+
+- move or wrap remaining focus/profile/window-control assumptions as needed
+  while building real shell surfaces
+- decide whether bundled chrome should also move to a chrome
+  `WebContentsView`
+- keep validating shutdown behavior as more sibling surfaces are added
+- replace the dummy `testSurface` spike with the real surface manager in
+  Phase 3
 
 Current assumption to break:
 

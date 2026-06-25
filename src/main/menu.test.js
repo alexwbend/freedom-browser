@@ -6,6 +6,9 @@ function loadMenuModule(platform, options = {}) {
     on: jest.fn(),
     getMenuItemById: jest.fn(),
   };
+  const shellApi = options.shellApi || {
+    emitShellEventToPackageWebContents: jest.fn(() => ({ delivered: false, reason: 'not-package' })),
+  };
   const getMainWindows =
     typeof options.getMainWindows === 'function'
       ? options.getMainWindows
@@ -36,6 +39,7 @@ function loadMenuModule(platform, options = {}) {
         getMainWindows,
         createMainWindow: jest.fn(),
       }),
+      [require.resolve('./shell-api')]: () => shellApi,
       [require.resolve('./updater')]: () => ({
         checkForUpdates: jest.fn(),
         getInstallRelaunchMode: () => ({ menuLabel: 'Install Update and Restart...' }),
@@ -54,7 +58,7 @@ function loadMenuModule(platform, options = {}) {
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   }
 
-  return { app, capturedTemplate, menuInstance, mod };
+  return { app, capturedTemplate, menuInstance, mod, shellApi };
 }
 
 function findTopLabel(template, label) {
@@ -239,5 +243,60 @@ describe('menu', () => {
       checked: true,
     });
     expect(items.get('move-tab-left').enabled).toBe(true);
+  });
+
+  test('sends application menu package events to compositor chrome web contents', () => {
+    const shellApi = {
+      emitShellEventToPackageWebContents: jest.fn(() => ({ delivered: true })),
+    };
+    const { mod } = loadMenuModule('linux', { shellApi });
+    const hostWebContents = {
+      send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
+    };
+    const chromeWebContents = {
+      send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
+    };
+    const window = {
+      webContents: hostWebContents,
+      __freedomShellWindow: {
+        getChromeWebContents: jest.fn(() => chromeWebContents),
+      },
+    };
+
+    expect(mod.sendChromeCommand(window, 'tab:new', [], 'chrome.newTabRequested')).toBe(true);
+
+    expect(shellApi.emitShellEventToPackageWebContents).toHaveBeenCalledWith(
+      chromeWebContents,
+      'chrome.newTabRequested',
+      {}
+    );
+    expect(hostWebContents.send).not.toHaveBeenCalled();
+    expect(chromeWebContents.send).not.toHaveBeenCalled();
+  });
+
+  test('falls back to legacy channels on compositor chrome web contents for non-package senders', () => {
+    const { mod, shellApi } = loadMenuModule('linux');
+    const hostWebContents = {
+      send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
+    };
+    const chromeWebContents = {
+      send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
+    };
+    const window = {
+      webContents: hostWebContents,
+      __freedomShellWindow: {
+        getChromeWebContents: jest.fn(() => chromeWebContents),
+      },
+    };
+
+    expect(mod.sendChromeCommand(window, 'tab:new', ['https://example.com'])).toBe(true);
+
+    expect(shellApi.emitShellEventToPackageWebContents).not.toHaveBeenCalled();
+    expect(hostWebContents.send).not.toHaveBeenCalled();
+    expect(chromeWebContents.send).toHaveBeenCalledWith('tab:new', 'https://example.com');
   });
 });

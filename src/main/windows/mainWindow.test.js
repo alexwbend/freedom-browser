@@ -1,5 +1,4 @@
 const path = require('path');
-const { EventEmitter } = require('events');
 const { loadMainModule } = require('../../../test/helpers/main-process-test-utils');
 
 function loadMainWindow() {
@@ -79,97 +78,6 @@ describe('mainWindow chrome package preferences', () => {
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
     });
-  });
-
-  test('uses a hardened blank host for the experimental shell compositor', () => {
-    const { mod } = loadMainWindow();
-
-    expect(mod.getCompositorHostWebPreferences()).toMatchObject({
-      contextIsolation: true,
-      sandbox: true,
-      nodeIntegration: false,
-      nodeIntegrationInWorker: false,
-      nodeIntegrationInSubFrames: false,
-      webviewTag: false,
-      enableRemoteModule: false,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-    });
-  });
-
-  test('enables the experimental shell compositor only for local packages with the flag', () => {
-    const { mod } = loadMainWindow();
-
-    expect(
-      mod.shouldUseExperimentalShellCompositor(
-        { kind: 'local-package' },
-        { FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR: '1' }
-      )
-    ).toBe(true);
-    expect(
-      mod.shouldUseExperimentalShellCompositor(
-        { kind: 'bundled' },
-        { FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR: '1' }
-      )
-    ).toBe(false);
-    expect(
-      mod.shouldUseExperimentalShellCompositor(
-        { kind: 'local-package' },
-        { FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR: '0' }
-      )
-    ).toBe(false);
-  });
-
-  test('attaches package chrome as a full-window compositor view', () => {
-    const { mod } = loadMainWindow();
-    const window = Object.assign(new EventEmitter(), {
-      webContents: { id: 1 },
-      getContentSize: jest.fn(() => [1200, 800]),
-      getContentView: jest.fn(() => ({
-        addChildView: jest.fn(),
-        removeChildView: jest.fn(),
-      })),
-    });
-    const contentView = window.getContentView();
-    window.getContentView = jest.fn(() => contentView);
-    const chromeView = {
-      webContents: {
-        id: 2,
-        isDestroyed: jest.fn(() => false),
-        close: jest.fn(),
-        getURL: jest.fn(() => 'file:///package/index.html'),
-      },
-      setBounds: jest.fn(),
-      getBounds: jest.fn(() => ({ x: 0, y: 0, width: 1200, height: 800 })),
-      getVisible: jest.fn(() => true),
-    };
-
-    const compositor = mod.attachChromeCompositorView(window, { kind: 'local-package' }, {
-      createView: () => chromeView,
-    });
-
-    expect(compositor.webContents).toBe(chromeView.webContents);
-    expect(contentView.addChildView).toHaveBeenCalledWith(chromeView);
-    expect(chromeView.setBounds).toHaveBeenCalledWith({
-      x: 0,
-      y: 0,
-      width: 1200,
-      height: 800,
-    });
-    expect(window.__freedomExperimentalShellCompositor.getDebugState()).toMatchObject({
-      mode: 'webcontents-view-compositor',
-      chromeWebContentsId: 2,
-      hostWebContentsId: 1,
-      chromeBounds: { x: 0, y: 0, width: 1200, height: 800 },
-      chromeVisible: true,
-    });
-
-    compositor.cleanup();
-
-    expect(contentView.removeChildView).toHaveBeenCalledWith(chromeView);
-    expect(chromeView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
-    expect(window.__freedomExperimentalShellCompositor).toBeUndefined();
   });
 
   test('enforces shell-owned guest webview preferences for transitional package webviews', () => {

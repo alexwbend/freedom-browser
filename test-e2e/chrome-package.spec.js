@@ -158,11 +158,11 @@ async function getExperimentalShellCompositorDebugState(app) {
   });
 }
 
-async function getExperimentalChromeCompositorDebugState(app) {
+async function getShellWindowDebugState(app) {
   return app.evaluate(({ BrowserWindow }) => {
     return BrowserWindow.getAllWindows()
       .filter((window) => !window.isDestroyed())
-      .map((window) => window.__freedomExperimentalShellCompositor?.getDebugState?.())
+      .map((window) => window.__freedomShellWindow?.getDebugState?.())
       .filter(Boolean);
   });
 }
@@ -835,12 +835,21 @@ async function readShellInfo(page) {
 }
 
 async function emitActiveWindowRendererGone(app, reason = 'crashed') {
-  await app.evaluate(({ BrowserWindow }, payload) => {
+  await app.evaluate(({ BrowserWindow, webContents }, payload) => {
     const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed());
     if (!window) {
       throw new Error('No active browser window to mark unhealthy');
     }
-    window.webContents.emit('render-process-gone', {}, { reason: payload.reason });
+    const shellWindow = window.__freedomShellWindow?.getDebugState?.();
+    const target =
+      shellWindow?.chromeWebContentsId &&
+      shellWindow.chromeWebContentsId !== shellWindow.hostWebContentsId
+        ? webContents.fromId(shellWindow.chromeWebContentsId)
+        : window.webContents;
+    if (!target || target.isDestroyed?.()) {
+      throw new Error('No active chrome WebContents to mark unhealthy');
+    }
+    target.emit('render-process-gone', {}, { reason: payload.reason });
   }, { reason });
 }
 
@@ -1250,7 +1259,7 @@ test('local package chrome loads through freedomShell without broad preload APIs
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
   });
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForPackageChromeWindow(launched.app, { source: 'local' });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
 
@@ -1669,7 +1678,10 @@ test('local package chrome installs into cache and launches offline from cache',
     }
   );
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForPackageChromeWindow(launched.app, {
+      version: '0.0.1',
+      source: 'store',
+    });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
@@ -1698,7 +1710,10 @@ test('local package chrome installs into cache and launches offline from cache',
     }
   );
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForPackageChromeWindow(launched.app, {
+      version: '0.0.1',
+      source: 'store',
+    });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
@@ -1796,7 +1811,10 @@ test('cached package readiness failure rolls back to previous cached package', a
     }
   );
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForPackageChromeWindow(launched.app, {
+      version: '0.0.1',
+      source: 'store',
+    });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="package-root"]', { state: 'visible' });
     await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
@@ -2107,7 +2125,7 @@ test('official browser chrome launch truth markers prove package mode', async ()
     FREEDOM_CHROME_PACKAGE_DIR: packageDir,
   });
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForOfficialPackageChromeWindow(launched.app, { source: 'local' });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
 
@@ -2149,13 +2167,35 @@ test('official browser chrome launch truth markers prove package mode', async ()
         packageId: 'baby.freedom.chrome.official-local',
       },
     });
+    await expect
+      .poll(async () => getShellWindowDebugState(launched.app), {
+        timeout: 5000,
+      })
+      .toHaveLength(1);
+    const [shellWindow] = await getShellWindowDebugState(launched.app);
+    expect(shellWindow).toMatchObject({
+      mode: 'webcontents-view-compositor',
+      packageId: 'baby.freedom.chrome.official-local',
+      packageKind: 'local-package',
+      chromeWebContentsId: expect.any(Number),
+      chromeUrl: expect.stringContaining('/official/index.html'),
+      chromeBounds: {
+        x: 0,
+        y: 0,
+        width: expect.any(Number),
+        height: expect.any(Number),
+      },
+      chromeVisible: true,
+      hostWebContentsId: expect.any(Number),
+    });
+    expect(shellWindow.chromeWebContentsId).not.toBe(shellWindow.hostWebContentsId);
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test('experimental shell compositor renders a shell-owned WebContentsView surface', async () => {
+test('shell compositor renders a shell-owned WebContentsView surface', async () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-compositor-package-'));
   const packageDir = path.join(parent, 'official');
   writeOfficialChromePackage(packageDir);
@@ -2169,11 +2209,11 @@ test('experimental shell compositor renders a shell-owned WebContentsView surfac
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
     await expect
-      .poll(async () => getExperimentalChromeCompositorDebugState(launched.app), {
+      .poll(async () => getShellWindowDebugState(launched.app), {
         timeout: 5000,
       })
       .toHaveLength(1);
-    const [chromeCompositor] = await getExperimentalChromeCompositorDebugState(launched.app);
+    const [chromeCompositor] = await getShellWindowDebugState(launched.app);
     expect(chromeCompositor).toMatchObject({
       mode: 'webcontents-view-compositor',
       chromeWebContentsId: expect.any(Number),
@@ -2303,7 +2343,7 @@ test('official browser chrome can launch as a local package with transitional we
     { userDataDir }
   );
   try {
-    const page = await launched.app.firstWindow();
+    const page = await waitForOfficialPackageChromeWindow(launched.app, { source: 'local' });
     const rendererErrors = installRendererErrorCapture(page);
 
     await page.waitForLoadState('domcontentloaded');

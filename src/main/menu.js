@@ -47,19 +47,29 @@ let closeTabMenuItem = null;
 let toggleBookmarkBarMenuItem = null;
 let isFullScreen = false;
 
+function getChromeCommandWebContents(win) {
+  const chromeWebContents =
+    win?.__freedomShellWindow?.getChromeWebContents?.() || win?.webContents || null;
+  if (!chromeWebContents || chromeWebContents.isDestroyed?.()) {
+    return null;
+  }
+  return chromeWebContents;
+}
+
 function sendChromeCommand(win, legacyChannel, legacyArgs = [], shellEventName = null, data = {}) {
-  if (!win?.webContents) {
+  const targetWebContents = getChromeCommandWebContents(win);
+  if (!targetWebContents) {
     return false;
   }
 
   if (shellEventName) {
-    const delivery = emitShellEventToPackageWebContents(win.webContents, shellEventName, data);
+    const delivery = emitShellEventToPackageWebContents(targetWebContents, shellEventName, data);
     if (delivery.delivered || delivery.reason !== 'not-package') {
       return delivery.delivered;
     }
   }
 
-  win.webContents.send(legacyChannel, ...legacyArgs);
+  targetWebContents.send(legacyChannel, ...legacyArgs);
   return true;
 }
 
