@@ -148,3 +148,41 @@ CSS cleanup:
 - Decide whether adapter purity is small enough for this goal; otherwise
   record it as post-goal cleanup.
 - Run final local verification and GitHub target jobs.
+
+## Checkpoint 2: Package Sidebar Trusted UI Removal
+
+Status: implemented locally; ready to commit and push after this ledger update.
+
+### Changes
+
+- Replaced the package-owned `<aside id="sidebar">` body in
+  `packages/official-browser-chrome/src/index.html` with a minimal shell:
+  `#sidebar`, `#sidebar-close`, and `.sidebar-content`.
+- Removed the copied trusted wallet, vault, send/receive, dApp approval, x402,
+  permission, and publisher identity markup from package source.
+- Reduced `packages/official-browser-chrome/src/styles/sidebar.css` from the
+  copied trusted sidebar stylesheet to only package-allowed shell styles:
+  layout, close button, wallet toolbar toggle, and the non-trusted placeholder.
+- Extended `scripts/check-official-chrome-boundary.js` with denied trusted
+  sidebar residue markers for sensitive IDs/selectors removed in this slice.
+- Added Jest coverage proving the boundary guard catches representative
+  trusted sidebar residue markers.
+- Strengthened the official package e2e smoke to assert that the trusted
+  sidebar residue IDs are absent from the running packaged chrome DOM before
+  opening the shell-owned wallet surface.
+
+### Verification
+
+- `npm run chrome:package:check-boundary` passed.
+- `npm test -- scripts/build-official-chrome-package.test.js` passed.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed.
+- `npm run lint` passed.
+- `git diff --check` passed.
+
+### Remaining
+
+- Decide whether adapter purity cleanup is in scope for this goal or should be
+  recorded as post-goal cleanup.
+- Run final local verification after any remaining edits.
+- Push the final head and verify GitHub `test` and `e2e-chrome-runtime` jobs.

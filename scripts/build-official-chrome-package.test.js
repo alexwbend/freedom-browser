@@ -5,7 +5,10 @@ const {
   buildOfficialChromePackage,
   defaultSourceDir,
 } = require('./build-official-chrome-package');
-const { checkOfficialChromeBoundary } = require('./check-official-chrome-boundary');
+const {
+  DISALLOWED_RESIDUE_MARKERS,
+  checkOfficialChromeBoundary,
+} = require('./check-official-chrome-boundary');
 const { validateLocalChromePackage } = require('../src/main/chrome-package');
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -90,4 +93,45 @@ test('official chrome boundary guard catches trusted-only source files', () => {
       expect.objectContaining({ file: expect.stringContaining('styles/onboarding.css') }),
     ])
   );
+});
+
+test('official chrome boundary guard catches trusted sidebar residue markers', () => {
+  const outputDir = makeOutputDir('bad-sidebar-residue');
+  const stylesDir = path.join(outputDir, 'styles');
+  fs.mkdirSync(stylesDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(outputDir, 'index.html'),
+    '<div id="sidebar-dapp-connect"></div><div id="wallet-settings-export-pk"></div>\n'
+  );
+  fs.writeFileSync(
+    path.join(stylesDir, 'sidebar.css'),
+    '.dapp-connect-origin {}\n.wallet-settings-export-btn {}\n'
+  );
+
+  const violations = checkOfficialChromeBoundary([outputDir]);
+  expect(violations).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        file: expect.stringContaining('index.html'),
+        rule: 'trusted sidebar residue marker',
+        text: 'id="sidebar-dapp-connect"',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('index.html'),
+        rule: 'trusted sidebar residue marker',
+        text: 'id="wallet-settings-export-pk"',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('styles/sidebar.css'),
+        rule: 'trusted sidebar residue marker',
+        text: '.dapp-connect-origin',
+      }),
+      expect.objectContaining({
+        file: expect.stringContaining('styles/sidebar.css'),
+        rule: 'trusted sidebar residue marker',
+        text: '.wallet-settings-export-btn',
+      }),
+    ])
+  );
+  expect(DISALLOWED_RESIDUE_MARKERS).toContain('id="sidebar-x402-approval"');
 });

@@ -29,6 +29,45 @@ const DISALLOWED_PATTERNS = Object.freeze([
     pattern: /\b(?:import|from|require)\b[^\n;]*['"][^'"]*src\/main[^'"]*['"]/,
   },
 ]);
+const DISALLOWED_RESIDUE_MARKERS = Object.freeze([
+  'id="sidebar-export-mnemonic"',
+  'id="sidebar-export-mnemonic-btn"',
+  'id="mnemonic-words"',
+  'id="sidebar-create-wallet"',
+  'id="sidebar-receive"',
+  'id="sidebar-wallet-settings"',
+  'id="wallet-settings-export-pk"',
+  'id="send-unlock-section"',
+  'id="sidebar-dapp-connect"',
+  'id="sidebar-dapp-tx"',
+  'id="sidebar-dapp-sign"',
+  'id="sidebar-x402-approval"',
+  'id="sidebar-vault-unlock"',
+  'id="sidebar-dapp-permissions"',
+  'id="sidebar-x402-permissions"',
+  'id="sidebar-publisher-identity-create"',
+  '#sidebar-export-mnemonic',
+  '#sidebar-create-wallet',
+  '#sidebar-receive',
+  '#sidebar-wallet-settings',
+  '#wallet-settings-export-pk',
+  '#send-unlock-section',
+  '#sidebar-dapp-connect',
+  '#sidebar-dapp-tx',
+  '#sidebar-dapp-sign',
+  '#sidebar-x402-approval',
+  '#sidebar-vault-unlock',
+  '#sidebar-dapp-permissions',
+  '#sidebar-x402-permissions',
+  '#sidebar-publisher-identity-create',
+  '.mnemonic-words',
+  '.dapp-connect-origin',
+  '.dapp-tx-origin',
+  '.dapp-sign-origin',
+  '.x402-chooser',
+  '.wallet-settings-export-btn',
+  '.send-unlock-section',
+]);
 
 function parseArgs(argv = process.argv.slice(2)) {
   const roots = [];
@@ -114,6 +153,17 @@ function checkOfficialChromeBoundary(roots = defaultRoots.filter((root) => fs.ex
             });
           }
         }
+        for (const marker of DISALLOWED_RESIDUE_MARKERS) {
+          if (line.includes(marker)) {
+            violations.push({
+              root,
+              file: relativeFile,
+              line: index + 1,
+              rule: 'trusted sidebar residue marker',
+              text: marker,
+            });
+          }
+        }
       });
     }
   }
@@ -142,6 +192,7 @@ if (require.main === module) {
 
 module.exports = {
   DISALLOWED_PATTERNS,
+  DISALLOWED_RESIDUE_MARKERS,
   checkOfficialChromeBoundary,
   defaultRoots,
   listScannableFiles,

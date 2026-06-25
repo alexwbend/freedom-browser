@@ -33,6 +33,24 @@ const sampleX402Requirements = {
     },
   ],
 };
+const officialPackageTrustedSidebarResidueIds = Object.freeze([
+  'sidebar-export-mnemonic',
+  'sidebar-export-mnemonic-btn',
+  'mnemonic-words',
+  'sidebar-create-wallet',
+  'sidebar-receive',
+  'sidebar-wallet-settings',
+  'wallet-settings-export-pk',
+  'send-unlock-section',
+  'sidebar-dapp-connect',
+  'sidebar-dapp-tx',
+  'sidebar-dapp-sign',
+  'sidebar-x402-approval',
+  'sidebar-vault-unlock',
+  'sidebar-dapp-permissions',
+  'sidebar-x402-permissions',
+  'sidebar-publisher-identity-create',
+]);
 
 function hashFileSha256(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
@@ -2072,6 +2090,12 @@ test('official browser chrome can launch as a local package with transitional we
       trusted: true,
     });
     await expect(page.locator('#wallet-toggle-btn')).toBeVisible();
+    const trustedSidebarResidue = await page.evaluate((ids) => {
+      return Object.fromEntries(ids.map((id) => [id, Boolean(document.getElementById(id))]));
+    }, officialPackageTrustedSidebarResidueIds);
+    expect(trustedSidebarResidue).toEqual(
+      Object.fromEntries(officialPackageTrustedSidebarResidueIds.map((id) => [id, false]))
+    );
     await page.evaluate(() => window.freedomShell.openSurface('wallet'));
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
