@@ -5,10 +5,10 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const defaultBookmarks = require('../config/default-bookmarks.json');
+const { buildOfficialChromePackage } = require('../scripts/build-official-chrome-package');
 
 const repoRoot = path.resolve(__dirname, '..');
 const fixturePackageDir = path.join(repoRoot, 'test', 'fixtures', 'chrome-packages', 'minimal');
-const rendererSourceDir = path.join(repoRoot, 'src', 'renderer');
 const sampleBzzHash = 'a'.repeat(64);
 const sampleIpfsCid = `bafybeib${'a'.repeat(51)}`;
 const providerIpfsCid = `bafybeib${'b'.repeat(51)}`;
@@ -220,63 +220,7 @@ function writeLocalPackageFeed(feedPath, packageDirs, overrides = {}) {
 }
 
 function writeOfficialChromePackage(root) {
-  fs.cpSync(rendererSourceDir, root, {
-    recursive: true,
-    filter(source) {
-      return !source.endsWith('.test.js');
-    },
-  });
-  fs.writeFileSync(
-    path.join(root, 'manifest.json'),
-    JSON.stringify(
-      {
-        manifestVersion: 1,
-        packageType: 'browser-chrome',
-        packageId: 'baby.freedom.chrome.official-local',
-        name: 'Freedom Official Local Chrome',
-        version: '0.0.1',
-        entry: 'index.html',
-        shellCompatibility: {
-          minShellApi: '0.1.0',
-          maxShellApi: '0.1.x',
-        },
-        files: listPackageFiles(root),
-        capabilities: [
-          'shell.info',
-          'shell.ready',
-          'navigation.resolve',
-          'tabs.read',
-          'tabs.write',
-          'browserState.settings.read',
-          'browserState.settings.write',
-          'browserState.bookmarks.read',
-          'browserState.bookmarks.write',
-          'browserState.history.read',
-          'browserState.history.write',
-          'browserState.favicons.read',
-          'browserState.favicons.write',
-          'browserState.profiles.read',
-          'services.read',
-          'chrome.ui.commands',
-          'clipboard.write',
-          'downloads.saveImage',
-          'surfaces.wallet.control',
-          'surfaces.identity.control',
-          'surfaces.payments.control',
-          'surfaces.swarmPublish.control',
-          'windows.control',
-          'windows.open',
-          'app.about',
-          'app.updates',
-        ],
-        guestContent: {
-          transitionalWebviews: true,
-        },
-      },
-      null,
-      2
-    )
-  );
+  return buildOfficialChromePackage({ outputDir: root, version: '0.0.1' });
 }
 
 function installRendererErrorCapture(page) {

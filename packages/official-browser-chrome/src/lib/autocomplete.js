@@ -1,0 +1,373 @@
+// Autocomplete module for address bar suggestions
+import { pushDebug } from './debug.js';
+import { getOpenTabs, switchTab, hideTabContextMenu } from './tabs.js';
+import { closeMenus } from './menus.js';
+import { hideBookmarkContextMenu } from './bookmarks-ui.js';
+import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
+import {
+  generateSuggestions as generateAutocompleteSuggestions,
+  getPlaceholderLetter,
+} from './autocomplete-utils.js';
+import { getChromeRuntimeApi } from './chrome-runtime-api.js';
+
+const electronAPI = getChromeRuntimeApi();
+
+// Cache for suggestions data
+let historyCache = [];
+let bookmarksCache = [];
+
+// DOM elements
+let dropdown = null;
+let addressInput = null;
+
+// State
+let selectedIndex = -1;
+let currentSuggestions = [];
+let debounceTimer = null;
+let isOpen = false;
+let originalQuery = ''; // Store original query for restoring on Escape
+
+// Callbacks
+let onNavigate = null;
+
+/**
+ * Set the navigation callback
+ */
+export const setOnNavigate = (callback) => {
+  onNavigate = callback;
+};
+
+/**
+ * Load history and bookmarks into cache
+ */
+export const refreshCache = async () => {
+  try {
+    const [history, bookmarks] = await Promise.all([
+      electronAPI?.getHistory?.() || [],
+      electronAPI?.getBookmarks?.() || [],
+    ]);
+    historyCache = history;
+    bookmarksCache = bookmarks;
+    pushDebug(
+      `[Autocomplete] Cache refreshed: ${history.length} history, ${bookmarks.length} bookmarks`
+    );
+  } catch (err) {
+    console.error('[Autocomplete] Failed to refresh cache:', err);
+  }
+};
+
+const generateSuggestions = (query) =>
+  generateAutocompleteSuggestions(query, {
+    openTabs: getOpenTabs(),
+    historyItems: historyCache,
+    bookmarks: bookmarksCache,
+  });
+
+/**
+ * Get badge for item type
+ */
+const getTypeBadge = (item) => {
+  if (item.type === 'tab') {
+    return '<span class="autocomplete-type tab-badge">Tab</span>';
+  }
+  if (item.type === 'bookmark') {
+    return '<span class="autocomplete-type">★</span>';
+  }
+  return '';
+};
+
+/**
+ * Render suggestions to dropdown
+ */
+const renderSuggestions = (suggestions) => {
+  if (!dropdown) return;
+
+  currentSuggestions = suggestions;
+  selectedIndex = -1;
+
+  if (suggestions.length === 0) {
+    hide();
+    return;
+  }
+
+  dropdown.innerHTML = suggestions
+    .map(
+      (item, index) => `
+    <div class="autocomplete-item" data-index="${index}" data-url="${item.url}" ${item.tabId ? `data-tab-id="${item.tabId}"` : ''}>
+      <div class="autocomplete-icon-container" data-favicon-url="${item.url}">
+        <div class="autocomplete-icon-placeholder">${getPlaceholderLetter(item.url)}</div>
+        <span class="autocomplete-protocol-badge protocol-${item.protocol}">${item.protocol.slice(0, 3)}</span>
+      </div>
+      <div class="autocomplete-text">
+        <div class="autocomplete-title">${escapeHtml(item.title || item.url)}</div>
+        <div class="autocomplete-url">${escapeHtml(item.url)}</div>
+      </div>
+      ${getTypeBadge(item)}
+    </div>
+  `
+    )
+    .join('');
+
+  show();
+
+  // Load favicons asynchronously
+  loadFavicons();
+};
+
+/**
+ * Load favicons for suggestions
+ */
+const loadFavicons = async () => {
+  if (!electronAPI?.getCachedFavicon) return;
+
+  const containers = dropdown.querySelectorAll('.autocomplete-icon-container');
+  for (const container of containers) {
+    const url = container.dataset.faviconUrl;
+    if (!url) continue;
+
+    try {
+      const favicon = await electronAPI.getCachedFavicon(url);
+      if (favicon && isOpen) {
+        // Only update if dropdown still open
+        const placeholder = container.querySelector('.autocomplete-icon-placeholder');
+        const protocolBadge = container.querySelector('.autocomplete-protocol-badge');
+
+        if (placeholder) {
+          const img = document.createElement('img');
+          img.className = 'autocomplete-favicon';
+          img.src = favicon;
+          img.alt = '';
+          img.onerror = () => {
+            img.replaceWith(placeholder);
+            if (protocolBadge) protocolBadge.style.display = 'block';
+          };
+          placeholder.replaceWith(img);
+
+          // Hide protocol badge for HTTP/HTTPS when favicon present
+          if (protocolBadge) {
+            const isHttpProtocol =
+              protocolBadge.classList.contains('protocol-http') ||
+              protocolBadge.classList.contains('protocol-https');
+            if (isHttpProtocol) {
+              protocolBadge.style.display = 'none';
+            }
+          }
+        }
+      }
+    } catch {
+      // Keep placeholder on error
+    }
+  }
+};
+
+/**
+ * Escape HTML to prevent XSS
+ */
+const escapeHtml = (str) => {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+};
+
+/**
+ * Show dropdown
+ */
+const show = () => {
+  if (!dropdown) return;
+  // Close other menus first
+  closeMenus();
+  hideTabContextMenu();
+  hideBookmarkContextMenu();
+  showMenuBackdrop();
+  dropdown.classList.remove('hidden');
+  isOpen = true;
+};
+
+/**
+ * Hide dropdown
+ */
+export const hide = () => {
+  if (!dropdown) return;
+  const wasOpen = isOpen;
+  dropdown.classList.add('hidden');
+  isOpen = false;
+  selectedIndex = -1;
+  currentSuggestions = [];
+  originalQuery = '';
+  if (wasOpen) {
+    hideMenuBackdrop();
+  }
+};
+
+/**
+ * Update selection highlight
+ */
+const updateSelection = () => {
+  if (!dropdown) return;
+  const items = dropdown.querySelectorAll('.autocomplete-item');
+  items.forEach((item, index) => {
+    item.classList.toggle('selected', index === selectedIndex);
+  });
+
+  // Scroll selected item into view
+  if (selectedIndex >= 0 && items[selectedIndex]) {
+    items[selectedIndex].scrollIntoView({ block: 'nearest' });
+  }
+};
+
+/**
+ * Handle input changes
+ */
+const handleInput = () => {
+  const query = addressInput?.value?.trim() || '';
+
+  // Clear previous timer
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+
+  if (query.length < 1) {
+    hide();
+    return;
+  }
+
+  // Debounce
+  debounceTimer = setTimeout(() => {
+    const suggestions = generateSuggestions(query);
+    renderSuggestions(suggestions);
+  }, 80);
+};
+
+/**
+ * Handle keyboard navigation
+ */
+const handleKeyDown = (e) => {
+  if (!isOpen) {
+    // Open on arrow down if input has value
+    if (e.key === 'ArrowDown' && addressInput?.value) {
+      handleInput();
+      e.preventDefault();
+      return;
+    }
+    // User committed before the 80 ms debounce fired. Cancel the
+    // pending suggestion render so the dropdown doesn't pop open
+    // after the navigation has already started.
+    if ((e.key === 'Enter' || e.key === 'Escape') && debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = null;
+    }
+    return;
+  }
+
+  switch (e.key) {
+    case 'ArrowDown':
+      e.preventDefault();
+      if (selectedIndex === -1) {
+        originalQuery = addressInput.value; // Save original query on first navigation
+      }
+      selectedIndex = (selectedIndex + 1) % currentSuggestions.length;
+      updateSelection();
+      addressInput.value = currentSuggestions[selectedIndex].url;
+      break;
+
+    case 'ArrowUp':
+      e.preventDefault();
+      if (selectedIndex === -1) {
+        originalQuery = addressInput.value; // Save original query on first navigation
+      }
+      selectedIndex = selectedIndex <= 0 ? currentSuggestions.length - 1 : selectedIndex - 1;
+      updateSelection();
+      addressInput.value = currentSuggestions[selectedIndex].url;
+      break;
+
+    case 'Enter':
+      if (selectedIndex >= 0 && currentSuggestions[selectedIndex]) {
+        e.preventDefault();
+        const suggestion = currentSuggestions[selectedIndex];
+        hide();
+
+        // If it's an open tab, switch to it
+        if (suggestion.type === 'tab' && suggestion.tabId) {
+          switchTab(suggestion.tabId);
+          addressInput.blur();
+        } else if (onNavigate) {
+          addressInput.value = suggestion.url;
+          onNavigate(suggestion.url);
+          addressInput.blur();
+        }
+      } else {
+        // Nothing selected - hide autocomplete and let normal form submit handle it
+        hide();
+      }
+      break;
+
+    case 'Escape':
+      e.preventDefault();
+      if (originalQuery) {
+        addressInput.value = originalQuery;
+        originalQuery = '';
+      }
+      hide();
+      break;
+
+    case 'Tab':
+      if (selectedIndex >= 0 && currentSuggestions[selectedIndex]) {
+        e.preventDefault();
+        addressInput.value = currentSuggestions[selectedIndex].url;
+        hide();
+      }
+      break;
+  }
+};
+
+/**
+ * Handle click on suggestion
+ */
+const handleClick = (e) => {
+  const item = e.target.closest('.autocomplete-item');
+  if (!item) return;
+
+  const url = item.dataset.url;
+  const tabId = item.dataset.tabId;
+
+  hide();
+
+  // If it's an open tab, switch to it
+  if (tabId) {
+    switchTab(parseInt(tabId, 10));
+    addressInput.blur();
+  } else if (url && onNavigate) {
+    addressInput.value = url;
+    onNavigate(url);
+    addressInput.blur();
+  }
+};
+
+/**
+ * Initialize autocomplete
+ */
+export const initAutocomplete = () => {
+  dropdown = document.getElementById('autocomplete-dropdown');
+  addressInput = document.getElementById('address-input');
+  const webviewElement = document.getElementById('bzz-webview');
+
+  if (!dropdown || !addressInput) {
+    console.error('[Autocomplete] Required elements not found');
+    return;
+  }
+
+  // Event listeners
+  addressInput.addEventListener('input', handleInput);
+  addressInput.addEventListener('keydown', handleKeyDown);
+  dropdown.addEventListener('click', handleClick);
+
+  // Close on webview interaction or window blur
+  webviewElement?.addEventListener('focus', hide);
+  webviewElement?.addEventListener('mousedown', hide);
+  window.addEventListener('blur', hide);
+
+  // Load initial cache
+  refreshCache();
+
+  pushDebug('[Autocomplete] Initialized');
+};

@@ -1,0 +1,265 @@
+/* Modal Styles */
+.modal {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal[open] {
+  display: flex;
+}
+
+.modal-content {
+  background: var(--modal-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 480px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+  padding: 20px;
+}
+
+.profile-create-modal .modal-content {
+  width: min(420px, calc(100vw - 32px));
+}
+
+.external-node-candidates-modal .modal-content {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.form-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #282828;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.help-text {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.external-node-candidates-copy {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.external-node-candidates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.external-node-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.external-node-name {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.external-node-endpoints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.external-node-endpoints code {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.external-node-choice {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.external-node-choice label {
+  cursor: default;
+}
+
+.external-node-choice input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.external-node-choice span {
+  display: block;
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.external-node-choice label + label span {
+  border-left: 1px solid var(--border);
+}
+
+.external-node-choice input:checked + span {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 560px) {
+  .external-node-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .external-node-choice {
+    width: 100%;
+  }
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.modal-status {
+  min-height: 16px;
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.modal-status[hidden] {
+  display: none;
+}
+
+.modal-status.error {
+  color: var(--danger);
+}
+
+.modal-status.success {
+  color: var(--muted);
+}
+
+.secondary-btn,
+.primary-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: default;
+  transition:
+    opacity 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.secondary-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.primary-btn {
+  background: var(--accent);
+  color: #fff;
+}
+
+.secondary-btn:hover,
+.primary-btn:hover {
+  opacity: 0.9;
+}
+
+.secondary-btn:focus,
+.primary-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(94, 193, 255, 0.4);
+}
+
+.secondary-btn:disabled,
+.primary-btn:disabled {
+  opacity: 0.55;
+}
+
+.close-modal {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s ease;
+}
+
+.close-modal:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.close-modal svg {
+  width: 15px;
+  height: 15px;
+}

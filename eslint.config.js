@@ -10,6 +10,7 @@ module.exports = [
       'coverage/**',
       'node_modules/**',
       'src/renderer/vendor/**',
+      'packages/official-browser-chrome/src/vendor/**',
       'ant-bin/**',
       'ipfs-bin/**',
       'ant-data/**',
@@ -39,6 +40,17 @@ module.exports = [
   },
   {
     files: ['src/renderer/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+  },
+  {
+    files: ['packages/official-browser-chrome/src/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

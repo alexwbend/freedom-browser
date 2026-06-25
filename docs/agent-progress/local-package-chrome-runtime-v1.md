@@ -134,6 +134,8 @@ Code that may remain shared temporarily only with an explicit boundary note:
   `5cdd68c22c103571bd058f4957852edb5054c6cc`.
 - Read the v1 goal spec and required branch/source/runtime context before
   recording this inventory.
+- Committed and pushed as `4d3f9bb`
+  (`docs(chrome): record v1 source separation inventory`).
 
 ### Remaining
 
@@ -143,3 +145,75 @@ Code that may remain shared temporarily only with an explicit boundary note:
 - Replace the e2e official package copy helper.
 - Add boundary guardrails, docs, smoke coverage, and final local/GitHub
   verification.
+
+## Checkpoint 2: First-Class Package Source And Deterministic Build
+
+Status: package source tree, deterministic builder, e2e harness replacement,
+and focused boundary guardrail are implemented locally.
+
+### What Changed
+
+- Created `packages/official-browser-chrome/src/` as the official browser
+  chrome package source tree.
+- Seeded the package tree from the current renderer, then removed bundled-only
+  wallet, onboarding, and legacy renderer-side provider modules from the
+  package source.
+- Patched the package-specific `index.js` so package chrome initializes normal
+  browser chrome, service menus, bookmarks, tabs, navigation, autocomplete,
+  context menus, profile display, update notifications, sidebar surface
+  control, and package readiness without importing wallet/onboarding UI.
+- Patched the package-specific `tabs.js` to rely on the hardened guest preload
+  and main-owned provider IPC instead of importing legacy renderer-side dApp
+  and Swarm provider UI modules.
+- Patched the package-specific `navigation.js` so `ethereum:` URI handling in
+  package mode opens the shell-owned wallet surface instead of importing the
+  bundled wallet send-flow implementation.
+- Added `scripts/build-official-chrome-package.js`, which materializes the
+  package from `packages/official-browser-chrome/src`, cleans output, excludes
+  development files, generates deterministic `manifest.json`, writes
+  package-relative SHA-256 file records, declares official capabilities, opts
+  into `guestContent.transitionalWebviews: true`, and validates the output
+  with `validateLocalChromePackage(...)`.
+- Added npm scripts:
+  - `chrome:package:build`
+  - `chrome:package:check-boundary`
+  - `chrome:package:run`
+  - `chrome:package:install`
+- Replaced `writeOfficialChromePackage(...)` in
+  `test-e2e/chrome-package.spec.js` with a thin call to the shared builder.
+  The official package smoke no longer hand-copies `src/renderer`.
+- Added `scripts/check-official-chrome-boundary.js` and focused Jest coverage
+  for builder validity, deterministic file ordering, validator acceptance, and
+  broad preload global detection.
+- Updated ESLint config so package source JS is parsed as browser ESM.
+
+### Verification
+
+- `npm run chrome:package:build` passed and produced
+  `dist/chrome-packages/official-browser-chrome` with 87 package files.
+- `npm run chrome:package:check-boundary` passed.
+- `npm test -- scripts/build-official-chrome-package.test.js` passed: 1 suite,
+  3 tests.
+- `npm run lint` initially failed because the new package source made copied
+  minified vendor files visible to ESLint. Added
+  `packages/official-browser-chrome/src/vendor/**` to the same ignore policy
+  used for `src/renderer/vendor/**`.
+- `npm run lint` passed after the vendor ignore update.
+- First focused official package smoke failed before launch because the builder
+  initially rejected temp output directories outside the repo. The builder now
+  permits safe temp outputs while still keeping source inside the repo and
+  blocking filesystem/repo roots.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed: 1 launched Electron test.
+
+### Remaining
+
+- Commit and push this source/build checkpoint.
+- Update `docs/local-package-chrome-runtime.md` and
+  `docs/package-chrome-trust-boundaries.md` for the new source/build layout.
+- Run broader local verification: lint, full unit tests, and bundled plus
+  package e2e smoke.
+- Triage or record the known address suggestion and `freedom://history` manual
+  smoke issues.
+- Verify final GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed
+  head.
