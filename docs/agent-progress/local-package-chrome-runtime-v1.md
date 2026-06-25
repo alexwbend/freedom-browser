@@ -293,11 +293,54 @@ implemented locally.
 
 ### Remaining
 
+- Cleanup/install-cache checkpoint committed and pushed as `c763f22`
+  (`test(chrome): cover official package install cache`).
 - Run broader local verification: lint, full unit tests, and bundled plus
   package e2e smoke.
 - Confirm the known address suggestion and `freedom://history` issues are
   covered by current package smoke, or record explicit follow-up bugs if they
   reproduce outside this goal.
-- Commit and push this cleanup/install-cache checkpoint.
 - Verify final GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed
   head.
+
+## Checkpoint 5: Local Acceptance Verification And Known-Bug Triage
+
+Status: final local acceptance commands passed on `c763f22`; GitHub job
+verification still needs to run on the final pushed head after this ledger
+checkpoint is committed.
+
+### Verification
+
+- `npm run lint` passed.
+- `npm test` passed: 126 suites passed, 5 skipped; 2351 tests passed, 17
+  skipped.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed: 15 launched Electron tests.
+- The combined e2e run covered:
+  - minimal package broad-API absence and `freedomShell` availability
+  - fixture package install/cache
+  - generated official package install/cache
+  - package feed install/update/offline-cache behavior
+  - corrupt update and readiness rollback
+  - official browser chrome launch through the shared generated package
+  - malformed/tampered package fallback to bundled chrome
+  - bundled default chrome smoke
+
+### Known-Bug Triage
+
+- Address bar auto-suggestions: covered by the official package smoke. The
+  test fills the address bar with a default bookmark label and expects a
+  visible `.autocomplete-item` containing that label. The smoke passed on the
+  generated official package.
+- `freedom://history`: covered by the official package smoke. The test seeds
+  history through `freedomShell`, opens the visible History menu action, waits
+  for `/pages/history.html`, verifies both seeded entries render, removes one
+  entry, and verifies the rendered result count persists. The smoke passed on
+  the generated official package.
+- No separate follow-up bug is recorded for either issue because both have
+  current smoke coverage and did not reproduce during v1 verification.
+
+### Remaining
+
+- Commit and push this final local-verification ledger checkpoint.
+- Verify GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed head.
