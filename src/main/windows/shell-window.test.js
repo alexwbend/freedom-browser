@@ -39,6 +39,24 @@ function makeChromeView() {
   };
 }
 
+function makeSurfaceView() {
+  const webContents = Object.assign(new EventEmitter(), {
+    id: 3,
+    isDestroyed: jest.fn(() => false),
+    close: jest.fn(),
+    focus: jest.fn(),
+    getURL: jest.fn(() => 'file:///trusted-wallet.html'),
+    loadFile: jest.fn().mockResolvedValue(undefined),
+  });
+  return {
+    webContents,
+    setBounds: jest.fn(),
+    setVisible: jest.fn(),
+    getBounds: jest.fn(() => ({ x: 680, y: 0, width: 520, height: 800 })),
+    getVisible: jest.fn(() => true),
+  };
+}
+
 describe('ShellWindow', () => {
   afterEach(() => {
     jest.restoreAllMocks();
@@ -90,6 +108,7 @@ describe('ShellWindow', () => {
       hostWebContentsId: 1,
       chromeBounds: null,
     });
+    expect(nativeWindow.__freedomShellWindow.canHostTrustedSurfaceWindows()).toBe(false);
   });
 
   test('attaches package chrome as a full-window compositor view', () => {
@@ -124,6 +143,7 @@ describe('ShellWindow', () => {
       closed: false,
     });
     expect(nativeWindow.__freedomShellWindow.getChromeWebContents()).toBe(chromeView.webContents);
+    expect(nativeWindow.__freedomShellWindow.canHostTrustedSurfaceWindows()).toBe(true);
 
     shellWindow.cleanup();
 
@@ -186,5 +206,121 @@ describe('ShellWindow', () => {
     chromeView.webContents.emit('destroyed');
 
     expect(nativeWindow.close).not.toHaveBeenCalled();
+  });
+
+  test('hosts trusted surface windows as right-drawer views', async () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => surfaceView,
+    });
+    const ready = jest.fn();
+    surfaceWindow.once('ready-to-show', ready);
+
+    await surfaceWindow.loadFile('/trusted-wallet.html', { query: { surfaceId: 'wallet-1' } });
+    surfaceView.webContents.emit('dom-ready');
+    surfaceWindow.show();
+    surfaceWindow.focus();
+
+    expect(contentView.addChildView).toHaveBeenCalledWith(surfaceView);
+    expect(surfaceView.setBounds).toHaveBeenCalledWith({
+      x: 680,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(surfaceView.webContents.loadFile).toHaveBeenCalledWith('/trusted-wallet.html', {
+      query: { surfaceId: 'wallet-1' },
+    });
+    expect(surfaceView.setVisible).toHaveBeenCalledWith(true);
+    expect(surfaceView.webContents.focus).toHaveBeenCalled();
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(surfaceWindow.webContents).toBe(surfaceView.webContents);
+    expect(surfaceWindow.getNativeOwnerWindow()).toBe(nativeWindow);
+    expect(shellWindow.getDebugState().surfaces).toEqual([
+      expect.objectContaining({
+        surface: 'wallet',
+        webContentsId: 3,
+        bounds: { x: 680, y: 0, width: 520, height: 800 },
+        visible: true,
+      }),
+    ]);
+
+    surfaceWindow.close();
+
+    expect(contentView.removeChildView).toHaveBeenCalledWith(surfaceView);
+    expect(surfaceView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+    expect(shellWindow.getDebugState().surfaces).toEqual([]);
+  });
+
+  test('resizes hosted trusted surfaces with the native window', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+    nativeWindow.getContentSize
+      .mockReturnValueOnce([1200, 800])
+      .mockReturnValueOnce([1200, 800])
+      .mockReturnValueOnce([900, 700])
+      .mockReturnValueOnce([900, 700]);
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => surfaceView,
+    });
+    nativeWindow.emit('resize');
+
+    expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
+      x: 380,
+      y: 0,
+      width: 520,
+      height: 700,
+    });
+  });
+
+  test('cleans up hosted trusted surfaces with the shell window', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+    const closed = jest.fn();
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      createView: () => surfaceView,
+    });
+    surfaceWindow.once('closed', closed);
+    shellWindow.cleanup();
+
+    expect(contentView.removeChildView).toHaveBeenCalledWith(surfaceView);
+    expect(surfaceView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(shellWindow.getDebugState().surfaces).toEqual([]);
   });
 });

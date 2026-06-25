@@ -709,13 +709,31 @@ Exit criteria:
 - shell surfaces can be composed as siblings above or alongside chrome
 - no package API exposes raw view/webContents handles
 
-### Phase 3: Shell-Owned Surface Manager
+### Phase 3: Shell-Owned Surface Manager - First Wallet Checkpoint Complete
 
 Goal: replace ad hoc trusted windows and the dummy `testSurface` with a real
 main-owned surface manager.
 
 This should come after the compositor host is stable. The first polished target
 can be wallet as a right drawer, but the surface manager should be generic.
+
+First wallet checkpoint implemented:
+
+- `ShellWindow` can host trusted right-drawer surface facades backed by sibling
+  `WebContentsView`s
+- package chrome still receives only `freedomShell.openSurface/closeSurface`
+  intent APIs and redacted surface state
+- the trusted wallet renderer and preload stay shell-owned and are reused
+  unchanged
+- in local package mode, wallet opens as a sibling trusted
+  `WebContentsView` with `mode: shell-owned-webcontents-view`
+- the detached trusted wallet `BrowserWindow` path remains the fallback for
+  non-compositor owners
+- vault-unlock prompts opened from the compositor wallet still parent to the
+  native shell window
+- smoke proves wallet open, trusted sender checks, wallet management actions,
+  vault unlock prompt, close/reopen state, and removal from compositor debug
+  state
 
 Implementation sketch:
 

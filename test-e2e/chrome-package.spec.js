@@ -2398,6 +2398,42 @@ test('official browser chrome can launch as a local package with transitional we
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(true);
+    const openedWalletSurface = await page.evaluate(() =>
+      window.freedomShell.getSurfaceState('wallet')
+    );
+    expect(openedWalletSurface).toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      mode: 'shell-owned-webcontents-view',
+    });
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await getShellWindowDebugState(launched.app);
+        return shellWindow?.surfaces?.find((surface) => surface.surface === 'wallet') || null;
+      })
+      .toMatchObject({
+        surface: 'wallet',
+        webContentsId: expect.any(Number),
+        url: expect.stringContaining('trusted-wallet.html'),
+        bounds: {
+          x: expect.any(Number),
+          y: 0,
+          width: 520,
+          height: expect.any(Number),
+        },
+        visible: true,
+        closed: false,
+      });
+    const [shellWindowWithWallet] = await getShellWindowDebugState(launched.app);
+    const walletSurface = shellWindowWithWallet.surfaces.find(
+      (surface) => surface.surface === 'wallet'
+    );
+    expect(walletSurface.webContentsId).not.toBe(shellWindowWithWallet.hostWebContentsId);
+    expect(walletSurface.webContentsId).not.toBe(shellWindowWithWallet.chromeWebContentsId);
+    expect(walletSurface.bounds.x + walletSurface.bounds.width).toBe(
+      shellWindowWithWallet.chromeBounds.width
+    );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
     await expect(trustedWalletWindow.locator('#heading')).toHaveText('Wallet Accounts');
     await expect(trustedWalletWindow.locator('#wallet-list li')).toHaveCount(2);
@@ -2444,13 +2480,19 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#sidebar')).toHaveAttribute(
       'data-surface-mode',
-      'shell-owned-trusted-window'
+      'shell-owned-webcontents-view'
     );
     await expect(page.locator('#package-wallet-surface-placeholder')).toHaveCount(0);
     await page.evaluate(() => window.freedomShell.closeSurface('wallet'));
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(false);
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await getShellWindowDebugState(launched.app);
+        return shellWindow?.surfaces?.some((surface) => surface.surface === 'wallet') || false;
+      })
+      .toBe(false);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
 
     const initialPaymentsSurface = await page.evaluate(() =>

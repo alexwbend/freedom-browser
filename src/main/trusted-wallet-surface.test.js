@@ -1,5 +1,6 @@
 const mockHandlers = new Map();
 const mockWindows = [];
+const mockViews = [];
 let mockNextLoadError = null;
 let mockNextLoadPromise = null;
 
@@ -45,8 +46,24 @@ class MockBrowserWindow {
   }
 }
 
+class MockWebContentsView {
+  constructor(options) {
+    this.options = options;
+    this.webContents = {
+      id: 100 + mockViews.length,
+      send: jest.fn(),
+      loadFile: jest.fn().mockResolvedValue(undefined),
+      isDestroyed: jest.fn(() => false),
+      close: jest.fn(),
+      getURL: jest.fn(() => 'file:///trusted-wallet.html'),
+    };
+    mockViews.push(this);
+  }
+}
+
 jest.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
+  WebContentsView: MockWebContentsView,
   ipcMain: {
     handle: jest.fn((channel, handler) => {
       mockHandlers.set(channel, handler);
@@ -134,15 +151,73 @@ function seedStores() {
   mockRevokePermission.mockReturnValue(true);
 }
 
+function resetStoreMocks() {
+  [
+    mockGetDerivedWallets,
+    mockGetActiveWalletIndex,
+    mockGetActiveWalletAddress,
+    mockExportMnemonicWithPassword,
+    mockExportPrivateKeyWithPassword,
+    mockSetActiveWalletIndex,
+    mockCreateDerivedWallet,
+    mockRenameDerivedWallet,
+    mockDeleteDerivedWallet,
+    mockGetAllPermissions,
+    mockRevokePermission,
+  ].forEach((mock) => mock.mockReset());
+}
+
 beforeEach(() => {
   mockHandlers.clear();
   mockWindows.length = 0;
+  mockViews.length = 0;
   mockNextLoadError = null;
   mockNextLoadPromise = null;
+  resetStoreMocks();
   seedStores();
   jest.clearAllMocks();
   _resetForTest();
 });
+
+function createCompositorSurfaceWindow(ownerWindow) {
+  const events = new Map();
+  const surfaceWindow = {
+    destroyed: false,
+    webContents: {
+      id: 500,
+      send: jest.fn(),
+    },
+    show: jest.fn(),
+    focus: jest.fn(),
+    loadFile: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn(() => {
+      if (surfaceWindow.destroyed) {
+        return;
+      }
+      surfaceWindow.destroyed = true;
+      events.get('closed')?.();
+    }),
+    once: jest.fn((event, callback) => {
+      events.set(event, callback);
+    }),
+    isDestroyed: jest.fn(() => surfaceWindow.destroyed),
+    getNativeOwnerWindow: jest.fn(() => ownerWindow),
+  };
+  return surfaceWindow;
+}
+
+function createCompositorOwnerWindow() {
+  const ownerWindow = { id: 42 };
+  const surfaceWindow = createCompositorSurfaceWindow(ownerWindow);
+  ownerWindow.__freedomShellWindow = {
+    canHostTrustedSurfaceWindows: jest.fn(() => true),
+    createTrustedSurfaceWindow: jest.fn((options) => {
+      surfaceWindow.createdView = options.createView();
+      return surfaceWindow;
+    }),
+  };
+  return { ownerWindow, surfaceWindow };
+}
 
 afterEach(() => {
   _resetForTest();
@@ -213,6 +288,96 @@ test('opens a shell-owned wallet window with dedicated preload and scoped channe
       walletError: null,
     },
   });
+});
+
+test('opens wallet as a shell compositor view when the owner window supports surfaces', async () => {
+  const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
+  const closed = jest.fn();
+  const result = await openTrustedWalletSurface({
+    ownerWindow,
+    caller: { packageId: 'baby.freedom.chrome.official-local' },
+    onClosed: closed,
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    surface: 'wallet',
+    owner: 'shell',
+    trusted: true,
+    mode: 'shell-owned-webcontents-view',
+  });
+  expect(mockWindows).toHaveLength(0);
+  expect(mockViews).toHaveLength(1);
+  expect(ownerWindow.__freedomShellWindow.createTrustedSurfaceWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: expect.any(Function),
+    })
+  );
+  expect(mockViews[0].options.webPreferences).toEqual(expect.objectContaining({
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: false,
+  }));
+  expect(mockViews[0].options.webPreferences.preload).toContain('trusted-wallet-preload.js');
+  expect(surfaceWindow.loadFile).toHaveBeenCalledWith(
+    expect.stringContaining('trusted-wallet.html'),
+    { query: { surfaceId: expect.any(String) } }
+  );
+
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+  const contextResult = await mockHandlers.get(channelFor('context', surfaceId))({
+    sender: surfaceWindow.webContents,
+  });
+  expect(contextResult).toMatchObject({
+    ok: true,
+    context: {
+      surfaceOwner: 'shell',
+      trusted: true,
+      caller: { packageId: 'baby.freedom.chrome.official-local' },
+    },
+  });
+
+  const closeResult = closeTrustedWalletSurface();
+  expect(closeResult).toMatchObject({
+    ok: true,
+    surface: 'wallet',
+    mode: 'shell-owned-webcontents-view',
+    closed: true,
+  });
+  expect(surfaceWindow.close).toHaveBeenCalledTimes(1);
+  expect(closed).toHaveBeenCalledTimes(1);
+  expect(mockHandlers.size).toBe(0);
+});
+
+test('falls back to a trusted window when the shell window cannot host surfaces', async () => {
+  const ownerWindow = {
+    id: 42,
+    __freedomShellWindow: {
+      canHostTrustedSurfaceWindows: jest.fn(() => false),
+      createTrustedSurfaceWindow: jest.fn(() => {
+        throw new Error('should not be called');
+      }),
+    },
+  };
+  const result = await openTrustedWalletSurface({
+    ownerWindow,
+    caller: { packageId: 'builtin' },
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    surface: 'wallet',
+    owner: 'shell',
+    trusted: true,
+    mode: 'shell-owned-trusted-window',
+  });
+  expect(mockWindows).toHaveLength(1);
+  expect(mockViews).toHaveLength(0);
+  expect(ownerWindow.__freedomShellWindow.createTrustedSurfaceWindow).not.toHaveBeenCalled();
+  expect(mockWindows[0].options.parent).toBe(ownerWindow);
 });
 
 test('returns after creating the trusted wallet window while presentation load continues', async () => {
@@ -357,6 +522,44 @@ test('unlocks the vault and retries trusted wallet creation when the vault is lo
     expect.objectContaining({
       ownerWindow: surfaceWindow,
       origin: 'Freedom Wallet',
+      caller: { packageId: 'baby.freedom.chrome.official-local' },
+      surface: 'wallet',
+    })
+  );
+});
+
+test('uses the native owner window for vault prompts from compositor wallet views', async () => {
+  const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
+  const presentVaultUnlockPrompt = jest.fn().mockResolvedValue({
+    ok: true,
+    outcome: 'accepted',
+    response: 0,
+  });
+  mockCreateDerivedWallet
+    .mockRejectedValueOnce(new Error('Vault must be unlocked to create a new wallet'))
+    .mockResolvedValueOnce({
+      index: 2,
+      name: 'Trading',
+      address: '0x3333333333333333333333333333333333333333',
+    });
+  await openTrustedWalletSurface(
+    {
+      ownerWindow,
+      caller: { packageId: 'baby.freedom.chrome.official-local' },
+    },
+    { presentVaultUnlockPrompt }
+  );
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  await mockHandlers.get(channelFor('create-wallet', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { name: ' Trading ' }
+  );
+
+  expect(presentVaultUnlockPrompt).toHaveBeenCalledWith(
+    expect.any(Object),
+    expect.objectContaining({
+      ownerWindow,
       caller: { packageId: 'baby.freedom.chrome.official-local' },
       surface: 'wallet',
     })

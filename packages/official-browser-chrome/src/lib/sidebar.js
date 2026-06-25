@@ -194,6 +194,10 @@ function configurePackageSurfaceChrome() {
   updatePackageSurfacePresentation({ mode: 'shell-owned-placeholder' });
 }
 
+function isExternalShellSurfaceMode(mode) {
+  return mode === 'shell-owned-trusted-window' || mode === 'shell-owned-webcontents-view';
+}
+
 function updatePackageSurfacePresentation(state = {}) {
   const mode = state.mode || 'shell-owned-placeholder';
   sidebar.dataset.surfaceMode = mode;
@@ -277,7 +281,7 @@ function applyPackageSurfaceState(state, { dispatch = true } = {}) {
     return false;
   }
   updatePackageSurfacePresentation(state);
-  if (state.mode === 'shell-owned-trusted-window') {
+  if (isExternalShellSurfaceMode(state.mode)) {
     const wasOpen = isOpen;
     isOpen = false;
     applyState();

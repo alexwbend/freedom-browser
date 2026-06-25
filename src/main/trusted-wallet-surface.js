@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const path = require('path');
 
-const { BrowserWindow, ipcMain } = require('electron');
+const { BrowserWindow, WebContentsView, ipcMain } = require('electron');
 const identityManager = require('./identity-manager');
 const trustedVaultUnlockPrompt = require('./trusted-vault-unlock-prompt');
 const dappPermissions = require('./wallet/dapp-permissions');
@@ -10,10 +10,15 @@ const { isVaultLockedError } = require('./wallet/vault-errors');
 const CHANNEL_PREFIX = 'trusted-wallet-surface';
 const SURFACE_WIDTH = 920;
 const SURFACE_HEIGHT = 680;
+const SURFACE_DRAWER_WIDTH = 520;
+const SURFACE_DRAWER_MIN_WIDTH = 360;
+const SURFACE_MODE_WINDOW = 'shell-owned-trusted-window';
+const SURFACE_MODE_COMPOSITOR = 'shell-owned-webcontents-view';
 const CREATE_WALLET_VAULT_LOCKED_MESSAGE = 'Vault must be unlocked to create a new wallet';
 
 let activeWindow = null;
 let activeSurfaceId = null;
+let activeSurfaceMode = null;
 let activeChannels = [];
 let closeListeners = new Set();
 
@@ -156,7 +161,7 @@ async function requestCreateWalletVaultUnlock({
   const unlockPrompt = await presentVaultUnlockPrompt(
     buildCreateWalletUnlockRequest(name),
     {
-      ownerWindow: surfaceWindow,
+      ownerWindow: getNativePromptOwnerWindow(surfaceWindow),
       origin: 'Freedom Wallet',
       caller: contextPayload.caller || null,
       surface: 'wallet',
@@ -219,6 +224,27 @@ function buildSurfaceContext(context = {}) {
   };
 }
 
+function getTrustedWalletWebPreferences(preload) {
+  return {
+    preload,
+    contextIsolation: true,
+    nodeIntegration: false,
+    sandbox: false,
+  };
+}
+
+function getNativePromptOwnerWindow(surfaceWindow) {
+  return surfaceWindow?.getNativeOwnerWindow?.() || surfaceWindow;
+}
+
+function getShellWindowSurfaceHost(ownerWindow) {
+  const host = ownerWindow?.__freedomShellWindow || null;
+  return typeof host?.createTrustedSurfaceWindow === 'function' &&
+    host.canHostTrustedSurfaceWindows?.() === true
+    ? host
+    : null;
+}
+
 async function buildSnapshot() {
   let wallets;
   let activeWalletIndex = null;
@@ -278,6 +304,7 @@ function cleanupSurface(electronIpcMain) {
   activeChannels = [];
   activeWindow = null;
   activeSurfaceId = null;
+  activeSurfaceMode = null;
   const listeners = closeListeners;
   closeListeners = new Set();
   listeners.forEach((listener) => {
@@ -314,6 +341,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     return {
       ok: true,
       surface: 'wallet',
+      mode: activeSurfaceMode || SURFACE_MODE_WINDOW,
       reused: true,
       trusted: true,
       owner: 'shell',
@@ -350,35 +378,59 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
   const preload = path.join(__dirname, 'trusted-wallet-preload.js');
   const surfaceHtml = path.join(__dirname, 'trusted-wallet.html');
   const ownerWindow = context.ownerWindow || null;
+  const webPreferences = getTrustedWalletWebPreferences(preload);
+  const shellWindowSurfaceHost = getShellWindowSurfaceHost(ownerWindow);
 
   let surfaceWindow = null;
+  let surfaceMode = SURFACE_MODE_WINDOW;
   try {
-    surfaceWindow = new ElectronBrowserWindow({
-      width: SURFACE_WIDTH,
-      height: SURFACE_HEIGHT,
-      minWidth: 720,
-      minHeight: 500,
-      title: 'Freedom Wallet',
-      show: false,
-      autoHideMenuBar: true,
-      backgroundColor: '#f8f7f3',
-      ...(ownerWindow ? { parent: ownerWindow } : {}),
-      webPreferences: {
-        preload,
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: false,
-      },
-    });
+    if (shellWindowSurfaceHost) {
+      const ElectronWebContentsView = deps.WebContentsView || WebContentsView;
+      if (typeof ElectronWebContentsView !== 'function') {
+        return errorResult(
+          'TRUSTED_WALLET_SURFACE_VIEW_UNAVAILABLE',
+          'Trusted wallet compositor view is unavailable'
+        );
+      }
+      surfaceWindow = shellWindowSurfaceHost.createTrustedSurfaceWindow({
+        surface: 'wallet',
+        width: SURFACE_DRAWER_WIDTH,
+        minWidth: SURFACE_DRAWER_MIN_WIDTH,
+        createView: () => new ElectronWebContentsView({ webPreferences }),
+      });
+      surfaceMode = SURFACE_MODE_COMPOSITOR;
+    } else {
+      if (typeof ElectronBrowserWindow !== 'function') {
+        return errorResult(
+          'TRUSTED_WALLET_SURFACE_UNAVAILABLE',
+          'Trusted wallet surface window is unavailable'
+        );
+      }
+      surfaceWindow = new ElectronBrowserWindow({
+        width: SURFACE_WIDTH,
+        height: SURFACE_HEIGHT,
+        minWidth: 720,
+        minHeight: 500,
+        title: 'Freedom Wallet',
+        show: false,
+        autoHideMenuBar: true,
+        backgroundColor: '#f8f7f3',
+        ...(ownerWindow ? { parent: ownerWindow } : {}),
+        webPreferences,
+      });
+    }
   } catch (err) {
     return errorResult(
-      'TRUSTED_WALLET_SURFACE_WINDOW_FAILED',
+      shellWindowSurfaceHost
+        ? 'TRUSTED_WALLET_SURFACE_VIEW_FAILED'
+        : 'TRUSTED_WALLET_SURFACE_WINDOW_FAILED',
       err?.message || 'Failed to create trusted wallet surface'
     );
   }
 
   activeWindow = surfaceWindow;
   activeSurfaceId = surfaceId;
+  activeSurfaceMode = surfaceMode;
   activeChannels = [];
   if (onClosed) {
     closeListeners.add(onClosed);
@@ -590,6 +642,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
   return {
     ok: true,
     surface: 'wallet',
+    mode: surfaceMode,
     reused: false,
     trusted: true,
     owner: 'shell',
@@ -598,6 +651,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
 
 function closeTrustedWalletSurface() {
   const surfaceWindow = activeWindow;
+  const surfaceMode = activeSurfaceMode || SURFACE_MODE_WINDOW;
   if (
     !surfaceWindow ||
     typeof surfaceWindow.isDestroyed !== 'function' ||
@@ -606,6 +660,7 @@ function closeTrustedWalletSurface() {
     return {
       ok: true,
       surface: 'wallet',
+      mode: surfaceMode,
       closed: false,
       trusted: true,
       owner: 'shell',
@@ -616,6 +671,7 @@ function closeTrustedWalletSurface() {
     return {
       ok: true,
       surface: 'wallet',
+      mode: surfaceMode,
       closed: true,
       trusted: true,
       owner: 'shell',
@@ -631,6 +687,7 @@ function closeTrustedWalletSurface() {
 function _resetForTest() {
   activeWindow = null;
   activeSurfaceId = null;
+  activeSurfaceMode = null;
   activeChannels = [];
   closeListeners = new Set();
 }

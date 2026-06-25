@@ -46,6 +46,11 @@ const SURFACE_MODES = Object.freeze({
   payments: 'shell-owned-trusted-window',
   swarmPublish: 'shell-owned-trusted-window',
 });
+const TRUSTED_SURFACE_MODES = new Set([
+  'shell-owned-trusted-window',
+  'shell-owned-webcontents-view',
+  experimentalShellCompositorSurface.TEST_SURFACE_MODE,
+]);
 const MAX_CLIPBOARD_TEXT_LENGTH = 1024 * 1024;
 const MAX_WINDOW_TARGET_URL_LENGTH = 4096;
 const MAX_CONTEXT_URL_LENGTH = 4096;
@@ -530,6 +535,14 @@ function getSurfaceMode(surface) {
   return SURFACE_MODES[surface] || 'shell-owned-placeholder';
 }
 
+function getSurfaceModeForCaller(caller, surface) {
+  return caller?.surfaceModes?.get(surface) || getSurfaceMode(surface);
+}
+
+function isTrustedSurfaceMode(mode) {
+  return TRUSTED_SURFACE_MODES.has(mode);
+}
+
 function isSurfaceSupported(surface) {
   return (
     SUPPORTED_SURFACES.has(surface) ||
@@ -538,7 +551,7 @@ function isSurfaceSupported(surface) {
 }
 
 function describeSurfaceState(caller, surface) {
-  const mode = getSurfaceMode(surface);
+  const mode = getSurfaceModeForCaller(caller, surface);
   if (!isSurfaceSupported(surface)) {
     return {
       ok: false,
@@ -683,10 +696,7 @@ async function setSurfaceOpen(caller, payload, open, event) {
   }
 
   const previousOpen = caller.surfaces.get(surface) === true;
-  if (
-    getSurfaceMode(surface) === 'shell-owned-trusted-window' ||
-    getSurfaceMode(surface) === experimentalShellCompositorSurface.TEST_SURFACE_MODE
-  ) {
+  if (isTrustedSurfaceMode(getSurfaceModeForCaller(caller, surface))) {
     const result = open
       ? await openTrustedSurfaceForCaller(surface, caller, event)
       : closeTrustedSurface(surface, event);
@@ -695,13 +705,16 @@ async function setSurfaceOpen(caller, payload, open, event) {
         ok: false,
         surface,
         owner: 'shell',
-        mode: getSurfaceMode(surface),
+        mode: getSurfaceModeForCaller(caller, surface),
         trusted: true,
         error: result?.error || {
           code: 'SURFACE_OPEN_FAILED',
           message: `Failed to update trusted ${surface} surface`,
         },
       };
+    }
+    if (result?.mode) {
+      caller.surfaceModes.set(surface, result.mode);
     }
   }
   caller.surfaces.set(surface, open);
@@ -718,10 +731,7 @@ async function toggleSurfaceOpen(caller, payload, event) {
 
   const previousOpen = caller.surfaces.get(surface) === true;
   const nextOpen = !previousOpen;
-  if (
-    getSurfaceMode(surface) === 'shell-owned-trusted-window' ||
-    getSurfaceMode(surface) === experimentalShellCompositorSurface.TEST_SURFACE_MODE
-  ) {
+  if (isTrustedSurfaceMode(getSurfaceModeForCaller(caller, surface))) {
     const result = nextOpen
       ? await openTrustedSurfaceForCaller(surface, caller, event)
       : closeTrustedSurface(surface);
@@ -730,13 +740,16 @@ async function toggleSurfaceOpen(caller, payload, event) {
         ok: false,
         surface,
         owner: 'shell',
-        mode: getSurfaceMode(surface),
+        mode: getSurfaceModeForCaller(caller, surface),
         trusted: true,
         error: result?.error || {
           code: 'SURFACE_OPEN_FAILED',
           message: `Failed to update trusted ${surface} surface`,
         },
       };
+    }
+    if (result?.mode) {
+      caller.surfaceModes.set(surface, result.mode);
     }
   }
   caller.surfaces.set(surface, nextOpen);
@@ -1239,6 +1252,7 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
         ['payments', false],
         ['swarmPublish', false],
       ]),
+    surfaceModes: options.surfaceModes || new Map(),
   };
   packageCallers.set(sender, caller);
 
