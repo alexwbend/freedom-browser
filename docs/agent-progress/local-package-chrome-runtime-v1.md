@@ -242,15 +242,62 @@ layout.
 
 ### Verification
 
-- Documentation-only checkpoint so far; `git diff --check` still needs to run
-  before commit.
+- `git diff --check` passed before commit.
+- Committed and pushed as `a6601b1`
+  (`docs(chrome): describe official package source build`).
 
 ### Remaining
 
-- Commit and push this documentation checkpoint.
 - Run broader local verification: lint, full unit tests, and bundled plus
   package e2e smoke.
 - Triage or record the known address suggestion and `freedom://history` manual
   smoke issues.
+- Verify final GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed
+  head.
+
+## Checkpoint 4: Trusted-Only Cleanup And Official Install Cache Smoke
+
+Status: local package source hardening and focused install/cache coverage are
+implemented locally.
+
+### What Changed
+
+- Removed copied onboarding dialog markup and `styles/onboarding.css` from
+  `packages/official-browser-chrome/src/`. The package entry had already
+  stopped importing onboarding code, and this removes the remaining trusted-only
+  source remnants from the package tree.
+- Extended `scripts/check-official-chrome-boundary.js` so it scans CSS and
+  flags the legacy trusted-only source files called out in the inventory:
+  onboarding, wallet UI, wallet internals, legacy dApp provider, legacy Swarm
+  provider, and trusted surface source files.
+- Added Jest coverage proving the boundary guard catches those trusted-only
+  files, in addition to broad preload globals.
+- Added a focused e2e smoke proving the generated official package can be
+  installed into the package store and relaunched offline from cache. The test
+  uses `writeOfficialChromePackage(...)`, which now delegates to
+  `scripts/build-official-chrome-package.js`, then verifies
+  `freedomShell.getInfo()` reports the official package with `source: "store"`
+  on both install and cache launch.
+
+### Verification
+
+- `npm run chrome:package:check-boundary` passed.
+- `npm test -- scripts/build-official-chrome-package.test.js` passed: 1 suite,
+  4 tests.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "generated official browser chrome installs into cache"`
+  passed: 1 launched Electron test.
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-package.spec.js -g "official browser chrome can launch as a local package with transitional webviews"`
+  passed after the onboarding source cleanup: 1 launched Electron test.
+- `npm run lint` passed.
+- `git diff --check` passed.
+
+### Remaining
+
+- Run broader local verification: lint, full unit tests, and bundled plus
+  package e2e smoke.
+- Confirm the known address suggestion and `freedom://history` issues are
+  covered by current package smoke, or record explicit follow-up bugs if they
+  reproduce outside this goal.
+- Commit and push this cleanup/install-cache checkpoint.
 - Verify final GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed
   head.

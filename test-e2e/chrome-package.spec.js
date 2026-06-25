@@ -984,6 +984,59 @@ async function waitForPackageChromeWindow(app, expected) {
   throw new Error('Package chrome window did not appear');
 }
 
+async function waitForOfficialPackageChromeWindow(app, expected) {
+  const deadline = Date.now() + 10_000;
+  const isExpected = async (candidate) => {
+    await candidate.waitForSelector('[data-test="address-input"]', {
+      state: 'visible',
+      timeout: 500,
+    });
+    await candidate.waitForSelector('body[data-package-ready="true"]', {
+      state: 'attached',
+      timeout: 500,
+    });
+    const info = await candidate.evaluate(() => window.freedomShell.getInfo());
+    return {
+      matches:
+        (!expected?.version || info.chromePackage?.version === expected.version) &&
+        (!expected?.source || info.chromePackage?.source === expected.source) &&
+        (!expected?.packageId || info.chromePackage?.packageId === expected.packageId),
+      info,
+    };
+  };
+
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        const result = await isExpected(candidate);
+        if (result.matches) {
+          return candidate;
+        }
+      } catch {
+        // Keep polling; unrelated windows may appear before official package chrome is ready.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        const result = await isExpected(nextWindow);
+        if (result.matches) {
+          return nextWindow;
+        }
+      } catch {
+        // Keep polling until the official package window is ready.
+      }
+    }
+  }
+
+  throw new Error('Official package chrome window did not appear');
+}
+
 async function waitForTrustedWalletWindow(app) {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
@@ -1563,6 +1616,62 @@ test('local package chrome installs into cache and launches offline from cache',
     });
   } finally {
     await launched.close();
+  }
+});
+
+test('generated official browser chrome installs into cache and launches offline from cache', async () => {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-cache-e2e-'));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-cache-source-'));
+  const packageDir = path.join(parent, 'official');
+  writeOfficialChromePackage(packageDir);
+  let launched;
+  const expectedPackage = {
+    packageId: 'baby.freedom.chrome.official-local',
+    version: '0.0.1',
+    source: 'store',
+  };
+
+  try {
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_INSTALL_DIR: packageDir,
+      },
+      {
+        preserveUserData: true,
+        userDataDir,
+      }
+    );
+    let page = await waitForOfficialPackageChromeWindow(launched.app, expectedPackage);
+    await expectHomeReady(page);
+    let info = await page.evaluate(() => window.freedomShell.getInfo());
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: expectedPackage,
+    });
+    await launched.close();
+    launched = null;
+
+    launched = await launchFreedom(
+      {
+        FREEDOM_CHROME_PACKAGE_CACHE: '1',
+      },
+      {
+        userDataDir,
+      }
+    );
+    page = await waitForOfficialPackageChromeWindow(launched.app, expectedPackage);
+    await expectHomeReady(page);
+    info = await page.evaluate(() => window.freedomShell.getInfo());
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: expectedPackage,
+    });
+  } finally {
+    if (launched) {
+      await launched.close();
+    }
+    fs.rmSync(parent, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true });
   }
 });
 

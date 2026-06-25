@@ -72,3 +72,22 @@ test('official chrome boundary guard catches broad preload globals', () => {
     }),
   ]);
 });
+
+test('official chrome boundary guard catches trusted-only source files', () => {
+  const outputDir = makeOutputDir('bad-trusted-source');
+  fs.mkdirSync(path.join(outputDir, 'lib', 'wallet'), { recursive: true });
+  fs.mkdirSync(path.join(outputDir, 'styles'), { recursive: true });
+  fs.writeFileSync(path.join(outputDir, 'lib', 'onboarding.js'), 'export {};\n');
+  fs.writeFileSync(path.join(outputDir, 'lib', 'wallet-ui.js'), 'export {};\n');
+  fs.writeFileSync(path.join(outputDir, 'lib', 'wallet', 'index.js'), 'export {};\n');
+  fs.writeFileSync(path.join(outputDir, 'styles', 'onboarding.css'), '.onboarding-modal {}\n');
+
+  expect(checkOfficialChromeBoundary([outputDir])).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ file: expect.stringContaining('lib/onboarding.js') }),
+      expect.objectContaining({ file: expect.stringContaining('lib/wallet-ui.js') }),
+      expect.objectContaining({ file: expect.stringContaining('lib/wallet/index.js') }),
+      expect.objectContaining({ file: expect.stringContaining('styles/onboarding.css') }),
+    ])
+  );
+});

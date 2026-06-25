@@ -9,7 +9,7 @@ const defaultRoots = [
   path.join(repoRoot, 'dist', 'chrome-packages', 'official-browser-chrome'),
 ];
 
-const SCANNED_EXTENSIONS = new Set(['.html', '.js', '.mjs']);
+const SCANNED_EXTENSIONS = new Set(['.css', '.html', '.js', '.mjs']);
 const DISALLOWED_PATTERNS = Object.freeze([
   {
     name: 'electron module import',
@@ -63,8 +63,17 @@ function listScannableFiles(root) {
 }
 
 function hasTrustedSurfaceSourceFile(filePath) {
-  const base = path.basename(filePath);
-  return /^trusted-.*\.js$/.test(base);
+  const relativeFile = path.relative(repoRoot, filePath).replace(/\\/g, '/');
+  const base = path.basename(relativeFile);
+  return (
+    /^trusted-.*\.js$/.test(base) ||
+    relativeFile.endsWith('/lib/onboarding.js') ||
+    relativeFile.endsWith('/lib/wallet-ui.js') ||
+    relativeFile.includes('/lib/wallet/') ||
+    relativeFile.endsWith('/lib/dapp-provider.js') ||
+    relativeFile.endsWith('/lib/swarm-provider.js') ||
+    relativeFile.endsWith('/styles/onboarding.css')
+  );
 }
 
 function checkOfficialChromeBoundary(roots = defaultRoots.filter((root) => fs.existsSync(root))) {
