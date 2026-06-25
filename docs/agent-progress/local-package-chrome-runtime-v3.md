@@ -118,7 +118,8 @@ changing visible behavior:
 
 ## Checkpoint 2: Package Adapter Purity Ratchet
 
-Status: implemented locally; ready to commit and push after this ledger update.
+Status: committed and pushed as
+`dd1e013` (`refactor(chrome): purify package runtime adapter`).
 
 ### Changes
 
@@ -167,3 +168,40 @@ Status: implemented locally; ready to commit and push after this ledger update.
   - `npm test`
   - `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
 - Push final head and verify GitHub `test` and `e2e-chrome-runtime`.
+
+## Checkpoint 3: Final Local Verification
+
+Status: complete locally before final docs checkpoint.
+
+### Final Local Verification
+
+- `npm run chrome:package:check-boundary` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  - 127 suites passed
+  - 5 suites skipped
+  - 2357 tests passed
+  - 17 tests skipped
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed:
+  - 15 harness tests passed
+
+### Completion State
+
+- Branch contract was followed on `goal/local-package-chrome-runtime-v3`.
+- Package adapter source no longer contains or depends on `electronAPI`.
+- Package adapter source speaks through `window.freedomShell` plus local
+  fallback helpers.
+- Bundled renderer adapter behavior remains intact in
+  `src/renderer/lib/chrome-runtime-api.js`.
+- Boundary checks reject broad-preload fallback token use in package source and
+  generated package output.
+- V2 trusted sidebar residue checks remain in place and pass.
+- The deterministic package builder still produces validator-accepted output.
+
+### Remaining
+
+- Commit and push this final verification ledger update.
+- Re-run final local verification after the docs checkpoint for an exact
+  final-head local evidence trail.
+- Verify GitHub `test` and `e2e-chrome-runtime` on the final pushed head.
