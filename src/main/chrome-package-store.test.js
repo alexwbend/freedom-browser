@@ -128,7 +128,13 @@ describe('chrome-package-store', () => {
       packageId: 'baby.freedom.chrome.fixture',
       version: '1.0.0',
     });
-    expect(cachedResult.chromePackage.packageRoot.startsWith(storeRoot)).toBe(true);
+    const relativePackageRoot = path.relative(
+      fs.realpathSync(storeRoot),
+      fs.realpathSync(cachedResult.chromePackage.packageRoot)
+    );
+    expect(relativePackageRoot).toBeTruthy();
+    expect(relativePackageRoot.startsWith('..')).toBe(false);
+    expect(path.isAbsolute(relativePackageRoot)).toBe(false);
   });
 
   test('maintains current and previous package pointers and rolls back', () => {

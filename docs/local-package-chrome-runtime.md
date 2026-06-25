@@ -82,6 +82,11 @@ Run the generated package directly in local package mode:
 npm run chrome:package:run
 ```
 
+This helper builds the package and passes an absolute generated package path to
+the runtime. If you launch with `FREEDOM_CHROME_PACKAGE_DIR` manually, keep using
+an absolute path; relative package paths fail validation and intentionally fall
+back to bundled chrome.
+
 Install the generated package into the local package cache and launch from the
 store-backed runtime path:
 

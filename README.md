@@ -434,6 +434,9 @@ npm run chrome:package:build
 npm run chrome:package:run
 ```
 
+The launch helper resolves the generated package path absolutely; direct
+`FREEDOM_CHROME_PACKAGE_DIR` usage should do the same.
+
 See [`docs/local-package-chrome-runtime.md`](docs/local-package-chrome-runtime.md)
 for the manifest shape, shell API v0, recovery behavior, and smoke-test
 commands.

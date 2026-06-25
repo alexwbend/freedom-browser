@@ -99,16 +99,45 @@ async function launchFreedom(extraEnv = {}, options = {}) {
   return {
     app,
     async close() {
-      try {
-        await app.close();
-      } catch {
-        // Window may already have been closed by the spec.
-      }
+      await closeElectronApp(app);
       if (options.preserveUserData !== true) {
         fs.rmSync(userDataDir, { recursive: true, force: true });
       }
     },
   };
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function closeElectronApp(app, timeoutMs = 5000) {
+  try {
+    await Promise.race([
+      app.close(),
+      delay(timeoutMs).then(() => {
+        throw new Error('Electron app close timed out');
+      }),
+    ]);
+    return;
+  } catch {
+    // Window may already be closed, or Electron may hang during dev-mode teardown.
+  }
+
+  const child = typeof app.process === 'function' ? app.process() : null;
+  if (!child || child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  child.kill('SIGTERM');
+  await Promise.race([
+    new Promise((resolve) => child.once('exit', resolve)),
+    delay(2000).then(() => {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill('SIGKILL');
+      }
+    }),
+  ]);
 }
 
 function startFaviconFixtureServer() {
@@ -1163,6 +1192,18 @@ async function waitForTrustedVaultUnlockWindow(app) {
   throw new Error('Trusted vault unlock window did not appear');
 }
 
+async function cancelTrustedPromptWindow(promptWindow, selector = '#cancel') {
+  const closePromise = promptWindow.waitForEvent('close').catch(() => null);
+  try {
+    await promptWindow.locator(selector).click();
+  } catch (error) {
+    if (!promptWindow.isClosed()) {
+      throw error;
+    }
+  }
+  await closePromise;
+}
+
 test('local package chrome loads through freedomShell without broad preload APIs', async () => {
   const launched = await launchFreedom({
     FREEDOM_CHROME_PACKAGE_DIR: fixturePackageDir,
@@ -2016,6 +2057,63 @@ test('local package feed rolls back when updated package renderer becomes unheal
   }
 });
 
+test('official browser chrome launch truth markers prove package mode', async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-truth-'));
+  const packageDir = path.join(parent, 'official');
+  writeOfficialChromePackage(packageDir);
+
+  const launched = await launchFreedom({
+    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+  });
+  try {
+    const page = await launched.app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
+
+    const exposure = await page.evaluate(() => ({
+      href: location.href,
+      packageReady: document.body.dataset.packageReady,
+      hasFreedomShell: 'freedomShell' in window,
+      hasElectronAPI: 'electronAPI' in window,
+      hasWallet: 'wallet' in window,
+      hasIdentity: 'identity' in window,
+      hasSwarmProvider: 'swarmProvider' in window,
+      hasSwarmPermissions: 'swarmPermissions' in window,
+      hasDappPermissions: 'dappPermissions' in window,
+    }));
+    expect(exposure).toMatchObject({
+      packageReady: 'true',
+      hasFreedomShell: true,
+      hasElectronAPI: false,
+      hasWallet: false,
+      hasIdentity: false,
+      hasSwarmProvider: false,
+      hasSwarmPermissions: false,
+      hasDappPermissions: false,
+    });
+    expect(exposure.href).toContain('/official/index.html');
+
+    const info = await page.evaluate(() => window.freedomShell.getInfo());
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.official-local',
+        fallback: null,
+      },
+      caller: {
+        runtimeMode: 'local-package',
+        source: 'local',
+        packageId: 'baby.freedom.chrome.official-local',
+      },
+    });
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test('official browser chrome can launch as a local package with transitional webviews', async () => {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
   const packageDir = path.join(parent, 'official');
@@ -2110,10 +2208,7 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(vaultUnlockWindow.locator('#heading')).toHaveText('Unlock vault to create wallet');
     await expect(vaultUnlockWindow.locator('#details')).toContainText('Create wallet');
     await expect(vaultUnlockWindow.locator('#details')).toContainText('Trading');
-    await Promise.all([
-      vaultUnlockWindow.waitForEvent('close'),
-      vaultUnlockWindow.locator('#cancel').click(),
-    ]);
+    await cancelTrustedPromptWindow(vaultUnlockWindow);
     await expect(trustedWalletWindow.locator('#management-error')).toContainText(
       'Vault unlock was cancelled'
     );
