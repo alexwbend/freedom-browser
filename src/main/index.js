@@ -200,14 +200,23 @@ log.info('[profile] Active profile:', {
   appRoot: activeProfile.appRoot,
 });
 warnAboutLegacyDevData(activeProfile, { logger: log });
-app.on('will-quit', () => {
+
+let didCleanupAppLifecycle = false;
+
+function cleanupAppLifecycle() {
+  if (didCleanupAppLifecycle) {
+    return;
+  }
+  didCleanupAppLifecycle = true;
   unregisterShutdownSignalHandlers();
   profileFocusWatcher.stop();
   if (activeProfileLock) {
     releaseProfileLock(activeProfileLock, { logger: log });
     activeProfileLock = null;
   }
-});
+}
+
+app.on('will-quit', cleanupAppLifecycle);
 
 function allowInteractivePermissions(targetSession) {
   if (!targetSession || !targetSession.setPermissionRequestHandler) {
@@ -437,8 +446,8 @@ app.on('before-quit', async (event) => {
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
   log.info('[App] All processes stopped, quitting...');
 
-
-  app.quit();
+  cleanupAppLifecycle();
+  app.exit(0);
 });
 
 app.on('browser-window-created', () => {

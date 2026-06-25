@@ -1,10 +1,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { EventEmitter } = require('events');
 const {
   MODES,
   createLaunchEnvironment,
   getPackageEnvKey,
+  guardParentShutdownSignals,
   parseArgs,
   runElectronApp,
   runOfficialChromePackage,
@@ -96,6 +98,43 @@ test('runElectronApp launches Electron directly from the repository root', () =>
       },
     },
   ]);
+});
+
+test('runElectronApp guards parent shutdown signals while Electron runs', () => {
+  const processTarget = new EventEmitter();
+  const listenerCountsDuringSpawn = {};
+
+  runElectronApp({
+    env: { FREEDOM_CHROME_PACKAGE_DIR: '/tmp/package' },
+    stdio: 'pipe',
+    electronExecutable: '/tmp/electron',
+    processTarget,
+    spawn: () => {
+      listenerCountsDuringSpawn.SIGINT = processTarget.listenerCount('SIGINT');
+      listenerCountsDuringSpawn.SIGTERM = processTarget.listenerCount('SIGTERM');
+      return { status: 0 };
+    },
+  });
+
+  expect(listenerCountsDuringSpawn).toEqual({
+    SIGINT: 1,
+    SIGTERM: 1,
+  });
+  expect(processTarget.listenerCount('SIGINT')).toBe(0);
+  expect(processTarget.listenerCount('SIGTERM')).toBe(0);
+});
+
+test('guardParentShutdownSignals unregisters no-op signal listeners', () => {
+  const processTarget = new EventEmitter();
+  const remove = guardParentShutdownSignals(processTarget);
+
+  expect(processTarget.listenerCount('SIGINT')).toBe(1);
+  expect(processTarget.listenerCount('SIGTERM')).toBe(1);
+
+  remove();
+
+  expect(processTarget.listenerCount('SIGINT')).toBe(0);
+  expect(processTarget.listenerCount('SIGTERM')).toBe(0);
 });
 
 test('runOfficialChromePackage builds and launches with an absolute package dir', () => {

@@ -57,17 +57,46 @@ function createLaunchEnvironment({ mode = MODES.RUN, packageDir, env = process.e
   return nextEnv;
 }
 
+function removeProcessListener(processTarget, signal, listener) {
+  if (typeof processTarget.off === 'function') {
+    processTarget.off(signal, listener);
+  } else if (typeof processTarget.removeListener === 'function') {
+    processTarget.removeListener(signal, listener);
+  }
+}
+
+function guardParentShutdownSignals(processTarget = process) {
+  if (!processTarget || typeof processTarget.on !== 'function') {
+    return () => {};
+  }
+
+  const noop = () => {};
+  processTarget.on('SIGINT', noop);
+  processTarget.on('SIGTERM', noop);
+
+  return () => {
+    removeProcessListener(processTarget, 'SIGINT', noop);
+    removeProcessListener(processTarget, 'SIGTERM', noop);
+  };
+}
+
 function runElectronApp({
   env = process.env,
   stdio = 'inherit',
   spawn = spawnSync,
   electronExecutable = require('electron'),
+  processTarget = process,
 } = {}) {
-  return spawn(electronExecutable, ['.'], {
-    cwd: repoRoot,
-    env,
-    stdio,
-  });
+  const removeSignalGuards = guardParentShutdownSignals(processTarget);
+  try {
+    return spawn(electronExecutable, ['.'], {
+      cwd: repoRoot,
+      env,
+      stdio,
+    });
+  } finally {
+    removeSignalGuards();
+  }
 }
 
 function runOfficialChromePackage(argv = process.argv.slice(2), options = {}) {
@@ -104,6 +133,7 @@ module.exports = {
   MODES,
   createLaunchEnvironment,
   getPackageEnvKey,
+  guardParentShutdownSignals,
   parseArgs,
   runElectronApp,
   runOfficialChromePackage,
