@@ -1,7 +1,7 @@
 # Shell Compositor And WebContentsView Architecture
 
 **Date:** 2026-06-25  
-**Status:** Research draft  
+**Status:** Post-spike architecture draft
 **Scope:** Desired architecture for package chrome, shell-owned trusted surfaces,
 and a future main-process compositor built around Electron `WebContentsView`.
 
@@ -36,6 +36,12 @@ Electron `WebContentsView` is the relevant primitive. It is a native `View`
 with its own `webContents`, preload, permissions, lifecycle, and bounds. It is
 not DOM inside package chrome. Main can attach it to a window's content view,
 set bounds, show/hide it, and load trusted shell UI into it.
+
+The spike clarified the most important boundary:
+
+> Package chrome should never receive a raw `WebContentsView`, raw
+> `webContents`, or an Electron-like proxy for either. Chrome owns the browser
+> or app experience; shell owns the browser engine objects.
 
 The important product consequence:
 
@@ -99,6 +105,17 @@ surface APIs ad hoc.
 7. **Fallback remains mandatory.** If a chrome package is minimal, broken, or
    incompatible with an integrated surface layout, shell can still open a
    trusted modal/window independently of chrome.
+
+8. **Raw engine handles stay private.** Package chrome must not receive
+   Electron `WebContentsView`, `webContents`, `BrowserWindow`, session,
+   permission, preload, or devtools handles. It receives capability-gated,
+   semantic APIs instead.
+
+9. **Browser UX is not browser-engine ownership.** A browser-shaped chrome
+   package may fully own tabs as a product concept: tab strip, tab groups,
+   split panes, address bar, keyboard model, command palette, and agent
+   workflows. It should not directly instantiate or control the underlying
+   Electron content renderers.
 
 ---
 
@@ -179,7 +196,7 @@ Sketch:
 
 ```text
 ShellWindow
-  nativeWindow: BaseWindow | BrowserWindow
+  nativeWindow: BaseWindow | BrowserWindow host
   rootView: View
   chromeView: WebContentsView
   contentViews: Map<tabId, WebContentsView>        # future
@@ -224,7 +241,7 @@ flowchart TD
   SurfaceLayer --> Payments
 ```
 
-Near-term composition may be simpler:
+Rejected composition:
 
 ```mermaid
 flowchart TD
@@ -238,11 +255,11 @@ flowchart TD
   ContentView --> SurfaceView
 ```
 
-The near-term spike must verify whether adding a `WebContentsView` to the
-existing `BrowserWindow` content view can reliably overlay or reserve space
-alongside the primary BrowserWindow webContents. If that is not reliable, the
-real migration should move directly to `BaseWindow` + explicit
-`WebContentsView` composition.
+The spike proved this is not the target. A child `WebContentsView` can be
+created and loaded, but it does not reliably compose over the existing
+`BrowserWindow.webContents`. The old page-backed `BrowserWindow` must become a
+host for explicit child views, with chrome itself represented as a
+`WebContentsView`.
 
 ### Spike Result: 2026-06-25
 
@@ -268,12 +285,122 @@ Concrete conclusion:
 
 ---
 
+## Raw WebContentsView Boundary
+
+The chrome package must not be passed a raw `WebContentsView`, raw
+`webContents`, or a remote object that is equivalent to either.
+
+A raw engine object grants authority over far more than presentation:
+
+- navigation via `loadURL` / `loadFile`
+- arbitrary page scripting via `executeJavaScript`
+- session, partition, cookies, storage, and permission surfaces
+- preload and provider attachment decisions
+- devtools and debugging hooks
+- capture of rendered content
+- web preferences such as sandboxing and web security
+- permission interception and grant UI timing
+- crash/reload lifecycle
+- z-order relative to trusted shell UI
+
+Those are shell responsibilities because they determine where a user actually
+lands, what origin/identity the page receives, which provider bridge is
+attached, what state the page can access, and whether trusted shell UI can be
+obscured or spoofed.
+
+Chrome package APIs should therefore be semantic:
+
+```js
+await freedomShell.tabs.create({ url, active: true })
+await freedomShell.tabs.navigate({ tabId, input })
+await freedomShell.tabs.activate({ tabId })
+await freedomShell.tabs.close({ tabId })
+await freedomShell.surfaces.open('wallet')
+await freedomShell.layout.setContentRegion({ tabId, region: 'main' })
+```
+
+Main translates those requests into `WebContentsView` operations. Package
+chrome observes redacted state and events. It does not hold the engine object.
+
+This is not meant to make browser chrome weak. It is meant to make browser
+chrome portable. The official Freedom browser, a Safari-like frontend, a
+vertical-tabs frontend, and an agentic chat frontend should all speak the same
+browser-shaped API when they need web content.
+
+---
+
+## Tab UX Versus Tab Engine
+
+There are two different meanings of "owning tabs":
+
+1. **Owning the tabbed browsing experience.** The chrome package decides how
+   tabs look and behave as product UI: horizontal tabs, vertical tabs, groups,
+   split panes, saved workspaces, command palette behavior, agent sidebars, and
+   address-bar flows.
+2. **Owning the tab engine.** The holder creates and controls Electron
+   renderers, sessions, preloads, navigation, permissions, provider bridges,
+   and committed identity.
+
+Package chrome should own the first. Shell should own the second.
+
+For a browser-style package, this means the package still builds the browser.
+It just builds against a shell tab engine:
+
+```text
+package chrome
+  renders tab strip/address bar/sidebar
+  requests tab operations
+  receives tab state/events
+  provides layout hints
+
+shell tab engine
+  creates WebContentsView content renderers
+  resolves navigation
+  attaches provider/preload bridges
+  tracks committed identity
+  owns session/partition/security prefs
+  composes content views into the shell window
+```
+
+For a non-browser package, such as an agentic chat app, the same model is even
+more useful: it can request one or more shell-owned content views without
+reimplementing a browser engine or inheriting raw Electron authority.
+
+The current package-owned `<webview>` tabs are therefore a transition state, not
+the final package API.
+
+---
+
+## Runtime Paths
+
+Three paths can exist, but they should be named honestly:
+
+1. **Legacy trusted chrome path.** Bundled chrome can remain a compatibility and
+   fallback path while the package runtime matures. It may retain broader
+   privileges temporarily because it is the old trusted app, not because this is
+   the desired package model.
+2. **Shell tab engine path.** Package chrome uses high-level
+   `freedomShell.tabs.*`, `freedomShell.surfaces.*`, browser-state, service,
+   and layout APIs. This is the target path for official package chrome and
+   third-party chrome packages.
+3. **Privileged raw engine path.** If raw renderer control is ever needed for
+   devtools, automation, internal diagnostics, or a first-party experimental
+   tool, it should be a separate signed/high-trust capability with explicit
+   warnings. It must not be the default package-chrome API.
+
+The official Freedom browser package should move to path 2. It should be the
+reference client for the shell tab engine rather than a privileged exception.
+
+---
+
 ## Authority And Presentation Matrix
 
 | Area | Authority owner | Presentation owner | Placement owner | Package chrome role |
 | --- | --- | --- | --- | --- |
 | Chrome theme/density/layout | active chrome package | active chrome package | active chrome package within its view | full owner |
 | Package-specific preferences | active chrome package, namespaced by package id | active chrome package | active chrome package | full owner |
+| Tab strip, address bar, split/tab UX | active chrome package | active chrome package | active chrome package within its view | full owner of product UX |
+| Tab content engine | shell/main | web page content | shell/main compositor | request operations, observe state, provide layout hints |
 | Bookmarks/history/favicons/homepage/search | shell/main | chrome may render via narrow APIs | chrome for ordinary UI | read/write through scoped browser-state APIs |
 | Node status | shell/main service registry | chrome may render safe telemetry | chrome for node menu | read through `services.read` |
 | Node lifecycle/config | shell/main | shell-owned surface or validated chrome controls | shell | request only, if approved |
@@ -472,7 +599,7 @@ surfaces.
 
 ## Migration Plan
 
-### Phase 0: Architecture Record
+### Phase 0: Architecture Record - Complete
 
 This document.
 
@@ -481,80 +608,38 @@ Exit criteria:
 - desired compositor architecture is written down
 - DOM slotting is explicitly rejected for trusted surfaces
 - shell-owned placement is the default
-- WebContentsView spike is the next implementation step
+- raw `WebContentsView` / `webContents` handles are explicitly kept out of the
+  package API
+- browser UX ownership is separated from browser-engine ownership
 
-### Phase 1: WebContentsView Spike
+### Phase 1: WebContentsView Spike - Complete
 
-Goal: prove we can render a shell-owned view in the same native window without
-putting it inside chrome DOM.
+Goal: prove we can render shell-owned views in the same native window without
+putting them inside chrome DOM.
 
-Implementation sketch:
+Implemented:
 
-- add a feature-flagged dummy trusted surface view in main
-- attach it to the existing main window if possible
-- load a tiny shell-owned HTML file with a dedicated trusted preload or no
-  preload
-- expose only a test/dev surface, for example `surfaces.open('testSurface')`
-- main owns bounds and resize behavior
-- chrome receives only surface state events
+- `FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR=1`
+- local package chrome can run as a main-owned `WebContentsView`
+- a shell-owned `testSurface` can render as a sibling `WebContentsView`
+- package chrome requests the surface through `freedomShell.surfaces.*`
+- package chrome cannot access the surface DOM
+- e2e proves separate host/chrome/surface webContents and rendered surface
+  pixels
 
-Questions to answer:
+Finding:
 
-- Can a `WebContentsView` overlay or reserve space reliably when the current
-  window is still a `BrowserWindow` whose primary `webContents` is chrome?
-- Does focus return correctly to chrome/content?
-- Do resize, fullscreen, traffic lights, hidden title bar, and DevTools behave?
-- Does shutdown destroy the view without leaks?
-- Can Playwright/Electron tests inspect and exercise the surface?
+- attaching a child `WebContentsView` to the old page-backed `BrowserWindow`
+  is not a reliable composition strategy
+- the production direction should be explicit shell composition, with chrome
+  itself hosted as a child `WebContentsView`
 
-Exit criteria:
+### Phase 2: Promote ShellWindow Compositor Host
 
-- package chrome can request the dummy surface
-- dummy surface renders in the same native window
-- chrome cannot access dummy surface DOM or privileged APIs
-- bounds update on window resize
-- close/reopen works
-- shutdown is clean
-- screenshots prove the surface is visible and correctly placed
+Goal: turn the successful spike topology into a real `ShellWindow`
+architecture.
 
-### Phase 2: ShellWindow Surface Manager
-
-Goal: create the real main-owned surface manager while keeping current tabs
-mostly unchanged.
-
-Implementation sketch:
-
-- introduce `src/main/windows/shell-window.js`
-- move main window bookkeeping behind a `ShellWindow` object
-- keep existing `BrowserWindow` if the spike proves it is viable
-- add a surface registry:
-  - `wallet`
-  - `identity`
-  - `payments`
-  - `swarmPublish`
-  - `nodeSettings`
-  - `profileSettings`
-- each surface has:
-  - capability requirement
-  - trusted entry file
-  - preload
-  - default mode
-  - minimum size
-  - state serializer
-- update `freedomShell.surfaces.*` to route through the surface manager
-
-Exit criteria:
-
-- wallet can open as a shell-owned right drawer or panel in package mode
-- current trusted wallet window fallback remains available
-- package chrome receives state only
-- smoke proves package chrome still lacks wallet/identity globals
-
-### Phase 3: Main-Owned Chrome View
-
-Goal: make chrome itself a `WebContentsView` owned by `ShellWindow`.
-
-This is the major refactor.
+This is the first major todo.
 
 Current assumption to break:
 
@@ -565,54 +650,139 @@ BrowserWindow.webContents === chrome webContents
 Target:
 
 ```text
-ShellWindow.chromeWebContents === chrome webContents
-ShellWindow.nativeWindow !== chrome webContents owner
+ShellWindow.nativeWindow owns the native window
+ShellWindow.chromeView owns package/bundled chrome pixels
+ShellWindow.chromeWebContents is the IPC/event target for chrome
+ShellWindow.trustedSurfaces owns shell surfaces
 ```
 
-Required changes:
+Implementation sketch:
 
+- introduce `src/main/windows/shell-window.js`
+- move main window bookkeeping behind a `ShellWindow` object
+- keep `BrowserWindow` as the native host initially if practical, but do not
+  load chrome in its primary `webContents`
+- create chrome as a `WebContentsView` for local package mode
+- decide whether bundled chrome moves immediately to a chrome view or remains
+  compatibility-only during the first refactor
 - replace broad use of `mainWindow.webContents` with explicit
   `shellWindow.chromeWebContents`
-- update menu command routing
 - update package registration and caller identity registration
-- update surface events to target chrome webContents
-- update focus helpers
-- update profile focus handoff
-- update window-control APIs to operate on native window, not chrome view
-- update tests that assume BrowserWindow owns chrome directly
+- update shell event routing to target `chromeWebContents`
+- update menu command routing
+- update focus helpers and profile focus handoff
+- update window-control APIs to operate on the native window, not the chrome
+  view
+- preserve package update/rollback/recovery behavior
+- keep the current trusted detached-window fallback paths
 
 Exit criteria:
 
-- bundled chrome and package chrome both run as chrome views
-- native window lifecycle remains stable
-- surface views compose above or alongside chrome
+- local package chrome runs through `ShellWindow.chromeView` without the
+  experiment flag
 - package runtime smoke passes
 - bundled chrome smoke passes
-- shutdown remains one-Ctrl+C in dev mode
+- package update, rollback, and fallback tests pass
+- shutdown remains clean in dev mode
+- shell surfaces can be composed as siblings above or alongside chrome
+- no package API exposes raw view/webContents handles
 
-### Phase 4: Shell-Owned Tab Content Views
+### Phase 3: Shell-Owned Surface Manager
+
+Goal: replace ad hoc trusted windows and the dummy `testSurface` with a real
+main-owned surface manager.
+
+This should come after the compositor host is stable. The first polished target
+can be wallet as a right drawer, but the surface manager should be generic.
+
+Implementation sketch:
+
+- add a surface registry:
+  - `wallet`
+  - `identity`
+  - `payments`
+  - `swarmPublish`
+  - `nodeSettings`
+  - `profileSettings`
+- each surface declares:
+  - capability requirement
+  - trusted entry file
+  - trusted preload
+  - default mode
+  - minimum size
+  - focus behavior
+  - state serializer
+- shell owns placement modes:
+  - `right-drawer`
+  - `modal`
+  - `sheet`
+  - `panel`
+  - `detached`
+- package chrome continues to request intent only:
+  - open
+  - close
+  - toggle
+  - get state
+- shell emits redacted state and optional reserved inset information
+
+Exit criteria:
+
+- wallet can open as a shell-owned right drawer or panel in package mode
+- current trusted wallet detached-window fallback remains available
+- package chrome receives state only
+- package chrome cannot read wallet/identity globals or trusted surface DOM
+- smoke proves surface composition, close/reopen, resize, focus, and shutdown
+
+### Phase 4: Shell-Owned Tab Engine
 
 Goal: move guest page content out of package-owned `<webview>` tabs.
 
-This is related but separate from trusted surfaces.
+This is the second major todo and the bigger product/API project.
 
 Target:
 
-- main owns tab `WebContentsView`s
-- chrome requests tab operations through `freedomShell.tabs.*`
+- main owns tab/content `WebContentsView`s
+- chrome requests tab operations through high-level `freedomShell.tabs.*`
 - chrome renders tab strip/address UI from shell state
+- package chrome may provide layout hints, but main validates and composes
+  content views
 - package chrome does not create guest webviews
 - provider identity and committed origin authority stay in main
+- raw Electron content handles never cross into package chrome
+
+Initial API shape:
+
+```js
+await freedomShell.tabs.create({ url, active: true })
+await freedomShell.tabs.navigate({ tabId, input })
+await freedomShell.tabs.activate({ tabId })
+await freedomShell.tabs.close({ tabId })
+await freedomShell.tabs.reload({ tabId })
+await freedomShell.tabs.stop({ tabId })
+await freedomShell.layout.setContentRegion({ tabId, region: 'main' })
+```
+
+Events:
+
+```js
+freedomShell.onEvent((event) => {
+  if (event.type === 'tabs.changed') {
+    // title, favicon, loading, committedDisplayUrl, active tab, etc.
+  }
+})
+```
 
 Exit criteria:
 
+- official package chrome uses shell tab APIs for core tab workflows
 - package chrome no longer needs `guestContent.transitionalWebviews`
-- page content continues to receive webview-preload-equivalent provider bridges
-  from shell-owned guest views
+- page content receives shell-owned provider/preload bridges
 - tab snapshots become main-derived
 - tab commands return real execution results
+- navigation, provider identity, permissions, history, favicon, and crash
+  handling remain correct
 
-### Phase 5: Production Package Surface Runtime
+### Phase 5: Production Package Runtime
 
 Goal: remove development-only scaffolding and make shell-composed package chrome
 the normal official runtime path.
@@ -624,6 +794,19 @@ Exit criteria:
 - shell recovery UI works if chrome package fails
 - trusted surfaces work when chrome is unavailable
 - Swarm delivery can be added without changing the authority model
+
+---
+
+## Deprecated Plan Fragments
+
+The following ideas are now explicitly deprecated by the spike:
+
+- attaching trusted shell UI as DOM inside package chrome
+- passing raw or proxy `WebContentsView` objects to package chrome
+- relying on package-owned `<webview>` tabs as the final tab/content model
+- treating `BrowserWindow.webContents` as synonymous with chrome webContents
+- attempting to solve integrated wallet/settings by making package chrome more
+  privileged
 
 ---
 
@@ -639,6 +822,7 @@ Unit tests:
 
 Integration tests:
 
+- create/destroy the chrome `WebContentsView` host without leaking
 - create/destroy `WebContentsView` surfaces without leaking
 - open/close/reopen surfaces
 - resize native window and verify bounds updates
@@ -647,6 +831,8 @@ Integration tests:
 
 E2E smoke:
 
+- package chrome runs as a child `WebContentsView`
+- host, chrome, surface, and future content webContents identities are distinct
 - package chrome opens wallet surface
 - package chrome cannot read wallet globals or surface DOM
 - wallet surface displays shell-owned trusted UI
@@ -655,11 +841,12 @@ E2E smoke:
 - package chrome adapts to reserved inset
 - bundled chrome still starts
 - package chrome still starts
+- package update/rollback/fallback still works
 - one Ctrl+C exits dev package run
 
 Screenshot/pixel checks:
 
-- dummy surface visible in correct region
+- shell-owned surface visible in correct region
 - no overlap with title bar controls
 - no accidental blank `WebContentsView`
 - drawer/panel has stable dimensions across desktop sizes
@@ -670,10 +857,15 @@ Screenshot/pixel checks:
 
 - Package chrome never receives wallet, vault, identity, mnemonic, private-key,
   raw provider, raw x402, raw Swarm publish, or dApp permission-store APIs.
+- Package chrome never receives raw `WebContentsView`, raw `webContents`,
+  `BrowserWindow`, session, permission, preload, devtools, or capture handles.
 - Trusted surfaces are separate WebContents with shell-owned preload and
   main-owned lifecycle.
 - Package chrome cannot inspect, script, style, resize, move, or obscure trusted
   surface internals through an API.
+- Package chrome cannot directly `loadURL`, execute JavaScript, set
+  webPreferences, attach provider APIs, or intercept permission requests for
+  content views.
 - Surface requests are capability-gated by package identity.
 - Surface state events are informational and redacted.
 - Main derives security identity from committed webContents state, not from
@@ -685,50 +877,78 @@ Screenshot/pixel checks:
 
 ---
 
-## Open Questions For The Spike
+## Open Questions After The Spike
 
-1. Does `BrowserWindow.getContentView().addChildView(...)` compose reliably over
-   the existing primary BrowserWindow webContents, or do we need immediate
-   `BaseWindow` migration?
-2. How does z-order work between the primary BrowserWindow webContents and
-   child `WebContentsView`s?
+Resolved:
+
+- `BrowserWindow.getContentView().addChildView(...)` does not reliably compose
+  over the existing primary BrowserWindow webContents.
+- Chrome itself should be a `WebContentsView` child of a shell-owned native
+  host.
+- Raw engine handles should remain private to shell/main.
+
+Still open:
+
+1. Should the native host be `BrowserWindow` with a blank/hardened primary
+   webContents, or should the production refactor move directly to
+   `BaseWindow`?
+2. Should bundled chrome move to `WebContentsView` immediately, or should the
+   first productionized compositor path target local package chrome only?
 3. Can trusted views receive focus and keyboard shortcuts without breaking
    chrome shortcuts?
 4. How should DevTools attach for chrome, content, and trusted surfaces?
 5. What is the right accessibility story for a trusted drawer/panel?
 6. How should fullscreen web content interact with shell-owned surfaces?
-7. Should shell surfaces reserve layout space or overlay chrome/content?
-8. How much surface state should be exposed to chrome?
+7. Which surfaces should reserve layout space versus overlay chrome/content?
+8. How much trusted surface state should be exposed to chrome?
 9. Should package manifests declare that they visually support reserved insets,
    or should shell always be able to overlay independently?
 10. What is the minimum viable replacement for the current wallet popup?
+11. What is the smallest shell tab engine API that lets official package chrome
+    reach parity without exposing raw content handles?
 
 ---
 
-## Recommended Next Work Package
+## Recommended Next Work Packages
 
-Build a feature-flagged WebContentsView spike.
+### Work Package 1: Productionize `ShellWindow`
 
-Do not migrate wallet first. Use a dummy shell-owned surface so we can learn the
-window composition behavior without entangling wallet UX, vault state, or
-provider flows.
+Promote the spike topology into a real main-owned compositor host.
 
-Suggested implementation target:
+Suggested target:
 
-- `FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR=1`
-- a shell-owned `testSurface` rendered from `src/main/trusted-surfaces/test/`
-- `freedomShell.surfaces.open('testSurface')` available only in development or
-  test capability mode
-- main-owned right-drawer bounds
-- package chrome receives only `surfaces.stateChanged`
-- e2e screenshot proves same-window rendering
-- shutdown test proves lifecycle cleanup
+- add `ShellWindow`
+- make local package chrome run as `ShellWindow.chromeView`
+- route package registration, shell events, menu commands, focus, and window
+  controls through explicit `chromeWebContents`
+- preserve package fallback/update/recovery
+- keep raw view/webContents handles private
+- keep `testSurface` only as a dev/test probe or replace it with the surface
+  manager's test fixture
 
-If the spike succeeds, proceed to a real `ShellWindow` surface manager and move
-the wallet trusted window into a shell-owned drawer/panel.
+This is mostly architecture plumbing. It should happen before migrating wallet,
+because wallet should land on the real compositor rather than another temporary
+host.
 
-If the spike fails on the existing `BrowserWindow`, skip incremental overlay
-work and start the larger `BaseWindow + chrome WebContentsView` migration.
+### Work Package 2: Design And Start The Shell Tab Engine
+
+Define the smallest high-level tab/content API that lets official package chrome
+stop creating package-owned `<webview>` tabs.
+
+Suggested target:
+
+- write the tab engine contract first
+- identify exact operations official chrome uses today
+- implement one narrow vertical slice:
+  - create one shell-owned content `WebContentsView`
+  - navigate it through main-owned resolution
+  - expose title/loading/committed URL state
+  - let package chrome activate/close it by tab id
+- keep provider injection and committed identity in main
+- prove package chrome cannot obtain raw content handles
+
+This is the larger project. It can start as a design/spec work package while
+`ShellWindow` productionization proceeds.
 
 ---
 
