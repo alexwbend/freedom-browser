@@ -133,6 +133,56 @@ describe('mainWindow chrome package preferences', () => {
     });
   });
 
+  test('cleans up package webview security after the BrowserWindow is destroyed', () => {
+    const { mod } = loadMainWindow();
+    const webContents = {
+      isDestroyed: jest.fn(() => false),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    let destroyed = false;
+    const window = {
+      get webContents() {
+        if (destroyed) {
+          throw new TypeError('Object has been destroyed');
+        }
+        return webContents;
+      },
+    };
+
+    const cleanup = mod.registerPackageWebviewSecurity(window, {
+      kind: 'local-package',
+      transitionalWebviews: true,
+    });
+
+    destroyed = true;
+    expect(() => cleanup()).not.toThrow();
+    expect(webContents.removeListener).toHaveBeenCalledWith(
+      'will-attach-webview',
+      expect.any(Function)
+    );
+  });
+
+  test('skips package webview security cleanup when webContents is already destroyed', () => {
+    const { mod } = loadMainWindow();
+    const webContents = {
+      isDestroyed: jest.fn(() => true),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const cleanup = mod.registerPackageWebviewSecurity(
+      { webContents },
+      {
+        kind: 'local-package',
+        transitionalWebviews: true,
+      }
+    );
+
+    cleanup();
+
+    expect(webContents.removeListener).not.toHaveBeenCalled();
+  });
+
   test('loads store-backed packages through the shell-owned package scheme', () => {
     const { mod } = loadMainWindow();
     const window = {

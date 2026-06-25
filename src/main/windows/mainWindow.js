@@ -136,12 +136,18 @@ function registerPackageWebviewSecurity(window, chromePackage) {
     return () => {};
   }
 
+  const webContents = window.webContents;
   const handler = (_event, webPreferences, params) => {
     sanitizePackageGuestWebviewParams(params);
     enforcePackageGuestWebPreferences(webPreferences);
   };
-  window.webContents.on('will-attach-webview', handler);
-  return () => window.webContents.removeListener?.('will-attach-webview', handler);
+  webContents.on('will-attach-webview', handler);
+  return () => {
+    if (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) {
+      return;
+    }
+    webContents.removeListener?.('will-attach-webview', handler);
+  };
 }
 
 function createMainWindow(initialUrl = null, options = {}) {
@@ -405,6 +411,7 @@ module.exports = {
   createMainWindow,
   enforcePackageGuestWebPreferences,
   getPackageGuestPreloadPath,
+  registerPackageWebviewSecurity,
   sanitizePackageGuestWebviewParams,
   getChromeWindowWebPreferences,
   loadChromeEntry,
