@@ -779,6 +779,8 @@ Goal: move guest page content out of package-owned `<webview>` tabs.
 
 This is the second major todo and the bigger product/API project.
 
+Detailed contract: [shell-tab-engine-contract.md](shell-tab-engine-contract.md).
+
 Target:
 
 - main owns tab/content `WebContentsView`s
