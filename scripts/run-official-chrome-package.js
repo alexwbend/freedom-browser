@@ -7,6 +7,8 @@ const {
   defaultOutputDir,
 } = require('./build-official-chrome-package');
 
+const repoRoot = path.resolve(__dirname, '..');
+
 const MODES = Object.freeze({
   RUN: 'run',
   INSTALL: 'install',
@@ -55,9 +57,14 @@ function createLaunchEnvironment({ mode = MODES.RUN, packageDir, env = process.e
   return nextEnv;
 }
 
-function runNpmStart({ env = process.env, stdio = 'inherit' } = {}) {
-  const npmExecutable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  return spawnSync(npmExecutable, ['start'], {
+function runElectronApp({
+  env = process.env,
+  stdio = 'inherit',
+  spawn = spawnSync,
+  electronExecutable = require('electron'),
+} = {}) {
+  return spawn(electronExecutable, ['.'], {
+    cwd: repoRoot,
     env,
     stdio,
   });
@@ -74,7 +81,7 @@ function runOfficialChromePackage(argv = process.argv.slice(2), options = {}) {
     env: options.env || process.env,
   });
 
-  const child = (options.runNpmStart || runNpmStart)({
+  const child = (options.runElectronApp || options.runNpmStart || runElectronApp)({
     env,
     stdio: options.stdio || 'inherit',
   });
@@ -98,5 +105,6 @@ module.exports = {
   createLaunchEnvironment,
   getPackageEnvKey,
   parseArgs,
+  runElectronApp,
   runOfficialChromePackage,
 };

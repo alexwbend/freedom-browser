@@ -6,6 +6,7 @@ const {
   createLaunchEnvironment,
   getPackageEnvKey,
   parseArgs,
+  runElectronApp,
   runOfficialChromePackage,
 } = require('./run-official-chrome-package');
 
@@ -71,6 +72,32 @@ test('createLaunchEnvironment passes absolute install dirs and clears the opposi
   expect(path.isAbsolute(env.FREEDOM_CHROME_PACKAGE_INSTALL_DIR)).toBe(true);
 });
 
+test('runElectronApp launches Electron directly from the repository root', () => {
+  const calls = [];
+  const result = runElectronApp({
+    env: { FREEDOM_CHROME_PACKAGE_DIR: '/tmp/package' },
+    stdio: 'pipe',
+    electronExecutable: '/tmp/electron',
+    spawn: (command, args, options) => {
+      calls.push({ command, args, options });
+      return { status: 0 };
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(calls).toEqual([
+    {
+      command: '/tmp/electron',
+      args: ['.'],
+      options: {
+        cwd: repoRoot,
+        env: { FREEDOM_CHROME_PACKAGE_DIR: '/tmp/package' },
+        stdio: 'pipe',
+      },
+    },
+  ]);
+});
+
 test('runOfficialChromePackage builds and launches with an absolute package dir', () => {
   const outputDir = makeOutputDir('run');
   const launches = [];
@@ -81,7 +108,7 @@ test('runOfficialChromePackage builds and launches with an absolute package dir'
       FREEDOM_CHROME_PACKAGE_INSTALL_DIR: 'relative-old-install',
       TMPDIR: os.tmpdir(),
     },
-    runNpmStart: (launch) => {
+    runElectronApp: (launch) => {
       launches.push(launch);
       return { status: 0 };
     },
@@ -106,7 +133,7 @@ test('runOfficialChromePackage install mode launches with an absolute install di
       FREEDOM_CHROME_PACKAGE_DIR: 'relative-old',
       FREEDOM_CHROME_PACKAGE_INSTALL_DIR: 'relative-old-install',
     },
-    runNpmStart: (launch) => {
+    runElectronApp: (launch) => {
       launches.push(launch);
       return { status: 0 };
     },
