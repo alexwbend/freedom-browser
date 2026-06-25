@@ -49,6 +49,52 @@ module off, web security on, insecure content disabled, experimental features
 off, and package-owned `<webview>` support disabled unless the manifest opts
 into the transitional guest-webview bridge described below.
 
+### Official Chrome Package Source
+
+The official browser chrome package source lives under:
+
+```text
+packages/official-browser-chrome/src/
+```
+
+Build or materialize it into the default development output directory with:
+
+```bash
+npm run chrome:package:build
+```
+
+The default generated package output is:
+
+```text
+dist/chrome-packages/official-browser-chrome/
+```
+
+The builder (`scripts/build-official-chrome-package.js`) copies the package
+source, excludes development-only files, writes deterministic `manifest.json`,
+computes package-relative SHA-256 hashes for every declared file, declares the
+official shell API capabilities, opts into
+`guestContent.transitionalWebviews: true`, and validates the generated package
+with the same local package validator used at runtime.
+
+Run the generated package directly in local package mode:
+
+```bash
+npm run chrome:package:run
+```
+
+Install the generated package into the local package cache and launch from the
+store-backed runtime path:
+
+```bash
+npm run chrome:package:install
+```
+
+The boundary guard for official package source and generated output is:
+
+```bash
+npm run chrome:package:check-boundary
+```
+
 ### Cached Package Chrome
 
 The shell can install a verified unpacked package into a local store under app
@@ -277,12 +323,15 @@ package-owned `<webview>` creation.
 
 ## Official Local Chrome Smoke
 
-The launched package smoke now builds a temporary official chrome package from
-`src/renderer` during the test run. The generated manifest opts into
-`guestContent.transitionalWebviews: true` and declares only the shell
-capabilities needed for startup readiness, deterministic navigation coverage,
-the ordinary browser-state reads/writes used by the bookmarks bar and
-autocomplete, and the shell-owned wallet/payments trusted surfaces.
+The launched package smoke builds a temporary official chrome package through
+`scripts/build-official-chrome-package.js`. It uses the same
+`packages/official-browser-chrome/src/` source tree and materialization path as
+developer commands, rather than hand-copying `src/renderer` in the e2e harness.
+The generated manifest opts into `guestContent.transitionalWebviews: true` and
+declares only the shell capabilities needed for startup readiness,
+deterministic navigation coverage, ordinary browser-state reads/writes,
+package-safe service status, package-safe app/window commands, clipboard/image
+actions, and shell-owned trusted surface control.
 
 In package mode, the renderer uses a local chrome runtime adapter instead of
 receiving `window.electronAPI`. Bundled chrome still uses the broad trusted
@@ -995,6 +1044,13 @@ Focused unit tests:
 
 ```bash
 npm test -- src/main/chrome-package.test.js src/main/chrome-package-feed.test.js src/main/chrome-package-store.test.js src/main/package-preload.test.js src/main/shell-api.test.js src/shared/navigation-input.test.js src/main/windows/mainWindow.test.js
+```
+
+Official package source/build tests:
+
+```bash
+npm test -- scripts/build-official-chrome-package.test.js
+npm run chrome:package:check-boundary
 ```
 
 Package-origin focused unit tests:

@@ -426,6 +426,14 @@ launch a local chrome package with the narrow `window.freedomShell` preload:
 FREEDOM_CHROME_PACKAGE_DIR="$PWD/test/fixtures/chrome-packages/minimal" npm start
 ```
 
+The official package chrome source lives in
+`packages/official-browser-chrome/src/` and can be built or launched with:
+
+```bash
+npm run chrome:package:build
+npm run chrome:package:run
+```
+
 See [`docs/local-package-chrome-runtime.md`](docs/local-package-chrome-runtime.md)
 for the manifest shape, shell API v0, recovery behavior, and smoke-test
 commands.

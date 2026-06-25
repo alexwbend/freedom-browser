@@ -208,9 +208,46 @@ and focused boundary guardrail are implemented locally.
 
 ### Remaining
 
-- Commit and push this source/build checkpoint.
+- Source/build checkpoint committed and pushed as `5b1d071`
+  (`feat(chrome): build official chrome package source`).
 - Update `docs/local-package-chrome-runtime.md` and
   `docs/package-chrome-trust-boundaries.md` for the new source/build layout.
+- Run broader local verification: lint, full unit tests, and bundled plus
+  package e2e smoke.
+- Triage or record the known address suggestion and `freedom://history` manual
+  smoke issues.
+- Verify final GitHub `test` and `e2e-chrome-runtime` jobs on the final pushed
+  head.
+
+## Checkpoint 3: Source Layout Documentation
+
+Status: runtime and trust-boundary docs updated for the v1 package source
+layout.
+
+### What Changed
+
+- Updated `docs/local-package-chrome-runtime.md` with the official package
+  source path, generated output path, builder behavior, npm build/run/install
+  commands, and boundary-check command.
+- Updated the official smoke description so it says the e2e harness uses
+  `scripts/build-official-chrome-package.js` and
+  `packages/official-browser-chrome/src/` instead of copying `src/renderer`.
+- Added official package source/build tests to the runtime verification
+  section.
+- Updated `docs/package-chrome-trust-boundaries.md` to mark the v1 branch as
+  the current source-separation audit and document the package source status,
+  package-specific entry/tab split, shared builder, and boundary guard.
+- Added a short README pointer to `packages/official-browser-chrome/src/`,
+  `npm run chrome:package:build`, and `npm run chrome:package:run`.
+
+### Verification
+
+- Documentation-only checkpoint so far; `git diff --check` still needs to run
+  before commit.
+
+### Remaining
+
+- Commit and push this documentation checkpoint.
 - Run broader local verification: lint, full unit tests, and bundled plus
   package e2e smoke.
 - Triage or record the known address suggestion and `freedom://history` manual

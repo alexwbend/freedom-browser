@@ -5,9 +5,11 @@ Swarm delivery. It is the guardrail for moving the current bundled renderer
 toward a package runtime without turning package chrome back into a trusted
 renderer.
 
-Current audited branch: `goal/local-package-chrome-runtime-v0`, through the
+Current audited branch: `goal/local-package-chrome-runtime-v1`, built on the
 Pre-Swarm hardening checkpoints recorded in
-`docs/agent-progress/local-package-chrome-runtime-v0.md`.
+`docs/agent-progress/local-package-chrome-runtime-v0.md` and the source
+separation ledger in
+`docs/agent-progress/local-package-chrome-runtime-v1.md`.
 
 ## Authority Categories
 
@@ -491,6 +493,41 @@ The active package protocol handler:
 This is still a local/offline package-origin model. It does not add Swarm
 download, package signatures, marketplace install UI, or community package
 provenance.
+
+## Official Package Source Status
+
+The official package source now lives in:
+
+```text
+packages/official-browser-chrome/src/
+```
+
+The package is materialized by `scripts/build-official-chrome-package.js`, which
+copies that source tree into an output directory, excludes development files,
+generates deterministic manifest JSON, records package-relative SHA-256 hashes,
+declares the official shell API capabilities, includes
+`guestContent.transitionalWebviews: true`, and validates the result with
+`validateLocalChromePackage(...)`.
+
+The e2e official package smoke calls the same builder through
+`writeOfficialChromePackage(...)`. That helper is now only a thin wrapper around
+the shared builder; it no longer performs an ad hoc whole-`src/renderer` copy.
+
+The package source keeps a package-specific entry and tab implementation so
+ordinary browser chrome does not import bundled-only onboarding, wallet, or
+legacy renderer-side provider approval modules. Guest provider injection and
+privileged provider flows remain owned by the hardened guest preload and
+main-process broker paths. The package source may still contain package-safe
+browser UI, package-safe internal pages, pure shared helpers, styles, assets,
+and vendor browser libraries needed by those pages.
+
+Boundary regression coverage lives in
+`scripts/check-official-chrome-boundary.js` and
+`scripts/build-official-chrome-package.test.js`. The guard scans the official
+package source and generated package for direct Electron imports, raw
+`ipcRenderer`, broad preload globals such as `window.electronAPI`,
+`window.wallet`, `window.identity`, provider/permission globals, main-process
+source imports, and trusted surface source files.
 
 ## Runtime Diagnostics Status
 
