@@ -151,7 +151,8 @@ CSS cleanup:
 
 ## Checkpoint 2: Package Sidebar Trusted UI Removal
 
-Status: implemented locally; ready to commit and push after this ledger update.
+Status: committed and pushed as
+`1e645f6` (`chore(chrome): remove package-owned trusted sidebar UI`).
 
 ### Changes
 
@@ -182,7 +183,46 @@ Status: implemented locally; ready to commit and push after this ledger update.
 
 ### Remaining
 
-- Decide whether adapter purity cleanup is in scope for this goal or should be
-  recorded as post-goal cleanup.
-- Run final local verification after any remaining edits.
-- Push the final head and verify GitHub `test` and `e2e-chrome-runtime` jobs.
+- Verify final GitHub `test` and `e2e-chrome-runtime` jobs.
+
+## Checkpoint 3: Final Local Verification
+
+Status: complete locally.
+
+### Adapter Purity Decision
+
+Target 2 (`chrome-runtime-api.js` adapter purity) was not started in v2. The
+remaining `runtimeWindow.electronAPI` bundled fallback is outside the package
+runtime path because package mode has no `electronAPI` exposure, and Target 2
+is explicitly optional for v2 unless it can be completed as a small ratcheted
+checkpoint.
+
+Post-goal cleanup opportunity: split the bundled broad-preload adapter from the
+package `freedomShell` adapter or add a narrower allowlist ratchet for any
+remaining broad-preload fallback code in official package source.
+
+### Final Local Verification
+
+- `npm run chrome:package:check-boundary` passed.
+- `npm run lint` passed.
+- `npm test` passed:
+  - 126 suites passed
+  - 5 suites skipped
+  - 2352 tests passed
+  - 17 tests skipped
+- `xvfb-run -a npm run test:e2e -- test-e2e/chrome-smoke.spec.js test-e2e/chrome-package.spec.js`
+  passed:
+  - 15 harness tests passed
+
+### Completion State
+
+- Target 1 wallet/vault/sidebar residue cleanup is complete.
+- Package `index.html` no longer carries the old trusted wallet, vault,
+  private-key, mnemonic, dApp approval, x402 approval, or permissions panels.
+- Package `sidebar.css` no longer carries selectors exclusively supporting the
+  removed trusted sidebar panels.
+- Boundary checks now reject representative trusted sidebar IDs/selectors in
+  source and generated package output.
+- The official package smoke still proves the wallet toolbar button opens the
+  shell-owned trusted wallet surface and that broad privileged globals remain
+  absent.
