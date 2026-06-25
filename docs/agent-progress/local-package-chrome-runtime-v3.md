@@ -199,9 +199,9 @@ Status: complete locally before final docs checkpoint.
 - V2 trusted sidebar residue checks remain in place and pass.
 - The deterministic package builder still produces validator-accepted output.
 
-### Remaining
+### Final Gates After This Docs Checkpoint
 
-- Commit and push this final verification ledger update.
-- Re-run final local verification after the docs checkpoint for an exact
+- Re-run final local verification on the docs-included head for an exact
   final-head local evidence trail.
-- Verify GitHub `test` and `e2e-chrome-runtime` on the final pushed head.
+- Verify GitHub `test` and `e2e-chrome-runtime` on that same final pushed
+  head.
