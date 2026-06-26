@@ -432,6 +432,7 @@ describe('ShellWindow', () => {
       width: 520,
       height: 800,
     });
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
@@ -476,6 +477,7 @@ describe('ShellWindow', () => {
 
     expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_OVERLAY)).toBe('overlay');
     expect(surfaceWindow.getLayoutMode()).toBe('overlay');
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
@@ -496,6 +498,7 @@ describe('ShellWindow', () => {
     ]);
 
     expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_DOCK)).toBe('dock');
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,

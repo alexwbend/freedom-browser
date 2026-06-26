@@ -246,6 +246,10 @@ function setViewBorderRadius(view, radius = COMPOSITOR_PANEL_RADIUS) {
   }
 }
 
+function getSurfaceBorderRadius(record) {
+  return record?.layoutMode === SURFACE_LAYOUT_MODE_DOCK ? COMPOSITOR_PANEL_RADIUS : 0;
+}
+
 class ShellWindow {
   constructor({
     nativeWindow,
@@ -476,7 +480,7 @@ class ShellWindow {
         to: targetBounds,
         apply: (bounds) => this.setRecordBounds(record, bounds),
       });
-      setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
+      setViewBorderRadius(record.view, getSurfaceBorderRadius(record));
     });
     if (animate) {
       this.animateCompositorBounds(entries, { onComplete });
@@ -543,7 +547,7 @@ class ShellWindow {
     record.bounds = this.getHiddenSurfaceBounds(record);
     record.view.setBounds(record.bounds);
     record.view.setVisible?.(false);
-    setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
+    setViewBorderRadius(record.view, getSurfaceBorderRadius(record));
     view.webContents.once?.('destroyed', record.handleDestroyed);
     view.webContents.once?.('dom-ready', record.handleReady);
     view.webContents.once?.('did-finish-load', record.handleReady);
