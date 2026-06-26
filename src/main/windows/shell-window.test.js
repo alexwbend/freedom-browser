@@ -66,6 +66,7 @@ function makeSurfaceView(id = 3) {
     }),
     getBounds: jest.fn(() => bounds),
     getVisible: jest.fn(() => visible),
+    setBackgroundColor: jest.fn(),
     setBorderRadius: jest.fn(),
   };
   return view;
@@ -265,6 +266,7 @@ describe('ShellWindow', () => {
     surfaceWindow.focus();
 
     expect(contentView.addChildView).toHaveBeenCalledWith(surfaceView);
+    expect(surfaceView.setBackgroundColor).toHaveBeenCalledWith('#00000000');
     expect(surfaceView.setBorderRadius).toHaveBeenCalledWith(12);
     expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(surfaceView.setBounds).toHaveBeenCalledWith({
@@ -427,12 +429,12 @@ describe('ShellWindow', () => {
     surfaceWindow.show();
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
-      x: 680,
+      x: 672,
       y: 0,
-      width: 520,
+      width: 528,
       height: 800,
     });
-    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
@@ -477,7 +479,7 @@ describe('ShellWindow', () => {
 
     expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_OVERLAY)).toBe('overlay');
     expect(surfaceWindow.getLayoutMode()).toBe('overlay');
-    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
@@ -485,9 +487,9 @@ describe('ShellWindow', () => {
       height: 800,
     });
     expect(surfaceView.getBounds()).toEqual({
-      x: 680,
+      x: 672,
       y: 0,
-      width: 520,
+      width: 528,
       height: 800,
     });
     expect(shellWindow.getDebugState().surfaces).toEqual([

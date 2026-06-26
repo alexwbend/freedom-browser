@@ -10,6 +10,7 @@ const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
 const COMPOSITOR_PANEL_GAP = 8;
 const COMPOSITOR_PANEL_RADIUS = 12;
 const COMPOSITOR_BACKGROUND_COLOR = '#101010';
+const COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR = '#00000000';
 const COMPOSITOR_ANIMATION_DURATION_MS = 180;
 const COMPOSITOR_ANIMATION_FRAME_MS = 16;
 
@@ -109,6 +110,19 @@ function getHiddenRightDrawerBoundsForSize(
     y: rootBounds.y,
     width: surfaceWidth,
     height: rootBounds.height,
+  };
+}
+
+function getOverlaySurfaceWidthPreferences(record) {
+  if (record?.layoutMode !== SURFACE_LAYOUT_MODE_OVERLAY) {
+    return {
+      width: record?.width ?? DEFAULT_SURFACE_WIDTH,
+      minWidth: record?.minWidth ?? MIN_SURFACE_WIDTH,
+    };
+  }
+  return {
+    width: (record.width ?? DEFAULT_SURFACE_WIDTH) + COMPOSITOR_PANEL_GAP,
+    minWidth: (record.minWidth ?? MIN_SURFACE_WIDTH) + COMPOSITOR_PANEL_GAP,
   };
 }
 
@@ -246,10 +260,6 @@ function setViewBorderRadius(view, radius = COMPOSITOR_PANEL_RADIUS) {
   }
 }
 
-function getSurfaceBorderRadius(record) {
-  return record?.layoutMode === SURFACE_LAYOUT_MODE_DOCK ? COMPOSITOR_PANEL_RADIUS : 0;
-}
-
 class ShellWindow {
   constructor({
     nativeWindow,
@@ -353,18 +363,20 @@ class ShellWindow {
     this.updateCompositorLayout();
   }
 
-  getHiddenSurfaceBounds(record) {
+  getHiddenSurfaceBounds(record, size = getWindowContentSize(this.nativeWindow)) {
+    const widthPreferences = getOverlaySurfaceWidthPreferences(record);
     return getHiddenRightDrawerBoundsForSize(
-      getWindowContentSize(this.nativeWindow),
-      record.width,
-      record.minWidth
+      size,
+      widthPreferences.width,
+      widthPreferences.minWidth
     );
   }
 
   getSurfaceTargetBounds(record, tileLayout, size) {
+    const widthPreferences = getOverlaySurfaceWidthPreferences(record);
     return (
       tileLayout.surfaceBoundsByRecord.get(record) ||
-      getRightDrawerBoundsForSize(size, record.width, record.minWidth)
+      getRightDrawerBoundsForSize(size, widthPreferences.width, widthPreferences.minWidth)
     );
   }
 
@@ -468,7 +480,7 @@ class ShellWindow {
       }
       const isEntering = enteringRecords.includes(record);
       const isExiting = exitingRecords.includes(record);
-      const hiddenBounds = getHiddenRightDrawerBoundsForSize(size, record.width, record.minWidth);
+      const hiddenBounds = this.getHiddenSurfaceBounds(record, size);
       const targetBounds = isExiting
         ? hiddenBounds
         : this.getSurfaceTargetBounds(record, tileLayout, size);
@@ -480,7 +492,7 @@ class ShellWindow {
         to: targetBounds,
         apply: (bounds) => this.setRecordBounds(record, bounds),
       });
-      setViewBorderRadius(record.view, getSurfaceBorderRadius(record));
+      setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
     });
     if (animate) {
       this.animateCompositorBounds(entries, { onComplete });
@@ -547,7 +559,8 @@ class ShellWindow {
     record.bounds = this.getHiddenSurfaceBounds(record);
     record.view.setBounds(record.bounds);
     record.view.setVisible?.(false);
-    setViewBorderRadius(record.view, getSurfaceBorderRadius(record));
+    setViewBackgroundColor(record.view, COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR);
+    setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
     view.webContents.once?.('destroyed', record.handleDestroyed);
     view.webContents.once?.('dom-ready', record.handleReady);
     view.webContents.once?.('did-finish-load', record.handleReady);
@@ -737,10 +750,9 @@ class ShellWindow {
           ? chromeWebContents.getURL()
           : '',
       chromeBounds:
-        this.chromeBounds ||
-        (this.chromeView && typeof this.chromeView.getBounds === 'function'
+        this.chromeView && typeof this.chromeView.getBounds === 'function'
           ? this.chromeView.getBounds()
-          : null),
+          : this.chromeBounds,
       chromeVisible:
         this.chromeView && typeof this.chromeView.getVisible === 'function'
           ? this.chromeView.getVisible()

@@ -2498,7 +2498,9 @@ test('official browser chrome can launch as a local package with transitional we
     expect(shellWindowWithOverlayWallet.chromeBounds.width).toBeGreaterThan(
       shellWindowWithWallet.chromeBounds.width
     );
-    expect(overlayWalletSurface.bounds.width).toBe(walletSurface.bounds.width);
+    expect(overlayWalletSurface.bounds.width).toBe(
+      walletSurface.bounds.width + shellWindowWithWallet.layout.gap
+    );
 
     await layoutToggle.click();
     await expect(layoutToggle).toHaveAttribute('aria-label', 'Undock sidebar');
