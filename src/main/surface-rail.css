@@ -1,0 +1,102 @@
+:root {
+  color-scheme: light dark;
+  --surface-rail-bg: #171717;
+  --surface-rail-border: #2d2d2d;
+  --surface-rail-icon: #d6d3ca;
+  --surface-rail-muted: #8f8a80;
+  --surface-rail-hover: #262626;
+  --surface-rail-active: #2f7d59;
+  --surface-rail-active-bg: #20392e;
+  background: var(--surface-rail-bg);
+  color: var(--surface-rail-icon);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--surface-rail-bg);
+}
+
+.surface-rail {
+  align-items: center;
+  background: var(--surface-rail-bg);
+  border-left: 1px solid var(--surface-rail-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100vh;
+  padding: 7px 5px;
+  width: 100vw;
+}
+
+.surface-rail-button {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--surface-rail-icon);
+  cursor: pointer;
+  display: inline-flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  padding: 0;
+  width: 32px;
+}
+
+.surface-rail-button:hover {
+  background: var(--surface-rail-hover);
+  border-color: var(--surface-rail-border);
+}
+
+.surface-rail-button:focus-visible {
+  outline: 2px solid var(--surface-rail-active);
+  outline-offset: 2px;
+}
+
+.surface-rail-button[aria-pressed="true"],
+.surface-rail-button[data-active="true"] {
+  background: var(--surface-rail-active-bg);
+  border-color: var(--surface-rail-active);
+  color: #a6e3c4;
+}
+
+.surface-rail-button svg {
+  height: 17px;
+  width: 17px;
+}
+
+.surface-rail-toggle[data-open="true"] svg {
+  transform: rotate(180deg);
+}
+
+.surface-rail-separator {
+  background: var(--surface-rail-border);
+  flex: none;
+  height: 1px;
+  margin: 1px 0;
+  width: 22px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --surface-rail-bg: #f8f7f3;
+    --surface-rail-border: #dedbd2;
+    --surface-rail-icon: #26241f;
+    --surface-rail-muted: #68645c;
+    --surface-rail-hover: #efede7;
+    --surface-rail-active: #2f7d59;
+    --surface-rail-active-bg: #e6f2ec;
+  }
+}

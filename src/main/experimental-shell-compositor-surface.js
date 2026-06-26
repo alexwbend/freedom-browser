@@ -43,9 +43,14 @@ function getOwnerContentSize(ownerWindow) {
 
 function getTestSurfaceBounds(ownerWindow) {
   const { width, height } = getOwnerContentSize(ownerWindow);
+  const railBounds = ownerWindow?.__freedomShellWindow?.getDebugState?.()?.surfaceRail?.bounds;
+  const rightEdge =
+    Number.isFinite(railBounds?.x) && railBounds.x >= 0
+      ? Math.min(width, railBounds.x)
+      : width;
   const surfaceWidth = Math.min(TEST_SURFACE_WIDTH, Math.max(MIN_TEST_SURFACE_WIDTH, width));
   return {
-    x: Math.max(0, width - surfaceWidth),
+    x: Math.max(0, rightEdge - surfaceWidth),
     y: 0,
     width: surfaceWidth,
     height: Math.max(0, height),

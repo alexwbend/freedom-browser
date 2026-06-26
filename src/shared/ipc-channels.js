@@ -102,6 +102,8 @@ module.exports = {
   // Browser chrome shell API
   SHELL_REQUEST: 'shell:request',
   SHELL_EVENT: 'shell:event',
+  SHELL_SURFACE_RAIL_COMMAND: 'shell-surface-rail:command',
+  SHELL_SURFACE_RAIL_STATE: 'shell-surface-rail:state',
 
   // Favicons
   FAVICON_GET: 'favicon:get',

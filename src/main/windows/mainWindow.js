@@ -1,5 +1,5 @@
 const log = require('../logger');
-const { app, BrowserWindow, WebContentsView } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const {
@@ -17,6 +17,7 @@ const {
   emitShellEventToPackageWebContents,
   onPackageReady,
   registerPackageWebContents,
+  setSurfaceOpenForPackageWebContents,
 } = require('../shell-api');
 const { SHELL_API_EVENTS } = require('../../shared/shell-api-policy');
 const {
@@ -24,11 +25,13 @@ const {
   getCompositorHostWebPreferences,
   shouldUseShellWindowCompositor,
 } = require('./shell-window');
+const IPC = require('../../shared/ipc-channels');
 
 let currentWindowTitle = 'Freedom';
 
 // Track all main browser windows we create
 const mainWindows = new Set();
+let surfaceRailIpcRegistered = false;
 
 // Get the app icon path (works in both dev and packaged)
 function getIconPath() {
@@ -78,6 +81,14 @@ function getPackageGuestPreloadPath() {
   return path.join(__dirname, '..', 'webview-preload.js');
 }
 
+function getSurfaceRailPreloadPath() {
+  return path.join(__dirname, '..', 'surface-rail-preload.js');
+}
+
+function getSurfaceRailHtmlPath() {
+  return path.join(__dirname, '..', 'surface-rail.html');
+}
+
 function packageUsesTransitionalWebviews(chromePackage) {
   return chromePackage.kind === 'local-package' && chromePackage.transitionalWebviews === true;
 }
@@ -104,6 +115,34 @@ function createChromeCompositorView(chromePackage) {
   return new WebContentsView({
     webPreferences: getChromeWindowWebPreferences(chromePackage),
   });
+}
+
+function getSurfaceRailWebPreferences() {
+  return {
+    preload: getSurfaceRailPreloadPath(),
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webviewTag: false,
+    enableRemoteModule: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false,
+  };
+}
+
+function createSurfaceRailView() {
+  const view = new WebContentsView({
+    webPreferences: getSurfaceRailWebPreferences(),
+  });
+  view.webContents.loadFile(getSurfaceRailHtmlPath()).catch((error) => {
+    log.warn('[surface-rail] failed to load shell rail', {
+      message: error?.message || String(error),
+    });
+  });
+  return view;
 }
 
 function enforcePackageGuestWebPreferences(webPreferences = {}) {
@@ -174,7 +213,91 @@ function registerPackageWebviewSecurity(target, chromePackage) {
   };
 }
 
+function findShellWindowForSurfaceRailSender(sender) {
+  for (const window of mainWindows) {
+    if (!window || window.isDestroyed?.()) {
+      continue;
+    }
+    const shellWindow = window.__freedomShellWindow || null;
+    if (shellWindow?.getSurfaceRailWebContents?.() === sender) {
+      return { window, shellWindow };
+    }
+  }
+  return null;
+}
+
+function normalizeRailSurface(surface) {
+  return surface === 'wallet' ? surface : null;
+}
+
+async function handleSurfaceRailCommand(event, request = {}) {
+  const match = findShellWindowForSurfaceRailSender(event?.sender || null);
+  if (!match) {
+    return {
+      ok: false,
+      error: {
+        code: 'SURFACE_RAIL_UNAUTHORIZED',
+        message: 'Surface rail command came from an unauthorized sender',
+      },
+    };
+  }
+
+  const { window, shellWindow } = match;
+  const command = typeof request?.command === 'string' ? request.command : '';
+  const currentRailState = shellWindow.getSurfaceRailState?.() || {};
+  if (command === 'sync-state') {
+    return {
+      ok: true,
+      railState: currentRailState,
+    };
+  }
+
+  let surface = null;
+  let open = true;
+  if (command === 'toggle-last-surface') {
+    surface = normalizeRailSurface(
+      currentRailState.activeSurface || currentRailState.lastActiveSurface || 'wallet'
+    );
+    open = !currentRailState.activeSurface;
+  } else if (command === 'open-surface') {
+    surface = normalizeRailSurface(request?.payload?.surface);
+    open = true;
+  }
+
+  if (!surface) {
+    return {
+      ok: false,
+      railState: currentRailState,
+      error: {
+        code: 'SURFACE_RAIL_COMMAND_UNSUPPORTED',
+        message: 'Unsupported surface rail command',
+      },
+    };
+  }
+
+  const chromeWebContents = shellWindow.getChromeWebContents?.() || null;
+  const state = await setSurfaceOpenForPackageWebContents(
+    chromeWebContents,
+    { surface },
+    open,
+    { ownerWindow: window }
+  );
+  return {
+    ...state,
+    railState: shellWindow.getSurfaceRailState?.() || currentRailState,
+  };
+}
+
+function ensureSurfaceRailIpcRegistered() {
+  if (surfaceRailIpcRegistered) {
+    return;
+  }
+  ipcMain.handle(IPC.SHELL_SURFACE_RAIL_COMMAND, handleSurfaceRailCommand);
+  surfaceRailIpcRegistered = true;
+}
+
 function createMainWindow(initialUrl = null, options = {}) {
+  ensureSurfaceRailIpcRegistered();
   const isMac = process.platform === 'darwin';
   const packageStoreRoot =
     options.packageStoreRoot || getChromePackageStoreRoot({ userDataDir: app.getPath('userData') });
@@ -222,6 +345,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     chromePackage,
     useChromeView: useShellCompositor,
     createChromeView: createChromeCompositorView,
+    createSurfaceRailView,
   });
   const chromeWebContents = shellWindow.chromeWebContents;
   const chromeLoadTarget = shellWindow.chromeLoadTarget;
@@ -452,6 +576,8 @@ module.exports = {
   registerPackageWebviewSecurity,
   sanitizePackageGuestWebviewParams,
   getChromeWindowWebPreferences,
+  getSurfaceRailPreloadPath,
+  getSurfaceRailWebPreferences,
   loadChromeEntry,
   focusOrCreateMainWindow,
   setWindowTitle,

@@ -1120,6 +1120,9 @@ async function waitForOfficialPackageChromeWindow(app, expected) {
       if (!candidate || candidate.isClosed()) {
         continue;
       }
+      if (expected?.exclude?.includes(candidate)) {
+        continue;
+      }
       try {
         const result = await isExpected(candidate);
         if (result.matches) {
@@ -1131,7 +1134,11 @@ async function waitForOfficialPackageChromeWindow(app, expected) {
     }
 
     const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
-    if (nextWindow && !nextWindow.isClosed()) {
+    if (
+      nextWindow &&
+      !nextWindow.isClosed() &&
+      !expected?.exclude?.includes(nextWindow)
+    ) {
       try {
         const result = await isExpected(nextWindow);
         if (result.matches) {
@@ -1180,6 +1187,42 @@ async function waitForTrustedWalletWindow(app) {
   }
 
   throw new Error('Trusted wallet window did not appear');
+}
+
+async function waitForSurfaceRailWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('[data-rail-toggle]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; other WebContents do not host the shell rail.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('[data-rail-toggle]', {
+          state: 'visible',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the shell rail is ready.
+      }
+    }
+  }
+
+  throw new Error('Shell surface rail window did not appear');
 }
 
 async function waitForTrustedIdentityWindow(app) {
@@ -2202,11 +2245,32 @@ test('official browser chrome launch truth markers prove package mode', async ()
         outerMargin: 0,
         gap: 8,
         radius: 12,
+        railWidth: 44,
         backgroundColor: '#101010',
+      },
+      surfaceRail: {
+        webContentsId: expect.any(Number),
+        url: expect.stringContaining('surface-rail.html'),
+        bounds: {
+          x: expect.any(Number),
+          y: 0,
+          width: 44,
+          height: expect.any(Number),
+        },
+        state: {
+          activeSurface: null,
+          lastActiveSurface: 'wallet',
+          surfaces: [{ surface: 'wallet', open: false }],
+        },
       },
       hostWebContentsId: expect.any(Number),
     });
     expect(shellWindow.chromeWebContentsId).not.toBe(shellWindow.hostWebContentsId);
+    expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.hostWebContentsId);
+    expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.chromeWebContentsId);
+    expect(shellWindow.surfaceRail.bounds.x).toBe(
+      shellWindow.chromeBounds.x + shellWindow.chromeBounds.width
+    );
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -2243,6 +2307,12 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
         height: expect.any(Number),
       },
       chromeVisible: true,
+      surfaceRail: {
+        webContentsId: expect.any(Number),
+        bounds: {
+          width: 44,
+        },
+      },
       hostWebContentsId: expect.any(Number),
     });
     expect(chromeCompositor.chromeWebContentsId).not.toBe(chromeCompositor.hostWebContentsId);
@@ -2297,8 +2367,7 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
     );
     expect(surface.bounds.x).toBeGreaterThan(chromeCompositorWithSurface.chromeBounds.x);
     expect(surface.bounds.x + surface.bounds.width).toBe(
-      chromeCompositorWithSurface.chromeBounds.x +
-        chromeCompositorWithSurface.chromeBounds.width
+      chromeCompositorWithSurface.surfaceRail.bounds.x
     );
 
     const image = await captureWebContentsPng(launched.app, surface.webContentsId);
@@ -2341,6 +2410,8 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
 });
 
 test('official browser chrome can launch as a local package with transitional webviews', async () => {
+  test.setTimeout(60_000);
+
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));
   const packageDir = path.join(parent, 'official');
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-user-'));
@@ -2420,10 +2491,17 @@ test('official browser chrome can launch as a local package with transitional we
     expect(trustedSidebarResidue).toEqual(
       Object.fromEntries(officialPackageTrustedSidebarResidueIds.map((id) => [id, false]))
     );
-    await page.evaluate(() => window.freedomShell.openSurface('wallet'));
+    const surfaceRailWindow = await waitForSurfaceRailWindow(launched.app);
+    const railToggle = surfaceRailWindow.locator('[data-rail-toggle]');
+    const railWalletButton = surfaceRailWindow.locator('[data-rail-surface="wallet"]');
+    await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
+    await railToggle.click();
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(true);
+    await expect(railToggle).toHaveAttribute('aria-label', 'Close sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'true');
     const openedWalletSurface = await page.evaluate(() =>
       window.freedomShell.getSurfaceState('wallet')
     );
@@ -2462,6 +2540,14 @@ test('official browser chrome can launch as a local package with transitional we
     expect(walletSurface.bounds.x - (
       shellWindowWithWallet.chromeBounds.x + shellWindowWithWallet.chromeBounds.width
     )).toBe(shellWindowWithWallet.layout.gap);
+    expect(walletSurface.bounds.x + walletSurface.bounds.width).toBe(
+      shellWindowWithWallet.surfaceRail.bounds.x
+    );
+    expect(shellWindowWithWallet.surfaceRail.state).toMatchObject({
+      activeSurface: 'wallet',
+      lastActiveSurface: 'wallet',
+      surfaces: [{ surface: 'wallet', open: true }],
+    });
     expect(walletSurface.bounds.height).toBe(shellWindowWithWallet.chromeBounds.height);
     expect(walletSurface.bounds.y).toBe(
       shellWindowWithWallet.chromeBounds.y
@@ -2501,6 +2587,9 @@ test('official browser chrome can launch as a local package with transitional we
     expect(overlayWalletSurface.bounds.width).toBe(
       walletSurface.bounds.width + shellWindowWithWallet.layout.gap
     );
+    expect(overlayWalletSurface.bounds.x + overlayWalletSurface.bounds.width).toBe(
+      shellWindowWithOverlayWallet.surfaceRail.bounds.x
+    );
     const overlaySidebarFrameBox = await trustedWalletWindow
       .locator('[data-sidebar-frame]')
       .boundingBox();
@@ -2514,8 +2603,12 @@ test('official browser chrome can launch as a local package with transitional we
         return shellWindow.surfaces.some((surface) => surface.surface === 'wallet');
       })
       .toBe(false);
-    await page.evaluate(() => window.freedomShell.openSurface('wallet'));
+    await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
+    await railToggle.click();
     trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
+    await expect(railToggle).toHaveAttribute('aria-label', 'Close sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'true');
     layoutToggle = trustedWalletWindow.locator('[data-sidebar-layout-toggle]');
     await expect(layoutToggle).toHaveAttribute('aria-label', 'Dock sidebar');
     await expect
@@ -2574,12 +2667,22 @@ test('official browser chrome can launch as a local package with transitional we
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(false);
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await getShellWindowDebugState(launched.app);
+        return shellWindow?.surfaces?.some((surface) => surface.surface === 'wallet') || false;
+      })
+      .toBe(false);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
     await page.locator('#wallet-toggle-btn').click();
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(true);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(railToggle).toHaveAttribute('aria-label', 'Close sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#sidebar')).toHaveAttribute(
       'data-surface-mode',
       'shell-owned-webcontents-view'
@@ -2596,6 +2699,8 @@ test('official browser chrome can launch as a local package with transitional we
       })
       .toBe(false);
     await expect(page.locator('#wallet-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
+    await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
 
     const initialPaymentsSurface = await page.evaluate(() =>
       window.freedomShell.getSurfaceState('payments')
@@ -2860,9 +2965,11 @@ test('official browser chrome can launch as a local package with transitional we
         return BrowserWindow.getAllWindows().filter((candidate) => !candidate.isDestroyed()).length;
       });
     const windowCountBeforeNewWindow = await countBrowserWindows();
-    const newWindowPromise = launched.app.waitForEvent('window');
     await clickVisibleMainMenuItem(page, '#new-window-menu-btn');
-    const newPackageWindow = await newWindowPromise;
+    const newPackageWindow = await waitForOfficialPackageChromeWindow(launched.app, {
+      source: 'local',
+      exclude: [page],
+    });
     await newPackageWindow.waitForLoadState('domcontentloaded');
     await newPackageWindow.waitForSelector('[data-test="address-input"]', { state: 'visible' });
     await expect(newPackageWindow.locator('body')).toHaveAttribute('data-package-ready', 'true');
@@ -3168,14 +3275,16 @@ test('official browser chrome can launch as a local package with transitional we
     await expect(page.locator('#page-context-menu')).toBeHidden();
 
     const contextWindowCountBefore = await countBrowserWindows();
-    const contextWindowPromise = launched.app.waitForEvent('window');
     await showActiveWebviewContextMenu(page, {
       pageUrl: 'https://example.com/',
       linkUrl: 'https://example.com/context-window',
     });
     await expect(page.locator('#page-context-menu')).toBeVisible();
     await page.locator('#page-context-menu [data-action="open-link-new-window"]').click();
-    const contextPackageWindow = await contextWindowPromise;
+    const contextPackageWindow = await waitForOfficialPackageChromeWindow(launched.app, {
+      source: 'local',
+      exclude: [page],
+    });
     await contextPackageWindow.waitForLoadState('domcontentloaded');
     await contextPackageWindow.waitForSelector('[data-test="address-input"]', {
       state: 'visible',

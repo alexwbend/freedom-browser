@@ -80,6 +80,25 @@ describe('mainWindow chrome package preferences', () => {
     });
   });
 
+  test('uses a narrow hardened preload for the shell surface rail', () => {
+    const { mod } = loadMainWindow();
+
+    expect(mod.getSurfaceRailWebPreferences()).toMatchObject({
+      preload: mod.getSurfaceRailPreloadPath(),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
+      enableRemoteModule: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+    });
+    expect(path.basename(mod.getSurfaceRailPreloadPath())).toBe('surface-rail-preload.js');
+  });
+
   test('enforces shell-owned guest webview preferences for transitional package webviews', () => {
     const { mod } = loadMainWindow();
     const preferences = {

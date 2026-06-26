@@ -1520,6 +1520,78 @@ describe('shell-api', () => {
     });
   });
 
+  test('lets the shell rail drive registered package surface state', async () => {
+    mockOpenTrustedWalletSurface.mockResolvedValue({
+      ok: true,
+      surface: 'wallet',
+      owner: 'shell',
+      trusted: true,
+    });
+    mockCloseTrustedWalletSurface.mockReturnValue({
+      ok: true,
+      surface: 'wallet',
+      owner: 'shell',
+      trusted: true,
+    });
+
+    const { mod } = loadShellApi();
+    const updateSurfaceRailState = jest.fn();
+    const ownerWindow = {
+      id: 503,
+      __freedomShellWindow: {
+        updateSurfaceRailState,
+      },
+    };
+    const sender = makeSender({ id: 112 });
+    mod.registerPackageWebContents(
+      sender,
+      makePackage({ capabilities: ['surfaces.wallet.control'] })
+    );
+
+    await expect(
+      mod.setSurfaceOpenForPackageWebContents(
+        sender,
+        { surface: 'wallet' },
+        true,
+        { ownerWindow }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: true,
+      mode: 'shell-owned-trusted-window',
+    });
+    expect(mockOpenTrustedWalletSurface).toHaveBeenCalledWith({
+      ownerWindow,
+      caller: expect.objectContaining({
+        packageId: 'baby.freedom.chrome.fixture',
+      }),
+      onClosed: expect.any(Function),
+    });
+    expect(updateSurfaceRailState).toHaveBeenLastCalledWith({
+      surface: 'wallet',
+      open: true,
+    });
+
+    await expect(
+      mod.setSurfaceOpenForPackageWebContents(
+        sender,
+        { surface: 'wallet' },
+        false,
+        { ownerWindow }
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      surface: 'wallet',
+      open: false,
+    });
+    expect(mockCloseTrustedWalletSurface).toHaveBeenCalledTimes(1);
+    expect(updateSurfaceRailState).toHaveBeenLastCalledWith({
+      surface: 'wallet',
+      open: false,
+    });
+  });
+
   test('opens the shell-owned identity surface behind a separate capability', async () => {
     mockOpenTrustedIdentitySurface.mockResolvedValue({
       ok: true,

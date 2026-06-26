@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Freedom Shell Rail</title>
+    <link rel="stylesheet" href="./surface-rail.css">
+  </head>
+  <body>
+    <nav class="surface-rail" aria-label="Freedom shell surfaces">
+      <button
+        type="button"
+        class="surface-rail-button surface-rail-toggle"
+        data-rail-toggle
+        aria-label="Open Wallet sidebar"
+        title="Open Wallet sidebar"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="3" y="4" width="18" height="16" rx="2"/>
+          <path d="M15 4v16"/>
+          <path d="m10 9 3 3-3 3"/>
+        </svg>
+      </button>
+
+      <div class="surface-rail-separator" aria-hidden="true"></div>
+
+      <button
+        type="button"
+        class="surface-rail-button"
+        data-rail-surface="wallet"
+        aria-label="Open Wallet"
+        title="Open Wallet"
+        aria-pressed="false"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M19 7V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1"/>
+          <path d="M16 12h5"/>
+          <path d="M18.5 9.5 21 12l-2.5 2.5"/>
+        </svg>
+      </button>
+    </nav>
+    <script src="./surface-rail.js"></script>
+  </body>
+</html>

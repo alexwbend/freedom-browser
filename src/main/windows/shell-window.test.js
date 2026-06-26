@@ -45,6 +45,28 @@ function makeChromeView() {
   return view;
 }
 
+function makeSurfaceRailView() {
+  let bounds = { x: 1156, y: 0, width: 44, height: 800 };
+  const webContents = Object.assign(new EventEmitter(), {
+    id: 9,
+    isDestroyed: jest.fn(() => false),
+    close: jest.fn(),
+    getURL: jest.fn(() => 'file:///surface-rail.html'),
+    send: jest.fn(),
+  });
+  const view = {
+    webContents,
+    setBounds: jest.fn((nextBounds) => {
+      bounds = nextBounds;
+    }),
+    getBounds: jest.fn(() => bounds),
+    getVisible: jest.fn(() => true),
+    setBackgroundColor: jest.fn(),
+    setBorderRadius: jest.fn(),
+  };
+  return view;
+}
+
 function makeSurfaceView(id = 3) {
   let bounds = { x: 680, y: 0, width: 520, height: 800 };
   let visible = true;
@@ -184,6 +206,77 @@ describe('ShellWindow', () => {
     expect(shellWindow.getDebugState()).toMatchObject({ closed: true });
   });
 
+  test('attaches a fixed shell surface rail beside package chrome', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const railView = makeSurfaceRailView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package', packageId: 'package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+      createSurfaceRailView: () => railView,
+    });
+
+    expect(contentView.addChildView).toHaveBeenCalledWith(chromeView);
+    expect(contentView.addChildView).toHaveBeenCalledWith(railView);
+    expect(railView.setBounds).toHaveBeenLastCalledWith({
+      x: 1156,
+      y: 0,
+      width: mod.COMPOSITOR_RAIL_WIDTH,
+      height: 800,
+    });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1156,
+      height: 800,
+    });
+    expect(nativeWindow.__freedomShellWindow.getSurfaceRailWebContents()).toBe(
+      railView.webContents
+    );
+    expect(nativeWindow.__freedomShellWindow.getSurfaceRailState()).toEqual({
+      activeSurface: null,
+      lastActiveSurface: 'wallet',
+      surfaces: [{ surface: 'wallet', open: false }],
+    });
+
+    expect(
+      nativeWindow.__freedomShellWindow.updateSurfaceRailState({
+        surface: 'wallet',
+        open: true,
+      })
+    ).toEqual({
+      activeSurface: 'wallet',
+      lastActiveSurface: 'wallet',
+      surfaces: [{ surface: 'wallet', open: true }],
+    });
+    expect(railView.webContents.send).toHaveBeenLastCalledWith(
+      'shell-surface-rail:state',
+      {
+        activeSurface: 'wallet',
+        lastActiveSurface: 'wallet',
+        surfaces: [{ surface: 'wallet', open: true }],
+      }
+    );
+    expect(shellWindow.getDebugState().surfaceRail).toMatchObject({
+      webContentsId: 9,
+      bounds: { x: 1156, y: 0, width: 44, height: 800 },
+      state: {
+        activeSurface: 'wallet',
+        lastActiveSurface: 'wallet',
+        surfaces: [{ surface: 'wallet', open: true }],
+      },
+    });
+
+    shellWindow.cleanup();
+
+    expect(contentView.removeChildView).toHaveBeenCalledWith(railView);
+    expect(railView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+  });
+
   test('resizes the chrome compositor view with the native window', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow } = makeNativeWindow();
@@ -311,6 +404,54 @@ describe('ShellWindow', () => {
     });
     expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(shellWindow.getDebugState().surfaces).toEqual([]);
+  });
+
+  test('tiles docked trusted surfaces to the left of the fixed shell rail', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const railView = makeSurfaceRailView();
+    const surfaceView = makeSurfaceView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+      createSurfaceRailView: () => railView,
+    });
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => surfaceView,
+    });
+    surfaceWindow.show();
+
+    expect(railView.getBounds()).toEqual({
+      x: 1156,
+      y: 0,
+      width: 44,
+      height: 800,
+    });
+    expect(surfaceView.getBounds()).toEqual({
+      x: 636,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 628,
+      height: 800,
+    });
+    expect(surfaceView.getBounds().x - (
+      chromeView.getBounds().x + chromeView.getBounds().width
+    )).toBe(8);
+    expect(railView.getBounds().x).toBe(
+      surfaceView.getBounds().x + surfaceView.getBounds().width
+    );
   });
 
   test('animates docked surfaces in and out with chrome squeeze', async () => {

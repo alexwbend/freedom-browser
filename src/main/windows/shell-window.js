@@ -1,4 +1,5 @@
 const { EventEmitter } = require('events');
+const IPC = require('../../shared/ipc-channels');
 
 const SHELL_WINDOW_COMPOSITOR_MODE = 'webcontents-view-compositor';
 const SHELL_WINDOW_LEGACY_MODE = 'browser-window-webcontents';
@@ -9,10 +10,12 @@ const SURFACE_LAYOUT_MODE_OVERLAY = 'overlay';
 const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
 const COMPOSITOR_PANEL_GAP = 8;
 const COMPOSITOR_PANEL_RADIUS = 12;
+const COMPOSITOR_RAIL_WIDTH = 44;
 const COMPOSITOR_BACKGROUND_COLOR = '#101010';
 const COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR = '#00000000';
 const COMPOSITOR_ANIMATION_DURATION_MS = 180;
 const COMPOSITOR_ANIMATION_FRAME_MS = 16;
+const DEFAULT_SURFACE_RAIL_SURFACE = 'wallet';
 
 function getCompositorHostWebPreferences() {
   return {
@@ -136,11 +139,27 @@ function isDockedSurfaceRecord(record) {
   );
 }
 
-function getCompositorTileLayout(size, surfaceRecords = []) {
+function getCompositorTileLayout(
+  size,
+  surfaceRecords = [],
+  { railWidth = 0 } = {}
+) {
   const rootBounds = getCompositorRootBounds(size);
+  const normalizedRailWidth = Math.min(
+    Math.max(0, railWidth),
+    Math.max(0, rootBounds.width)
+  );
+  const railBounds = normalizedRailWidth > 0
+    ? {
+        x: rootBounds.x + Math.max(0, rootBounds.width - normalizedRailWidth),
+        y: rootBounds.y,
+        width: normalizedRailWidth,
+        height: rootBounds.height,
+      }
+    : null;
   const dockedRecords = surfaceRecords.filter(isDockedSurfaceRecord);
   const surfaceBoundsByRecord = new Map();
-  let nextRightEdge = rootBounds.x + rootBounds.width;
+  let nextRightEdge = railBounds ? railBounds.x : rootBounds.x + rootBounds.width;
 
   // Tile docked right surfaces from the outside in. The root itself has no
   // padding; the compositor inserts gutters only between adjacent tiles.
@@ -163,6 +182,7 @@ function getCompositorTileLayout(size, surfaceRecords = []) {
 
   return {
     rootBounds,
+    railBounds,
     chromeBounds: {
       x: rootBounds.x,
       y: rootBounds.y,
@@ -266,6 +286,7 @@ class ShellWindow {
     chromePackage,
     useChromeView = false,
     createChromeView = null,
+    createSurfaceRailView = null,
     animationDurationMs = COMPOSITOR_ANIMATION_DURATION_MS,
     animationFrameMs = COMPOSITOR_ANIMATION_FRAME_MS,
   } = {}) {
@@ -279,13 +300,22 @@ class ShellWindow {
     this.nativeWindow = nativeWindow;
     this.chromePackage = chromePackage || null;
     this.chromeView = null;
+    this.surfaceRailView = null;
     this.chromeWebContents = nativeWindow.webContents || null;
     this.chromeLoadTarget = nativeWindow;
     this.mode = SHELL_WINDOW_LEGACY_MODE;
     this.closed = false;
     this.updateChromeBounds = null;
     this.chromeBounds = null;
+    this.surfaceRailBounds = null;
+    this.surfaceRailState = {
+      activeSurface: null,
+      lastActiveSurface: DEFAULT_SURFACE_RAIL_SURFACE,
+      surfaces: new Map([[DEFAULT_SURFACE_RAIL_SURFACE, false]]),
+    };
     this.handleChromeContentsDestroyed = null;
+    this.handleSurfaceRailContentsDestroyed = null;
+    this.handleSurfaceRailReady = null;
     this.surfaceWindows = new Map();
     this.layoutAnimation = null;
     this.animationDurationMs = normalizeAnimationDurationMs(animationDurationMs);
@@ -293,6 +323,9 @@ class ShellWindow {
 
     if (useChromeView) {
       this.attachChromeView(createChromeView(chromePackage));
+      if (typeof createSurfaceRailView === 'function') {
+        this.attachSurfaceRailView(createSurfaceRailView(chromePackage));
+      }
     }
     this.installDebugHook();
   }
@@ -326,10 +359,37 @@ class ShellWindow {
     chromeView.webContents.once?.('destroyed', this.handleChromeContentsDestroyed);
   }
 
+  attachSurfaceRailView(surfaceRailView) {
+    if (!surfaceRailView?.webContents) {
+      throw new Error('ShellWindow surface rail view must expose webContents');
+    }
+    this.surfaceRailView = surfaceRailView;
+    setViewBackgroundColor(surfaceRailView, COMPOSITOR_BACKGROUND_COLOR);
+    setViewBorderRadius(surfaceRailView, 0);
+    this.handleSurfaceRailContentsDestroyed = () => {
+      this.surfaceRailView = null;
+      this.surfaceRailBounds = null;
+      if (!this.closed) {
+        this.updateCompositorLayout();
+      }
+    };
+    this.handleSurfaceRailReady = () => {
+      this.sendSurfaceRailState();
+    };
+    this.nativeWindow.getContentView().addChildView(surfaceRailView);
+    surfaceRailView.webContents.once?.('destroyed', this.handleSurfaceRailContentsDestroyed);
+    surfaceRailView.webContents.on?.('dom-ready', this.handleSurfaceRailReady);
+    surfaceRailView.webContents.on?.('did-finish-load', this.handleSurfaceRailReady);
+    this.updateCompositorLayout();
+  }
+
   installDebugHook() {
     this.nativeWindow.__freedomShellWindow = {
       getDebugState: () => this.getDebugState(),
       getChromeWebContents: () => this.chromeWebContents,
+      getSurfaceRailWebContents: () => this.surfaceRailView?.webContents || null,
+      getSurfaceRailState: () => this.getSurfaceRailState(),
+      updateSurfaceRailState: (state) => this.updateSurfaceRailState(state),
       canHostTrustedSurfaceWindows: () => this.mode === SHELL_WINDOW_COMPOSITOR_MODE,
       createTrustedSurfaceWindow: (options) => this.createTrustedSurfaceWindow(options),
       closeTrustedSurfaceWindow: (surface) => this.closeTrustedSurfaceWindow(surface),
@@ -359,6 +419,74 @@ class ShellWindow {
     this.handleChromeContentsDestroyed = null;
   }
 
+  removeSurfaceRailContentsListeners() {
+    if (!this.surfaceRailView) {
+      return;
+    }
+    if (this.handleSurfaceRailContentsDestroyed) {
+      removeContentsListener(
+        this.surfaceRailView.webContents,
+        'destroyed',
+        this.handleSurfaceRailContentsDestroyed
+      );
+      this.handleSurfaceRailContentsDestroyed = null;
+    }
+    if (this.handleSurfaceRailReady) {
+      removeContentsListener(this.surfaceRailView.webContents, 'dom-ready', this.handleSurfaceRailReady);
+      removeContentsListener(
+        this.surfaceRailView.webContents,
+        'did-finish-load',
+        this.handleSurfaceRailReady
+      );
+      this.handleSurfaceRailReady = null;
+    }
+  }
+
+  getSurfaceRailState() {
+    return {
+      activeSurface: this.surfaceRailState.activeSurface,
+      lastActiveSurface: this.surfaceRailState.lastActiveSurface,
+      surfaces: [...this.surfaceRailState.surfaces.entries()].map(([surface, open]) => ({
+        surface,
+        open,
+      })),
+    };
+  }
+
+  sendSurfaceRailState() {
+    if (!this.surfaceRailView || this.surfaceRailView.webContents.isDestroyed?.()) {
+      return;
+    }
+    this.surfaceRailView.webContents.send?.(
+      IPC.SHELL_SURFACE_RAIL_STATE,
+      this.getSurfaceRailState()
+    );
+  }
+
+  updateSurfaceRailState(state = {}) {
+    const surface = typeof state.surface === 'string' ? state.surface : null;
+    const hasOpenState = typeof state.open === 'boolean';
+    if (surface && hasOpenState) {
+      this.surfaceRailState.surfaces.set(surface, state.open);
+      if (state.open) {
+        this.surfaceRailState.activeSurface = surface;
+        this.surfaceRailState.lastActiveSurface = surface;
+      } else if (this.surfaceRailState.activeSurface === surface) {
+        const nextActiveSurface = [...this.surfaceRailState.surfaces.entries()]
+          .find(([_surface, open]) => open === true)?.[0] || null;
+        this.surfaceRailState.activeSurface = nextActiveSurface;
+      }
+    }
+    if (typeof state.activeSurface === 'string' || state.activeSurface === null) {
+      this.surfaceRailState.activeSurface = state.activeSurface;
+    }
+    if (typeof state.lastActiveSurface === 'string') {
+      this.surfaceRailState.lastActiveSurface = state.lastActiveSurface;
+    }
+    this.sendSurfaceRailState();
+    return this.getSurfaceRailState();
+  }
+
   updateSurfaceWindowBounds(_recordToUpdate = null) {
     this.updateCompositorLayout();
   }
@@ -374,15 +502,42 @@ class ShellWindow {
 
   getSurfaceTargetBounds(record, tileLayout, size) {
     const widthPreferences = getOverlaySurfaceWidthPreferences(record);
-    return (
-      tileLayout.surfaceBoundsByRecord.get(record) ||
-      getRightDrawerBoundsForSize(size, widthPreferences.width, widthPreferences.minWidth)
-    );
+    const dockedBounds = tileLayout.surfaceBoundsByRecord.get(record);
+    if (dockedBounds) {
+      return dockedBounds;
+    }
+    const rootBounds = tileLayout.rootBounds || getCompositorRootBounds(size);
+    const rightEdge = tileLayout.railBounds
+      ? tileLayout.railBounds.x
+      : rootBounds.x + rootBounds.width;
+    const surfaceWidth = getSurfaceWidth(rootBounds.width, widthPreferences.width, widthPreferences.minWidth);
+    return {
+      x: Math.max(rootBounds.x, rightEdge - surfaceWidth),
+      y: rootBounds.y,
+      width: surfaceWidth,
+      height: rootBounds.height,
+    };
   }
 
   setRecordBounds(record, bounds) {
     record.view.setBounds(bounds);
     record.bounds = bounds;
+  }
+
+  raiseSurfaceRailView() {
+    if (!this.surfaceRailView || this.closed || this.nativeWindow.isDestroyed?.()) {
+      return;
+    }
+    const contentView = this.nativeWindow.getContentView?.();
+    if (!contentView) {
+      return;
+    }
+    try {
+      contentView.removeChildView?.(this.surfaceRailView);
+      contentView.addChildView?.(this.surfaceRailView);
+    } catch {
+      // View reordering is cosmetic; layout remains correct without it.
+    }
   }
 
   cancelLayoutAnimation({ finish = false } = {}) {
@@ -457,7 +612,9 @@ class ShellWindow {
     }
     const size = getWindowContentSize(this.nativeWindow);
     const allRecords = [...this.surfaceWindows.values()];
-    const tileLayout = getCompositorTileLayout(size, allRecords);
+    const tileLayout = getCompositorTileLayout(size, allRecords, {
+      railWidth: this.surfaceRailView ? COMPOSITOR_RAIL_WIDTH : 0,
+    });
     const entries = [];
     if (this.chromeView) {
       entries.push({
@@ -472,6 +629,20 @@ class ShellWindow {
         this.chromeView,
         tileLayout.hasDockedTiles ? COMPOSITOR_PANEL_RADIUS : 0
       );
+    }
+    if (this.surfaceRailView && tileLayout.railBounds) {
+      entries.push({
+        from: getCurrentViewBounds(
+          this.surfaceRailView,
+          this.surfaceRailBounds || tileLayout.railBounds
+        ),
+        to: tileLayout.railBounds,
+        apply: (bounds) => {
+          this.surfaceRailView.setBounds(bounds);
+          this.surfaceRailBounds = bounds;
+        },
+      });
+      setViewBorderRadius(this.surfaceRailView, 0);
     }
     const records = recordsToUpdate || allRecords;
     records.forEach((record) => {
@@ -555,6 +726,7 @@ class ShellWindow {
     };
 
     this.nativeWindow.getContentView().addChildView(view);
+    this.raiseSurfaceRailView();
     this.surfaceWindows.set(surface, record);
     record.bounds = this.getHiddenSurfaceBounds(record);
     record.view.setBounds(record.bounds);
@@ -719,7 +891,25 @@ class ShellWindow {
     });
     this.removeChromeViewListeners();
     this.removeChromeContentsListeners();
+    this.removeSurfaceRailContentsListeners();
     delete this.nativeWindow.__freedomShellWindow;
+
+    if (this.surfaceRailView) {
+      try {
+        this.nativeWindow.getContentView?.().removeChildView(this.surfaceRailView);
+      } catch {
+        // The native host may already be destroyed during app shutdown.
+      }
+      try {
+        if (!this.surfaceRailView.webContents.isDestroyed?.()) {
+          this.surfaceRailView.webContents.close({ waitForBeforeUnload: false });
+        }
+      } catch {
+        // The rail WebContents may already be gone.
+      }
+      this.surfaceRailView = null;
+      this.surfaceRailBounds = null;
+    }
 
     if (!this.chromeView) {
       return;
@@ -757,11 +947,30 @@ class ShellWindow {
         this.chromeView && typeof this.chromeView.getVisible === 'function'
           ? this.chromeView.getVisible()
           : undefined,
+      surfaceRail: this.surfaceRailView
+        ? {
+            webContentsId: this.surfaceRailView.webContents?.id ?? null,
+            url:
+              typeof this.surfaceRailView.webContents?.getURL === 'function'
+                ? this.surfaceRailView.webContents.getURL()
+                : '',
+            bounds:
+              typeof this.surfaceRailView.getBounds === 'function'
+                ? this.surfaceRailView.getBounds()
+                : this.surfaceRailBounds,
+            visible:
+              typeof this.surfaceRailView.getVisible === 'function'
+                ? this.surfaceRailView.getVisible()
+                : true,
+            state: this.getSurfaceRailState(),
+          }
+        : null,
       hostWebContentsId: this.nativeWindow.webContents?.id ?? null,
       layout: {
         outerMargin: 0,
         gap: COMPOSITOR_PANEL_GAP,
         radius: COMPOSITOR_PANEL_RADIUS,
+        railWidth: this.surfaceRailView ? COMPOSITOR_RAIL_WIDTH : 0,
         animationDurationMs: this.animationDurationMs,
         animating: Boolean(this.layoutAnimation),
         backgroundColor: COMPOSITOR_BACKGROUND_COLOR,
@@ -795,6 +1004,7 @@ module.exports = {
   SHELL_WINDOW_LEGACY_MODE,
   SURFACE_LAYOUT_MODE_DOCK,
   SURFACE_LAYOUT_MODE_OVERLAY,
+  COMPOSITOR_RAIL_WIDTH,
   ShellWindow,
   createShellWindow,
   getRightDrawerBounds,

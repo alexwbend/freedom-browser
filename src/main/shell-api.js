@@ -662,8 +662,23 @@ function emitSurfaceStateChanged(event, caller, state, previousOpen) {
   emitShellEvent(event, caller, SHELL_API_EVENTS.SURFACES_STATE_CHANGED, state);
 }
 
+function getEventOwnerWindow(event) {
+  return event?.ownerWindow || event?.sender?.getOwnerBrowserWindow?.() || null;
+}
+
+function updateOwnerSurfaceRail(event, state) {
+  if (state?.ok !== true || typeof state.surface !== 'string') {
+    return null;
+  }
+  const shellWindow = getEventOwnerWindow(event)?.__freedomShellWindow || null;
+  return shellWindow?.updateSurfaceRailState?.({
+    surface: state.surface,
+    open: state.open === true,
+  }) || null;
+}
+
 async function openTrustedPaymentsSurfaceForCaller(caller, event) {
-  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  const ownerWindow = getEventOwnerWindow(event);
   return trustedPaymentsSurface.openTrustedPaymentsSurface({
     ownerWindow,
     caller: caller.identity,
@@ -671,13 +686,14 @@ async function openTrustedPaymentsSurfaceForCaller(caller, event) {
       const previousOpen = caller.surfaces.get('payments') === true;
       caller.surfaces.set('payments', false);
       const state = describeSurfaceState(caller, 'payments');
+      updateOwnerSurfaceRail(event, state);
       emitSurfaceStateChanged(event, caller, state, previousOpen);
     },
   });
 }
 
 async function openTrustedWalletSurfaceForCaller(caller, event) {
-  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  const ownerWindow = getEventOwnerWindow(event);
   return trustedWalletSurface.openTrustedWalletSurface({
     ownerWindow,
     caller: caller.identity,
@@ -685,13 +701,14 @@ async function openTrustedWalletSurfaceForCaller(caller, event) {
       const previousOpen = caller.surfaces.get('wallet') === true;
       caller.surfaces.set('wallet', false);
       const state = describeSurfaceState(caller, 'wallet');
+      updateOwnerSurfaceRail(event, state);
       emitSurfaceStateChanged(event, caller, state, previousOpen);
     },
   });
 }
 
 async function openTrustedIdentitySurfaceForCaller(caller, event) {
-  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  const ownerWindow = getEventOwnerWindow(event);
   return trustedIdentitySurface.openTrustedIdentitySurface({
     ownerWindow,
     caller: caller.identity,
@@ -699,13 +716,14 @@ async function openTrustedIdentitySurfaceForCaller(caller, event) {
       const previousOpen = caller.surfaces.get('identity') === true;
       caller.surfaces.set('identity', false);
       const state = describeSurfaceState(caller, 'identity');
+      updateOwnerSurfaceRail(event, state);
       emitSurfaceStateChanged(event, caller, state, previousOpen);
     },
   });
 }
 
 async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
-  const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+  const ownerWindow = getEventOwnerWindow(event);
   return trustedSwarmPublishSurface.openTrustedSwarmPublishSurface({
     ownerWindow,
     hostWebContents: event?.sender || null,
@@ -714,6 +732,7 @@ async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
       const previousOpen = caller.surfaces.get('swarmPublish') === true;
       caller.surfaces.set('swarmPublish', false);
       const state = describeSurfaceState(caller, 'swarmPublish');
+      updateOwnerSurfaceRail(event, state);
       emitSurfaceStateChanged(event, caller, state, previousOpen);
     },
   });
@@ -721,7 +740,7 @@ async function openTrustedSwarmPublishSurfaceForCaller(caller, event) {
 
 async function openTrustedSurfaceForCaller(surface, caller, event) {
   if (experimentalShellCompositorSurface.isExperimentalSurfaceSupported(surface)) {
-    const ownerWindow = event?.sender?.getOwnerBrowserWindow?.() || null;
+    const ownerWindow = getEventOwnerWindow(event);
     return experimentalShellCompositorSurface.openExperimentalShellCompositorSurface({
       ownerWindow,
       onClosed: () => {
@@ -800,6 +819,7 @@ async function setSurfaceOpen(caller, payload, open, event) {
   }
   caller.surfaces.set(surface, open);
   const state = describeSurfaceState(caller, surface);
+  updateOwnerSurfaceRail(event, state);
   emitSurfaceStateChanged(event, caller, state, previousOpen);
   return state;
 }
@@ -838,6 +858,7 @@ async function toggleSurfaceOpen(caller, payload, event) {
   }
   caller.surfaces.set(surface, nextOpen);
   const state = describeSurfaceState(caller, surface);
+  updateOwnerSurfaceRail(event, state);
   emitSurfaceStateChanged(event, caller, state, previousOpen);
   return state;
 }
@@ -1377,6 +1398,28 @@ function getPackageCaller(event) {
   return caller;
 }
 
+async function setSurfaceOpenForPackageWebContents(sender, payload, open, options = {}) {
+  const caller = packageCallers.get(sender);
+  if (!caller) {
+    return {
+      ok: false,
+      surface: getSurfaceName(payload),
+      owner: 'shell',
+      trusted: true,
+      error: {
+        code: 'SHELL_SENDER_UNAUTHORIZED',
+        message: 'No package caller is registered for this shell surface command',
+      },
+    };
+  }
+  const method = open ? SHELL_API_METHODS.SURFACES_OPEN : SHELL_API_METHODS.SURFACES_CLOSE;
+  assertMethodCapability(caller, method, [payload]);
+  return setSurfaceOpen(caller, payload, open, {
+    sender,
+    ownerWindow: options.ownerWindow || null,
+  });
+}
+
 const METHODS = Object.freeze({
   [SHELL_API_METHODS.GET_INFO]: {
     handler: (_args, _event, caller) => getInfo(caller.identity),
@@ -1674,4 +1717,5 @@ module.exports = {
   registerPackageWebContents,
   registerShellApiIpc,
   serializeProfileForShell,
+  setSurfaceOpenForPackageWebContents,
 };

@@ -80,6 +80,24 @@ test('computes right-drawer bounds from the owner window content size', () => {
   });
 });
 
+test('computes test surface bounds against the shell rail when present', () => {
+  const ownerWindow = makeOwnerWindow({ size: [1200, 800] });
+  ownerWindow.__freedomShellWindow = {
+    getDebugState: jest.fn(() => ({
+      surfaceRail: {
+        bounds: { x: 1156, y: 0, width: 44, height: 800 },
+      },
+    })),
+  };
+
+  expect(getTestSurfaceBounds(ownerWindow)).toEqual({
+    x: 796,
+    y: 0,
+    width: 360,
+    height: 800,
+  });
+});
+
 test('opens a main-owned WebContentsView surface and updates bounds on resize', async () => {
   process.env.FREEDOM_EXPERIMENTAL_SHELL_COMPOSITOR = '1';
   const ownerWindow = makeOwnerWindow({ id: 8, size: [1200, 800] });
