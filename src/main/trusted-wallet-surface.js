@@ -218,6 +218,7 @@ function buildSurfaceContext(context = {}) {
     ? cloneSerializable(context.caller)
     : null;
   return {
+    surface: 'wallet',
     title: 'Wallet',
     heading: 'Wallet Accounts',
     surfaceOwner: 'shell',
@@ -467,6 +468,9 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
   activeWindow = surfaceWindow;
   activeSurfaceId = surfaceId;
   activeSurfaceMode = surfaceMode;
+  contextPayload.mode = surfaceMode;
+  contextPayload.layoutMode =
+    surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null;
   activeChannels = [];
   if (onClosed) {
     closeListeners.add(onClosed);

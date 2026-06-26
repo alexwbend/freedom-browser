@@ -275,10 +275,14 @@ test('opens a shell-owned wallet window with dedicated preload and scoped channe
   expect(contextResult).toMatchObject({
     ok: true,
     context: {
+      surface: 'wallet',
+      title: 'Wallet',
       heading: 'Wallet Accounts',
       surfaceOwner: 'shell',
       trusted: true,
       caller: { packageId: 'baby.freedom.chrome.official-local' },
+      mode: 'shell-owned-trusted-window',
+      layoutMode: null,
       theme: {
         mode: 'system',
         effective: 'light',
@@ -355,9 +359,12 @@ test('opens wallet as a shell compositor view when the owner window supports sur
   expect(contextResult).toMatchObject({
     ok: true,
     context: {
+      surface: 'wallet',
       surfaceOwner: 'shell',
       trusted: true,
       caller: { packageId: 'baby.freedom.chrome.official-local' },
+      mode: 'shell-owned-webcontents-view',
+      layoutMode: 'dock',
       theme: {
         mode: 'system',
         effective: 'light',

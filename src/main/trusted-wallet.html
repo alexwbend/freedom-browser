@@ -4,80 +4,24 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Freedom Wallet</title>
+    <link rel="stylesheet" href="./trusted-sidebar-frame.css">
     <style>
       :root {
-        color-scheme: light;
-        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        --wallet-bg: #f8f7f3;
-        --wallet-panel: #ffffff;
-        --wallet-panel-subtle: #fffdfa;
-        --wallet-export-bg: #fff9f7;
-        --wallet-error-bg: #fff3f1;
-        --wallet-text: #171717;
-        --wallet-muted: #5d5a52;
-        --wallet-muted-2: #68645c;
-        --wallet-border: #dedbd2;
-        --wallet-border-strong: #c8c3b8;
-        --wallet-danger-border: #d8a39b;
-        --wallet-danger-text: #8f2f24;
-        --wallet-accent: #2f7d59;
-        --wallet-badge-bg: #e6f2ec;
-        --wallet-badge-text: #1c5d3f;
-        --wallet-button-hover: #efede7;
-        background: var(--wallet-bg);
-        color: var(--wallet-text);
-      }
-
-      :root[data-theme="dark"] {
-        color-scheme: dark;
-        --wallet-bg: #171717;
-        --wallet-panel: #22211f;
-        --wallet-panel-subtle: #1d1c1a;
-        --wallet-export-bg: #261c1a;
-        --wallet-error-bg: #2a1d1b;
-        --wallet-text: #f4f1ea;
-        --wallet-muted: #b6b0a5;
-        --wallet-muted-2: #a39c91;
-        --wallet-border: #3d3932;
-        --wallet-border-strong: #5b554c;
-        --wallet-danger-border: #8f4d43;
-        --wallet-danger-text: #ffb0a6;
-        --wallet-accent: #6fca96;
-        --wallet-badge-bg: #20392e;
-        --wallet-badge-text: #a6e3c4;
-        --wallet-button-hover: #302d28;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: var(--wallet-bg);
-        color: var(--wallet-text);
-      }
-
-      main {
-        display: grid;
-        gap: 24px;
-        padding: 28px;
-      }
-
-      header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 18px;
-        border-bottom: 1px solid var(--wallet-border);
-        padding-bottom: 18px;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: 24px;
-        font-weight: 700;
+        --wallet-panel: var(--trusted-sidebar-panel);
+        --wallet-panel-subtle: var(--trusted-sidebar-panel-subtle);
+        --wallet-export-bg: var(--trusted-sidebar-export-bg);
+        --wallet-error-bg: var(--trusted-sidebar-error-bg);
+        --wallet-text: var(--trusted-sidebar-text);
+        --wallet-muted: var(--trusted-sidebar-muted);
+        --wallet-muted-2: var(--trusted-sidebar-muted-2);
+        --wallet-border: var(--trusted-sidebar-border);
+        --wallet-border-strong: var(--trusted-sidebar-border-strong);
+        --wallet-danger-border: var(--trusted-sidebar-danger-border);
+        --wallet-danger-text: var(--trusted-sidebar-danger-text);
+        --wallet-accent: var(--trusted-sidebar-accent);
+        --wallet-badge-bg: var(--trusted-sidebar-badge-bg);
+        --wallet-badge-text: var(--trusted-sidebar-badge-text);
+        --wallet-button-hover: var(--trusted-sidebar-button-hover);
       }
 
       h2 {
@@ -87,7 +31,7 @@
         text-transform: uppercase;
       }
 
-      p {
+      .wallet-main p {
         margin: 4px 0 0;
         color: var(--wallet-muted);
         font-size: 13px;
@@ -159,8 +103,7 @@
         padding: 5px 9px;
       }
 
-      .secondary-button,
-      .close-button {
+      .secondary-button {
         border: 1px solid var(--wallet-border-strong);
         border-radius: 7px;
         background: var(--wallet-panel);
@@ -172,8 +115,7 @@
         padding: 8px 12px;
       }
 
-      .secondary-button:hover,
-      .close-button:hover {
+      .secondary-button:hover {
         background: var(--wallet-button-hover);
       }
 
@@ -281,17 +223,11 @@
       }
 
       @media (max-width: 760px) {
-        main {
-          padding: 20px;
-        }
-
-        header,
         .grid,
         .item-row {
           grid-template-columns: 1fr;
         }
 
-        header,
         .item-row {
           align-items: stretch;
         }
@@ -308,69 +244,116 @@
     </style>
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <h1 id="heading">Wallet Accounts</h1>
-          <p id="package-label">Shell-owned trusted surface</p>
+    <div class="trusted-sidebar-shell" data-sidebar-frame>
+      <header class="trusted-sidebar-header">
+        <div class="trusted-sidebar-heading">
+          <p class="trusted-sidebar-eyebrow" data-sidebar-eyebrow>Trusted shell surface</p>
+          <h1 class="trusted-sidebar-title" id="heading" data-sidebar-title>Wallet</h1>
+          <p class="trusted-sidebar-subtitle" id="package-label" data-sidebar-subtitle>
+            Shell-owned trusted surface
+          </p>
         </div>
-        <button type="button" class="close-button" id="close">Close</button>
+        <div class="trusted-sidebar-actions">
+          <button
+            type="button"
+            class="trusted-sidebar-icon-button"
+            id="sidebar-layout-toggle"
+            data-sidebar-layout-toggle
+            hidden
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="4" width="18" height="16" rx="2"/>
+              <path d="M15 4v16"/>
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="trusted-sidebar-icon-button"
+            id="close"
+            data-sidebar-close
+            aria-label="Close Wallet"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M18 6 6 18"/>
+              <path d="M6 6 18 18"/>
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <div class="error" id="error" hidden></div>
+      <main class="trusted-sidebar-content wallet-main">
+        <div class="error" id="error" hidden></div>
 
-      <div class="grid">
-        <section aria-labelledby="wallets-title">
-          <h2 id="wallets-title">Accounts</h2>
-          <div class="management-panel">
-            <h3>Create wallet</h3>
-            <div class="inline-form">
+        <div class="grid">
+          <section aria-labelledby="wallets-title">
+            <h2 id="wallets-title">Accounts</h2>
+            <div class="management-panel">
+              <h3>Create wallet</h3>
+              <div class="inline-form">
+                <div class="field">
+                  <label for="create-wallet-name">Wallet name</label>
+                  <input id="create-wallet-name" type="text" autocomplete="off" maxlength="80" placeholder="Savings">
+                </div>
+                <div class="button-row">
+                  <button type="button" class="secondary-button" id="create-wallet-submit">Create wallet</button>
+                </div>
+              </div>
+              <div class="error" id="management-error" hidden></div>
+            </div>
+            <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
+            <ul id="wallet-list"></ul>
+            <div class="item-row">
+              <div>
+                <div class="item-title">Recovery Phrase</div>
+                <div class="item-meta">Export the vault seed phrase from this trusted shell window.</div>
+              </div>
+              <button type="button" class="secondary-button" id="export-mnemonic-open">Export phrase</button>
+            </div>
+            <div class="export-panel" id="export-panel" hidden>
+              <h3 id="export-title">Export private key</h3>
+              <p id="export-address"></p>
               <div class="field">
-                <label for="create-wallet-name">Wallet name</label>
-                <input id="create-wallet-name" type="text" autocomplete="off" maxlength="80" placeholder="Savings">
+                <label for="export-password">Vault password</label>
+                <input id="export-password" type="password" autocomplete="current-password">
               </div>
               <div class="button-row">
-                <button type="button" class="secondary-button" id="create-wallet-submit">Create wallet</button>
+                <button type="button" class="secondary-button" id="export-submit">Export</button>
+                <button type="button" class="secondary-button" id="export-cancel">Cancel</button>
+              </div>
+              <div class="error" id="export-error" hidden></div>
+              <div class="field" id="export-result" hidden>
+                <label id="export-result-label">Private key</label>
+                <code class="secret-value mono" id="export-value"></code>
+                <button type="button" class="secondary-button" id="export-copy">Copy</button>
               </div>
             </div>
-            <div class="error" id="management-error" hidden></div>
-          </div>
-          <div class="empty" id="wallet-empty" hidden>No wallet accounts are available.</div>
-          <ul id="wallet-list"></ul>
-          <div class="item-row">
-            <div>
-              <div class="item-title">Recovery Phrase</div>
-              <div class="item-meta">Export the vault seed phrase from this trusted shell window.</div>
-            </div>
-            <button type="button" class="secondary-button" id="export-mnemonic-open">Export phrase</button>
-          </div>
-          <div class="export-panel" id="export-panel" hidden>
-            <h3 id="export-title">Export private key</h3>
-            <p id="export-address"></p>
-            <div class="field">
-              <label for="export-password">Vault password</label>
-              <input id="export-password" type="password" autocomplete="current-password">
-            </div>
-            <div class="button-row">
-              <button type="button" class="secondary-button" id="export-submit">Export</button>
-              <button type="button" class="secondary-button" id="export-cancel">Cancel</button>
-            </div>
-            <div class="error" id="export-error" hidden></div>
-            <div class="field" id="export-result" hidden>
-              <label id="export-result-label">Private key</label>
-              <code class="secret-value mono" id="export-value"></code>
-              <button type="button" class="secondary-button" id="export-copy">Copy</button>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <section aria-labelledby="permissions-title">
-          <h2 id="permissions-title">Connected Sites</h2>
-          <div class="empty" id="permission-empty" hidden>No sites have wallet access.</div>
-          <ul id="permission-list"></ul>
-        </section>
-      </div>
-    </main>
+          <section aria-labelledby="permissions-title">
+            <h2 id="permissions-title">Connected Sites</h2>
+            <div class="empty" id="permission-empty" hidden>No sites have wallet access.</div>
+            <ul id="permission-list"></ul>
+          </section>
+        </div>
+      </main>
+    </div>
+    <script src="./trusted-sidebar-frame.js"></script>
     <script src="./trusted-wallet-renderer.js"></script>
   </body>
 </html>

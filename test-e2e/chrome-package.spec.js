@@ -2467,7 +2467,15 @@ test('official browser chrome can launch as a local package with transitional we
       shellWindowWithWallet.chromeBounds.y
     );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
-    await expect(trustedWalletWindow.locator('#heading')).toHaveText('Wallet Accounts');
+    await expect(trustedWalletWindow.locator('[data-sidebar-frame]')).toBeVisible();
+    await expect(trustedWalletWindow.locator('[data-sidebar-title]')).toHaveText('Wallet');
+    await expect(trustedWalletWindow.locator('[data-sidebar-subtitle]')).toContainText(
+      'Opened by baby.freedom.chrome.official-local'
+    );
+    await expect(trustedWalletWindow.locator('[data-sidebar-close]')).toHaveAttribute(
+      'aria-label',
+      'Close Wallet'
+    );
     await expect(trustedWalletWindow.locator('html')).toHaveAttribute(
       'data-theme',
       /^(light|dark)$/

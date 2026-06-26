@@ -2,6 +2,9 @@
   const api = window.trustedWalletSurface;
   const heading = document.getElementById('heading');
   const packageLabel = document.getElementById('package-label');
+  const sidebarFrame = window.trustedSidebarFrame?.init({
+    onClose: () => api?.close?.(),
+  });
   const walletList = document.getElementById('wallet-list');
   const permissionList = document.getElementById('permission-list');
   const walletEmpty = document.getElementById('wallet-empty');
@@ -27,17 +30,32 @@
   let exportRequest = null;
   let currentSnapshot = {};
 
-  function normalizeTheme(theme = {}) {
-    const mode = theme.mode === 'light' || theme.mode === 'dark' ? theme.mode : 'system';
-    const effective = theme.effective === 'dark' ? 'dark' : 'light';
-    return { mode, effective };
+  function applyTheme(theme) {
+    if (sidebarFrame) {
+      sidebarFrame.applyTheme(theme);
+      return;
+    }
+    const effective = theme?.effective === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = effective;
+    document.documentElement.style.colorScheme = effective;
+    document.body.dataset.theme = effective;
   }
 
-  function applyTheme(theme) {
-    const normalized = normalizeTheme(theme);
-    document.documentElement.dataset.theme = normalized.effective;
-    document.documentElement.style.colorScheme = normalized.effective;
-    document.body.dataset.theme = normalized.effective;
+  function applySurfaceContext(context = {}) {
+    const subtitle = context.caller?.packageId
+      ? `Opened by ${context.caller.packageId}`
+      : 'Shell-owned trusted surface';
+    if (sidebarFrame) {
+      sidebarFrame.setContext({
+        ...context,
+        title: context.title || 'Wallet',
+        subtitle,
+      });
+      return;
+    }
+    applyTheme(context.theme);
+    heading.textContent = context.title || context.heading || 'Wallet';
+    packageLabel.textContent = subtitle;
   }
 
   function setError(message) {
@@ -366,11 +384,7 @@
       return;
     }
     const context = contextResult.context || {};
-    applyTheme(context.theme);
-    heading.textContent = context.heading || 'Wallet Accounts';
-    packageLabel.textContent = context.caller?.packageId
-      ? `Opened by ${context.caller.packageId}`
-      : 'Shell-owned trusted surface';
+    applySurfaceContext(context);
 
     const snapshotResult = await api.getSnapshot();
     if (!snapshotResult || snapshotResult.ok !== true) {
@@ -380,9 +394,11 @@
     renderAndStoreSnapshot(snapshotResult.snapshot);
   }
 
-  close.addEventListener('click', () => {
-    api.close();
-  });
+  if (!sidebarFrame) {
+    close.addEventListener('click', () => {
+      api.close();
+    });
+  }
   createWalletSubmit.addEventListener('click', () => {
     handleCreateWallet();
   });
