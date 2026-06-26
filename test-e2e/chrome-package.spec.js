@@ -2243,7 +2243,7 @@ test('official browser chrome launch truth markers prove package mode', async ()
       chromeVisible: true,
       layout: {
         outerMargin: 0,
-        gap: 8,
+        gap: 4,
         radius: 12,
         railWidth: 44,
         backgroundColor: '#101010',

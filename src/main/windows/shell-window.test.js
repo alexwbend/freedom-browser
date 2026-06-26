@@ -189,7 +189,7 @@ describe('ShellWindow', () => {
       chromeVisible: true,
       layout: {
         outerMargin: 0,
-        gap: 8,
+        gap: 4,
         radius: 12,
         backgroundColor: '#101010',
       },
@@ -231,12 +231,12 @@ describe('ShellWindow', () => {
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
-      width: 1148,
+      width: 1152,
       height: 800,
     });
     expect(railView.getBounds().x - (
       chromeView.getBounds().x + chromeView.getBounds().width
-    )).toBe(8);
+    )).toBe(4);
     expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(nativeWindow.__freedomShellWindow.getSurfaceRailWebContents()).toBe(
       railView.webContents
@@ -375,7 +375,7 @@ describe('ShellWindow', () => {
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
-      width: 672,
+      width: 676,
       height: 800,
     });
     expect(surfaceView.webContents.loadFile).toHaveBeenCalledWith('/trusted-wallet.html', {
@@ -447,12 +447,12 @@ describe('ShellWindow', () => {
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
-      width: 628,
+      width: 632,
       height: 800,
     });
     expect(surfaceView.getBounds().x - (
       chromeView.getBounds().x + chromeView.getBounds().width
-    )).toBe(8);
+    )).toBe(4);
     expect(railView.getBounds().x).toBe(
       surfaceView.getBounds().x + surfaceView.getBounds().width
     );
@@ -506,7 +506,7 @@ describe('ShellWindow', () => {
     await jest.advanceTimersByTimeAsync(80);
 
     expect(chromeView.getBounds().width).toBeLessThan(1200);
-    expect(chromeView.getBounds().width).toBeGreaterThan(672);
+    expect(chromeView.getBounds().width).toBeGreaterThan(676);
     expect(surfaceView.getBounds().x).toBeLessThan(1200);
     expect(surfaceView.getBounds().x).toBeGreaterThan(680);
 
@@ -516,7 +516,7 @@ describe('ShellWindow', () => {
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
-      width: 672,
+      width: 676,
       height: 800,
     });
     expect(surfaceView.getBounds()).toEqual({
@@ -533,7 +533,7 @@ describe('ShellWindow', () => {
 
     await jest.advanceTimersByTimeAsync(80);
 
-    expect(chromeView.getBounds().width).toBeGreaterThan(672);
+    expect(chromeView.getBounds().width).toBeGreaterThan(676);
     expect(chromeView.getBounds().width).toBeLessThan(1200);
     expect(surfaceView.getBounds().x).toBeGreaterThan(680);
     expect(surfaceView.getBounds().x).toBeLessThan(1200);
@@ -574,9 +574,9 @@ describe('ShellWindow', () => {
     surfaceWindow.show();
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
-      x: 672,
+      x: 676,
       y: 0,
-      width: 528,
+      width: 524,
       height: 800,
     });
     expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
@@ -618,7 +618,7 @@ describe('ShellWindow', () => {
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
-      width: 672,
+      width: 676,
       height: 800,
     });
 
@@ -632,9 +632,9 @@ describe('ShellWindow', () => {
       height: 800,
     });
     expect(surfaceView.getBounds()).toEqual({
-      x: 672,
+      x: 676,
       y: 0,
-      width: 528,
+      width: 524,
       height: 800,
     });
     expect(shellWindow.getDebugState().surfaces).toEqual([
@@ -649,7 +649,7 @@ describe('ShellWindow', () => {
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
-      width: 672,
+      width: 676,
       height: 800,
     });
     expect(shellWindow.getDebugState().surfaces).toEqual([
@@ -695,7 +695,7 @@ describe('ShellWindow', () => {
       height: 800,
     });
     expect(toolsView.setBounds).toHaveBeenLastCalledWith({
-      x: 372,
+      x: 376,
       y: 0,
       width: 300,
       height: 800,
@@ -703,15 +703,15 @@ describe('ShellWindow', () => {
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
-      width: 364,
+      width: 372,
       height: 800,
     });
     expect(walletView.getBounds().x - (
       toolsView.getBounds().x + toolsView.getBounds().width
-    )).toBe(8);
+    )).toBe(4);
     expect(toolsView.getBounds().x - (
       chromeView.getBounds().x + chromeView.getBounds().width
-    )).toBe(8);
+    )).toBe(4);
   });
 
   test('resizes hosted trusted surfaces with the native window', () => {
@@ -749,7 +749,7 @@ describe('ShellWindow', () => {
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
-      width: 372,
+      width: 376,
       height: 700,
     });
   });

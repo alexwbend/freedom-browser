@@ -17,7 +17,7 @@
   --trusted-sidebar-badge-bg: #e6f2ec;
   --trusted-sidebar-badge-text: #1c5d3f;
   --trusted-sidebar-button-hover: #efede7;
-  --trusted-sidebar-overlay-gutter: 8px;
+  --trusted-sidebar-overlay-gutter: 4px;
   background: var(--trusted-sidebar-bg);
   color: var(--trusted-sidebar-text);
 }
