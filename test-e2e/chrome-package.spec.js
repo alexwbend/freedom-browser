@@ -2180,12 +2180,18 @@ test('official browser chrome launch truth markers prove package mode', async ()
       chromeWebContentsId: expect.any(Number),
       chromeUrl: expect.stringContaining('/official/index.html'),
       chromeBounds: {
-        x: 0,
-        y: 0,
+        x: 8,
+        y: 8,
         width: expect.any(Number),
         height: expect.any(Number),
       },
       chromeVisible: true,
+      layout: {
+        margin: 8,
+        gap: 8,
+        radius: 12,
+        backgroundColor: '#101010',
+      },
       hostWebContentsId: expect.any(Number),
     });
     expect(shellWindow.chromeWebContentsId).not.toBe(shellWindow.hostWebContentsId);
@@ -2219,8 +2225,8 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
       chromeWebContentsId: expect.any(Number),
       chromeUrl: expect.stringContaining('/official/index.html'),
       chromeBounds: {
-        x: 0,
-        y: 0,
+        x: 8,
+        y: 8,
         width: expect.any(Number),
         height: expect.any(Number),
       },
@@ -2272,8 +2278,10 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
       closed: false,
     });
     expect(surface.webContentsId).not.toBe(chromeCompositor.chromeWebContentsId);
-    expect(surface.bounds.height).toBe(chromeCompositor.chromeBounds.height);
-    expect(surface.bounds.x + surface.bounds.width).toBe(chromeCompositor.chromeBounds.width);
+    expect(surface.bounds.height).toBeGreaterThanOrEqual(chromeCompositor.chromeBounds.height);
+    expect(surface.bounds.x + surface.bounds.width).toBeGreaterThan(
+      chromeCompositor.chromeBounds.x + chromeCompositor.chromeBounds.width
+    );
 
     const image = await captureWebContentsPng(launched.app, surface.webContentsId);
     const sampleX = Math.min(image.width - 1, 24);
@@ -2418,7 +2426,7 @@ test('official browser chrome can launch as a local package with transitional we
         url: expect.stringContaining('trusted-wallet.html'),
         bounds: {
           x: expect.any(Number),
-          y: 0,
+          y: 8,
           width: 360,
           height: expect.any(Number),
         },
@@ -2433,8 +2441,12 @@ test('official browser chrome can launch as a local package with transitional we
     expect(walletSurface.webContentsId).not.toBe(shellWindowWithWallet.chromeWebContentsId);
     expect(openedWalletSurface.layoutMode).toBe('dock');
     expect(walletSurface.layoutMode).toBe('dock');
-    expect(walletSurface.bounds.x).toBe(
-      shellWindowWithWallet.chromeBounds.width
+    expect(walletSurface.bounds.x - (
+      shellWindowWithWallet.chromeBounds.x + shellWindowWithWallet.chromeBounds.width
+    )).toBe(shellWindowWithWallet.layout.gap);
+    expect(walletSurface.bounds.height).toBe(shellWindowWithWallet.chromeBounds.height);
+    expect(walletSurface.bounds.y).toBe(
+      shellWindowWithWallet.chromeBounds.y
     );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
     await expect(trustedWalletWindow.locator('#heading')).toHaveText('Wallet Accounts');

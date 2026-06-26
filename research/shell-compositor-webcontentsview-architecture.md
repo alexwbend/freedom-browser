@@ -165,6 +165,10 @@ Relevant local type facts from `node_modules/electron/electron.d.ts`:
 - `View` supports `addChildView(view)`, `removeChildView(view)`,
   `setBounds(bounds)`, `getBounds()`, `setVisible(visible)`, and
   `setBackgroundColor(color)`
+- Electron 41's `View` also supports `setBorderRadius(radius)`, which lets the
+  shell compositor visually clip `WebContentsView` panels. Electron documents
+  that rounded cutout areas still capture clicks, so rounded overlay corners can
+  still block underlying content; docked panels avoid most of that concern.
 - `BaseWindow` / `BrowserWindow` expose a content view through
   `getContentView()` and can replace it with `setContentView(view)`
 - Electron marks `BrowserView` as deprecated in favor of `WebContentsView`

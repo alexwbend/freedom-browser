@@ -7,6 +7,10 @@ const MIN_SURFACE_WIDTH = 360;
 const SURFACE_LAYOUT_MODE_DOCK = 'dock';
 const SURFACE_LAYOUT_MODE_OVERLAY = 'overlay';
 const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
+const COMPOSITOR_PANEL_MARGIN = 8;
+const COMPOSITOR_PANEL_GAP = 8;
+const COMPOSITOR_PANEL_RADIUS = 12;
+const COMPOSITOR_BACKGROUND_COLOR = '#101010';
 
 function getCompositorHostWebPreferences() {
   return {
@@ -46,12 +50,30 @@ function getSurfaceWidth(windowWidth, preferredWidth = DEFAULT_SURFACE_WIDTH, mi
   );
 }
 
-function getChromeBoundsForSize({ width, height }, reservedRight = 0) {
+function getPanelMarginForSize({ width, height }) {
   return {
-    x: 0,
-    y: 0,
-    width: Math.max(0, width - reservedRight),
-    height: Math.max(0, height),
+    x: Math.min(COMPOSITOR_PANEL_MARGIN, Math.floor(Math.max(0, width) / 2)),
+    y: Math.min(COMPOSITOR_PANEL_MARGIN, Math.floor(Math.max(0, height) / 2)),
+  };
+}
+
+function getCompositorInnerBounds(size) {
+  const margin = getPanelMarginForSize(size);
+  return {
+    x: margin.x,
+    y: margin.y,
+    width: Math.max(0, size.width - margin.x * 2),
+    height: Math.max(0, size.height - margin.y * 2),
+  };
+}
+
+function getChromeBoundsForSize({ width, height }, reservedRight = 0) {
+  const innerBounds = getCompositorInnerBounds({ width, height });
+  return {
+    x: innerBounds.x,
+    y: innerBounds.y,
+    width: Math.max(0, innerBounds.width - reservedRight),
+    height: innerBounds.height,
   };
 }
 
@@ -73,12 +95,13 @@ function getRightDrawerBoundsForSize(
   preferredWidth = DEFAULT_SURFACE_WIDTH,
   minWidth = MIN_SURFACE_WIDTH
 ) {
-  const surfaceWidth = getSurfaceWidth(width, preferredWidth, minWidth);
+  const innerBounds = getCompositorInnerBounds({ width, height });
+  const surfaceWidth = getSurfaceWidth(innerBounds.width, preferredWidth, minWidth);
   const bounds = {
-    x: Math.max(0, width - surfaceWidth),
-    y: 0,
+    x: innerBounds.x + Math.max(0, innerBounds.width - surfaceWidth),
+    y: innerBounds.y,
     width: surfaceWidth,
-    height: Math.max(0, height),
+    height: innerBounds.height,
   };
   return bounds;
 }
@@ -100,6 +123,28 @@ function removeContentsListener(contents, eventName, listener) {
     contents.off(eventName, listener);
   } else if (typeof contents.removeListener === 'function') {
     contents.removeListener(eventName, listener);
+  }
+}
+
+function setViewBackgroundColor(view, color) {
+  if (typeof view?.setBackgroundColor !== 'function') {
+    return;
+  }
+  try {
+    view.setBackgroundColor(color);
+  } catch {
+    // Older or platform-specific native views may reject styling operations.
+  }
+}
+
+function setViewBorderRadius(view, radius = COMPOSITOR_PANEL_RADIUS) {
+  if (typeof view?.setBorderRadius !== 'function') {
+    return;
+  }
+  try {
+    view.setBorderRadius(radius);
+  } catch {
+    // Keep compositor layout functional even if the native view cannot clip.
   }
 }
 
@@ -143,6 +188,8 @@ class ShellWindow {
     this.chromeWebContents = chromeView.webContents;
     this.chromeLoadTarget = chromeView.webContents;
     this.mode = SHELL_WINDOW_COMPOSITOR_MODE;
+    setViewBackgroundColor(this.nativeWindow.getContentView?.(), COMPOSITOR_BACKGROUND_COLOR);
+    setViewBorderRadius(chromeView);
     this.updateChromeBounds = () => {
       this.updateCompositorLayout();
     };
@@ -208,7 +255,10 @@ class ShellWindow {
       ) {
         return maxWidth;
       }
-      return Math.max(maxWidth, getSurfaceWidth(windowWidth, record.width, record.minWidth));
+      const surfaceWidth = getSurfaceWidth(windowWidth, record.width, record.minWidth);
+      const reservedGap =
+        surfaceWidth > 0 && windowWidth > surfaceWidth ? COMPOSITOR_PANEL_GAP : 0;
+      return Math.max(maxWidth, surfaceWidth + reservedGap);
     }, 0);
   }
 
@@ -217,7 +267,8 @@ class ShellWindow {
       return;
     }
     const size = getWindowContentSize(this.nativeWindow);
-    const dockedInset = this.getDockedSurfaceInset(size.width);
+    const innerBounds = getCompositorInnerBounds(size);
+    const dockedInset = this.getDockedSurfaceInset(innerBounds.width);
     if (this.chromeView) {
       this.chromeBounds = setChromeViewBoundsForSize(size, this.chromeView, dockedInset);
     }
@@ -254,6 +305,7 @@ class ShellWindow {
     if (!view?.webContents) {
       throw new Error('ShellWindow trusted surface view must expose webContents');
     }
+    setViewBorderRadius(view);
 
     const emitter = new EventEmitter();
     const record = {
@@ -418,6 +470,12 @@ class ShellWindow {
           ? this.chromeView.getVisible()
           : undefined,
       hostWebContentsId: this.nativeWindow.webContents?.id ?? null,
+      layout: {
+        margin: COMPOSITOR_PANEL_MARGIN,
+        gap: COMPOSITOR_PANEL_GAP,
+        radius: COMPOSITOR_PANEL_RADIUS,
+        backgroundColor: COMPOSITOR_BACKGROUND_COLOR,
+      },
       closed: this.closed,
       surfaces: [...this.surfaceWindows.values()].map((record) => ({
         surface: record.surface,
