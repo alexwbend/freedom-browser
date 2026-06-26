@@ -74,8 +74,8 @@ body {
   flex-shrink: 0;
   gap: 10px;
   justify-content: space-between;
-  min-height: 37px;
-  padding: 4px 8px 4px 10px;
+  min-height: 40px;
+  padding: 5px 8px 5px 10px;
 }
 
 .trusted-sidebar-heading {
@@ -154,7 +154,12 @@ body {
 
 .trusted-sidebar-icon-button svg {
   height: 15px;
+  transition: transform 0.15s ease;
   width: 15px;
+}
+
+.trusted-sidebar-icon-button[data-sidebar-layout-toggle][data-layout-mode="overlay"] svg {
+  transform: rotate(-45deg);
 }
 
 .trusted-sidebar-content {
@@ -167,7 +172,7 @@ body {
 
 @media (min-width: 760px) {
   .trusted-sidebar-header {
-    padding: 4px 8px 4px 10px;
+    padding: 5px 8px 5px 10px;
   }
 
   .trusted-sidebar-content {
