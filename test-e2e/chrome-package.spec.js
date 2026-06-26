@@ -2468,6 +2468,10 @@ test('official browser chrome can launch as a local package with transitional we
     );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
     await expect(trustedWalletWindow.locator('#heading')).toHaveText('Wallet Accounts');
+    await expect(trustedWalletWindow.locator('html')).toHaveAttribute(
+      'data-theme',
+      /^(light|dark)$/
+    );
     await expect(trustedWalletWindow.locator('#wallet-list li')).toHaveCount(2);
     await expect(trustedWalletWindow.locator('#create-wallet-submit')).toBeVisible();
     await trustedWalletWindow.locator('#create-wallet-name').fill('Trading');

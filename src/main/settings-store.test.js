@@ -32,7 +32,10 @@ describe('settings-store', () => {
   });
 
   test('loads defaults and applies the system theme when no file exists', () => {
-    const { mod, nativeTheme } = loadSettingsStore({ userDataDir });
+    const { mod, nativeTheme } = loadSettingsStore({
+      userDataDir,
+      nativeTheme: { themeSource: 'system', shouldUseDarkColors: true },
+    });
 
     expect(mod.loadSettings()).toEqual(
       expect.objectContaining({
@@ -51,6 +54,10 @@ describe('settings-store', () => {
       })
     );
     expect(nativeTheme.themeSource).toBe('system');
+    expect(mod.getShellTheme()).toEqual({
+      mode: 'system',
+      effective: 'dark',
+    });
   });
 
   test('merges persisted settings with defaults and applies the saved theme', () => {
@@ -72,6 +79,15 @@ describe('settings-store', () => {
       })
     );
     expect(nativeTheme.themeSource).toBe('dark');
+    expect(mod.getSettingsWithShellTheme()).toEqual(
+      expect.objectContaining({
+        theme: 'dark',
+        shellTheme: {
+          mode: 'dark',
+          effective: 'dark',
+        },
+      })
+    );
   });
 
   test('migrates bee-era keys to ant-named keys and drops the old keys', () => {
@@ -158,7 +174,68 @@ describe('settings-store', () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenCalledWith(
       IPC.SETTINGS_UPDATED,
-      expect.objectContaining({ theme: 'light' })
+      expect.objectContaining({
+        theme: 'light',
+        shellTheme: {
+          mode: 'light',
+          effective: 'light',
+        },
+      })
+    );
+  });
+
+  test('saveSettings notifies settings subscribers with derived shell theme', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    const listener = jest.fn();
+    const unsubscribe = mod.onSettingsUpdated(listener);
+
+    expect(mod.saveSettings({ theme: 'dark' })).toBe(true);
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({
+        theme: 'dark',
+        shellTheme: {
+          mode: 'dark',
+          effective: 'dark',
+        },
+      })
+    );
+
+    listener.mockClear();
+    unsubscribe();
+    expect(mod.saveSettings({ theme: 'light' })).toBe(true);
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  test('broadcasts system theme effective changes from nativeTheme updates', () => {
+    const send = jest.fn();
+    const nativeThemeListeners = {};
+    const nativeTheme = {
+      themeSource: 'system',
+      shouldUseDarkColors: false,
+      on: jest.fn((eventName, listener) => {
+        nativeThemeListeners[eventName] = listener;
+      }),
+    };
+    const webContents = {
+      getAllWebContents: jest.fn(() => [{ send }]),
+    };
+    const { mod } = loadSettingsStore({ userDataDir, nativeTheme, webContents });
+
+    mod.loadSettings();
+    expect(nativeTheme.on).toHaveBeenCalledWith('updated', expect.any(Function));
+
+    nativeTheme.shouldUseDarkColors = true;
+    nativeThemeListeners.updated();
+
+    expect(send).toHaveBeenCalledWith(
+      IPC.SETTINGS_UPDATED,
+      expect.objectContaining({
+        shellTheme: {
+          mode: 'system',
+          effective: 'dark',
+        },
+      })
     );
   });
 
@@ -244,6 +321,10 @@ describe('settings-store', () => {
       expect.objectContaining({
         packageHosted: true,
         packageWritableSettings: expect.arrayContaining(['theme', 'showBookmarkBar']),
+        shellTheme: {
+          mode: 'system',
+          effective: 'light',
+        },
       })
     );
 
@@ -291,6 +372,10 @@ describe('settings-store', () => {
       expect.objectContaining({
         theme: 'system',
         antNodeMode: 'ultraLight',
+        shellTheme: {
+          mode: 'system',
+          effective: 'light',
+        },
       })
     );
     await expect(ipcMain.invoke(IPC.SETTINGS_SAVE, { theme: 'dark', antNodeMode: 'light' }))

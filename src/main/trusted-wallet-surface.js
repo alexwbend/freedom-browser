@@ -22,6 +22,7 @@ let activeSurfaceId = null;
 let activeSurfaceMode = null;
 let activeChannels = [];
 let closeListeners = new Set();
+let activeThemeUnsubscribe = null;
 
 function createSurfaceId() {
   if (typeof crypto.randomUUID === 'function') {
@@ -222,6 +223,18 @@ function buildSurfaceContext(context = {}) {
     surfaceOwner: 'shell',
     trusted: true,
     caller,
+    theme: getShellThemeForSurface(),
+  };
+}
+
+function getShellThemeForSurface(settings) {
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.getShellTheme === 'function') {
+    return settingsStore.getShellTheme(settings);
+  }
+  return {
+    mode: 'system',
+    effective: 'light',
   };
 }
 
@@ -300,9 +313,28 @@ async function notifySnapshotUpdated() {
   });
 }
 
+function notifyThemeUpdated(theme) {
+  if (
+    !activeWindow ||
+    typeof activeWindow.isDestroyed !== 'function' ||
+    activeWindow.isDestroyed() ||
+    !activeSurfaceId
+  ) {
+    return;
+  }
+  activeWindow.webContents?.send?.(channelFor('theme-updated', activeSurfaceId), {
+    ok: true,
+    theme: cloneSerializable(theme),
+  });
+}
+
 function cleanupSurface(electronIpcMain) {
   activeChannels.forEach((channel) => removeHandlerSafe(electronIpcMain, channel));
   activeChannels = [];
+  if (activeThemeUnsubscribe) {
+    activeThemeUnsubscribe();
+    activeThemeUnsubscribe = null;
+  }
   activeWindow = null;
   activeSurfaceId = null;
   activeSurfaceMode = null;
@@ -594,6 +626,13 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     return { ok: true };
   });
 
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.onSettingsUpdated === 'function') {
+    activeThemeUnsubscribe = settingsStore.onSettingsUpdated((settings) => {
+      notifyThemeUpdated(getShellThemeForSurface(settings));
+    });
+  }
+
   surfaceWindow.once('closed', () => cleanupSurface(electronIpcMain));
   surfaceWindow.once('ready-to-show', () => {
     if (
@@ -697,6 +736,10 @@ function _resetForTest() {
   activeSurfaceMode = null;
   activeChannels = [];
   closeListeners = new Set();
+  if (activeThemeUnsubscribe) {
+    activeThemeUnsubscribe();
+    activeThemeUnsubscribe = null;
+  }
 }
 
 module.exports = {

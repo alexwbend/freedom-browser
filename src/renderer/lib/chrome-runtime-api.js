@@ -146,6 +146,12 @@ const createPackageRuntimeApi = () =>
       callFreedomShell('setBookmarkBarChecked', null, checked),
     getSettings: () => callFreedomShell('getSettings', { ...DEFAULT_SETTINGS }),
     saveSettings: (settings) => callFreedomShell('saveSettings', false, settings),
+    getTheme: () =>
+      callFreedomShell('getTheme', {
+        mode: 'system',
+        effective: 'light',
+      }),
+    onThemeChanged: (callback) => subscribeFreedomShell('onThemeChanged', callback),
     getBookmarks: () => callFreedomShell('getBookmarks', []),
     addBookmark: (bookmark) => callFreedomShell('addBookmark', false, bookmark),
     updateBookmark: (originalTarget, bookmark) =>

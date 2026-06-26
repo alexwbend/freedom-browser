@@ -29,4 +29,10 @@ contextBridge.exposeInMainWorld('trustedWalletSurface', {
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },
+  onThemeUpdated: (callback) => {
+    const channel = channelFor('theme-updated');
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
 });

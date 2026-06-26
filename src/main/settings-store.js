@@ -1,4 +1,5 @@
 const log = require('./logger');
+const { EventEmitter } = require('events');
 const { app, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -59,6 +60,8 @@ const PACKAGE_WRITABLE_SETTINGS = Object.freeze({
 });
 
 let cachedSettings = null;
+const settingsEvents = new EventEmitter();
+let nativeThemeListenerRegistered = false;
 
 function getSettingsPath() {
   return path.join(app.getPath('userData'), SETTINGS_FILE);
@@ -107,12 +110,59 @@ function loadSettings() {
 
   // Apply theme to nativeTheme
   applyNativeTheme(cachedSettings.theme);
+  ensureNativeThemeListener();
 
   return cachedSettings;
 }
 
+function normalizeThemeMode(theme) {
+  return theme === 'light' || theme === 'dark' ? theme : 'system';
+}
+
+function getEffectiveThemeForMode(mode) {
+  if (mode === 'light' || mode === 'dark') {
+    return mode;
+  }
+  return nativeTheme.shouldUseDarkColors === true ? 'dark' : 'light';
+}
+
+function getShellTheme(settings = loadSettings()) {
+  const mode = normalizeThemeMode(settings?.theme);
+  return {
+    mode,
+    effective: getEffectiveThemeForMode(mode),
+  };
+}
+
+function getSettingsWithShellTheme(settings = loadSettings()) {
+  return {
+    ...settings,
+    shellTheme: getShellTheme(settings),
+  };
+}
+
+function ensureNativeThemeListener() {
+  if (nativeThemeListenerRegistered || typeof nativeTheme.on !== 'function') {
+    return;
+  }
+  nativeThemeListenerRegistered = true;
+  nativeTheme.on('updated', () => {
+    const settings = loadSettings();
+    if (normalizeThemeMode(settings.theme) === 'system') {
+      broadcastSettingsUpdated(settings);
+    }
+  });
+}
+
 function broadcastSettingsUpdated(merged) {
-  broadcastToAllWebContents(IPC.SETTINGS_UPDATED, merged);
+  const payload = getSettingsWithShellTheme(merged);
+  broadcastToAllWebContents(IPC.SETTINGS_UPDATED, payload);
+  settingsEvents.emit('settings-updated', payload);
+}
+
+function onSettingsUpdated(listener) {
+  settingsEvents.on('settings-updated', listener);
+  return () => settingsEvents.removeListener('settings-updated', listener);
 }
 
 // Walks DEFAULT_SETTINGS keys in one pass: drops unknown input keys (defense
@@ -183,7 +233,7 @@ function savePackageSettings(newSettings) {
 }
 
 function getSettingsForIpc(event) {
-  const settings = loadSettings();
+  const settings = getSettingsWithShellTheme();
   if (!isPackageHostedInternalPage(event)) {
     return settings;
   }
@@ -210,7 +260,10 @@ function registerSettingsIpc() {
 module.exports = {
   filterPackageWritableSettings,
   getSettingsForIpc,
+  getSettingsWithShellTheme,
+  getShellTheme,
   loadSettings,
+  onSettingsUpdated,
   savePackageSettings,
   saveSettings,
   registerSettingsIpc,

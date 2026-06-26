@@ -27,6 +27,19 @@
   let exportRequest = null;
   let currentSnapshot = {};
 
+  function normalizeTheme(theme = {}) {
+    const mode = theme.mode === 'light' || theme.mode === 'dark' ? theme.mode : 'system';
+    const effective = theme.effective === 'dark' ? 'dark' : 'light';
+    return { mode, effective };
+  }
+
+  function applyTheme(theme) {
+    const normalized = normalizeTheme(theme);
+    document.documentElement.dataset.theme = normalized.effective;
+    document.documentElement.style.colorScheme = normalized.effective;
+    document.body.dataset.theme = normalized.effective;
+  }
+
   function setError(message) {
     error.textContent = message || '';
     error.hidden = !message;
@@ -353,6 +366,7 @@
       return;
     }
     const context = contextResult.context || {};
+    applyTheme(context.theme);
     heading.textContent = context.heading || 'Wallet Accounts';
     packageLabel.textContent = context.caller?.packageId
       ? `Opened by ${context.caller.packageId}`
@@ -405,6 +419,13 @@
     api.onSnapshotUpdated((payload) => {
       if (payload?.ok === true) {
         renderAndStoreSnapshot(payload.snapshot);
+      }
+    });
+  }
+  if (api && typeof api.onThemeUpdated === 'function') {
+    api.onThemeUpdated((payload) => {
+      if (payload?.ok === true) {
+        applyTheme(payload.theme);
       }
     });
   }

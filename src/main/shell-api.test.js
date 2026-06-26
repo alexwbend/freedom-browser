@@ -8,6 +8,9 @@ const { createIpcMainMock, loadMainModule } = require('../../test/helpers/main-p
 const mockResolveEnsContent = jest.fn();
 const mockInvalidateEnsContent = jest.fn();
 const mockLoadSettings = jest.fn();
+const mockGetSettingsWithShellTheme = jest.fn();
+const mockGetShellTheme = jest.fn();
+const mockOnSettingsUpdated = jest.fn();
 const mockSavePackageSettings = jest.fn();
 const mockSaveSettings = jest.fn();
 const mockLoadBookmarks = jest.fn();
@@ -91,6 +94,15 @@ function makePackage(overrides = {}) {
 }
 
 function loadShellApi(options = {}) {
+  if (!mockGetShellTheme.getMockImplementation()) {
+    mockGetShellTheme.mockReturnValue({ mode: 'system', effective: 'light' });
+  }
+  if (!mockGetSettingsWithShellTheme.getMockImplementation()) {
+    mockGetSettingsWithShellTheme.mockImplementation(() => mockLoadSettings());
+  }
+  if (!mockOnSettingsUpdated.getMockImplementation()) {
+    mockOnSettingsUpdated.mockReturnValue(() => {});
+  }
   const context = loadMainModule(require.resolve('./shell-api'), {
     ipcMain: options.ipcMain,
     dialog: options.dialog,
@@ -105,6 +117,9 @@ function loadShellApi(options = {}) {
       }),
       [SETTINGS_STORE_MODULE]: () => ({
         loadSettings: mockLoadSettings,
+        getSettingsWithShellTheme: mockGetSettingsWithShellTheme,
+        getShellTheme: mockGetShellTheme,
+        onSettingsUpdated: mockOnSettingsUpdated,
         savePackageSettings: mockSavePackageSettings,
         saveSettings: mockSaveSettings,
       }),
@@ -194,6 +209,9 @@ describe('shell-api', () => {
     mockResolveEnsContent.mockReset();
     mockInvalidateEnsContent.mockReset();
     mockLoadSettings.mockReset();
+    mockGetSettingsWithShellTheme.mockReset();
+    mockGetShellTheme.mockReset();
+    mockOnSettingsUpdated.mockReset();
     mockSavePackageSettings.mockReset();
     mockSaveSettings.mockReset();
     mockLoadBookmarks.mockReset();
@@ -284,6 +302,10 @@ describe('shell-api', () => {
       runtimeMode: 'local-package',
       appVersion,
       platform: process.platform,
+      theme: {
+        mode: 'system',
+        effective: 'light',
+      },
       chromePackage: {
         runtimeMode: 'local-package',
         source: 'local',
@@ -377,6 +399,14 @@ describe('shell-api', () => {
       })
     ).resolves.toBe(true);
     expect(mockInvalidateEnsContent).toHaveBeenCalledWith('vitalik.eth');
+
+    await expect(
+      mod.handleShellRequest({ sender }, { method: 'theme.get', args: [] })
+    ).resolves.toEqual({
+      mode: 'system',
+      effective: 'light',
+    });
+    expect(mockGetShellTheme).toHaveBeenCalled();
 
     await expect(
       mod.handleShellRequest({ sender }, { method: 'wallet.exportPrivateKey', args: [] })
@@ -733,6 +763,18 @@ describe('shell-api', () => {
       data: {},
     });
 
+    expect(
+      mod.emitShellEventToPackageWebContents(
+        sender,
+        SHELL_API_EVENTS.THEME_CHANGED,
+        { mode: 'dark', effective: 'dark' }
+      )
+    ).toEqual({ delivered: true });
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.THEME_CHANGED,
+      data: { mode: 'dark', effective: 'dark' },
+    });
+
     sender.send.mockClear();
     expect(
       mod.emitShellEventToPackageWebContents(
@@ -750,6 +792,28 @@ describe('shell-api', () => {
     expect(mod.emitShellEventToPackageWebContents(sender, 'unknown.event')).toEqual({
       delivered: false,
       reason: 'unsupported-event',
+    });
+  });
+
+  test('broadcasts shell theme changes to registered package callers', () => {
+    let settingsUpdatedListener = null;
+    const unsubscribe = jest.fn();
+    mockOnSettingsUpdated.mockImplementation((listener) => {
+      settingsUpdatedListener = listener;
+      return unsubscribe;
+    });
+    const { mod } = loadShellApi();
+    const sender = makeSender({ id: 1022 });
+    mod.registerPackageWebContents(sender, makePackage({ capabilities: ['shell.info'] }));
+
+    settingsUpdatedListener({
+      theme: 'system',
+      shellTheme: { mode: 'system', effective: 'dark' },
+    });
+
+    expect(sender.send).toHaveBeenCalledWith(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.THEME_CHANGED,
+      data: { mode: 'system', effective: 'dark' },
     });
   });
 
@@ -778,6 +842,10 @@ describe('shell-api', () => {
       enableIdentityWallet: true,
     };
     mockLoadSettings.mockReturnValue(settings);
+    mockGetSettingsWithShellTheme.mockReturnValue({
+      ...settings,
+      shellTheme: { mode: 'system', effective: 'light' },
+    });
     mockSavePackageSettings.mockReturnValueOnce(true).mockReturnValueOnce(false);
     mockLoadBookmarks.mockReturnValue([{ label: 'Example', target: 'https://example.com' }]);
     mockAddBookmark.mockReturnValue(true);
@@ -841,6 +909,10 @@ describe('shell-api', () => {
       theme: 'system',
       showBookmarkBar: true,
       enableIdentityWallet: true,
+      shellTheme: {
+        mode: 'system',
+        effective: 'light',
+      },
     });
 
     await expect(

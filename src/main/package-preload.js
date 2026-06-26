@@ -8,6 +8,7 @@ const SHELL_REQUEST = 'shell:request';
 const SHELL_EVENT = 'shell:event';
 const SHELL_API_METHODS = Object.freeze({
   GET_INFO: 'getInfo',
+  THEME_GET: 'theme.get',
   MARK_READY: 'markReady',
   RESOLVE_NAVIGATION_INPUT: 'resolveNavigationInput',
   RESOLVE_ENS: 'navigation.resolveEns',
@@ -61,6 +62,7 @@ const SHELL_API_METHODS = Object.freeze({
   DOWNLOADS_SAVE_IMAGE: 'downloads.saveImage',
 });
 const SHELL_API_EVENTS = Object.freeze({
+  THEME_CHANGED: 'theme.changed',
   TABS_COMMAND_RESULT: 'tabs.commandResult',
   TABS_SNAPSHOT_CHANGED: 'tabs.snapshotChanged',
   CHROME_CLOSE_MENUS_REQUESTED: 'chrome.commands.closeMenus',
@@ -105,6 +107,7 @@ const onShellCommandWithUrl = (eventName, callback) =>
 
 const freedomShell = Object.freeze({
   getInfo: () => invokeShell(SHELL_API_METHODS.GET_INFO),
+  getTheme: () => invokeShell(SHELL_API_METHODS.THEME_GET),
   markReady: () => invokeShell(SHELL_API_METHODS.MARK_READY),
   resolveNavigationInput: (input) => invokeShell(SHELL_API_METHODS.RESOLVE_NAVIGATION_INPUT, input),
   resolveEns: (name) => invokeShell(SHELL_API_METHODS.RESOLVE_ENS, name),
@@ -166,6 +169,7 @@ const freedomShell = Object.freeze({
   restartAndInstallUpdate: () => invokeShell(SHELL_API_METHODS.APP_RESTART_AND_INSTALL_UPDATE),
   onUpdateNotification: (callback) =>
     onShellEvent(SHELL_API_EVENTS.APP_UPDATE_NOTIFICATION, callback),
+  onThemeChanged: (callback) => onShellEvent(SHELL_API_EVENTS.THEME_CHANGED, callback),
   updateTabMenuState: (state) =>
     invokeShell(SHELL_API_METHODS.CHROME_UI_UPDATE_TAB_MENU_STATE, state),
   setBookmarkBarToggleEnabled: (enabled) =>

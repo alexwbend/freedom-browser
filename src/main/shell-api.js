@@ -23,6 +23,8 @@ const {
 
 const shellEvents = new EventEmitter();
 const packageCallers = new WeakMap();
+const packageSenders = new Set();
+let unsubscribeSettingsUpdated = null;
 const TAB_COMMAND_METHODS = new Set([
   SHELL_API_METHODS.TABS_CREATE,
   SHELL_API_METHODS.TABS_CLOSE,
@@ -223,6 +225,7 @@ function getInfo(callerIdentity = null) {
     runtimeMode: chromePackage.runtimeMode,
     appVersion: getAppVersion(),
     platform: process.platform,
+    theme: getThemeForShell(),
     chromePackage,
     caller: describePackageCaller(callerIdentity),
   };
@@ -264,11 +267,62 @@ function invalidateEnsContentForShell(name) {
 }
 
 function getSettingsForShell() {
-  return require('./settings-store').loadSettings();
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.getSettingsWithShellTheme === 'function') {
+    return settingsStore.getSettingsWithShellTheme();
+  }
+  return settingsStore.loadSettings();
 }
 
 function saveSettingsForShell(settings) {
   return require('./settings-store').savePackageSettings(settings);
+}
+
+function getThemeForShell() {
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.getShellTheme === 'function') {
+    return settingsStore.getShellTheme();
+  }
+  const settings = settingsStore.loadSettings();
+  const mode = settings?.theme === 'light' || settings?.theme === 'dark' ? settings.theme : 'system';
+  return {
+    mode,
+    effective: mode === 'system' ? 'light' : mode,
+  };
+}
+
+function getThemeFromSettingsPayload(settings) {
+  if (settings?.shellTheme) {
+    return settings.shellTheme;
+  }
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.getShellTheme === 'function') {
+    return settingsStore.getShellTheme(settings);
+  }
+  return getThemeForShell();
+}
+
+function emitShellEventToPackageWebContentsSet(eventName, data = {}) {
+  for (const sender of [...packageSenders]) {
+    emitShellEventToPackageWebContents(sender, eventName, data);
+  }
+}
+
+function ensureSettingsThemeEventBridge() {
+  if (unsubscribeSettingsUpdated) {
+    return;
+  }
+  const settingsStore = require('./settings-store');
+  if (typeof settingsStore.onSettingsUpdated !== 'function') {
+    unsubscribeSettingsUpdated = () => {};
+    return;
+  }
+  unsubscribeSettingsUpdated = settingsStore.onSettingsUpdated((settings) => {
+    emitShellEventToPackageWebContentsSet(
+      SHELL_API_EVENTS.THEME_CHANGED,
+      getThemeFromSettingsPayload(settings)
+    );
+  });
 }
 
 function normalizeBookmarkForShell(bookmark) {
@@ -1286,9 +1340,12 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
     surfaceLayoutModes: options.surfaceLayoutModes || new Map(),
   };
   packageCallers.set(sender, caller);
+  packageSenders.add(sender);
+  ensureSettingsThemeEventBridge();
 
   return () => {
     packageCallers.delete(sender);
+    packageSenders.delete(sender);
   };
 }
 
@@ -1323,6 +1380,9 @@ function getPackageCaller(event) {
 const METHODS = Object.freeze({
   [SHELL_API_METHODS.GET_INFO]: {
     handler: (_args, _event, caller) => getInfo(caller.identity),
+  },
+  [SHELL_API_METHODS.THEME_GET]: {
+    handler: () => getThemeForShell(),
   },
   [SHELL_API_METHODS.MARK_READY]: {
     handler: (_args, event) => markReady(event),

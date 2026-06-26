@@ -19,6 +19,7 @@ describe('shell-api-policy', () => {
     expect(SHELL_API_VERSION).toBe('0.1.0');
     expect(SHELL_API_METHODS).toEqual({
       GET_INFO: 'getInfo',
+      THEME_GET: 'theme.get',
       MARK_READY: 'markReady',
       RESOLVE_NAVIGATION_INPUT: 'resolveNavigationInput',
       RESOLVE_ENS: 'navigation.resolveEns',
@@ -77,6 +78,7 @@ describe('shell-api-policy', () => {
   test('maps every exposed method to a known capability', () => {
     expect(SHELL_API_METHOD_CAPABILITIES).toEqual({
       getInfo: 'shell.info',
+      'theme.get': 'shell.info',
       markReady: 'shell.ready',
       resolveNavigationInput: 'navigation.resolve',
       'navigation.resolveEns': 'navigation.resolve',
@@ -168,6 +170,7 @@ describe('shell-api-policy', () => {
       DOWNLOADS_SAVE_IMAGE: 'downloads.saveImage',
     });
     expect(SHELL_API_EVENTS).toEqual({
+      THEME_CHANGED: 'theme.changed',
       TABS_COMMAND_RESULT: 'tabs.commandResult',
       TABS_SNAPSHOT_CHANGED: 'tabs.snapshotChanged',
       CHROME_CLOSE_MENUS_REQUESTED: 'chrome.commands.closeMenus',
@@ -195,6 +198,7 @@ describe('shell-api-policy', () => {
       SURFACES_STATE_CHANGED: 'surfaces.stateChanged',
     });
     expect(SHELL_API_EVENT_CAPABILITIES).toEqual({
+      'theme.changed': 'shell.info',
       'tabs.commandResult': 'tabs.write',
       'tabs.snapshotChanged': 'tabs.read',
       'chrome.commands.closeMenus': 'chrome.ui.commands',

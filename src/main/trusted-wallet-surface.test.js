@@ -102,6 +102,13 @@ jest.mock('./wallet/dapp-permissions', () => ({
   revokePermission: (...args) => mockRevokePermission(...args),
 }));
 
+const mockGetShellTheme = jest.fn();
+const mockOnSettingsUpdated = jest.fn();
+jest.mock('./settings-store', () => ({
+  getShellTheme: (...args) => mockGetShellTheme(...args),
+  onSettingsUpdated: (...args) => mockOnSettingsUpdated(...args),
+}));
+
 const {
   channelFor,
   openTrustedWalletSurface,
@@ -110,6 +117,13 @@ const {
 } = require('./trusted-wallet-surface');
 
 function seedStores() {
+  mockGetShellTheme.mockImplementation((settings) =>
+    settings?.shellTheme || {
+      mode: 'system',
+      effective: 'light',
+    }
+  );
+  mockOnSettingsUpdated.mockReturnValue(jest.fn());
   mockGetDerivedWallets.mockResolvedValue([
     {
       index: 0,
@@ -164,6 +178,8 @@ function resetStoreMocks() {
     mockDeleteDerivedWallet,
     mockGetAllPermissions,
     mockRevokePermission,
+    mockGetShellTheme,
+    mockOnSettingsUpdated,
   ].forEach((mock) => mock.mockReset());
 }
 
@@ -263,6 +279,10 @@ test('opens a shell-owned wallet window with dedicated preload and scoped channe
       surfaceOwner: 'shell',
       trusted: true,
       caller: { packageId: 'baby.freedom.chrome.official-local' },
+      theme: {
+        mode: 'system',
+        effective: 'light',
+      },
     },
   });
 
@@ -338,6 +358,10 @@ test('opens wallet as a shell compositor view when the owner window supports sur
       surfaceOwner: 'shell',
       trusted: true,
       caller: { packageId: 'baby.freedom.chrome.official-local' },
+      theme: {
+        mode: 'system',
+        effective: 'light',
+      },
     },
   });
 
@@ -837,6 +861,34 @@ test('revokes dApp permissions only through the trusted surface window', async (
       }),
     })
   );
+});
+
+test('sends shell theme updates directly to the trusted surface', async () => {
+  let settingsUpdatedListener = null;
+  const unsubscribe = jest.fn();
+  mockOnSettingsUpdated.mockImplementation((listener) => {
+    settingsUpdatedListener = listener;
+    return unsubscribe;
+  });
+  await openTrustedWalletSurface({});
+  const surfaceWindow = mockWindows[0];
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  settingsUpdatedListener({
+    theme: 'system',
+    shellTheme: { mode: 'system', effective: 'dark' },
+  });
+
+  expect(surfaceWindow.webContents.send).toHaveBeenCalledWith(
+    channelFor('theme-updated', surfaceId),
+    {
+      ok: true,
+      theme: { mode: 'system', effective: 'dark' },
+    }
+  );
+
+  closeTrustedWalletSurface();
+  expect(unsubscribe).toHaveBeenCalledTimes(1);
 });
 
 test('reuses an existing wallet surface and closes it cleanly', async () => {

@@ -41,6 +41,7 @@ describe('package-preload', () => {
     expect(Object.keys(exposures)).toEqual(['freedomShell']);
     expect(Object.keys(exposures.freedomShell)).toEqual([
       'getInfo',
+      'getTheme',
       'markReady',
       'resolveNavigationInput',
       'resolveEns',
@@ -88,6 +89,7 @@ describe('package-preload', () => {
       'checkForUpdates',
       'restartAndInstallUpdate',
       'onUpdateNotification',
+      'onThemeChanged',
       'updateTabMenuState',
       'setBookmarkBarToggleEnabled',
       'setBookmarkBarChecked',
@@ -142,6 +144,12 @@ describe('package-preload', () => {
     await exposures.freedomShell.getInfo();
     expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
       method: SHELL_API_METHODS.GET_INFO,
+      args: [],
+    });
+
+    await exposures.freedomShell.getTheme();
+    expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(IPC.SHELL_REQUEST, {
+      method: SHELL_API_METHODS.THEME_GET,
       args: [],
     });
 
@@ -500,6 +508,7 @@ describe('package-preload', () => {
     const focusAddressBarCallback = jest.fn();
     const toggleBookmarkBarCallback = jest.fn();
     const updateNotificationCallback = jest.fn();
+    const themeChangedCallback = jest.fn();
     const profileUpdatedCallback = jest.fn();
     const serviceRegistryUpdatedCallback = jest.fn();
     const serviceStatusUpdatedCallback = jest.fn();
@@ -516,6 +525,7 @@ describe('package-preload', () => {
       exposures.freedomShell.onToggleBookmarkBarRequested(toggleBookmarkBarCallback);
     const cleanupUpdateNotification =
       exposures.freedomShell.onUpdateNotification(updateNotificationCallback);
+    const cleanupThemeChanged = exposures.freedomShell.onThemeChanged(themeChangedCallback);
     const cleanupProfileUpdated = exposures.freedomShell.onProfileUpdated(profileUpdatedCallback);
     const cleanupServiceRegistryUpdated =
       exposures.freedomShell.onServiceRegistryUpdated(serviceRegistryUpdatedCallback);
@@ -531,6 +541,7 @@ describe('package-preload', () => {
       focusAddressBarHandler,
       toggleBookmarkBarHandler,
       updateNotificationHandler,
+      themeChangedHandler,
       profileUpdatedHandler,
       serviceRegistryUpdatedHandler,
       serviceStatusUpdatedHandler,
@@ -578,6 +589,13 @@ describe('package-preload', () => {
         version: '1.2.3',
         message: 'Update ready',
         actionLabel: 'Install now',
+      },
+    });
+    ipcRenderer.emit(IPC.SHELL_EVENT, {
+      event: SHELL_API_EVENTS.THEME_CHANGED,
+      data: {
+        mode: 'system',
+        effective: 'dark',
       },
     });
     ipcRenderer.emit(IPC.SHELL_EVENT, {
@@ -641,6 +659,10 @@ describe('package-preload', () => {
       message: 'Update ready',
       actionLabel: 'Install now',
     });
+    expect(themeChangedCallback).toHaveBeenCalledWith({
+      mode: 'system',
+      effective: 'dark',
+    });
     expect(profileUpdatedCallback).toHaveBeenCalledWith({
       id: 'test',
       displayName: 'Test',
@@ -670,6 +692,7 @@ describe('package-preload', () => {
     cleanupFocusAddressBar();
     cleanupToggleBookmarkBar();
     cleanupUpdateNotification();
+    cleanupThemeChanged();
     cleanupProfileUpdated();
     cleanupServiceRegistryUpdated();
     cleanupServiceStatusUpdated();
@@ -691,6 +714,7 @@ describe('package-preload', () => {
       IPC.SHELL_EVENT,
       updateNotificationHandler
     );
+    expect(ipcRenderer.removeListener).toHaveBeenCalledWith(IPC.SHELL_EVENT, themeChangedHandler);
     expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
       IPC.SHELL_EVENT,
       profileUpdatedHandler
