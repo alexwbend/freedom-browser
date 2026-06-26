@@ -132,13 +132,13 @@ describe('ShellWindow', () => {
     expect(mod.shouldUseShellWindowCompositor(null)).toBe(false);
   });
 
-  test('derives the shell canvas theme opposite the effective app theme', () => {
+  test('derives a muted counter-tone shell canvas from the effective app theme', () => {
     const { mod } = loadShellWindow();
 
     expect(mod.getCanvasThemeForShellTheme({ effective: 'dark' })).toBe('light');
     expect(mod.getCanvasThemeForShellTheme({ effective: 'light' })).toBe('dark');
-    expect(mod.getCanvasBackgroundColor('light')).toBe('#f8f7f3');
-    expect(mod.getCanvasBackgroundColor('dark')).toBe('#101010');
+    expect(mod.getCanvasBackgroundColor('light')).toBe('#d4d2ca');
+    expect(mod.getCanvasBackgroundColor('dark')).toBe('#2a2c2c');
   });
 
   test('wraps legacy BrowserWindow chrome without creating a chrome view', () => {
@@ -180,7 +180,7 @@ describe('ShellWindow', () => {
     expect(shellWindow.chromeWebContents).toBe(chromeView.webContents);
     expect(shellWindow.chromeLoadTarget).toBe(chromeView.webContents);
     expect(contentView.addChildView).toHaveBeenCalledWith(chromeView);
-    expect(contentView.setBackgroundColor).toHaveBeenCalledWith('#101010');
+    expect(contentView.setBackgroundColor).toHaveBeenCalledWith('#2a2c2c');
     expect(chromeView.setBorderRadius).toHaveBeenCalledWith(0);
     expect(chromeView.setBounds).toHaveBeenCalledWith({
       x: 0,
@@ -201,7 +201,7 @@ describe('ShellWindow', () => {
         gap: 4,
         radius: 12,
         canvasTheme: 'dark',
-        backgroundColor: '#101010',
+        backgroundColor: '#2a2c2c',
       },
       closed: false,
     });
@@ -310,10 +310,10 @@ describe('ShellWindow', () => {
       shellTheme: { mode: 'dark', effective: 'dark' },
     });
 
-    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#f8f7f3');
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#d4d2ca');
     expect(shellWindow.getDebugState().layout).toMatchObject({
       canvasTheme: 'light',
-      backgroundColor: '#f8f7f3',
+      backgroundColor: '#d4d2ca',
     });
     expect(shellWindow.getSurfaceRailState()).toMatchObject({
       canvasTheme: 'light',
@@ -321,7 +321,7 @@ describe('ShellWindow', () => {
 
     shellWindow.setShellTheme({ mode: 'light', effective: 'light' });
 
-    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#101010');
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#2a2c2c');
     expect(railView.webContents.send).toHaveBeenLastCalledWith(
       'shell-surface-rail:state',
       expect.objectContaining({
@@ -330,7 +330,7 @@ describe('ShellWindow', () => {
     );
     expect(shellWindow.getDebugState().layout).toMatchObject({
       canvasTheme: 'dark',
-      backgroundColor: '#101010',
+      backgroundColor: '#2a2c2c',
     });
   });
 

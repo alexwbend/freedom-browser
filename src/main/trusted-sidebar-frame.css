@@ -45,43 +45,43 @@
 :root[data-sidebar-layout-mode="dock"][data-theme="dark"],
 :root[data-sidebar-layout-mode="overlay"][data-theme="dark"] {
   color-scheme: light;
-  --trusted-sidebar-bg: #f8f7f3;
-  --trusted-sidebar-panel: #ffffff;
-  --trusted-sidebar-panel-subtle: #fffdfa;
-  --trusted-sidebar-export-bg: #fff9f7;
-  --trusted-sidebar-error-bg: #fff3f1;
-  --trusted-sidebar-text: #171717;
-  --trusted-sidebar-muted: #5d5a52;
-  --trusted-sidebar-muted-2: #68645c;
-  --trusted-sidebar-border: #dedbd2;
-  --trusted-sidebar-border-strong: #c8c3b8;
-  --trusted-sidebar-danger-border: #d8a39b;
-  --trusted-sidebar-danger-text: #8f2f24;
+  --trusted-sidebar-bg: #d4d2ca;
+  --trusted-sidebar-panel: #e4e1d8;
+  --trusted-sidebar-panel-subtle: #dcd8cf;
+  --trusted-sidebar-export-bg: #eee5df;
+  --trusted-sidebar-error-bg: #eadedb;
+  --trusted-sidebar-text: #302f2b;
+  --trusted-sidebar-muted: #625d54;
+  --trusted-sidebar-muted-2: #746f66;
+  --trusted-sidebar-border: #bbb7ad;
+  --trusted-sidebar-border-strong: #aaa397;
+  --trusted-sidebar-danger-border: #c38c83;
+  --trusted-sidebar-danger-text: #7d2d24;
   --trusted-sidebar-accent: #2f7d59;
-  --trusted-sidebar-badge-bg: #e6f2ec;
+  --trusted-sidebar-badge-bg: #c2d8cb;
   --trusted-sidebar-badge-text: #1c5d3f;
-  --trusted-sidebar-button-hover: #efede7;
+  --trusted-sidebar-button-hover: #c6c2b8;
 }
 
 :root[data-sidebar-layout-mode="dock"][data-theme="light"],
 :root[data-sidebar-layout-mode="overlay"][data-theme="light"] {
   color-scheme: dark;
-  --trusted-sidebar-bg: #101010;
-  --trusted-sidebar-panel: #1F2020;
-  --trusted-sidebar-panel-subtle: #191a1a;
+  --trusted-sidebar-bg: #2a2c2c;
+  --trusted-sidebar-panel: #202222;
+  --trusted-sidebar-panel-subtle: #242727;
   --trusted-sidebar-export-bg: #261c1a;
   --trusted-sidebar-error-bg: #2a1d1b;
   --trusted-sidebar-text: #f4f1ea;
-  --trusted-sidebar-muted: #b6b0a5;
-  --trusted-sidebar-muted-2: #a39c91;
-  --trusted-sidebar-border: #2d2d2d;
-  --trusted-sidebar-border-strong: #4a4740;
+  --trusted-sidebar-muted: #c9c3b8;
+  --trusted-sidebar-muted-2: #aaa49a;
+  --trusted-sidebar-border: #3b3e3e;
+  --trusted-sidebar-border-strong: #4f5353;
   --trusted-sidebar-danger-border: #8f4d43;
   --trusted-sidebar-danger-text: #ffb0a6;
   --trusted-sidebar-accent: #6fca96;
   --trusted-sidebar-badge-bg: #20392e;
   --trusted-sidebar-badge-text: #a6e3c4;
-  --trusted-sidebar-button-hover: #1F2020;
+  --trusted-sidebar-button-hover: #343737;
 }
 
 * {

@@ -2247,7 +2247,7 @@ test('official browser chrome launch truth markers prove package mode', async ()
         radius: 12,
         railWidth: 44,
         canvasTheme: expect.stringMatching(/^(dark|light)$/),
-        backgroundColor: expect.stringMatching(/^#(101010|f8f7f3)$/),
+        backgroundColor: expect.stringMatching(/^#(2a2c2c|d4d2ca)$/),
       },
       surfaceRail: {
         webContentsId: expect.any(Number),
