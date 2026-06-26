@@ -277,6 +277,9 @@ web page with padded cards:
 - right-docked shell surfaces are tiled from the outer edge inward, which leaves
   room for future adjacent panels without letting them overlap
 - overlay surfaces can float above chrome, but do not change chrome bounds
+- trusted surfaces are created hidden/offscreen, then `show()` animates them
+  into the layout; docked surfaces slide in while chrome squeezes to its new
+  tile, and closing reverses that motion before teardown
 
 Native `View#setBorderRadius(radius)` is uniform per view, so it cannot round
 only the inner edge of a docked tile. For now the compositor uses full-bleed

@@ -167,6 +167,18 @@ async function getShellWindowDebugState(app) {
   });
 }
 
+async function waitForSettledShellWindowDebugState(app) {
+  await expect
+    .poll(async () => {
+      const states = await getShellWindowDebugState(app);
+      return states.length > 0 && states.every((state) => state.layout?.animating === false);
+    }, {
+      timeout: 5000,
+    })
+    .toBe(true);
+  return getShellWindowDebugState(app);
+}
+
 async function captureWebContentsPng(app, webContentsId) {
   const base64 = await app.evaluate(async ({ webContents }, id) => {
     const target = webContents.fromId(id);
@@ -2266,6 +2278,8 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
         timeout: 5000,
       })
       .toHaveLength(1);
+    const [chromeCompositorWithSurface] =
+      await waitForSettledShellWindowDebugState(launched.app);
     const [surface] = await getExperimentalShellCompositorDebugState(launched.app);
     expect(surface).toMatchObject({
       surface: 'testSurface',
@@ -2277,11 +2291,14 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
       visible: true,
       closed: false,
     });
-    expect(surface.webContentsId).not.toBe(chromeCompositor.chromeWebContentsId);
-    expect(surface.bounds.height).toBeGreaterThanOrEqual(chromeCompositor.chromeBounds.height);
-    expect(surface.bounds.x).toBeGreaterThan(chromeCompositor.chromeBounds.x);
+    expect(surface.webContentsId).not.toBe(chromeCompositorWithSurface.chromeWebContentsId);
+    expect(surface.bounds.height).toBeGreaterThanOrEqual(
+      chromeCompositorWithSurface.chromeBounds.height
+    );
+    expect(surface.bounds.x).toBeGreaterThan(chromeCompositorWithSurface.chromeBounds.x);
     expect(surface.bounds.x + surface.bounds.width).toBe(
-      chromeCompositor.chromeBounds.x + chromeCompositor.chromeBounds.width
+      chromeCompositorWithSurface.chromeBounds.x +
+        chromeCompositorWithSurface.chromeBounds.width
     );
 
     const image = await captureWebContentsPng(launched.app, surface.webContentsId);
@@ -2434,7 +2451,7 @@ test('official browser chrome can launch as a local package with transitional we
         visible: true,
         closed: false,
       });
-    const [shellWindowWithWallet] = await getShellWindowDebugState(launched.app);
+    const [shellWindowWithWallet] = await waitForSettledShellWindowDebugState(launched.app);
     const walletSurface = shellWindowWithWallet.surfaces.find(
       (surface) => surface.surface === 'wallet'
     );

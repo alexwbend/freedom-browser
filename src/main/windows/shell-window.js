@@ -10,6 +10,8 @@ const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
 const COMPOSITOR_PANEL_GAP = 8;
 const COMPOSITOR_PANEL_RADIUS = 12;
 const COMPOSITOR_BACKGROUND_COLOR = '#101010';
+const COMPOSITOR_ANIMATION_DURATION_MS = 180;
+const COMPOSITOR_ANIMATION_FRAME_MS = 16;
 
 function getCompositorHostWebPreferences() {
   return {
@@ -58,6 +60,20 @@ function getCompositorRootBounds({ width, height }) {
   };
 }
 
+function normalizeAnimationDurationMs(durationMs, fallback = COMPOSITOR_ANIMATION_DURATION_MS) {
+  if (Number.isFinite(durationMs) && durationMs >= 0) {
+    return durationMs;
+  }
+  return fallback;
+}
+
+function normalizeAnimationFrameMs(frameMs, fallback = COMPOSITOR_ANIMATION_FRAME_MS) {
+  if (Number.isFinite(frameMs) && frameMs > 0) {
+    return frameMs;
+  }
+  return fallback;
+}
+
 function normalizeSurfaceLayoutMode(layoutMode) {
   if (layoutMode === SURFACE_LAYOUT_MODE_OVERLAY) {
     return SURFACE_LAYOUT_MODE_OVERLAY;
@@ -81,10 +97,27 @@ function getRightDrawerBoundsForSize(
   return bounds;
 }
 
+function getHiddenRightDrawerBoundsForSize(
+  { width, height },
+  preferredWidth = DEFAULT_SURFACE_WIDTH,
+  minWidth = MIN_SURFACE_WIDTH
+) {
+  const rootBounds = getCompositorRootBounds({ width, height });
+  const surfaceWidth = getSurfaceWidth(rootBounds.width, preferredWidth, minWidth);
+  return {
+    x: rootBounds.x + rootBounds.width,
+    y: rootBounds.y,
+    width: surfaceWidth,
+    height: rootBounds.height,
+  };
+}
+
 function isDockedSurfaceRecord(record) {
   return (
     record &&
     !record.closed &&
+    record.visible &&
+    !record.closing &&
     record.layoutMode === SURFACE_LAYOUT_MODE_DOCK
   );
 }
@@ -131,6 +164,50 @@ function getRightDrawerBounds(window, preferredWidth = DEFAULT_SURFACE_WIDTH, mi
   return getRightDrawerBoundsForSize(getWindowContentSize(window), preferredWidth, minWidth);
 }
 
+function cloneBounds(bounds) {
+  if (!bounds) {
+    return null;
+  }
+  return {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
+function getCurrentViewBounds(view, fallbackBounds) {
+  if (typeof view?.getBounds === 'function') {
+    try {
+      const bounds = view.getBounds();
+      if (bounds) {
+        return cloneBounds(bounds);
+      }
+    } catch {
+      // Fall back to the last shell-owned bounds snapshot.
+    }
+  }
+  return cloneBounds(fallbackBounds);
+}
+
+function easeOutCubic(progress) {
+  const clamped = Math.min(1, Math.max(0, progress));
+  return 1 - Math.pow(1 - clamped, 3);
+}
+
+function interpolateNumber(from, to, progress) {
+  return Math.round(from + (to - from) * progress);
+}
+
+function interpolateBounds(fromBounds, toBounds, progress) {
+  return {
+    x: interpolateNumber(fromBounds.x, toBounds.x, progress),
+    y: interpolateNumber(fromBounds.y, toBounds.y, progress),
+    width: interpolateNumber(fromBounds.width, toBounds.width, progress),
+    height: interpolateNumber(fromBounds.height, toBounds.height, progress),
+  };
+}
+
 function removeWindowListener(window, eventName, listener) {
   if (typeof window.off === 'function') {
     window.off(eventName, listener);
@@ -175,6 +252,8 @@ class ShellWindow {
     chromePackage,
     useChromeView = false,
     createChromeView = null,
+    animationDurationMs = COMPOSITOR_ANIMATION_DURATION_MS,
+    animationFrameMs = COMPOSITOR_ANIMATION_FRAME_MS,
   } = {}) {
     if (!nativeWindow) {
       throw new Error('ShellWindow requires a nativeWindow');
@@ -194,6 +273,9 @@ class ShellWindow {
     this.chromeBounds = null;
     this.handleChromeContentsDestroyed = null;
     this.surfaceWindows = new Map();
+    this.layoutAnimation = null;
+    this.animationDurationMs = normalizeAnimationDurationMs(animationDurationMs);
+    this.animationFrameMs = normalizeAnimationFrameMs(animationFrameMs);
 
     if (useChromeView) {
       this.attachChromeView(createChromeView(chromePackage));
@@ -263,37 +345,146 @@ class ShellWindow {
     this.handleChromeContentsDestroyed = null;
   }
 
-  updateSurfaceWindowBounds(recordToUpdate = null) {
-    this.updateCompositorLayout(recordToUpdate);
+  updateSurfaceWindowBounds(_recordToUpdate = null) {
+    this.updateCompositorLayout();
   }
 
-  updateCompositorLayout(recordToUpdate = null) {
+  getHiddenSurfaceBounds(record) {
+    return getHiddenRightDrawerBoundsForSize(
+      getWindowContentSize(this.nativeWindow),
+      record.width,
+      record.minWidth
+    );
+  }
+
+  getSurfaceTargetBounds(record, tileLayout, size) {
+    return (
+      tileLayout.surfaceBoundsByRecord.get(record) ||
+      getRightDrawerBoundsForSize(size, record.width, record.minWidth)
+    );
+  }
+
+  setRecordBounds(record, bounds) {
+    record.view.setBounds(bounds);
+    record.bounds = bounds;
+  }
+
+  cancelLayoutAnimation({ finish = false } = {}) {
+    if (!this.layoutAnimation) {
+      return;
+    }
+    const animation = this.layoutAnimation;
+    this.layoutAnimation = null;
+    clearTimeout(animation.timer);
+    if (finish) {
+      animation.apply(1);
+      animation.onComplete?.();
+    }
+  }
+
+  setCompositorBoundsImmediately(entries) {
+    entries.forEach((entry) => {
+      entry.apply(entry.to);
+    });
+  }
+
+  animateCompositorBounds(entries, { onComplete = null } = {}) {
+    const durationMs = this.animationDurationMs;
+    if (durationMs <= 0 || entries.length === 0) {
+      this.setCompositorBoundsImmediately(entries);
+      onComplete?.();
+      return;
+    }
+
+    this.cancelLayoutAnimation({ finish: true });
+
+    const startTime = Date.now();
+    const animation = {
+      timer: null,
+      onComplete,
+      apply: (progress) => {
+        const easedProgress = easeOutCubic(progress);
+        entries.forEach((entry) => {
+          entry.apply(interpolateBounds(entry.from, entry.to, easedProgress));
+        });
+      },
+    };
+    this.layoutAnimation = animation;
+    animation.apply(0);
+
+    const tick = () => {
+      if (this.layoutAnimation !== animation) {
+        return;
+      }
+      const progress = (Date.now() - startTime) / durationMs;
+      if (progress >= 1) {
+        this.layoutAnimation = null;
+        animation.apply(1);
+        onComplete?.();
+        return;
+      }
+      animation.apply(progress);
+      animation.timer = setTimeout(tick, this.animationFrameMs);
+    };
+    animation.timer = setTimeout(tick, this.animationFrameMs);
+  }
+
+  updateCompositorLayout({
+    recordsToUpdate = null,
+    animate = false,
+    enteringRecords = [],
+    exitingRecords = [],
+    onComplete = null,
+  } = {}) {
     if (this.closed || this.nativeWindow.isDestroyed?.()) {
       return;
     }
     const size = getWindowContentSize(this.nativeWindow);
     const allRecords = [...this.surfaceWindows.values()];
     const tileLayout = getCompositorTileLayout(size, allRecords);
+    const entries = [];
     if (this.chromeView) {
-      this.chromeView.setBounds(tileLayout.chromeBounds);
-      this.chromeBounds = tileLayout.chromeBounds;
+      entries.push({
+        from: getCurrentViewBounds(this.chromeView, this.chromeBounds || tileLayout.chromeBounds),
+        to: tileLayout.chromeBounds,
+        apply: (bounds) => {
+          this.chromeView.setBounds(bounds);
+          this.chromeBounds = bounds;
+        },
+      });
       setViewBorderRadius(
         this.chromeView,
         tileLayout.hasDockedTiles ? COMPOSITOR_PANEL_RADIUS : 0
       );
     }
-    const records = recordToUpdate ? [recordToUpdate] : allRecords;
+    const records = recordsToUpdate || allRecords;
     records.forEach((record) => {
       if (!record || record.closed) {
         return;
       }
-      const bounds =
-        tileLayout.surfaceBoundsByRecord.get(record) ||
-        getRightDrawerBoundsForSize(size, record.width, record.minWidth);
-      record.view.setBounds(bounds);
+      const isEntering = enteringRecords.includes(record);
+      const isExiting = exitingRecords.includes(record);
+      const hiddenBounds = getHiddenRightDrawerBoundsForSize(size, record.width, record.minWidth);
+      const targetBounds = isExiting
+        ? hiddenBounds
+        : this.getSurfaceTargetBounds(record, tileLayout, size);
+      const currentBounds = isEntering
+        ? hiddenBounds
+        : getCurrentViewBounds(record.view, record.bounds || targetBounds);
+      entries.push({
+        from: currentBounds,
+        to: targetBounds,
+        apply: (bounds) => this.setRecordBounds(record, bounds),
+      });
       setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
-      record.bounds = bounds;
     });
+    if (animate) {
+      this.animateCompositorBounds(entries, { onComplete });
+      return;
+    }
+    this.cancelLayoutAnimation({ finish: false });
+    this.setCompositorBoundsImmediately(entries);
+    onComplete?.();
   }
 
   createTrustedSurfaceWindow({
@@ -326,6 +517,8 @@ class ShellWindow {
       minWidth,
       layoutMode: normalizeSurfaceLayoutMode(layoutMode),
       bounds: null,
+      visible: false,
+      closing: false,
       closed: false,
       emitter,
       facade: null,
@@ -347,7 +540,10 @@ class ShellWindow {
 
     this.nativeWindow.getContentView().addChildView(view);
     this.surfaceWindows.set(surface, record);
-    this.updateSurfaceWindowBounds(record);
+    record.bounds = this.getHiddenSurfaceBounds(record);
+    record.view.setBounds(record.bounds);
+    record.view.setVisible?.(false);
+    setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
     view.webContents.once?.('destroyed', record.handleDestroyed);
     view.webContents.once?.('dom-ready', record.handleReady);
     view.webContents.once?.('did-finish-load', record.handleReady);
@@ -363,8 +559,16 @@ class ShellWindow {
       isDestroyed: () =>
         record.closed || record.view.webContents.isDestroyed?.() === true,
       show: () => {
+        if (record.closed || record.closing) {
+          return;
+        }
+        const wasVisible = record.visible;
+        record.visible = true;
         record.view.setVisible?.(true);
-        this.updateSurfaceWindowBounds(record);
+        this.updateCompositorLayout({
+          animate: !wasVisible,
+          enteringRecords: wasVisible ? [] : [record],
+        });
         record.handleReady?.();
       },
       focus: () => {
@@ -389,21 +593,30 @@ class ShellWindow {
     if (!record || record.closed) {
       return;
     }
-    this.disposeTrustedSurfaceWindow(surface, { notifyClosed: true, closeWebContents: true });
+    this.disposeTrustedSurfaceWindow(surface, {
+      notifyClosed: true,
+      closeWebContents: true,
+      animate: true,
+    });
   }
 
-  disposeTrustedSurfaceWindow(
-    surface,
+  removeTrustedSurfaceListeners(record) {
+    removeContentsListener(record.view.webContents, 'destroyed', record.handleDestroyed);
+    removeContentsListener(record.view.webContents, 'dom-ready', record.handleReady);
+    removeContentsListener(record.view.webContents, 'did-finish-load', record.handleReady);
+  }
+
+  finalizeTrustedSurfaceWindow(
+    record,
     { notifyClosed = true, closeWebContents = true } = {}
   ) {
-    const record = this.surfaceWindows.get(surface);
     if (!record || record.closed) {
       return;
     }
     record.closed = true;
-    removeContentsListener(record.view.webContents, 'destroyed', record.handleDestroyed);
-    removeContentsListener(record.view.webContents, 'dom-ready', record.handleReady);
-    removeContentsListener(record.view.webContents, 'did-finish-load', record.handleReady);
+    record.visible = false;
+    record.closing = false;
+    this.removeTrustedSurfaceListeners(record);
 
     try {
       this.nativeWindow.getContentView?.().removeChildView(record.view);
@@ -420,12 +633,46 @@ class ShellWindow {
       }
     }
 
-    this.surfaceWindows.delete(surface);
-    this.updateCompositorLayout();
+    this.surfaceWindows.delete(record.surface);
     if (notifyClosed) {
       record.emitter.emit('closed');
     }
     record.emitter.removeAllListeners();
+  }
+
+  disposeTrustedSurfaceWindow(
+    surface,
+    { notifyClosed = true, closeWebContents = true, animate = false } = {}
+  ) {
+    const record = this.surfaceWindows.get(surface);
+    if (!record || record.closed || record.closing) {
+      return;
+    }
+
+    const shouldAnimate =
+      animate &&
+      record.visible &&
+      !this.closed &&
+      !this.nativeWindow.isDestroyed?.() &&
+      this.animationDurationMs > 0;
+    if (!shouldAnimate) {
+      this.finalizeTrustedSurfaceWindow(record, { notifyClosed, closeWebContents });
+      if (!this.closed) {
+        this.updateCompositorLayout();
+      }
+      return;
+    }
+
+    this.removeTrustedSurfaceListeners(record);
+    record.visible = false;
+    record.closing = true;
+    this.updateCompositorLayout({
+      animate: true,
+      exitingRecords: [record],
+      onComplete: () => {
+        this.finalizeTrustedSurfaceWindow(record, { notifyClosed, closeWebContents });
+      },
+    });
   }
 
   cleanup() {
@@ -433,6 +680,7 @@ class ShellWindow {
       return;
     }
     this.closed = true;
+    this.cancelLayoutAnimation({ finish: false });
     [...this.surfaceWindows.keys()].forEach((surface) => {
       this.disposeTrustedSurfaceWindow(surface, {
         notifyClosed: true,
@@ -485,6 +733,8 @@ class ShellWindow {
         outerMargin: 0,
         gap: COMPOSITOR_PANEL_GAP,
         radius: COMPOSITOR_PANEL_RADIUS,
+        animationDurationMs: this.animationDurationMs,
+        animating: Boolean(this.layoutAnimation),
         backgroundColor: COMPOSITOR_BACKGROUND_COLOR,
       },
       closed: this.closed,
@@ -498,9 +748,9 @@ class ShellWindow {
             : '',
         bounds: record.bounds,
         visible:
-          typeof record.view.getVisible === 'function'
-            ? record.view.getVisible()
-            : undefined,
+          record.visible &&
+          (typeof record.view.getVisible !== 'function' || record.view.getVisible()),
+        closing: record.closing,
         closed: record.closed,
       })),
     };

@@ -47,6 +47,7 @@ function makeChromeView() {
 
 function makeSurfaceView(id = 3) {
   let bounds = { x: 680, y: 0, width: 520, height: 800 };
+  let visible = true;
   const webContents = Object.assign(new EventEmitter(), {
     id,
     isDestroyed: jest.fn(() => false),
@@ -60,17 +61,27 @@ function makeSurfaceView(id = 3) {
     setBounds: jest.fn((nextBounds) => {
       bounds = nextBounds;
     }),
-    setVisible: jest.fn(),
+    setVisible: jest.fn((nextVisible) => {
+      visible = nextVisible;
+    }),
     getBounds: jest.fn(() => bounds),
-    getVisible: jest.fn(() => true),
+    getVisible: jest.fn(() => visible),
     setBorderRadius: jest.fn(),
   };
   return view;
 }
 
+function createTestShellWindow(mod, options) {
+  return mod.createShellWindow({
+    animationDurationMs: 0,
+    ...options,
+  });
+}
+
 describe('ShellWindow', () => {
   afterEach(() => {
     jest.restoreAllMocks();
+    jest.useRealTimers();
   });
 
   test('uses a hardened blank host for shell-composed package chrome', () => {
@@ -102,7 +113,7 @@ describe('ShellWindow', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow, contentView } = makeNativeWindow();
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'bundled', packageId: 'builtin' },
       useChromeView: false,
@@ -127,7 +138,7 @@ describe('ShellWindow', () => {
     const { nativeWindow, contentView } = makeNativeWindow();
     const chromeView = makeChromeView();
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package', packageId: 'package' },
       useChromeView: true,
@@ -178,7 +189,7 @@ describe('ShellWindow', () => {
     const chromeView = makeChromeView();
     nativeWindow.getContentSize.mockReturnValueOnce([1200, 800]).mockReturnValueOnce([900, 700]);
 
-    mod.createShellWindow({
+    createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
@@ -199,7 +210,7 @@ describe('ShellWindow', () => {
     const { nativeWindow } = makeNativeWindow();
     const chromeView = makeChromeView();
 
-    mod.createShellWindow({
+    createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
@@ -215,7 +226,7 @@ describe('ShellWindow', () => {
     const { nativeWindow } = makeNativeWindow();
     const chromeView = makeChromeView();
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
@@ -233,7 +244,7 @@ describe('ShellWindow', () => {
     const chromeView = makeChromeView();
     const surfaceView = makeSurfaceView();
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
@@ -300,9 +311,10 @@ describe('ShellWindow', () => {
     expect(shellWindow.getDebugState().surfaces).toEqual([]);
   });
 
-  test('supports overlay trusted surface windows without squeezing chrome', () => {
+  test('animates docked surfaces in and out with chrome squeeze', async () => {
+    jest.useFakeTimers({ now: 0 });
     const { mod } = loadShellWindow();
-    const { nativeWindow } = makeNativeWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
     const chromeView = makeChromeView();
     const surfaceView = makeSurfaceView();
 
@@ -311,14 +323,108 @@ describe('ShellWindow', () => {
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
       createChromeView: () => chromeView,
+      animationDurationMs: 160,
+      animationFrameMs: 16,
     });
-    shellWindow.createTrustedSurfaceWindow({
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => surfaceView,
+    });
+
+    expect(surfaceView.getBounds()).toEqual({
+      x: 1200,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+
+    surfaceWindow.show();
+
+    expect(shellWindow.getDebugState().layout.animating).toBe(true);
+    expect(surfaceView.getBounds()).toEqual({
+      x: 1200,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+
+    await jest.advanceTimersByTimeAsync(80);
+
+    expect(chromeView.getBounds().width).toBeLessThan(1200);
+    expect(chromeView.getBounds().width).toBeGreaterThan(672);
+    expect(surfaceView.getBounds().x).toBeLessThan(1200);
+    expect(surfaceView.getBounds().x).toBeGreaterThan(680);
+
+    await jest.advanceTimersByTimeAsync(100);
+
+    expect(shellWindow.getDebugState().layout.animating).toBe(false);
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 672,
+      height: 800,
+    });
+    expect(surfaceView.getBounds()).toEqual({
+      x: 680,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+
+    surfaceWindow.close();
+
+    expect(shellWindow.getDebugState().layout.animating).toBe(true);
+    expect(contentView.removeChildView).not.toHaveBeenCalledWith(surfaceView);
+
+    await jest.advanceTimersByTimeAsync(80);
+
+    expect(chromeView.getBounds().width).toBeGreaterThan(672);
+    expect(chromeView.getBounds().width).toBeLessThan(1200);
+    expect(surfaceView.getBounds().x).toBeGreaterThan(680);
+    expect(surfaceView.getBounds().x).toBeLessThan(1200);
+
+    await jest.advanceTimersByTimeAsync(100);
+
+    expect(shellWindow.getDebugState().layout.animating).toBe(false);
+    expect(contentView.removeChildView).toHaveBeenCalledWith(surfaceView);
+    expect(surfaceView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+    expect(shellWindow.getDebugState().surfaces).toEqual([]);
+  });
+
+  test('supports overlay trusted surface windows without squeezing chrome', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
       surface: 'wallet',
       width: 520,
       minWidth: 360,
       layoutMode: mod.SURFACE_LAYOUT_MODE_OVERLAY,
       createView: () => surfaceView,
     });
+    surfaceWindow.show();
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
       x: 680,
@@ -347,24 +453,26 @@ describe('ShellWindow', () => {
     const walletView = makeSurfaceView(3);
     const toolsView = makeSurfaceView(4);
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
       createChromeView: () => chromeView,
     });
-    shellWindow.createTrustedSurfaceWindow({
+    const walletWindow = shellWindow.createTrustedSurfaceWindow({
       surface: 'wallet',
       width: 520,
       minWidth: 360,
       createView: () => walletView,
     });
-    shellWindow.createTrustedSurfaceWindow({
+    const toolsWindow = shellWindow.createTrustedSurfaceWindow({
       surface: 'tools',
       width: 300,
       minWidth: 200,
       createView: () => toolsView,
     });
+    walletWindow.show();
+    toolsWindow.show();
 
     expect(walletView.setBounds).toHaveBeenLastCalledWith({
       x: 680,
@@ -403,18 +511,19 @@ describe('ShellWindow', () => {
       .mockReturnValueOnce([900, 700])
       .mockReturnValueOnce([900, 700]);
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
       createChromeView: () => chromeView,
     });
-    shellWindow.createTrustedSurfaceWindow({
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
       surface: 'wallet',
       width: 520,
       minWidth: 360,
       createView: () => surfaceView,
     });
+    surfaceWindow.show();
     nativeWindow.emit('resize');
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
@@ -438,7 +547,7 @@ describe('ShellWindow', () => {
     const surfaceView = makeSurfaceView();
     const closed = jest.fn();
 
-    const shellWindow = mod.createShellWindow({
+    const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
