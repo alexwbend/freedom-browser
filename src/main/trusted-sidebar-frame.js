@@ -45,10 +45,14 @@
     let currentLayoutMode = 'dock';
 
     function setLayoutMode(layoutMode, { available = true } = {}) {
+      currentLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
+      document.documentElement.dataset.sidebarLayoutMode = currentLayoutMode;
+      if (document.body) {
+        document.body.dataset.sidebarLayoutMode = currentLayoutMode;
+      }
       if (!layoutToggle) {
         return;
       }
-      currentLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
       const nextLayoutMode = currentLayoutMode === 'overlay' ? 'dock' : 'overlay';
       const label = currentLayoutMode === 'overlay' ? 'Dock sidebar' : 'Undock sidebar';
       layoutToggle.title = label;

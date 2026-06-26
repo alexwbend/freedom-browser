@@ -46,6 +46,7 @@ const DEFAULT_SETTINGS = {
   blockUnverifiedEns: true,
   sidebarOpen: false,
   sidebarWidth: 320,
+  walletSurfaceLayoutMode: 'dock',
 };
 
 const PACKAGE_WRITABLE_SETTINGS = Object.freeze({

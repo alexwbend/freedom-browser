@@ -50,6 +50,7 @@ describe('settings-store', () => {
         showBookmarkBar: false,
         sidebarOpen: false,
         sidebarWidth: 320,
+        walletSurfaceLayoutMode: 'dock',
         blockUnverifiedEns: true,
       })
     );
@@ -283,6 +284,7 @@ describe('settings-store', () => {
         showBookmarkBar: true,
         blockUnverifiedEns: false,
         sidebarWidth: 512.7,
+        walletSurfaceLayoutMode: 'overlay',
         antNodeMode: 'light',
         enableIdentityWallet: false,
         autoUpdate: false,
@@ -295,6 +297,7 @@ describe('settings-store', () => {
         showBookmarkBar: true,
         blockUnverifiedEns: false,
         sidebarWidth: 512,
+        walletSurfaceLayoutMode: 'dock',
         antNodeMode: 'ultraLight',
         enableIdentityWallet: true,
         autoUpdate: true,
@@ -317,7 +320,8 @@ describe('settings-store', () => {
 
     mod.registerSettingsIpc();
 
-    expect(ipcMain.handlers.get(IPC.SETTINGS_GET)(packageEvent)).toEqual(
+    const packageSettings = ipcMain.handlers.get(IPC.SETTINGS_GET)(packageEvent);
+    expect(packageSettings).toEqual(
       expect.objectContaining({
         packageHosted: true,
         packageWritableSettings: expect.arrayContaining(['theme', 'showBookmarkBar']),
@@ -327,6 +331,7 @@ describe('settings-store', () => {
         },
       })
     );
+    expect(packageSettings.packageWritableSettings).not.toContain('walletSurfaceLayoutMode');
 
     expect(
       ipcMain.handlers.get(IPC.SETTINGS_SAVE)(packageEvent, {

@@ -103,9 +103,13 @@ jest.mock('./wallet/dapp-permissions', () => ({
 }));
 
 const mockGetShellTheme = jest.fn();
+const mockLoadSettings = jest.fn();
+const mockSaveSettings = jest.fn();
 const mockOnSettingsUpdated = jest.fn();
 jest.mock('./settings-store', () => ({
   getShellTheme: (...args) => mockGetShellTheme(...args),
+  loadSettings: (...args) => mockLoadSettings(...args),
+  saveSettings: (...args) => mockSaveSettings(...args),
   onSettingsUpdated: (...args) => mockOnSettingsUpdated(...args),
 }));
 
@@ -123,6 +127,10 @@ function seedStores() {
       effective: 'light',
     }
   );
+  mockLoadSettings.mockReturnValue({
+    walletSurfaceLayoutMode: 'dock',
+  });
+  mockSaveSettings.mockReturnValue(true);
   mockOnSettingsUpdated.mockReturnValue(jest.fn());
   mockGetDerivedWallets.mockResolvedValue([
     {
@@ -179,6 +187,8 @@ function resetStoreMocks() {
     mockGetAllPermissions,
     mockRevokePermission,
     mockGetShellTheme,
+    mockLoadSettings,
+    mockSaveSettings,
     mockOnSettingsUpdated,
   ].forEach((mock) => mock.mockReset());
 }
@@ -234,6 +244,7 @@ function createCompositorOwnerWindow() {
   ownerWindow.__freedomShellWindow = {
     canHostTrustedSurfaceWindows: jest.fn(() => true),
     createTrustedSurfaceWindow: jest.fn((options) => {
+      surfaceWindow.layoutMode = options.layoutMode || surfaceWindow.layoutMode;
       surfaceWindow.createdView = options.createView();
       return surfaceWindow;
     }),
@@ -391,6 +402,32 @@ test('opens wallet as a shell compositor view when the owner window supports sur
   expect(mockHandlers.size).toBe(0);
 });
 
+test('opens wallet compositor view with the saved surface layout mode', async () => {
+  mockLoadSettings.mockReturnValue({ walletSurfaceLayoutMode: 'overlay' });
+  const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
+  const result = await openTrustedWalletSurface({
+    ownerWindow,
+    caller: { packageId: 'baby.freedom.chrome.official-local' },
+  });
+
+  expect(result).toMatchObject({
+    ok: true,
+    mode: 'shell-owned-webcontents-view',
+    layoutMode: 'overlay',
+  });
+  expect(ownerWindow.__freedomShellWindow.createTrustedSurfaceWindow).toHaveBeenCalledWith(
+    expect.objectContaining({
+      layoutMode: 'overlay',
+    })
+  );
+
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+  const contextResult = await mockHandlers.get(channelFor('context', surfaceId))({
+    sender: surfaceWindow.webContents,
+  });
+  expect(contextResult.context.layoutMode).toBe('overlay');
+});
+
 test('falls back to a trusted window when the shell window cannot host surfaces', async () => {
   const ownerWindow = {
     id: 42,
@@ -454,6 +491,9 @@ test('sets compositor wallet layout only through the trusted surface window', as
     layoutMode: 'overlay',
   });
   expect(surfaceWindow.setLayoutMode).toHaveBeenCalledWith('overlay');
+  expect(mockSaveSettings).toHaveBeenCalledWith({
+    walletSurfaceLayoutMode: 'overlay',
+  });
   expect(surfaceWindow.webContents.send).toHaveBeenCalledWith(
     channelFor('layout-updated', surfaceId),
     {

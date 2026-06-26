@@ -270,6 +270,29 @@ function normalizeSurfaceLayoutMode(layoutMode) {
   throw new Error('layoutMode must be dock or overlay');
 }
 
+function getSavedSurfaceLayoutMode() {
+  try {
+    const settingsStore = require('./settings-store');
+    const settings = typeof settingsStore.loadSettings === 'function'
+      ? settingsStore.loadSettings()
+      : null;
+    return normalizeSurfaceLayoutMode(settings?.walletSurfaceLayoutMode);
+  } catch {
+    return SURFACE_DRAWER_LAYOUT_MODE;
+  }
+}
+
+function saveSurfaceLayoutMode(layoutMode) {
+  try {
+    const settingsStore = require('./settings-store');
+    if (typeof settingsStore.saveSettings === 'function') {
+      settingsStore.saveSettings({ walletSurfaceLayoutMode: layoutMode });
+    }
+  } catch {
+    // Layout memory is a convenience; the live shell-owned layout remains authoritative.
+  }
+}
+
 function getSurfaceLayoutMode(surfaceWindow, surfaceMode) {
   if (surfaceMode !== SURFACE_MODE_COMPOSITOR) {
     return null;
@@ -452,6 +475,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
   const ownerWindow = context.ownerWindow || null;
   const webPreferences = getTrustedWalletWebPreferences(preload);
   const shellWindowSurfaceHost = getShellWindowSurfaceHost(ownerWindow);
+  const initialLayoutMode = getSavedSurfaceLayoutMode();
 
   let surfaceWindow = null;
   let surfaceMode = SURFACE_MODE_WINDOW;
@@ -468,7 +492,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
         surface: 'wallet',
         width: SURFACE_DRAWER_WIDTH,
         minWidth: SURFACE_DRAWER_MIN_WIDTH,
-        layoutMode: SURFACE_DRAWER_LAYOUT_MODE,
+        layoutMode: initialLayoutMode,
         createView: () => new ElectronWebContentsView({ webPreferences }),
       });
       surfaceMode = SURFACE_MODE_COMPOSITOR;
@@ -675,6 +699,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       const appliedLayoutMode = surfaceWindow.setLayoutMode(layoutMode);
       const normalizedAppliedLayoutMode = normalizeSurfaceLayoutMode(appliedLayoutMode);
       contextPayload.layoutMode = normalizedAppliedLayoutMode;
+      saveSurfaceLayoutMode(normalizedAppliedLayoutMode);
       notifyLayoutUpdated(normalizedAppliedLayoutMode);
       return { ok: true, layoutMode: normalizedAppliedLayoutMode };
     } catch (err) {
