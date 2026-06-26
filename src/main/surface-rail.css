@@ -1,6 +1,5 @@
 :root {
-  color-scheme: light dark;
-  --surface-rail-bg: #1F2020;
+  color-scheme: dark;
   --surface-rail-border: #2d2d2d;
   --surface-rail-icon: #d6d3ca;
   --surface-rail-muted: #8f8a80;
@@ -26,8 +25,7 @@ body {
 
 .surface-rail {
   align-items: center;
-  background: var(--surface-rail-bg);
-  border-left: 1px solid var(--surface-rail-border);
+  background: transparent;
   border-radius: 0;
   display: flex;
   flex-direction: column;
@@ -36,10 +34,6 @@ body {
   overflow: hidden;
   padding: 7px 5px;
   width: 100vw;
-}
-
-:root[data-surface-open="false"] .surface-rail {
-  border-radius: 12px 0 0 12px;
 }
 
 .surface-rail-button {
@@ -90,16 +84,4 @@ body {
   height: 1px;
   margin: 1px 0;
   width: 22px;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --surface-rail-bg: #f8f7f3;
-    --surface-rail-border: #dedbd2;
-    --surface-rail-icon: #26241f;
-    --surface-rail-muted: #68645c;
-    --surface-rail-hover: #efede7;
-    --surface-rail-active: #2f7d59;
-    --surface-rail-active-bg: #e6f2ec;
-  }
 }

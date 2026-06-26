@@ -2496,8 +2496,12 @@ test('official browser chrome can launch as a local package with transitional we
     const railWalletButton = surfaceRailWindow.locator('[data-rail-surface="wallet"]');
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)'
+    );
+    await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
       'border-top-left-radius',
-      '12px'
+      '0px'
     );
     await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
     await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
@@ -2507,8 +2511,8 @@ test('official browser chrome can launch as a local package with transitional we
     ).toBe(true);
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'true');
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
-      'border-top-left-radius',
-      '0px'
+      'background-color',
+      'rgba(0, 0, 0, 0)'
     );
     await expect(railToggle).toHaveAttribute('aria-label', 'Close sidebar');
     await expect(railWalletButton).toHaveAttribute('aria-pressed', 'true');
@@ -2564,6 +2568,14 @@ test('official browser chrome can launch as a local package with transitional we
     );
     let trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
     await expect(trustedWalletWindow.locator('[data-sidebar-frame]')).toBeVisible();
+    await expect(trustedWalletWindow.locator('html')).toHaveAttribute(
+      'data-sidebar-layout-mode',
+      'dock'
+    );
+    await expect(trustedWalletWindow.locator('[data-sidebar-frame]')).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)'
+    );
     await expect(trustedWalletWindow.locator('[data-sidebar-title]')).toHaveText(
       'Freedom Wallet'
     );
