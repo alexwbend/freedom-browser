@@ -24,7 +24,7 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --trusted-sidebar-bg: #171717;
+  --trusted-sidebar-bg: #1F2020;
   --trusted-sidebar-panel: #22211f;
   --trusted-sidebar-panel-subtle: #1d1c1a;
   --trusted-sidebar-export-bg: #261c1a;
@@ -59,12 +59,15 @@ body {
   overflow: hidden;
 }
 
+:root[data-sidebar-layout-mode="dock"],
+:root[data-sidebar-layout-mode="dock"] body,
 :root[data-sidebar-layout-mode="overlay"],
 :root[data-sidebar-layout-mode="overlay"] body {
   background: transparent;
 }
 
 .trusted-sidebar-shell {
+  border-radius: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
@@ -73,8 +76,12 @@ body {
   background: var(--trusted-sidebar-bg);
 }
 
+:root[data-sidebar-layout-mode="dock"] .trusted-sidebar-shell,
 :root[data-sidebar-layout-mode="overlay"] .trusted-sidebar-shell {
   border-radius: var(--trusted-sidebar-panel-radius, 12px) 0 0 var(--trusted-sidebar-panel-radius, 12px);
+}
+
+:root[data-sidebar-layout-mode="overlay"] .trusted-sidebar-shell {
   margin-left: var(--trusted-sidebar-overlay-gutter);
   width: calc(100% - var(--trusted-sidebar-overlay-gutter));
 }

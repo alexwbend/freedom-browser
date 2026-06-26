@@ -663,7 +663,7 @@ class ShellWindow {
         to: targetBounds,
         apply: (bounds) => this.setRecordBounds(record, bounds),
       });
-      setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
+      setViewBorderRadius(record.view, 0);
     });
     if (animate) {
       this.animateCompositorBounds(entries, { onComplete });
@@ -732,7 +732,7 @@ class ShellWindow {
     record.view.setBounds(record.bounds);
     record.view.setVisible?.(false);
     setViewBackgroundColor(record.view, COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR);
-    setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
+    setViewBorderRadius(record.view, 0);
     view.webContents.once?.('destroyed', record.handleDestroyed);
     view.webContents.once?.('dom-ready', record.handleReady);
     view.webContents.once?.('did-finish-load', record.handleReady);

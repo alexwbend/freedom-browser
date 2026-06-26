@@ -46,9 +46,10 @@
 
     function setLayoutMode(layoutMode, { available = true } = {}) {
       currentLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
-      document.documentElement.dataset.sidebarLayoutMode = currentLayoutMode;
+      const frameLayoutMode = available ? currentLayoutMode : 'window';
+      document.documentElement.dataset.sidebarLayoutMode = frameLayoutMode;
       if (document.body) {
-        document.body.dataset.sidebarLayoutMode = currentLayoutMode;
+        document.body.dataset.sidebarLayoutMode = frameLayoutMode;
       }
       if (!layoutToggle) {
         return;

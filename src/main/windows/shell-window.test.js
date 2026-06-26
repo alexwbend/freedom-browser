@@ -360,7 +360,7 @@ describe('ShellWindow', () => {
 
     expect(contentView.addChildView).toHaveBeenCalledWith(surfaceView);
     expect(surfaceView.setBackgroundColor).toHaveBeenCalledWith('#00000000');
-    expect(surfaceView.setBorderRadius).toHaveBeenCalledWith(12);
+    expect(surfaceView.setBorderRadius).toHaveBeenCalledWith(0);
     expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(surfaceView.setBounds).toHaveBeenCalledWith({
       x: 680,
@@ -575,7 +575,7 @@ describe('ShellWindow', () => {
       width: 528,
       height: 800,
     });
-    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
@@ -620,7 +620,7 @@ describe('ShellWindow', () => {
 
     expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_OVERLAY)).toBe('overlay');
     expect(surfaceWindow.getLayoutMode()).toBe('overlay');
-    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
@@ -641,7 +641,7 @@ describe('ShellWindow', () => {
     ]);
 
     expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_DOCK)).toBe('dock');
-    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(12);
+    expect(surfaceView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(chromeView.getBounds()).toEqual({
       x: 0,
       y: 0,
