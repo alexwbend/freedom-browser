@@ -41,8 +41,12 @@
       surfaces: Array.isArray(state.surfaces) ? state.surfaces : [],
     };
 
-    const isOpen = Boolean(currentState.activeSurface);
+    const isOpen =
+      Boolean(currentState.activeSurface) ||
+      currentState.surfaces.some((entry) => entry?.open === true);
     const lastSurface = currentState.lastActiveSurface || 'wallet';
+    document.documentElement.dataset.surfaceOpen = String(isOpen);
+    document.body.dataset.surfaceOpen = String(isOpen);
     toggleButton?.setAttribute('data-open', String(isOpen));
     toggleButton?.setAttribute('data-active', String(isOpen));
     setButtonLabel(

@@ -2494,12 +2494,22 @@ test('official browser chrome can launch as a local package with transitional we
     const surfaceRailWindow = await waitForSurfaceRailWindow(launched.app);
     const railToggle = surfaceRailWindow.locator('[data-rail-toggle]');
     const railWalletButton = surfaceRailWindow.locator('[data-rail-surface="wallet"]');
+    await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
+    await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
+      'border-top-left-radius',
+      '12px'
+    );
     await expect(railToggle).toHaveAttribute('aria-label', 'Open Wallet sidebar');
     await expect(railWalletButton).toHaveAttribute('aria-pressed', 'false');
     await railToggle.click();
     await expect.poll(() =>
       page.evaluate(() => window.freedomShell.getSurfaceState('wallet').then((state) => state.open))
     ).toBe(true);
+    await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'true');
+    await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
+      'border-top-left-radius',
+      '0px'
+    );
     await expect(railToggle).toHaveAttribute('aria-label', 'Close sidebar');
     await expect(railWalletButton).toHaveAttribute('aria-pressed', 'true');
     const openedWalletSurface = await page.evaluate(() =>
