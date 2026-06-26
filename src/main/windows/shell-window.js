@@ -18,8 +18,8 @@ const DEFAULT_SURFACE_RAIL_SURFACE = 'wallet';
 const SHELL_CANVAS_THEME_DARK = 'dark';
 const SHELL_CANVAS_THEME_LIGHT = 'light';
 const COMPOSITOR_CANVAS_COLORS = Object.freeze({
-  [SHELL_CANVAS_THEME_DARK]: '#383b39',
-  [SHELL_CANVAS_THEME_LIGHT]: '#c8c2b6',
+  [SHELL_CANVAS_THEME_DARK]: '#4b524b',
+  [SHELL_CANVAS_THEME_LIGHT]: '#b6afa1',
 });
 const DEFAULT_SHELL_THEME = Object.freeze({
   mode: 'system',

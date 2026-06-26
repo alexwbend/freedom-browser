@@ -2252,7 +2252,7 @@ test('official browser chrome launch truth markers prove package mode', async ()
         },
         state: {
           canvasTheme: expect.stringMatching(/^(dark|light)$/),
-          backgroundColor: expect.stringMatching(/^#(383b39|c8c2b6)$/),
+          backgroundColor: expect.stringMatching(/^#(4b524b|b6afa1)$/),
           panes: [
             {
               id: 'chrome',
@@ -2273,7 +2273,7 @@ test('official browser chrome launch truth markers prove package mode', async ()
         radius: 12,
         railWidth: 44,
         canvasTheme: expect.stringMatching(/^(dark|light)$/),
-        backgroundColor: expect.stringMatching(/^#(383b39|c8c2b6)$/),
+        backgroundColor: expect.stringMatching(/^#(4b524b|b6afa1)$/),
       },
       surfaceRail: {
         webContentsId: expect.any(Number),

@@ -1,24 +1,28 @@
 :root {
   color-scheme: dark;
-  --shell-canvas-bg: #383b39;
-  --shell-canvas-fiber-light: rgba(255, 255, 255, 0.045);
-  --shell-canvas-fiber-dark: rgba(0, 0, 0, 0.12);
-  --shell-canvas-vignette: rgba(0, 0, 0, 0.18);
-  --shell-pane-shadow: rgba(0, 0, 0, 0.30);
-  --shell-pane-shadow-soft: rgba(0, 0, 0, 0.16);
-  --shell-pane-rim: rgba(255, 255, 255, 0.07);
+  --shell-canvas-bg: #4b524b;
+  --shell-canvas-fiber-light: rgba(255, 255, 255, 0.06);
+  --shell-canvas-fiber-dark: rgba(18, 24, 20, 0.11);
+  --shell-canvas-speckle-light: rgba(255, 255, 255, 0.06);
+  --shell-canvas-speckle-dark: rgba(10, 14, 12, 0.09);
+  --shell-canvas-vignette: rgba(0, 0, 0, 0.14);
+  --shell-pane-shadow: rgba(0, 0, 0, 0.42);
+  --shell-pane-shadow-soft: rgba(0, 0, 0, 0.18);
+  --shell-pane-rim: rgba(255, 255, 255, 0.10);
   background: var(--shell-canvas-bg);
 }
 
 :root[data-canvas-theme="light"] {
   color-scheme: light;
-  --shell-canvas-bg: #c8c2b6;
-  --shell-canvas-fiber-light: rgba(255, 255, 255, 0.16);
-  --shell-canvas-fiber-dark: rgba(80, 64, 42, 0.09);
-  --shell-canvas-vignette: rgba(84, 67, 45, 0.14);
-  --shell-pane-shadow: rgba(60, 48, 34, 0.22);
-  --shell-pane-shadow-soft: rgba(60, 48, 34, 0.12);
-  --shell-pane-rim: rgba(255, 255, 255, 0.32);
+  --shell-canvas-bg: #b6afa1;
+  --shell-canvas-fiber-light: rgba(255, 255, 255, 0.14);
+  --shell-canvas-fiber-dark: rgba(70, 54, 34, 0.085);
+  --shell-canvas-speckle-light: rgba(255, 255, 255, 0.13);
+  --shell-canvas-speckle-dark: rgba(68, 52, 32, 0.08);
+  --shell-canvas-vignette: rgba(84, 66, 42, 0.16);
+  --shell-pane-shadow: rgba(58, 44, 27, 0.34);
+  --shell-pane-shadow-soft: rgba(58, 44, 27, 0.14);
+  --shell-pane-rim: rgba(255, 255, 255, 0.36);
 }
 
 * {
@@ -36,7 +40,8 @@ body {
   margin: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.05), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 42%),
+    radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.065), transparent 30%),
     radial-gradient(circle at 86% 92%, var(--shell-canvas-vignette), transparent 42%),
     var(--shell-canvas-bg);
 }
@@ -52,12 +57,14 @@ body {
   inset: 0;
   pointer-events: none;
   background-image:
-    linear-gradient(115deg, var(--shell-canvas-fiber-light) 0 1px, transparent 1px 8px),
-    linear-gradient(23deg, transparent 0 6px, var(--shell-canvas-fiber-dark) 6px 7px, transparent 7px 14px),
-    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.045), transparent 20%),
+    radial-gradient(circle at 1px 1px, var(--shell-canvas-speckle-light) 0 0.8px, transparent 1px),
+    radial-gradient(circle at 2px 2px, var(--shell-canvas-speckle-dark) 0 0.7px, transparent 1px),
+    repeating-linear-gradient(112deg, transparent 0 10px, var(--shell-canvas-fiber-light) 10px 11px, transparent 11px 24px),
+    repeating-linear-gradient(31deg, transparent 0 13px, var(--shell-canvas-fiber-dark) 13px 14px, transparent 14px 30px),
+    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.055), transparent 20%),
     radial-gradient(circle at 76% 78%, var(--shell-canvas-vignette), transparent 34%);
-  background-size: 20px 20px, 18px 18px, 100% 100%, 100% 100%;
-  opacity: 0.3;
+  background-size: 4px 4px, 7px 7px, 32px 32px, 28px 28px, 100% 100%, 100% 100%;
+  opacity: 0.38;
 }
 
 .shell-canvas-panes {
@@ -70,8 +77,24 @@ body {
   position: absolute;
   pointer-events: none;
   background: rgba(255, 255, 255, 0.001);
-  box-shadow:
-    14px 0 30px var(--shell-pane-shadow-soft),
-    4px 0 14px var(--shell-pane-shadow),
-    0 0 0 1px var(--shell-pane-rim);
+  box-shadow: 0 0 0 1px var(--shell-pane-rim);
+}
+
+.shell-canvas-pane-shadow::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 44px;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      90deg,
+      var(--shell-pane-shadow) 0,
+      var(--shell-pane-shadow-soft) 42%,
+      transparent 100%
+    );
+  border-top-right-radius: inherit;
+  border-bottom-right-radius: inherit;
 }
