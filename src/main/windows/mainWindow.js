@@ -90,6 +90,14 @@ function getSurfaceRailHtmlPath() {
   return path.join(__dirname, '..', 'surface-rail.html');
 }
 
+function getShellCanvasPreloadPath() {
+  return path.join(__dirname, '..', 'shell-canvas-preload.js');
+}
+
+function getShellCanvasHtmlPath() {
+  return path.join(__dirname, '..', 'shell-canvas.html');
+}
+
 function packageUsesTransitionalWebviews(chromePackage) {
   return chromePackage.kind === 'local-package' && chromePackage.transitionalWebviews === true;
 }
@@ -116,6 +124,34 @@ function createChromeCompositorView(chromePackage) {
   return new WebContentsView({
     webPreferences: getChromeWindowWebPreferences(chromePackage),
   });
+}
+
+function getShellCanvasWebPreferences() {
+  return {
+    preload: getShellCanvasPreloadPath(),
+    contextIsolation: true,
+    sandbox: true,
+    nodeIntegration: false,
+    nodeIntegrationInWorker: false,
+    nodeIntegrationInSubFrames: false,
+    webviewTag: false,
+    enableRemoteModule: false,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    experimentalFeatures: false,
+  };
+}
+
+function createShellCanvasView() {
+  const view = new WebContentsView({
+    webPreferences: getShellCanvasWebPreferences(),
+  });
+  view.webContents.loadFile(getShellCanvasHtmlPath()).catch((error) => {
+    log.warn('[shell-canvas] failed to load shell canvas', {
+      message: error?.message || String(error),
+    });
+  });
+  return view;
 }
 
 function getSurfaceRailWebPreferences() {
@@ -346,6 +382,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     chromePackage,
     useChromeView: useShellCompositor,
     createChromeView: createChromeCompositorView,
+    createCanvasView: createShellCanvasView,
     createSurfaceRailView,
     shellTheme: settingsStore.getShellTheme(),
   });
@@ -586,6 +623,8 @@ module.exports = {
   registerPackageWebviewSecurity,
   sanitizePackageGuestWebviewParams,
   getChromeWindowWebPreferences,
+  getShellCanvasPreloadPath,
+  getShellCanvasWebPreferences,
   getSurfaceRailPreloadPath,
   getSurfaceRailWebPreferences,
   loadChromeEntry,

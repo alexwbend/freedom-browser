@@ -45,6 +45,28 @@ function makeChromeView() {
   return view;
 }
 
+function makeCanvasView() {
+  let bounds = { x: 0, y: 0, width: 1200, height: 800 };
+  const webContents = Object.assign(new EventEmitter(), {
+    id: 8,
+    isDestroyed: jest.fn(() => false),
+    close: jest.fn(),
+    getURL: jest.fn(() => 'file:///shell-canvas.html'),
+    send: jest.fn(),
+  });
+  const view = {
+    webContents,
+    setBounds: jest.fn((nextBounds) => {
+      bounds = nextBounds;
+    }),
+    getBounds: jest.fn(() => bounds),
+    getVisible: jest.fn(() => true),
+    setBackgroundColor: jest.fn(),
+    setBorderRadius: jest.fn(),
+  };
+  return view;
+}
+
 function makeSurfaceRailView() {
   let bounds = { x: 1156, y: 0, width: 44, height: 800 };
   const webContents = Object.assign(new EventEmitter(), {
@@ -137,8 +159,8 @@ describe('ShellWindow', () => {
 
     expect(mod.getCanvasThemeForShellTheme({ effective: 'dark' })).toBe('light');
     expect(mod.getCanvasThemeForShellTheme({ effective: 'light' })).toBe('dark');
-    expect(mod.getCanvasBackgroundColor('light')).toBe('#d4d2ca');
-    expect(mod.getCanvasBackgroundColor('dark')).toBe('#2a2c2c');
+    expect(mod.getCanvasBackgroundColor('light')).toBe('#c8c2b6');
+    expect(mod.getCanvasBackgroundColor('dark')).toBe('#383b39');
   });
 
   test('wraps legacy BrowserWindow chrome without creating a chrome view', () => {
@@ -180,7 +202,7 @@ describe('ShellWindow', () => {
     expect(shellWindow.chromeWebContents).toBe(chromeView.webContents);
     expect(shellWindow.chromeLoadTarget).toBe(chromeView.webContents);
     expect(contentView.addChildView).toHaveBeenCalledWith(chromeView);
-    expect(contentView.setBackgroundColor).toHaveBeenCalledWith('#2a2c2c');
+    expect(contentView.setBackgroundColor).toHaveBeenCalledWith('#383b39');
     expect(chromeView.setBorderRadius).toHaveBeenCalledWith(0);
     expect(chromeView.setBounds).toHaveBeenCalledWith({
       x: 0,
@@ -201,7 +223,7 @@ describe('ShellWindow', () => {
         gap: 4,
         radius: 12,
         canvasTheme: 'dark',
-        backgroundColor: '#2a2c2c',
+        backgroundColor: '#383b39',
       },
       closed: false,
     });
@@ -214,6 +236,64 @@ describe('ShellWindow', () => {
     expect(chromeView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
     expect(nativeWindow.__freedomShellWindow).toBeUndefined();
     expect(shellWindow.getDebugState()).toMatchObject({ closed: true });
+  });
+
+  test('places a shell canvas view behind package chrome and publishes pane state', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const canvasView = makeCanvasView();
+    const chromeView = makeChromeView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package', packageId: 'package' },
+      useChromeView: true,
+      createCanvasView: () => canvasView,
+      createChromeView: () => chromeView,
+    });
+
+    expect(contentView.addChildView).toHaveBeenNthCalledWith(1, canvasView);
+    expect(contentView.addChildView).toHaveBeenNthCalledWith(2, chromeView);
+    expect(canvasView.setBackgroundColor).toHaveBeenCalledWith('#00000000');
+    expect(canvasView.setBorderRadius).toHaveBeenCalledWith(0);
+    expect(canvasView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+    expect(canvasView.webContents.send).toHaveBeenLastCalledWith(
+      'shell-canvas:state',
+      {
+        canvasTheme: 'dark',
+        backgroundColor: '#383b39',
+        panes: [
+          {
+            id: 'chrome',
+            bounds: {
+              x: 0,
+              y: 0,
+              width: 1200,
+              height: 800,
+            },
+            radius: 0,
+          },
+        ],
+      }
+    );
+    expect(shellWindow.getDebugState().canvas).toMatchObject({
+      webContentsId: 8,
+      url: 'file:///shell-canvas.html',
+      state: {
+        canvasTheme: 'dark',
+        backgroundColor: '#383b39',
+      },
+    });
+
+    shellWindow.cleanup();
+
+    expect(contentView.removeChildView).toHaveBeenCalledWith(canvasView);
+    expect(canvasView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
   });
 
   test('attaches a fixed shell surface rail beside package chrome', () => {
@@ -310,10 +390,10 @@ describe('ShellWindow', () => {
       shellTheme: { mode: 'dark', effective: 'dark' },
     });
 
-    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#d4d2ca');
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#c8c2b6');
     expect(shellWindow.getDebugState().layout).toMatchObject({
       canvasTheme: 'light',
-      backgroundColor: '#d4d2ca',
+      backgroundColor: '#c8c2b6',
     });
     expect(shellWindow.getSurfaceRailState()).toMatchObject({
       canvasTheme: 'light',
@@ -321,7 +401,7 @@ describe('ShellWindow', () => {
 
     shellWindow.setShellTheme({ mode: 'light', effective: 'light' });
 
-    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#2a2c2c');
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#383b39');
     expect(railView.webContents.send).toHaveBeenLastCalledWith(
       'shell-surface-rail:state',
       expect.objectContaining({
@@ -330,7 +410,7 @@ describe('ShellWindow', () => {
     );
     expect(shellWindow.getDebugState().layout).toMatchObject({
       canvasTheme: 'dark',
-      backgroundColor: '#2a2c2c',
+      backgroundColor: '#383b39',
     });
   });
 

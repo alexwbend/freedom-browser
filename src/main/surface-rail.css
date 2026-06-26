@@ -1,11 +1,11 @@
 :root {
   color-scheme: dark;
-  --surface-rail-border: #3b3e3e;
-  --surface-rail-icon: #d8d3c8;
-  --surface-rail-muted: #aaa49a;
-  --surface-rail-hover: #343737;
+  --surface-rail-border: #484c49;
+  --surface-rail-icon: #e2ded3;
+  --surface-rail-muted: #bbb5aa;
+  --surface-rail-hover: #424643;
   --surface-rail-active: #6fca96;
-  --surface-rail-active-bg: #253a31;
+  --surface-rail-active-bg: #30483a;
   background: transparent;
   color: var(--surface-rail-icon);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -13,12 +13,12 @@
 
 :root[data-canvas-theme="light"] {
   color-scheme: light;
-  --surface-rail-border: #bbb7ad;
-  --surface-rail-icon: #302f2b;
-  --surface-rail-muted: #676258;
-  --surface-rail-hover: #c6c2b8;
+  --surface-rail-border: #b5ad9f;
+  --surface-rail-icon: #332f29;
+  --surface-rail-muted: #6c655a;
+  --surface-rail-hover: #bab3a6;
   --surface-rail-active: #2f7d59;
-  --surface-rail-active-bg: #c2d8cb;
+  --surface-rail-active-bg: #b7cdbf;
 }
 
 * {

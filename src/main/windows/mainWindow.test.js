@@ -99,6 +99,25 @@ describe('mainWindow chrome package preferences', () => {
     expect(path.basename(mod.getSurfaceRailPreloadPath())).toBe('surface-rail-preload.js');
   });
 
+  test('uses a narrow hardened preload for the shell canvas', () => {
+    const { mod } = loadMainWindow();
+
+    expect(mod.getShellCanvasWebPreferences()).toMatchObject({
+      preload: mod.getShellCanvasPreloadPath(),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      webviewTag: false,
+      enableRemoteModule: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+    });
+    expect(path.basename(mod.getShellCanvasPreloadPath())).toBe('shell-canvas-preload.js');
+  });
+
   test('enforces shell-owned guest webview preferences for transitional package webviews', () => {
     const { mod } = loadMainWindow();
     const preferences = {

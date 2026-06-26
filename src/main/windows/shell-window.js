@@ -18,8 +18,8 @@ const DEFAULT_SURFACE_RAIL_SURFACE = 'wallet';
 const SHELL_CANVAS_THEME_DARK = 'dark';
 const SHELL_CANVAS_THEME_LIGHT = 'light';
 const COMPOSITOR_CANVAS_COLORS = Object.freeze({
-  [SHELL_CANVAS_THEME_DARK]: '#2a2c2c',
-  [SHELL_CANVAS_THEME_LIGHT]: '#d4d2ca',
+  [SHELL_CANVAS_THEME_DARK]: '#383b39',
+  [SHELL_CANVAS_THEME_LIGHT]: '#c8c2b6',
 });
 const DEFAULT_SHELL_THEME = Object.freeze({
   mode: 'system',
@@ -307,12 +307,24 @@ function setViewBorderRadius(view, radius = COMPOSITOR_PANEL_RADIUS) {
   }
 }
 
+function createCanvasPaneState({ id, bounds, radius }) {
+  if (!bounds) {
+    return null;
+  }
+  return {
+    id,
+    bounds: cloneBounds(bounds),
+    radius: Math.max(0, radius || 0),
+  };
+}
+
 class ShellWindow {
   constructor({
     nativeWindow,
     chromePackage,
     useChromeView = false,
     createChromeView = null,
+    createCanvasView = null,
     createSurfaceRailView = null,
     shellTheme = DEFAULT_SHELL_THEME,
     animationDurationMs = COMPOSITOR_ANIMATION_DURATION_MS,
@@ -327,6 +339,7 @@ class ShellWindow {
 
     this.nativeWindow = nativeWindow;
     this.chromePackage = chromePackage || null;
+    this.canvasView = null;
     this.chromeView = null;
     this.surfaceRailView = null;
     this.chromeWebContents = nativeWindow.webContents || null;
@@ -334,7 +347,9 @@ class ShellWindow {
     this.mode = SHELL_WINDOW_LEGACY_MODE;
     this.closed = false;
     this.updateChromeBounds = null;
+    this.canvasBounds = null;
     this.chromeBounds = null;
+    this.chromeBorderRadius = 0;
     this.surfaceRailBounds = null;
     this.surfaceRailState = {
       activeSurface: null,
@@ -342,6 +357,8 @@ class ShellWindow {
       surfaces: new Map([[DEFAULT_SURFACE_RAIL_SURFACE, false]]),
     };
     this.handleChromeContentsDestroyed = null;
+    this.handleCanvasContentsDestroyed = null;
+    this.handleCanvasReady = null;
     this.handleSurfaceRailContentsDestroyed = null;
     this.handleSurfaceRailReady = null;
     this.surfaceWindows = new Map();
@@ -353,12 +370,37 @@ class ShellWindow {
     this.animationFrameMs = normalizeAnimationFrameMs(animationFrameMs);
 
     if (useChromeView) {
+      if (typeof createCanvasView === 'function') {
+        this.attachCanvasView(createCanvasView(chromePackage));
+      }
       this.attachChromeView(createChromeView(chromePackage));
       if (typeof createSurfaceRailView === 'function') {
         this.attachSurfaceRailView(createSurfaceRailView(chromePackage));
       }
     }
     this.installDebugHook();
+  }
+
+  attachCanvasView(canvasView) {
+    if (!canvasView?.webContents) {
+      throw new Error('ShellWindow canvas view must expose webContents');
+    }
+    this.canvasView = canvasView;
+    setViewBackgroundColor(canvasView, COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR);
+    setViewBorderRadius(canvasView, 0);
+    this.handleCanvasContentsDestroyed = () => {
+      this.canvasView = null;
+      this.canvasBounds = null;
+      this.handleCanvasContentsDestroyed = null;
+      this.handleCanvasReady = null;
+    };
+    this.handleCanvasReady = () => {
+      this.sendCanvasState();
+    };
+    this.nativeWindow.getContentView().addChildView(canvasView);
+    canvasView.webContents.once?.('destroyed', this.handleCanvasContentsDestroyed);
+    canvasView.webContents.on?.('dom-ready', this.handleCanvasReady);
+    canvasView.webContents.on?.('did-finish-load', this.handleCanvasReady);
   }
 
   attachChromeView(chromeView) {
@@ -417,6 +459,7 @@ class ShellWindow {
   installDebugHook() {
     this.nativeWindow.__freedomShellWindow = {
       getDebugState: () => this.getDebugState(),
+      getCanvasWebContents: () => this.canvasView?.webContents || null,
       getChromeWebContents: () => this.chromeWebContents,
       getSurfaceRailWebContents: () => this.surfaceRailView?.webContents || null,
       getSurfaceRailState: () => this.getSurfaceRailState(),
@@ -449,6 +492,25 @@ class ShellWindow {
       this.handleChromeContentsDestroyed
     );
     this.handleChromeContentsDestroyed = null;
+  }
+
+  removeCanvasContentsListeners() {
+    if (!this.canvasView) {
+      return;
+    }
+    if (this.handleCanvasContentsDestroyed) {
+      removeContentsListener(
+        this.canvasView.webContents,
+        'destroyed',
+        this.handleCanvasContentsDestroyed
+      );
+      this.handleCanvasContentsDestroyed = null;
+    }
+    if (this.handleCanvasReady) {
+      removeContentsListener(this.canvasView.webContents, 'dom-ready', this.handleCanvasReady);
+      removeContentsListener(this.canvasView.webContents, 'did-finish-load', this.handleCanvasReady);
+      this.handleCanvasReady = null;
+    }
   }
 
   removeSurfaceRailContentsListeners() {
@@ -486,9 +548,37 @@ class ShellWindow {
     };
   }
 
+  getCanvasState() {
+    const panes = [];
+    const chromePane = createCanvasPaneState({
+      id: 'chrome',
+      bounds: this.chromeBounds,
+      radius: this.chromeBorderRadius,
+    });
+    if (chromePane) {
+      panes.push(chromePane);
+    }
+    return {
+      canvasTheme: this.canvasTheme,
+      backgroundColor: this.canvasBackgroundColor,
+      panes,
+    };
+  }
+
+  sendCanvasState() {
+    if (!this.canvasView || this.canvasView.webContents.isDestroyed?.()) {
+      return;
+    }
+    this.canvasView.webContents.send?.(
+      IPC.SHELL_CANVAS_STATE,
+      this.getCanvasState()
+    );
+  }
+
   applyCanvasTheme() {
     this.canvasBackgroundColor = getCanvasBackgroundColor(this.canvasTheme);
     setViewBackgroundColor(this.nativeWindow.getContentView?.(), this.canvasBackgroundColor);
+    this.sendCanvasState();
   }
 
   setShellTheme(theme = DEFAULT_SHELL_THEME) {
@@ -609,10 +699,11 @@ class ShellWindow {
     });
   }
 
-  animateCompositorBounds(entries, { onComplete = null } = {}) {
+  animateCompositorBounds(entries, { onComplete = null, onFrame = null } = {}) {
     const durationMs = this.animationDurationMs;
     if (durationMs <= 0 || entries.length === 0) {
       this.setCompositorBoundsImmediately(entries);
+      onFrame?.();
       onComplete?.();
       return;
     }
@@ -628,6 +719,7 @@ class ShellWindow {
         entries.forEach((entry) => {
           entry.apply(interpolateBounds(entry.from, entry.to, easedProgress));
         });
+        onFrame?.();
       },
     };
     this.layoutAnimation = animation;
@@ -666,6 +758,16 @@ class ShellWindow {
       railWidth: this.surfaceRailView ? COMPOSITOR_RAIL_WIDTH : 0,
     });
     const entries = [];
+    if (this.canvasView) {
+      entries.push({
+        from: getCurrentViewBounds(this.canvasView, this.canvasBounds || tileLayout.rootBounds),
+        to: tileLayout.rootBounds,
+        apply: (bounds) => {
+          this.canvasView.setBounds(bounds);
+          this.canvasBounds = bounds;
+        },
+      });
+    }
     if (this.chromeView) {
       entries.push({
         from: getCurrentViewBounds(this.chromeView, this.chromeBounds || tileLayout.chromeBounds),
@@ -675,9 +777,11 @@ class ShellWindow {
           this.chromeBounds = bounds;
         },
       });
+      this.chromeBorderRadius =
+        tileLayout.hasDockedTiles || tileLayout.railBounds ? COMPOSITOR_PANEL_RADIUS : 0;
       setViewBorderRadius(
         this.chromeView,
-        tileLayout.hasDockedTiles || tileLayout.railBounds ? COMPOSITOR_PANEL_RADIUS : 0
+        this.chromeBorderRadius
       );
     }
     if (this.surfaceRailView && tileLayout.railBounds) {
@@ -716,11 +820,15 @@ class ShellWindow {
       setViewBorderRadius(record.view, 0);
     });
     if (animate) {
-      this.animateCompositorBounds(entries, { onComplete });
+      this.animateCompositorBounds(entries, {
+        onFrame: () => this.sendCanvasState(),
+        onComplete,
+      });
       return;
     }
     this.cancelLayoutAnimation({ finish: false });
     this.setCompositorBoundsImmediately(entries);
+    this.sendCanvasState();
     onComplete?.();
   }
 
@@ -941,6 +1049,7 @@ class ShellWindow {
     });
     this.removeChromeViewListeners();
     this.removeChromeContentsListeners();
+    this.removeCanvasContentsListeners();
     this.removeSurfaceRailContentsListeners();
     delete this.nativeWindow.__freedomShellWindow;
 
@@ -959,6 +1068,23 @@ class ShellWindow {
       }
       this.surfaceRailView = null;
       this.surfaceRailBounds = null;
+    }
+
+    if (this.canvasView) {
+      try {
+        this.nativeWindow.getContentView?.().removeChildView(this.canvasView);
+      } catch {
+        // The native host may already be destroyed during app shutdown.
+      }
+      try {
+        if (!this.canvasView.webContents.isDestroyed?.()) {
+          this.canvasView.webContents.close({ waitForBeforeUnload: false });
+        }
+      } catch {
+        // The shell canvas WebContents may already be gone.
+      }
+      this.canvasView = null;
+      this.canvasBounds = null;
     }
 
     if (!this.chromeView) {
@@ -997,6 +1123,20 @@ class ShellWindow {
         this.chromeView && typeof this.chromeView.getVisible === 'function'
           ? this.chromeView.getVisible()
           : undefined,
+      canvas: this.canvasView
+        ? {
+            webContentsId: this.canvasView.webContents?.id ?? null,
+            url:
+              typeof this.canvasView.webContents?.getURL === 'function'
+                ? this.canvasView.webContents.getURL()
+                : '',
+            bounds:
+              typeof this.canvasView.getBounds === 'function'
+                ? this.canvasView.getBounds()
+                : this.canvasBounds,
+            state: this.getCanvasState(),
+          }
+        : null,
       surfaceRail: this.surfaceRailView
         ? {
             webContentsId: this.surfaceRailView.webContents?.id ?? null,

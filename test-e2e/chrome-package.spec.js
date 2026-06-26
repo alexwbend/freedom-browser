@@ -2241,13 +2241,39 @@ test('official browser chrome launch truth markers prove package mode', async ()
         height: expect.any(Number),
       },
       chromeVisible: true,
+      canvas: {
+        webContentsId: expect.any(Number),
+        url: expect.stringContaining('shell-canvas.html'),
+        bounds: {
+          x: 0,
+          y: 0,
+          width: expect.any(Number),
+          height: expect.any(Number),
+        },
+        state: {
+          canvasTheme: expect.stringMatching(/^(dark|light)$/),
+          backgroundColor: expect.stringMatching(/^#(383b39|c8c2b6)$/),
+          panes: [
+            {
+              id: 'chrome',
+              bounds: {
+                x: 0,
+                y: 0,
+                width: expect.any(Number),
+                height: expect.any(Number),
+              },
+              radius: expect.any(Number),
+            },
+          ],
+        },
+      },
       layout: {
         outerMargin: 0,
         gap: 4,
         radius: 12,
         railWidth: 44,
         canvasTheme: expect.stringMatching(/^(dark|light)$/),
-        backgroundColor: expect.stringMatching(/^#(2a2c2c|d4d2ca)$/),
+        backgroundColor: expect.stringMatching(/^#(383b39|c8c2b6)$/),
       },
       surfaceRail: {
         webContentsId: expect.any(Number),
@@ -2267,8 +2293,12 @@ test('official browser chrome launch truth markers prove package mode', async ()
       hostWebContentsId: expect.any(Number),
     });
     expect(shellWindow.chromeWebContentsId).not.toBe(shellWindow.hostWebContentsId);
+    expect(shellWindow.canvas.webContentsId).not.toBe(shellWindow.hostWebContentsId);
+    expect(shellWindow.canvas.webContentsId).not.toBe(shellWindow.chromeWebContentsId);
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.hostWebContentsId);
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.chromeWebContentsId);
+    expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.canvas.webContentsId);
+    expect(shellWindow.canvas.state.panes[0].bounds).toEqual(shellWindow.chromeBounds);
     expect(shellWindow.surfaceRail.bounds.x - (
       shellWindow.chromeBounds.x + shellWindow.chromeBounds.width
     )).toBe(shellWindow.layout.gap);

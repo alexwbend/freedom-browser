@@ -45,43 +45,43 @@
 :root[data-sidebar-layout-mode="dock"][data-theme="dark"],
 :root[data-sidebar-layout-mode="overlay"][data-theme="dark"] {
   color-scheme: light;
-  --trusted-sidebar-bg: #d4d2ca;
-  --trusted-sidebar-panel: #e4e1d8;
-  --trusted-sidebar-panel-subtle: #dcd8cf;
-  --trusted-sidebar-export-bg: #eee5df;
-  --trusted-sidebar-error-bg: #eadedb;
+  --trusted-sidebar-bg: #c8c2b6;
+  --trusted-sidebar-panel: #d8d1c4;
+  --trusted-sidebar-panel-subtle: #d0c9bd;
+  --trusted-sidebar-export-bg: #e1d7ce;
+  --trusted-sidebar-error-bg: #ded1cd;
   --trusted-sidebar-text: #302f2b;
-  --trusted-sidebar-muted: #625d54;
-  --trusted-sidebar-muted-2: #746f66;
-  --trusted-sidebar-border: #bbb7ad;
-  --trusted-sidebar-border-strong: #aaa397;
+  --trusted-sidebar-muted: #5f584e;
+  --trusted-sidebar-muted-2: #716a60;
+  --trusted-sidebar-border: #b5ad9f;
+  --trusted-sidebar-border-strong: #a59b8e;
   --trusted-sidebar-danger-border: #c38c83;
   --trusted-sidebar-danger-text: #7d2d24;
   --trusted-sidebar-accent: #2f7d59;
-  --trusted-sidebar-badge-bg: #c2d8cb;
+  --trusted-sidebar-badge-bg: #b7cdbf;
   --trusted-sidebar-badge-text: #1c5d3f;
-  --trusted-sidebar-button-hover: #c6c2b8;
+  --trusted-sidebar-button-hover: #bab3a6;
 }
 
 :root[data-sidebar-layout-mode="dock"][data-theme="light"],
 :root[data-sidebar-layout-mode="overlay"][data-theme="light"] {
   color-scheme: dark;
-  --trusted-sidebar-bg: #2a2c2c;
-  --trusted-sidebar-panel: #202222;
-  --trusted-sidebar-panel-subtle: #242727;
+  --trusted-sidebar-bg: #383b39;
+  --trusted-sidebar-panel: #2e3130;
+  --trusted-sidebar-panel-subtle: #333634;
   --trusted-sidebar-export-bg: #261c1a;
   --trusted-sidebar-error-bg: #2a1d1b;
   --trusted-sidebar-text: #f4f1ea;
-  --trusted-sidebar-muted: #c9c3b8;
-  --trusted-sidebar-muted-2: #aaa49a;
-  --trusted-sidebar-border: #3b3e3e;
-  --trusted-sidebar-border-strong: #4f5353;
+  --trusted-sidebar-muted: #d0cabf;
+  --trusted-sidebar-muted-2: #bbb5aa;
+  --trusted-sidebar-border: #484c49;
+  --trusted-sidebar-border-strong: #5b605c;
   --trusted-sidebar-danger-border: #8f4d43;
   --trusted-sidebar-danger-text: #ffb0a6;
   --trusted-sidebar-accent: #6fca96;
-  --trusted-sidebar-badge-bg: #20392e;
+  --trusted-sidebar-badge-bg: #30483a;
   --trusted-sidebar-badge-text: #a6e3c4;
-  --trusted-sidebar-button-hover: #343737;
+  --trusted-sidebar-button-hover: #424643;
 }
 
 * {
