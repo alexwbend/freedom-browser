@@ -2246,7 +2246,8 @@ test('official browser chrome launch truth markers prove package mode', async ()
         gap: 4,
         radius: 12,
         railWidth: 44,
-        backgroundColor: '#101010',
+        canvasTheme: expect.stringMatching(/^(dark|light)$/),
+        backgroundColor: expect.stringMatching(/^#(101010|f8f7f3)$/),
       },
       surfaceRail: {
         webContentsId: expect.any(Number),
@@ -2494,6 +2495,10 @@ test('official browser chrome can launch as a local package with transitional we
     const surfaceRailWindow = await waitForSurfaceRailWindow(launched.app);
     const railToggle = surfaceRailWindow.locator('[data-rail-toggle]');
     const railWalletButton = surfaceRailWindow.locator('[data-rail-surface="wallet"]');
+    await expect(surfaceRailWindow.locator('html')).toHaveAttribute(
+      'data-canvas-theme',
+      /^(dark|light)$/
+    );
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
       'background-color',
@@ -2560,6 +2565,7 @@ test('official browser chrome can launch as a local package with transitional we
     expect(shellWindowWithWallet.surfaceRail.state).toMatchObject({
       activeSurface: 'wallet',
       lastActiveSurface: 'wallet',
+      canvasTheme: shellWindowWithWallet.layout.canvasTheme,
       surfaces: [{ surface: 'wallet', open: true }],
     });
     expect(walletSurface.bounds.height).toBe(shellWindowWithWallet.chromeBounds.height);

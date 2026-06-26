@@ -132,6 +132,15 @@ describe('ShellWindow', () => {
     expect(mod.shouldUseShellWindowCompositor(null)).toBe(false);
   });
 
+  test('derives the shell canvas theme opposite the effective app theme', () => {
+    const { mod } = loadShellWindow();
+
+    expect(mod.getCanvasThemeForShellTheme({ effective: 'dark' })).toBe('light');
+    expect(mod.getCanvasThemeForShellTheme({ effective: 'light' })).toBe('dark');
+    expect(mod.getCanvasBackgroundColor('light')).toBe('#f8f7f3');
+    expect(mod.getCanvasBackgroundColor('dark')).toBe('#101010');
+  });
+
   test('wraps legacy BrowserWindow chrome without creating a chrome view', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow, contentView } = makeNativeWindow();
@@ -191,6 +200,7 @@ describe('ShellWindow', () => {
         outerMargin: 0,
         gap: 4,
         radius: 12,
+        canvasTheme: 'dark',
         backgroundColor: '#101010',
       },
       closed: false,
@@ -244,6 +254,7 @@ describe('ShellWindow', () => {
     expect(nativeWindow.__freedomShellWindow.getSurfaceRailState()).toEqual({
       activeSurface: null,
       lastActiveSurface: 'wallet',
+      canvasTheme: 'dark',
       surfaces: [{ surface: 'wallet', open: false }],
     });
 
@@ -255,6 +266,7 @@ describe('ShellWindow', () => {
     ).toEqual({
       activeSurface: 'wallet',
       lastActiveSurface: 'wallet',
+      canvasTheme: 'dark',
       surfaces: [{ surface: 'wallet', open: true }],
     });
     expect(railView.webContents.send).toHaveBeenLastCalledWith(
@@ -262,6 +274,7 @@ describe('ShellWindow', () => {
       {
         activeSurface: 'wallet',
         lastActiveSurface: 'wallet',
+        canvasTheme: 'dark',
         surfaces: [{ surface: 'wallet', open: true }],
       }
     );
@@ -271,6 +284,7 @@ describe('ShellWindow', () => {
       state: {
         activeSurface: 'wallet',
         lastActiveSurface: 'wallet',
+        canvasTheme: 'dark',
         surfaces: [{ surface: 'wallet', open: true }],
       },
     });
@@ -279,6 +293,45 @@ describe('ShellWindow', () => {
 
     expect(contentView.removeChildView).toHaveBeenCalledWith(railView);
     expect(railView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+  });
+
+  test('updates compositor canvas state when the shell theme changes', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const railView = makeSurfaceRailView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package', packageId: 'package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+      createSurfaceRailView: () => railView,
+      shellTheme: { mode: 'dark', effective: 'dark' },
+    });
+
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#f8f7f3');
+    expect(shellWindow.getDebugState().layout).toMatchObject({
+      canvasTheme: 'light',
+      backgroundColor: '#f8f7f3',
+    });
+    expect(shellWindow.getSurfaceRailState()).toMatchObject({
+      canvasTheme: 'light',
+    });
+
+    shellWindow.setShellTheme({ mode: 'light', effective: 'light' });
+
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#101010');
+    expect(railView.webContents.send).toHaveBeenLastCalledWith(
+      'shell-surface-rail:state',
+      expect.objectContaining({
+        canvasTheme: 'dark',
+      })
+    );
+    expect(shellWindow.getDebugState().layout).toMatchObject({
+      canvasTheme: 'dark',
+      backgroundColor: '#101010',
+    });
   });
 
   test('resizes the chrome compositor view with the native window', () => {

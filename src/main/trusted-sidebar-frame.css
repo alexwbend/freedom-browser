@@ -42,8 +42,29 @@
   --trusted-sidebar-button-hover: #302d28;
 }
 
-:root[data-sidebar-layout-mode="dock"],
-:root[data-sidebar-layout-mode="overlay"] {
+:root[data-sidebar-layout-mode="dock"][data-theme="dark"],
+:root[data-sidebar-layout-mode="overlay"][data-theme="dark"] {
+  color-scheme: light;
+  --trusted-sidebar-bg: #f8f7f3;
+  --trusted-sidebar-panel: #ffffff;
+  --trusted-sidebar-panel-subtle: #fffdfa;
+  --trusted-sidebar-export-bg: #fff9f7;
+  --trusted-sidebar-error-bg: #fff3f1;
+  --trusted-sidebar-text: #171717;
+  --trusted-sidebar-muted: #5d5a52;
+  --trusted-sidebar-muted-2: #68645c;
+  --trusted-sidebar-border: #dedbd2;
+  --trusted-sidebar-border-strong: #c8c3b8;
+  --trusted-sidebar-danger-border: #d8a39b;
+  --trusted-sidebar-danger-text: #8f2f24;
+  --trusted-sidebar-accent: #2f7d59;
+  --trusted-sidebar-badge-bg: #e6f2ec;
+  --trusted-sidebar-badge-text: #1c5d3f;
+  --trusted-sidebar-button-hover: #efede7;
+}
+
+:root[data-sidebar-layout-mode="dock"][data-theme="light"],
+:root[data-sidebar-layout-mode="overlay"][data-theme="light"] {
   color-scheme: dark;
   --trusted-sidebar-bg: #101010;
   --trusted-sidebar-panel: #1F2020;

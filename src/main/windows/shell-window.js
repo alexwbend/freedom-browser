@@ -11,11 +11,20 @@ const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
 const COMPOSITOR_PANEL_GAP = 4;
 const COMPOSITOR_PANEL_RADIUS = 12;
 const COMPOSITOR_RAIL_WIDTH = 44;
-const COMPOSITOR_BACKGROUND_COLOR = '#101010';
 const COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR = '#00000000';
 const COMPOSITOR_ANIMATION_DURATION_MS = 180;
 const COMPOSITOR_ANIMATION_FRAME_MS = 16;
 const DEFAULT_SURFACE_RAIL_SURFACE = 'wallet';
+const SHELL_CANVAS_THEME_DARK = 'dark';
+const SHELL_CANVAS_THEME_LIGHT = 'light';
+const COMPOSITOR_CANVAS_COLORS = Object.freeze({
+  [SHELL_CANVAS_THEME_DARK]: '#101010',
+  [SHELL_CANVAS_THEME_LIGHT]: '#f8f7f3',
+});
+const DEFAULT_SHELL_THEME = Object.freeze({
+  mode: 'system',
+  effective: 'light',
+});
 
 function getCompositorHostWebPreferences() {
   return {
@@ -83,6 +92,20 @@ function normalizeSurfaceLayoutMode(layoutMode) {
     return SURFACE_LAYOUT_MODE_OVERLAY;
   }
   return DEFAULT_SURFACE_LAYOUT_MODE;
+}
+
+function normalizeEffectiveTheme(theme) {
+  return theme?.effective === 'dark' ? 'dark' : 'light';
+}
+
+function getCanvasThemeForShellTheme(theme = DEFAULT_SHELL_THEME) {
+  return normalizeEffectiveTheme(theme) === 'dark'
+    ? SHELL_CANVAS_THEME_LIGHT
+    : SHELL_CANVAS_THEME_DARK;
+}
+
+function getCanvasBackgroundColor(canvasTheme = SHELL_CANVAS_THEME_DARK) {
+  return COMPOSITOR_CANVAS_COLORS[canvasTheme] || COMPOSITOR_CANVAS_COLORS.dark;
 }
 
 function getRightDrawerBoundsForSize(
@@ -291,6 +314,7 @@ class ShellWindow {
     useChromeView = false,
     createChromeView = null,
     createSurfaceRailView = null,
+    shellTheme = DEFAULT_SHELL_THEME,
     animationDurationMs = COMPOSITOR_ANIMATION_DURATION_MS,
     animationFrameMs = COMPOSITOR_ANIMATION_FRAME_MS,
   } = {}) {
@@ -322,6 +346,9 @@ class ShellWindow {
     this.handleSurfaceRailReady = null;
     this.surfaceWindows = new Map();
     this.layoutAnimation = null;
+    this.shellTheme = shellTheme || DEFAULT_SHELL_THEME;
+    this.canvasTheme = getCanvasThemeForShellTheme(this.shellTheme);
+    this.canvasBackgroundColor = getCanvasBackgroundColor(this.canvasTheme);
     this.animationDurationMs = normalizeAnimationDurationMs(animationDurationMs);
     this.animationFrameMs = normalizeAnimationFrameMs(animationFrameMs);
 
@@ -342,7 +369,7 @@ class ShellWindow {
     this.chromeWebContents = chromeView.webContents;
     this.chromeLoadTarget = chromeView.webContents;
     this.mode = SHELL_WINDOW_COMPOSITOR_MODE;
-    setViewBackgroundColor(this.nativeWindow.getContentView?.(), COMPOSITOR_BACKGROUND_COLOR);
+    this.applyCanvasTheme();
     setViewBorderRadius(chromeView);
     this.updateChromeBounds = () => {
       this.updateCompositorLayout();
@@ -368,7 +395,7 @@ class ShellWindow {
       throw new Error('ShellWindow surface rail view must expose webContents');
     }
     this.surfaceRailView = surfaceRailView;
-    setViewBackgroundColor(surfaceRailView, COMPOSITOR_BACKGROUND_COLOR);
+    setViewBackgroundColor(surfaceRailView, COMPOSITOR_VIEW_TRANSPARENT_BACKGROUND_COLOR);
     setViewBorderRadius(surfaceRailView, 0);
     this.handleSurfaceRailContentsDestroyed = () => {
       this.surfaceRailView = null;
@@ -393,6 +420,7 @@ class ShellWindow {
       getChromeWebContents: () => this.chromeWebContents,
       getSurfaceRailWebContents: () => this.surfaceRailView?.webContents || null,
       getSurfaceRailState: () => this.getSurfaceRailState(),
+      setShellTheme: (theme) => this.setShellTheme(theme),
       updateSurfaceRailState: (state) => this.updateSurfaceRailState(state),
       canHostTrustedSurfaceWindows: () => this.mode === SHELL_WINDOW_COMPOSITOR_MODE,
       createTrustedSurfaceWindow: (options) => this.createTrustedSurfaceWindow(options),
@@ -450,11 +478,29 @@ class ShellWindow {
     return {
       activeSurface: this.surfaceRailState.activeSurface,
       lastActiveSurface: this.surfaceRailState.lastActiveSurface,
+      canvasTheme: this.canvasTheme,
       surfaces: [...this.surfaceRailState.surfaces.entries()].map(([surface, open]) => ({
         surface,
         open,
       })),
     };
+  }
+
+  applyCanvasTheme() {
+    this.canvasBackgroundColor = getCanvasBackgroundColor(this.canvasTheme);
+    setViewBackgroundColor(this.nativeWindow.getContentView?.(), this.canvasBackgroundColor);
+  }
+
+  setShellTheme(theme = DEFAULT_SHELL_THEME) {
+    this.shellTheme = theme || DEFAULT_SHELL_THEME;
+    const nextCanvasTheme = getCanvasThemeForShellTheme(this.shellTheme);
+    if (this.canvasTheme === nextCanvasTheme) {
+      return this.getDebugState().layout.canvasTheme;
+    }
+    this.canvasTheme = nextCanvasTheme;
+    this.applyCanvasTheme();
+    this.sendSurfaceRailState();
+    return this.canvasTheme;
   }
 
   sendSurfaceRailState() {
@@ -977,7 +1023,8 @@ class ShellWindow {
         railWidth: this.surfaceRailView ? COMPOSITOR_RAIL_WIDTH : 0,
         animationDurationMs: this.animationDurationMs,
         animating: Boolean(this.layoutAnimation),
-        backgroundColor: COMPOSITOR_BACKGROUND_COLOR,
+        canvasTheme: this.canvasTheme,
+        backgroundColor: this.canvasBackgroundColor,
       },
       closed: this.closed,
       surfaces: [...this.surfaceWindows.values()].map((record) => ({
@@ -1009,6 +1056,8 @@ module.exports = {
   SURFACE_LAYOUT_MODE_DOCK,
   SURFACE_LAYOUT_MODE_OVERLAY,
   COMPOSITOR_RAIL_WIDTH,
+  getCanvasBackgroundColor,
+  getCanvasThemeForShellTheme,
   ShellWindow,
   createShellWindow,
   getRightDrawerBounds,

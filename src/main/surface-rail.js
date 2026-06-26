@@ -14,6 +14,7 @@
   let currentState = {
     activeSurface: null,
     lastActiveSurface: 'wallet',
+    canvasTheme: 'dark',
     surfaces: [],
   };
 
@@ -38,6 +39,7 @@
       activeSurface: typeof state.activeSurface === 'string' ? state.activeSurface : null,
       lastActiveSurface:
         typeof state.lastActiveSurface === 'string' ? state.lastActiveSurface : 'wallet',
+      canvasTheme: state.canvasTheme === 'light' ? 'light' : 'dark',
       surfaces: Array.isArray(state.surfaces) ? state.surfaces : [],
     };
 
@@ -45,7 +47,9 @@
       Boolean(currentState.activeSurface) ||
       currentState.surfaces.some((entry) => entry?.open === true);
     const lastSurface = currentState.lastActiveSurface || 'wallet';
+    document.documentElement.dataset.canvasTheme = currentState.canvasTheme;
     document.documentElement.dataset.surfaceOpen = String(isOpen);
+    document.body.dataset.canvasTheme = currentState.canvasTheme;
     document.body.dataset.surfaceOpen = String(isOpen);
     toggleButton?.setAttribute('data-open', String(isOpen));
     toggleButton?.setAttribute('data-active', String(isOpen));

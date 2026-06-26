@@ -19,6 +19,7 @@ const {
   registerPackageWebContents,
   setSurfaceOpenForPackageWebContents,
 } = require('../shell-api');
+const settingsStore = require('../settings-store');
 const { SHELL_API_EVENTS } = require('../../shared/shell-api-policy');
 const {
   createShellWindow,
@@ -346,14 +347,21 @@ function createMainWindow(initialUrl = null, options = {}) {
     useChromeView: useShellCompositor,
     createChromeView: createChromeCompositorView,
     createSurfaceRailView,
+    shellTheme: settingsStore.getShellTheme(),
   });
   const chromeWebContents = shellWindow.chromeWebContents;
   const chromeLoadTarget = shellWindow.chromeLoadTarget;
 
   let recoveredFromPackageLoadFailure = false;
+  let cleanupShellThemeUpdates = () => {};
   let cleanupPackageReadyWait = () => {};
   let cleanupPackageCaller = () => {};
   let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(chromeWebContents, chromePackage);
+  if (useShellCompositor) {
+    cleanupShellThemeUpdates = settingsStore.onSettingsUpdated((settings) => {
+      shellWindow.setShellTheme(settings.shellTheme || settingsStore.getShellTheme(settings));
+    });
+  }
   const tryPackageRollback = (details = {}) => {
     if (
       chromePackage.kind !== 'local-package' ||
@@ -394,6 +402,7 @@ function createMainWindow(initialUrl = null, options = {}) {
     }
     recoveredFromPackageLoadFailure = true;
     cleanupPackageReadyWait();
+    cleanupShellThemeUpdates();
     cleanupPackageCaller();
     cleanupPackageWebviewSecurity();
     shellWindow.cleanup();
@@ -461,6 +470,7 @@ function createMainWindow(initialUrl = null, options = {}) {
 
   window.on('closed', () => {
     cleanupPackageReadyWait();
+    cleanupShellThemeUpdates();
     cleanupPackageCaller();
     cleanupPackageWebviewSecurity();
     shellWindow.cleanup();
