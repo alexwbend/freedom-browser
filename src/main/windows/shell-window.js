@@ -7,7 +7,6 @@ const MIN_SURFACE_WIDTH = 360;
 const SURFACE_LAYOUT_MODE_DOCK = 'dock';
 const SURFACE_LAYOUT_MODE_OVERLAY = 'overlay';
 const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
-const COMPOSITOR_PANEL_MARGIN = 8;
 const COMPOSITOR_PANEL_GAP = 8;
 const COMPOSITOR_PANEL_RADIUS = 12;
 const COMPOSITOR_BACKGROUND_COLOR = '#101010';
@@ -50,37 +49,13 @@ function getSurfaceWidth(windowWidth, preferredWidth = DEFAULT_SURFACE_WIDTH, mi
   );
 }
 
-function getPanelMarginForSize({ width, height }) {
+function getCompositorRootBounds({ width, height }) {
   return {
-    x: Math.min(COMPOSITOR_PANEL_MARGIN, Math.floor(Math.max(0, width) / 2)),
-    y: Math.min(COMPOSITOR_PANEL_MARGIN, Math.floor(Math.max(0, height) / 2)),
+    x: 0,
+    y: 0,
+    width: Math.max(0, width),
+    height: Math.max(0, height),
   };
-}
-
-function getCompositorInnerBounds(size) {
-  const margin = getPanelMarginForSize(size);
-  return {
-    x: margin.x,
-    y: margin.y,
-    width: Math.max(0, size.width - margin.x * 2),
-    height: Math.max(0, size.height - margin.y * 2),
-  };
-}
-
-function getChromeBoundsForSize({ width, height }, reservedRight = 0) {
-  const innerBounds = getCompositorInnerBounds({ width, height });
-  return {
-    x: innerBounds.x,
-    y: innerBounds.y,
-    width: Math.max(0, innerBounds.width - reservedRight),
-    height: innerBounds.height,
-  };
-}
-
-function setChromeViewBoundsForSize(size, view, reservedRight = 0) {
-  const bounds = getChromeBoundsForSize(size, reservedRight);
-  view.setBounds(bounds);
-  return bounds;
 }
 
 function normalizeSurfaceLayoutMode(layoutMode) {
@@ -95,15 +70,61 @@ function getRightDrawerBoundsForSize(
   preferredWidth = DEFAULT_SURFACE_WIDTH,
   minWidth = MIN_SURFACE_WIDTH
 ) {
-  const innerBounds = getCompositorInnerBounds({ width, height });
-  const surfaceWidth = getSurfaceWidth(innerBounds.width, preferredWidth, minWidth);
+  const rootBounds = getCompositorRootBounds({ width, height });
+  const surfaceWidth = getSurfaceWidth(rootBounds.width, preferredWidth, minWidth);
   const bounds = {
-    x: innerBounds.x + Math.max(0, innerBounds.width - surfaceWidth),
-    y: innerBounds.y,
+    x: rootBounds.x + Math.max(0, rootBounds.width - surfaceWidth),
+    y: rootBounds.y,
     width: surfaceWidth,
-    height: innerBounds.height,
+    height: rootBounds.height,
   };
   return bounds;
+}
+
+function isDockedSurfaceRecord(record) {
+  return (
+    record &&
+    !record.closed &&
+    record.layoutMode === SURFACE_LAYOUT_MODE_DOCK
+  );
+}
+
+function getCompositorTileLayout(size, surfaceRecords = []) {
+  const rootBounds = getCompositorRootBounds(size);
+  const dockedRecords = surfaceRecords.filter(isDockedSurfaceRecord);
+  const surfaceBoundsByRecord = new Map();
+  let nextRightEdge = rootBounds.x + rootBounds.width;
+
+  // Tile docked right surfaces from the outside in. The root itself has no
+  // padding; the compositor inserts gutters only between adjacent tiles.
+  dockedRecords.forEach((record) => {
+    const preferredSurfaceWidth = getSurfaceWidth(
+      rootBounds.width,
+      record.width,
+      record.minWidth
+    );
+    const surfaceWidth = Math.min(preferredSurfaceWidth, Math.max(0, nextRightEdge));
+    const x = Math.max(rootBounds.x, nextRightEdge - surfaceWidth);
+    surfaceBoundsByRecord.set(record, {
+      x,
+      y: rootBounds.y,
+      width: Math.max(0, nextRightEdge - x),
+      height: rootBounds.height,
+    });
+    nextRightEdge = Math.max(rootBounds.x, x - COMPOSITOR_PANEL_GAP);
+  });
+
+  return {
+    rootBounds,
+    chromeBounds: {
+      x: rootBounds.x,
+      y: rootBounds.y,
+      width: Math.max(0, nextRightEdge - rootBounds.x),
+      height: rootBounds.height,
+    },
+    surfaceBoundsByRecord,
+    hasDockedTiles: dockedRecords.length > 0,
+  };
 }
 
 function getRightDrawerBounds(window, preferredWidth = DEFAULT_SURFACE_WIDTH, minWidth = MIN_SURFACE_WIDTH) {
@@ -246,39 +267,31 @@ class ShellWindow {
     this.updateCompositorLayout(recordToUpdate);
   }
 
-  getDockedSurfaceInset(windowWidth) {
-    return [...this.surfaceWindows.values()].reduce((maxWidth, record) => {
-      if (
-        !record ||
-        record.closed ||
-        record.layoutMode !== SURFACE_LAYOUT_MODE_DOCK
-      ) {
-        return maxWidth;
-      }
-      const surfaceWidth = getSurfaceWidth(windowWidth, record.width, record.minWidth);
-      const reservedGap =
-        surfaceWidth > 0 && windowWidth > surfaceWidth ? COMPOSITOR_PANEL_GAP : 0;
-      return Math.max(maxWidth, surfaceWidth + reservedGap);
-    }, 0);
-  }
-
   updateCompositorLayout(recordToUpdate = null) {
     if (this.closed || this.nativeWindow.isDestroyed?.()) {
       return;
     }
     const size = getWindowContentSize(this.nativeWindow);
-    const innerBounds = getCompositorInnerBounds(size);
-    const dockedInset = this.getDockedSurfaceInset(innerBounds.width);
+    const allRecords = [...this.surfaceWindows.values()];
+    const tileLayout = getCompositorTileLayout(size, allRecords);
     if (this.chromeView) {
-      this.chromeBounds = setChromeViewBoundsForSize(size, this.chromeView, dockedInset);
+      this.chromeView.setBounds(tileLayout.chromeBounds);
+      this.chromeBounds = tileLayout.chromeBounds;
+      setViewBorderRadius(
+        this.chromeView,
+        tileLayout.hasDockedTiles ? COMPOSITOR_PANEL_RADIUS : 0
+      );
     }
-    const records = recordToUpdate ? [recordToUpdate] : [...this.surfaceWindows.values()];
+    const records = recordToUpdate ? [recordToUpdate] : allRecords;
     records.forEach((record) => {
       if (!record || record.closed) {
         return;
       }
-      const bounds = getRightDrawerBoundsForSize(size, record.width, record.minWidth);
+      const bounds =
+        tileLayout.surfaceBoundsByRecord.get(record) ||
+        getRightDrawerBoundsForSize(size, record.width, record.minWidth);
       record.view.setBounds(bounds);
+      setViewBorderRadius(record.view, COMPOSITOR_PANEL_RADIUS);
       record.bounds = bounds;
     });
   }
@@ -305,8 +318,6 @@ class ShellWindow {
     if (!view?.webContents) {
       throw new Error('ShellWindow trusted surface view must expose webContents');
     }
-    setViewBorderRadius(view);
-
     const emitter = new EventEmitter();
     const record = {
       surface,
@@ -471,7 +482,7 @@ class ShellWindow {
           : undefined,
       hostWebContentsId: this.nativeWindow.webContents?.id ?? null,
       layout: {
-        margin: COMPOSITOR_PANEL_MARGIN,
+        outerMargin: 0,
         gap: COMPOSITOR_PANEL_GAP,
         radius: COMPOSITOR_PANEL_RADIUS,
         backgroundColor: COMPOSITOR_BACKGROUND_COLOR,

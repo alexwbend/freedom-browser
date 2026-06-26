@@ -2180,14 +2180,14 @@ test('official browser chrome launch truth markers prove package mode', async ()
       chromeWebContentsId: expect.any(Number),
       chromeUrl: expect.stringContaining('/official/index.html'),
       chromeBounds: {
-        x: 8,
-        y: 8,
+        x: 0,
+        y: 0,
         width: expect.any(Number),
         height: expect.any(Number),
       },
       chromeVisible: true,
       layout: {
-        margin: 8,
+        outerMargin: 0,
         gap: 8,
         radius: 12,
         backgroundColor: '#101010',
@@ -2225,8 +2225,8 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
       chromeWebContentsId: expect.any(Number),
       chromeUrl: expect.stringContaining('/official/index.html'),
       chromeBounds: {
-        x: 8,
-        y: 8,
+        x: 0,
+        y: 0,
         width: expect.any(Number),
         height: expect.any(Number),
       },
@@ -2279,7 +2279,8 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
     });
     expect(surface.webContentsId).not.toBe(chromeCompositor.chromeWebContentsId);
     expect(surface.bounds.height).toBeGreaterThanOrEqual(chromeCompositor.chromeBounds.height);
-    expect(surface.bounds.x + surface.bounds.width).toBeGreaterThan(
+    expect(surface.bounds.x).toBeGreaterThan(chromeCompositor.chromeBounds.x);
+    expect(surface.bounds.x + surface.bounds.width).toBe(
       chromeCompositor.chromeBounds.x + chromeCompositor.chromeBounds.width
     );
 
@@ -2426,7 +2427,7 @@ test('official browser chrome can launch as a local package with transitional we
         url: expect.stringContaining('trusted-wallet.html'),
         bounds: {
           x: expect.any(Number),
-          y: 8,
+          y: 0,
           width: 360,
           height: expect.any(Number),
         },

@@ -45,10 +45,10 @@ function makeChromeView() {
   return view;
 }
 
-function makeSurfaceView() {
+function makeSurfaceView(id = 3) {
   let bounds = { x: 680, y: 0, width: 520, height: 800 };
   const webContents = Object.assign(new EventEmitter(), {
-    id: 3,
+    id,
     isDestroyed: jest.fn(() => false),
     close: jest.fn(),
     focus: jest.fn(),
@@ -138,12 +138,12 @@ describe('ShellWindow', () => {
     expect(shellWindow.chromeLoadTarget).toBe(chromeView.webContents);
     expect(contentView.addChildView).toHaveBeenCalledWith(chromeView);
     expect(contentView.setBackgroundColor).toHaveBeenCalledWith('#101010');
-    expect(chromeView.setBorderRadius).toHaveBeenCalledWith(12);
+    expect(chromeView.setBorderRadius).toHaveBeenCalledWith(0);
     expect(chromeView.setBounds).toHaveBeenCalledWith({
-      x: 8,
-      y: 8,
-      width: 1184,
-      height: 784,
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
     });
     expect(nativeWindow.__freedomShellWindow.getDebugState()).toMatchObject({
       mode: 'webcontents-view-compositor',
@@ -151,10 +151,10 @@ describe('ShellWindow', () => {
       packageKind: 'local-package',
       chromeWebContentsId: 2,
       hostWebContentsId: 1,
-      chromeBounds: { x: 8, y: 8, width: 1184, height: 784 },
+      chromeBounds: { x: 0, y: 0, width: 1200, height: 800 },
       chromeVisible: true,
       layout: {
-        margin: 8,
+        outerMargin: 0,
         gap: 8,
         radius: 12,
         backgroundColor: '#101010',
@@ -187,10 +187,10 @@ describe('ShellWindow', () => {
     nativeWindow.emit('resize');
 
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
-      x: 8,
-      y: 8,
-      width: 884,
-      height: 684,
+      x: 0,
+      y: 0,
+      width: 900,
+      height: 700,
     });
   });
 
@@ -255,17 +255,18 @@ describe('ShellWindow', () => {
 
     expect(contentView.addChildView).toHaveBeenCalledWith(surfaceView);
     expect(surfaceView.setBorderRadius).toHaveBeenCalledWith(12);
+    expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(surfaceView.setBounds).toHaveBeenCalledWith({
-      x: 672,
-      y: 8,
+      x: 680,
+      y: 0,
       width: 520,
-      height: 784,
+      height: 800,
     });
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
-      x: 8,
-      y: 8,
-      width: 656,
-      height: 784,
+      x: 0,
+      y: 0,
+      width: 672,
+      height: 800,
     });
     expect(surfaceView.webContents.loadFile).toHaveBeenCalledWith('/trusted-wallet.html', {
       query: { surfaceId: 'wallet-1' },
@@ -280,7 +281,7 @@ describe('ShellWindow', () => {
         surface: 'wallet',
         layoutMode: 'dock',
         webContentsId: 3,
-        bounds: { x: 672, y: 8, width: 520, height: 784 },
+        bounds: { x: 680, y: 0, width: 520, height: 800 },
         visible: true,
       }),
     ]);
@@ -290,11 +291,12 @@ describe('ShellWindow', () => {
     expect(contentView.removeChildView).toHaveBeenCalledWith(surfaceView);
     expect(surfaceView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
-      x: 8,
-      y: 8,
-      width: 1184,
-      height: 784,
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
     });
+    expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(0);
     expect(shellWindow.getDebugState().surfaces).toEqual([]);
   });
 
@@ -319,16 +321,16 @@ describe('ShellWindow', () => {
     });
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
-      x: 672,
-      y: 8,
+      x: 680,
+      y: 0,
       width: 520,
-      height: 784,
+      height: 800,
     });
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
-      x: 8,
-      y: 8,
-      width: 1184,
-      height: 784,
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
     });
     expect(shellWindow.getDebugState().surfaces).toEqual([
       expect.objectContaining({
@@ -336,6 +338,58 @@ describe('ShellWindow', () => {
         layoutMode: 'overlay',
       }),
     ]);
+  });
+
+  test('tiles multiple docked right surfaces without outer gutters', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const walletView = makeSurfaceView(3);
+    const toolsView = makeSurfaceView(4);
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => walletView,
+    });
+    shellWindow.createTrustedSurfaceWindow({
+      surface: 'tools',
+      width: 300,
+      minWidth: 200,
+      createView: () => toolsView,
+    });
+
+    expect(walletView.setBounds).toHaveBeenLastCalledWith({
+      x: 680,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(toolsView.setBounds).toHaveBeenLastCalledWith({
+      x: 372,
+      y: 0,
+      width: 300,
+      height: 800,
+    });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 364,
+      height: 800,
+    });
+    expect(walletView.getBounds().x - (
+      toolsView.getBounds().x + toolsView.getBounds().width
+    )).toBe(8);
+    expect(toolsView.getBounds().x - (
+      chromeView.getBounds().x + chromeView.getBounds().width
+    )).toBe(8);
   });
 
   test('resizes hosted trusted surfaces with the native window', () => {
@@ -364,16 +418,16 @@ describe('ShellWindow', () => {
     nativeWindow.emit('resize');
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
-      x: 372,
-      y: 8,
+      x: 380,
+      y: 0,
       width: 520,
-      height: 684,
+      height: 700,
     });
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
-      x: 8,
-      y: 8,
-      width: 356,
-      height: 684,
+      x: 0,
+      y: 0,
+      width: 372,
+      height: 700,
     });
   });
 

@@ -265,6 +265,24 @@ created and loaded, but it does not reliably compose over the existing
 host for explicit child views, with chrome itself represented as a
 `WebContentsView`.
 
+### Layout Contract
+
+The shell compositor should behave like a tiny tiling compositor, not like a
+web page with padded cards:
+
+- a single visible tile fills the native window exactly
+- docked sibling tiles create gutters only between adjacent tiles
+- the root view has no outer padding, so there is no permanent margin around
+  package chrome
+- right-docked shell surfaces are tiled from the outer edge inward, which leaves
+  room for future adjacent panels without letting them overlap
+- overlay surfaces can float above chrome, but do not change chrome bounds
+
+Native `View#setBorderRadius(radius)` is uniform per view, so it cannot round
+only the inner edge of a docked tile. For now the compositor uses full-bleed
+bounds as the primary invariant and treats rounded corners as a best-effort
+visual detail, not as a layout input.
+
 ### Spike Result: 2026-06-25
 
 The feature-flagged spike answered the near-term question:
