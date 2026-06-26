@@ -46,6 +46,10 @@ const SURFACE_MODES = Object.freeze({
   payments: 'shell-owned-trusted-window',
   swarmPublish: 'shell-owned-trusted-window',
 });
+const SURFACE_LAYOUT_MODES = Object.freeze({
+  wallet: 'dock',
+});
+const DEFAULT_SURFACE_LAYOUT_MODE = 'overlay';
 const TRUSTED_SURFACE_MODES = new Set([
   'shell-owned-trusted-window',
   'shell-owned-webcontents-view',
@@ -539,6 +543,17 @@ function getSurfaceModeForCaller(caller, surface) {
   return caller?.surfaceModes?.get(surface) || getSurfaceMode(surface);
 }
 
+function getSurfaceLayoutMode(surface) {
+  return SURFACE_LAYOUT_MODES[surface] || DEFAULT_SURFACE_LAYOUT_MODE;
+}
+
+function getSurfaceLayoutModeForCaller(caller, surface, mode = getSurfaceModeForCaller(caller, surface)) {
+  if (mode !== 'shell-owned-webcontents-view') {
+    return null;
+  }
+  return caller?.surfaceLayoutModes?.get(surface) || getSurfaceLayoutMode(surface);
+}
+
 function isTrustedSurfaceMode(mode) {
   return TRUSTED_SURFACE_MODES.has(mode);
 }
@@ -552,8 +567,9 @@ function isSurfaceSupported(surface) {
 
 function describeSurfaceState(caller, surface) {
   const mode = getSurfaceModeForCaller(caller, surface);
+  const layoutMode = getSurfaceLayoutModeForCaller(caller, surface, mode);
   if (!isSurfaceSupported(surface)) {
-    return {
+    const unsupportedState = {
       ok: false,
       surface,
       owner: 'shell',
@@ -564,9 +580,13 @@ function describeSurfaceState(caller, surface) {
         message: 'Unsupported shell surface',
       },
     };
+    if (layoutMode) {
+      unsupportedState.layoutMode = layoutMode;
+    }
+    return unsupportedState;
   }
 
-  return {
+  const state = {
     ok: true,
     surface,
     open: caller.surfaces.get(surface) === true,
@@ -575,6 +595,10 @@ function describeSurfaceState(caller, surface) {
     trusted: true,
     capabilities: [...SURFACE_CAPABILITIES],
   };
+  if (layoutMode) {
+    state.layoutMode = layoutMode;
+  }
+  return state;
 }
 
 function emitSurfaceStateChanged(event, caller, state, previousOpen) {
@@ -716,6 +740,9 @@ async function setSurfaceOpen(caller, payload, open, event) {
     if (result?.mode) {
       caller.surfaceModes.set(surface, result.mode);
     }
+    if (result?.layoutMode) {
+      caller.surfaceLayoutModes.set(surface, result.layoutMode);
+    }
   }
   caller.surfaces.set(surface, open);
   const state = describeSurfaceState(caller, surface);
@@ -750,6 +777,9 @@ async function toggleSurfaceOpen(caller, payload, event) {
     }
     if (result?.mode) {
       caller.surfaceModes.set(surface, result.mode);
+    }
+    if (result?.layoutMode) {
+      caller.surfaceLayoutModes.set(surface, result.layoutMode);
     }
   }
   caller.surfaces.set(surface, nextOpen);
@@ -1253,6 +1283,7 @@ function registerPackageWebContents(sender, chromePackage = getActiveChromePacka
         ['swarmPublish', false],
       ]),
     surfaceModes: options.surfaceModes || new Map(),
+    surfaceLayoutModes: options.surfaceLayoutModes || new Map(),
   };
   packageCallers.set(sender, caller);
 

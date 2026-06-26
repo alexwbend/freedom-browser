@@ -2419,7 +2419,7 @@ test('official browser chrome can launch as a local package with transitional we
         bounds: {
           x: expect.any(Number),
           y: 0,
-          width: 520,
+          width: 360,
           height: expect.any(Number),
         },
         visible: true,
@@ -2431,7 +2431,9 @@ test('official browser chrome can launch as a local package with transitional we
     );
     expect(walletSurface.webContentsId).not.toBe(shellWindowWithWallet.hostWebContentsId);
     expect(walletSurface.webContentsId).not.toBe(shellWindowWithWallet.chromeWebContentsId);
-    expect(walletSurface.bounds.x + walletSurface.bounds.width).toBe(
+    expect(openedWalletSurface.layoutMode).toBe('dock');
+    expect(walletSurface.layoutMode).toBe('dock');
+    expect(walletSurface.bounds.x).toBe(
       shellWindowWithWallet.chromeBounds.width
     );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);

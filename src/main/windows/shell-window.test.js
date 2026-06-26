@@ -25,21 +25,26 @@ function makeNativeWindow() {
 }
 
 function makeChromeView() {
+  let bounds = { x: 0, y: 0, width: 1200, height: 800 };
   const webContents = Object.assign(new EventEmitter(), {
     id: 2,
     isDestroyed: jest.fn(() => false),
     close: jest.fn(),
     getURL: jest.fn(() => 'file:///package/index.html'),
   });
-  return {
+  const view = {
     webContents,
-    setBounds: jest.fn(),
-    getBounds: jest.fn(() => ({ x: 0, y: 0, width: 1200, height: 800 })),
+    setBounds: jest.fn((nextBounds) => {
+      bounds = nextBounds;
+    }),
+    getBounds: jest.fn(() => bounds),
     getVisible: jest.fn(() => true),
   };
+  return view;
 }
 
 function makeSurfaceView() {
+  let bounds = { x: 680, y: 0, width: 520, height: 800 };
   const webContents = Object.assign(new EventEmitter(), {
     id: 3,
     isDestroyed: jest.fn(() => false),
@@ -48,13 +53,16 @@ function makeSurfaceView() {
     getURL: jest.fn(() => 'file:///trusted-wallet.html'),
     loadFile: jest.fn().mockResolvedValue(undefined),
   });
-  return {
+  const view = {
     webContents,
-    setBounds: jest.fn(),
+    setBounds: jest.fn((nextBounds) => {
+      bounds = nextBounds;
+    }),
     setVisible: jest.fn(),
-    getBounds: jest.fn(() => ({ x: 680, y: 0, width: 520, height: 800 })),
+    getBounds: jest.fn(() => bounds),
     getVisible: jest.fn(() => true),
   };
+  return view;
 }
 
 describe('ShellWindow', () => {
@@ -208,7 +216,7 @@ describe('ShellWindow', () => {
     expect(nativeWindow.close).not.toHaveBeenCalled();
   });
 
-  test('hosts trusted surface windows as right-drawer views', async () => {
+  test('hosts trusted surface windows as docked right-drawer views by default', async () => {
     const { mod } = loadShellWindow();
     const { nativeWindow, contentView } = makeNativeWindow();
     const chromeView = makeChromeView();
@@ -241,6 +249,12 @@ describe('ShellWindow', () => {
       width: 520,
       height: 800,
     });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 680,
+      height: 800,
+    });
     expect(surfaceView.webContents.loadFile).toHaveBeenCalledWith('/trusted-wallet.html', {
       query: { surfaceId: 'wallet-1' },
     });
@@ -252,6 +266,7 @@ describe('ShellWindow', () => {
     expect(shellWindow.getDebugState().surfaces).toEqual([
       expect.objectContaining({
         surface: 'wallet',
+        layoutMode: 'dock',
         webContentsId: 3,
         bounds: { x: 680, y: 0, width: 520, height: 800 },
         visible: true,
@@ -262,7 +277,53 @@ describe('ShellWindow', () => {
 
     expect(contentView.removeChildView).toHaveBeenCalledWith(surfaceView);
     expect(surfaceView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
     expect(shellWindow.getDebugState().surfaces).toEqual([]);
+  });
+
+  test('supports overlay trusted surface windows without squeezing chrome', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      layoutMode: mod.SURFACE_LAYOUT_MODE_OVERLAY,
+      createView: () => surfaceView,
+    });
+
+    expect(surfaceView.setBounds).toHaveBeenLastCalledWith({
+      x: 680,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+    expect(shellWindow.getDebugState().surfaces).toEqual([
+      expect.objectContaining({
+        surface: 'wallet',
+        layoutMode: 'overlay',
+      }),
+    ]);
   });
 
   test('resizes hosted trusted surfaces with the native window', () => {
@@ -294,6 +355,12 @@ describe('ShellWindow', () => {
       x: 380,
       y: 0,
       width: 520,
+      height: 700,
+    });
+    expect(chromeView.setBounds).toHaveBeenLastCalledWith({
+      x: 0,
+      y: 0,
+      width: 380,
       height: 700,
     });
   });

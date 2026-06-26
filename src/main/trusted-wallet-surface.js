@@ -10,8 +10,9 @@ const { isVaultLockedError } = require('./wallet/vault-errors');
 const CHANNEL_PREFIX = 'trusted-wallet-surface';
 const SURFACE_WIDTH = 920;
 const SURFACE_HEIGHT = 680;
-const SURFACE_DRAWER_WIDTH = 520;
-const SURFACE_DRAWER_MIN_WIDTH = 360;
+const SURFACE_DRAWER_WIDTH = 360;
+const SURFACE_DRAWER_MIN_WIDTH = 320;
+const SURFACE_DRAWER_LAYOUT_MODE = 'dock';
 const SURFACE_MODE_WINDOW = 'shell-owned-trusted-window';
 const SURFACE_MODE_COMPOSITOR = 'shell-owned-webcontents-view';
 const CREATE_WALLET_VAULT_LOCKED_MESSAGE = 'Vault must be unlocked to create a new wallet';
@@ -342,6 +343,8 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       ok: true,
       surface: 'wallet',
       mode: activeSurfaceMode || SURFACE_MODE_WINDOW,
+      layoutMode:
+        activeSurfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
       reused: true,
       trusted: true,
       owner: 'shell',
@@ -396,6 +399,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
         surface: 'wallet',
         width: SURFACE_DRAWER_WIDTH,
         minWidth: SURFACE_DRAWER_MIN_WIDTH,
+        layoutMode: SURFACE_DRAWER_LAYOUT_MODE,
         createView: () => new ElectronWebContentsView({ webPreferences }),
       });
       surfaceMode = SURFACE_MODE_COMPOSITOR;
@@ -643,6 +647,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     ok: true,
     surface: 'wallet',
     mode: surfaceMode,
+    layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
     reused: false,
     trusted: true,
     owner: 'shell',
@@ -661,6 +666,7 @@ function closeTrustedWalletSurface() {
       ok: true,
       surface: 'wallet',
       mode: surfaceMode,
+      layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
       closed: false,
       trusted: true,
       owner: 'shell',
@@ -672,6 +678,7 @@ function closeTrustedWalletSurface() {
       ok: true,
       surface: 'wallet',
       mode: surfaceMode,
+      layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
       closed: true,
       trusted: true,
       owner: 'shell',

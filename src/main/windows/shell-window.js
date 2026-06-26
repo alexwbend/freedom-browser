@@ -4,6 +4,9 @@ const SHELL_WINDOW_COMPOSITOR_MODE = 'webcontents-view-compositor';
 const SHELL_WINDOW_LEGACY_MODE = 'browser-window-webcontents';
 const DEFAULT_SURFACE_WIDTH = 520;
 const MIN_SURFACE_WIDTH = 360;
+const SURFACE_LAYOUT_MODE_DOCK = 'dock';
+const SURFACE_LAYOUT_MODE_OVERLAY = 'overlay';
+const DEFAULT_SURFACE_LAYOUT_MODE = SURFACE_LAYOUT_MODE_DOCK;
 
 function getCompositorHostWebPreferences() {
   return {
@@ -36,30 +39,52 @@ function getWindowContentSize(window) {
   return { width: 0, height: 0 };
 }
 
-function setViewToWindowBounds(window, view) {
-  const { width, height } = getWindowContentSize(window);
-  const bounds = {
+function getSurfaceWidth(windowWidth, preferredWidth = DEFAULT_SURFACE_WIDTH, minWidth = MIN_SURFACE_WIDTH) {
+  return Math.min(
+    Math.max(minWidth, preferredWidth),
+    Math.max(0, windowWidth)
+  );
+}
+
+function getChromeBoundsForSize({ width, height }, reservedRight = 0) {
+  return {
     x: 0,
     y: 0,
-    width: Math.max(0, width),
+    width: Math.max(0, width - reservedRight),
     height: Math.max(0, height),
   };
+}
+
+function setChromeViewBoundsForSize(size, view, reservedRight = 0) {
+  const bounds = getChromeBoundsForSize(size, reservedRight);
   view.setBounds(bounds);
   return bounds;
 }
 
-function getRightDrawerBounds(window, preferredWidth = DEFAULT_SURFACE_WIDTH, minWidth = MIN_SURFACE_WIDTH) {
-  const { width, height } = getWindowContentSize(window);
-  const surfaceWidth = Math.min(
-    Math.max(minWidth, preferredWidth),
-    Math.max(0, width)
-  );
-  return {
+function normalizeSurfaceLayoutMode(layoutMode) {
+  if (layoutMode === SURFACE_LAYOUT_MODE_OVERLAY) {
+    return SURFACE_LAYOUT_MODE_OVERLAY;
+  }
+  return DEFAULT_SURFACE_LAYOUT_MODE;
+}
+
+function getRightDrawerBoundsForSize(
+  { width, height },
+  preferredWidth = DEFAULT_SURFACE_WIDTH,
+  minWidth = MIN_SURFACE_WIDTH
+) {
+  const surfaceWidth = getSurfaceWidth(width, preferredWidth, minWidth);
+  const bounds = {
     x: Math.max(0, width - surfaceWidth),
     y: 0,
     width: surfaceWidth,
     height: Math.max(0, height),
   };
+  return bounds;
+}
+
+function getRightDrawerBounds(window, preferredWidth = DEFAULT_SURFACE_WIDTH, minWidth = MIN_SURFACE_WIDTH) {
+  return getRightDrawerBoundsForSize(getWindowContentSize(window), preferredWidth, minWidth);
 }
 
 function removeWindowListener(window, eventName, listener) {
@@ -100,6 +125,7 @@ class ShellWindow {
     this.mode = SHELL_WINDOW_LEGACY_MODE;
     this.closed = false;
     this.updateChromeBounds = null;
+    this.chromeBounds = null;
     this.handleChromeContentsDestroyed = null;
     this.surfaceWindows = new Map();
 
@@ -118,8 +144,7 @@ class ShellWindow {
     this.chromeLoadTarget = chromeView.webContents;
     this.mode = SHELL_WINDOW_COMPOSITOR_MODE;
     this.updateChromeBounds = () => {
-      setViewToWindowBounds(this.nativeWindow, chromeView);
-      this.updateSurfaceWindowBounds();
+      this.updateCompositorLayout();
     };
     this.handleChromeContentsDestroyed = () => {
       if (this.closed || this.nativeWindow.isDestroyed?.()) {
@@ -171,12 +196,37 @@ class ShellWindow {
   }
 
   updateSurfaceWindowBounds(recordToUpdate = null) {
+    this.updateCompositorLayout(recordToUpdate);
+  }
+
+  getDockedSurfaceInset(windowWidth) {
+    return [...this.surfaceWindows.values()].reduce((maxWidth, record) => {
+      if (
+        !record ||
+        record.closed ||
+        record.layoutMode !== SURFACE_LAYOUT_MODE_DOCK
+      ) {
+        return maxWidth;
+      }
+      return Math.max(maxWidth, getSurfaceWidth(windowWidth, record.width, record.minWidth));
+    }, 0);
+  }
+
+  updateCompositorLayout(recordToUpdate = null) {
+    if (this.closed || this.nativeWindow.isDestroyed?.()) {
+      return;
+    }
+    const size = getWindowContentSize(this.nativeWindow);
+    const dockedInset = this.getDockedSurfaceInset(size.width);
+    if (this.chromeView) {
+      this.chromeBounds = setChromeViewBoundsForSize(size, this.chromeView, dockedInset);
+    }
     const records = recordToUpdate ? [recordToUpdate] : [...this.surfaceWindows.values()];
     records.forEach((record) => {
       if (!record || record.closed) {
         return;
       }
-      const bounds = getRightDrawerBounds(this.nativeWindow, record.width, record.minWidth);
+      const bounds = getRightDrawerBoundsForSize(size, record.width, record.minWidth);
       record.view.setBounds(bounds);
       record.bounds = bounds;
     });
@@ -187,6 +237,7 @@ class ShellWindow {
     createView,
     width = DEFAULT_SURFACE_WIDTH,
     minWidth = MIN_SURFACE_WIDTH,
+    layoutMode = DEFAULT_SURFACE_LAYOUT_MODE,
   } = {}) {
     if (!surface || typeof surface !== 'string') {
       throw new Error('ShellWindow trusted surface requires a surface name');
@@ -210,6 +261,7 @@ class ShellWindow {
       view,
       width,
       minWidth,
+      layoutMode: normalizeSurfaceLayoutMode(layoutMode),
       bounds: null,
       closed: false,
       emitter,
@@ -306,6 +358,7 @@ class ShellWindow {
     }
 
     this.surfaceWindows.delete(surface);
+    this.updateCompositorLayout();
     if (notifyClosed) {
       record.emitter.emit('closed');
     }
@@ -356,9 +409,10 @@ class ShellWindow {
           ? chromeWebContents.getURL()
           : '',
       chromeBounds:
-        this.chromeView && typeof this.chromeView.getBounds === 'function'
+        this.chromeBounds ||
+        (this.chromeView && typeof this.chromeView.getBounds === 'function'
           ? this.chromeView.getBounds()
-          : null,
+          : null),
       chromeVisible:
         this.chromeView && typeof this.chromeView.getVisible === 'function'
           ? this.chromeView.getVisible()
@@ -367,6 +421,7 @@ class ShellWindow {
       closed: this.closed,
       surfaces: [...this.surfaceWindows.values()].map((record) => ({
         surface: record.surface,
+        layoutMode: record.layoutMode,
         webContentsId: record.view.webContents?.id ?? null,
         url:
           typeof record.view.webContents?.getURL === 'function'
@@ -390,6 +445,8 @@ function createShellWindow(options) {
 module.exports = {
   SHELL_WINDOW_COMPOSITOR_MODE,
   SHELL_WINDOW_LEGACY_MODE,
+  SURFACE_LAYOUT_MODE_DOCK,
+  SURFACE_LAYOUT_MODE_OVERLAY,
   ShellWindow,
   createShellWindow,
   getRightDrawerBounds,

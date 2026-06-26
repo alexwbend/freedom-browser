@@ -311,8 +311,9 @@ test('opens wallet as a shell compositor view when the owner window supports sur
   expect(ownerWindow.__freedomShellWindow.createTrustedSurfaceWindow).toHaveBeenCalledWith(
     expect.objectContaining({
       surface: 'wallet',
-      width: 520,
-      minWidth: 360,
+      width: 360,
+      minWidth: 320,
+      layoutMode: 'dock',
       createView: expect.any(Function),
     })
   );
