@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('trustedWalletSurface', {
   deleteWallet: (payload) => ipcRenderer.invoke(channelFor('delete-wallet'), payload || {}),
   exportMnemonic: (payload) => ipcRenderer.invoke(channelFor('export-mnemonic'), payload || {}),
   exportPrivateKey: (payload) => ipcRenderer.invoke(channelFor('export-private-key'), payload || {}),
+  setLayoutMode: (payload) => ipcRenderer.invoke(channelFor('set-layout-mode'), payload || {}),
   close: () => ipcRenderer.invoke(channelFor('close')),
   onSnapshotUpdated: (callback) => {
     const channel = channelFor('snapshot-updated');
@@ -31,6 +32,12 @@ contextBridge.exposeInMainWorld('trustedWalletSurface', {
   },
   onThemeUpdated: (callback) => {
     const channel = channelFor('theme-updated');
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  onLayoutUpdated: (callback) => {
+    const channel = channelFor('layout-updated');
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);

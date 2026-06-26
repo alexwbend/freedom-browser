@@ -574,6 +574,19 @@ class ShellWindow {
       focus: () => {
         record.view.webContents.focus?.();
       },
+      getLayoutMode: () => record.layoutMode,
+      setLayoutMode: (layoutMode) => {
+        if (record.closed || record.closing) {
+          return record.layoutMode;
+        }
+        const nextLayoutMode = normalizeSurfaceLayoutMode(layoutMode);
+        if (record.layoutMode === nextLayoutMode) {
+          return record.layoutMode;
+        }
+        record.layoutMode = nextLayoutMode;
+        this.updateCompositorLayout({ animate: record.visible });
+        return record.layoutMode;
+      },
       close: () => this.closeTrustedSurfaceWindow(record.surface),
       loadFile: (...args) => record.view.webContents.loadFile(...args),
       once: (eventName, listener) => {

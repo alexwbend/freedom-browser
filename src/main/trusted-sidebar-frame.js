@@ -15,11 +15,14 @@
     return normalized;
   }
 
-  function setText(element, value) {
+  function setText(element, value, { hideWhenEmpty = false } = {}) {
     if (!element) {
       return;
     }
     element.textContent = typeof value === 'string' ? value : '';
+    if (hideWhenEmpty) {
+      element.hidden = element.textContent.length === 0;
+    }
   }
 
   function setHidden(element, hidden) {
@@ -39,26 +42,38 @@
     const onClose = typeof options.onClose === 'function' ? options.onClose : null;
     const onLayoutToggle =
       typeof options.onLayoutToggle === 'function' ? options.onLayoutToggle : null;
+    let currentLayoutMode = 'dock';
 
-    function setLayoutMode(layoutMode) {
+    function setLayoutMode(layoutMode, { available = true } = {}) {
       if (!layoutToggle) {
         return;
       }
-      const label = layoutMode === 'overlay' ? 'Overlay' : 'Docked';
-      layoutToggle.title = `${label} sidebar`;
-      layoutToggle.setAttribute('aria-label', `${label} sidebar`);
-      layoutToggle.dataset.layoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
-      setHidden(layoutToggle, !onLayoutToggle);
+      currentLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
+      const nextLayoutMode = currentLayoutMode === 'overlay' ? 'dock' : 'overlay';
+      const label = currentLayoutMode === 'overlay' ? 'Dock sidebar' : 'Undock sidebar';
+      layoutToggle.title = label;
+      layoutToggle.setAttribute('aria-label', label);
+      layoutToggle.dataset.layoutMode = currentLayoutMode;
+      layoutToggle.dataset.nextLayoutMode = nextLayoutMode;
+      setHidden(layoutToggle, !onLayoutToggle || !available);
     }
 
     function setContext(context = {}) {
       setText(title, context.title || context.heading || options.title || '');
-      setText(subtitle, context.subtitle || options.subtitle || '');
-      setText(eyebrow, context.eyebrow || options.eyebrow || 'Trusted shell surface');
+      setText(subtitle, context.subtitle || options.subtitle || '', { hideWhenEmpty: true });
+      setText(eyebrow, context.eyebrow || options.eyebrow || '', { hideWhenEmpty: true });
       if (context.theme) {
         applyTheme(context.theme);
       }
-      setLayoutMode(context.layoutMode || options.layoutMode || 'dock');
+      const contextLayoutMode = context.layoutMode === 'overlay' || context.layoutMode === 'dock'
+        ? context.layoutMode
+        : null;
+      const optionLayoutMode = options.layoutMode === 'overlay' || options.layoutMode === 'dock'
+        ? options.layoutMode
+        : null;
+      setLayoutMode(contextLayoutMode || optionLayoutMode || 'dock', {
+        available: Boolean(contextLayoutMode || optionLayoutMode),
+      });
       if (closeButton && context.title) {
         closeButton.setAttribute('aria-label', `Close ${context.title}`);
       }
@@ -68,11 +83,14 @@
       onClose?.();
     };
     const layoutHandler = () => {
-      onLayoutToggle?.(layoutToggle?.dataset.layoutMode || 'dock');
+      const nextLayoutMode =
+        layoutToggle?.dataset.nextLayoutMode ||
+        (currentLayoutMode === 'overlay' ? 'dock' : 'overlay');
+      onLayoutToggle?.(nextLayoutMode, currentLayoutMode);
     };
     closeButton?.addEventListener('click', closeHandler);
     layoutToggle?.addEventListener('click', layoutHandler);
-    setHidden(layoutToggle, !onLayoutToggle);
+    setHidden(layoutToggle, true);
 
     return {
       applyTheme,
@@ -81,8 +99,9 @@
         layoutToggle?.removeEventListener('click', layoutHandler);
       },
       setContext,
+      getLayoutMode: () => currentLayoutMode,
       setLayoutMode,
-      setSubtitle: (value) => setText(subtitle, value),
+      setSubtitle: (value) => setText(subtitle, value, { hideWhenEmpty: true }),
       setTitle: (value) => setText(title, value),
     };
   }

@@ -206,6 +206,12 @@ function createCompositorSurfaceWindow(ownerWindow) {
     show: jest.fn(),
     focus: jest.fn(),
     loadFile: jest.fn().mockResolvedValue(undefined),
+    layoutMode: 'dock',
+    getLayoutMode: jest.fn(() => surfaceWindow.layoutMode),
+    setLayoutMode: jest.fn((layoutMode) => {
+      surfaceWindow.layoutMode = layoutMode;
+      return surfaceWindow.layoutMode;
+    }),
     close: jest.fn(() => {
       if (surfaceWindow.destroyed) {
         return;
@@ -276,7 +282,7 @@ test('opens a shell-owned wallet window with dedicated preload and scoped channe
     ok: true,
     context: {
       surface: 'wallet',
-      title: 'Wallet',
+      title: 'Freedom Wallet',
       heading: 'Wallet Accounts',
       surfaceOwner: 'shell',
       trusted: true,
@@ -377,6 +383,7 @@ test('opens wallet as a shell compositor view when the owner window supports sur
     ok: true,
     surface: 'wallet',
     mode: 'shell-owned-webcontents-view',
+    layoutMode: 'dock',
     closed: true,
   });
   expect(surfaceWindow.close).toHaveBeenCalledTimes(1);
@@ -428,8 +435,56 @@ test('returns after creating the trusted wallet window while presentation load c
   });
   expect(mockWindows).toHaveLength(1);
   expect(mockWindows[0].loadFile).toHaveBeenCalled();
-  expect(mockHandlers.size).toBe(10);
+  expect(mockHandlers.size).toBe(11);
   resolveLoad();
+});
+
+test('sets compositor wallet layout only through the trusted surface window', async () => {
+  const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
+  await openTrustedWalletSurface({ ownerWindow });
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('set-layout-mode', surfaceId))(
+    { sender: surfaceWindow.webContents },
+    { layoutMode: 'overlay' }
+  );
+
+  expect(result).toEqual({
+    ok: true,
+    layoutMode: 'overlay',
+  });
+  expect(surfaceWindow.setLayoutMode).toHaveBeenCalledWith('overlay');
+  expect(surfaceWindow.webContents.send).toHaveBeenCalledWith(
+    channelFor('layout-updated', surfaceId),
+    {
+      ok: true,
+      layoutMode: 'overlay',
+    }
+  );
+
+  const contextResult = await mockHandlers.get(channelFor('context', surfaceId))({
+    sender: surfaceWindow.webContents,
+  });
+  expect(contextResult.context.layoutMode).toBe('overlay');
+});
+
+test('rejects wallet layout changes from unexpected senders', async () => {
+  const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
+  await openTrustedWalletSurface({ ownerWindow });
+  const surfaceId = surfaceWindow.loadFile.mock.calls[0][1].query.surfaceId;
+
+  const result = await mockHandlers.get(channelFor('set-layout-mode', surfaceId))(
+    { sender: { id: 999 } },
+    { layoutMode: 'overlay' }
+  );
+
+  expect(result).toEqual({
+    ok: false,
+    error: expect.objectContaining({
+      code: 'TRUSTED_WALLET_SURFACE_SENDER_MISMATCH',
+    }),
+  });
+  expect(surfaceWindow.setLayoutMode).not.toHaveBeenCalled();
 });
 
 test('rejects wallet management requests from unexpected senders', async () => {

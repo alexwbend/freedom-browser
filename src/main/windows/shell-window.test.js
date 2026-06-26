@@ -446,6 +446,70 @@ describe('ShellWindow', () => {
     ]);
   });
 
+  test('switches trusted surface layout mode after creation', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const chromeView = makeChromeView();
+    const surfaceView = makeSurfaceView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package' },
+      useChromeView: true,
+      createChromeView: () => chromeView,
+    });
+    const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
+      surface: 'wallet',
+      width: 520,
+      minWidth: 360,
+      createView: () => surfaceView,
+    });
+    surfaceWindow.show();
+
+    expect(surfaceWindow.getLayoutMode()).toBe('dock');
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 672,
+      height: 800,
+    });
+
+    expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_OVERLAY)).toBe('overlay');
+    expect(surfaceWindow.getLayoutMode()).toBe('overlay');
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+    expect(surfaceView.getBounds()).toEqual({
+      x: 680,
+      y: 0,
+      width: 520,
+      height: 800,
+    });
+    expect(shellWindow.getDebugState().surfaces).toEqual([
+      expect.objectContaining({
+        surface: 'wallet',
+        layoutMode: 'overlay',
+      }),
+    ]);
+
+    expect(surfaceWindow.setLayoutMode(mod.SURFACE_LAYOUT_MODE_DOCK)).toBe('dock');
+    expect(chromeView.getBounds()).toEqual({
+      x: 0,
+      y: 0,
+      width: 672,
+      height: 800,
+    });
+    expect(shellWindow.getDebugState().surfaces).toEqual([
+      expect.objectContaining({
+        surface: 'wallet',
+        layoutMode: 'dock',
+      }),
+    ]);
+  });
+
   test('tiles multiple docked right surfaces without outer gutters', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow } = makeNativeWindow();

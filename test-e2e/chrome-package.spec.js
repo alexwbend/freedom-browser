@@ -2468,18 +2468,46 @@ test('official browser chrome can launch as a local package with transitional we
     );
     const trustedWalletWindow = await waitForTrustedWalletWindow(launched.app);
     await expect(trustedWalletWindow.locator('[data-sidebar-frame]')).toBeVisible();
-    await expect(trustedWalletWindow.locator('[data-sidebar-title]')).toHaveText('Wallet');
-    await expect(trustedWalletWindow.locator('[data-sidebar-subtitle]')).toContainText(
-      'Opened by baby.freedom.chrome.official-local'
+    await expect(trustedWalletWindow.locator('[data-sidebar-title]')).toHaveText(
+      'Freedom Wallet'
     );
+    await expect(trustedWalletWindow.locator('[data-sidebar-subtitle]')).toHaveCount(0);
+    const layoutToggle = trustedWalletWindow.locator('[data-sidebar-layout-toggle]');
+    await expect(layoutToggle).toBeVisible();
+    await expect(layoutToggle).toHaveAttribute('aria-label', 'Undock sidebar');
     await expect(trustedWalletWindow.locator('[data-sidebar-close]')).toHaveAttribute(
       'aria-label',
-      'Close Wallet'
+      'Close Freedom Wallet'
     );
     await expect(trustedWalletWindow.locator('html')).toHaveAttribute(
       'data-theme',
       /^(light|dark)$/
     );
+    await layoutToggle.click();
+    await expect(layoutToggle).toHaveAttribute('aria-label', 'Dock sidebar');
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await waitForSettledShellWindowDebugState(launched.app);
+        return shellWindow.surfaces.find((surface) => surface.surface === 'wallet')?.layoutMode;
+      })
+      .toBe('overlay');
+    const [shellWindowWithOverlayWallet] = await waitForSettledShellWindowDebugState(launched.app);
+    const overlayWalletSurface = shellWindowWithOverlayWallet.surfaces.find(
+      (surface) => surface.surface === 'wallet'
+    );
+    expect(shellWindowWithOverlayWallet.chromeBounds.width).toBeGreaterThan(
+      shellWindowWithWallet.chromeBounds.width
+    );
+    expect(overlayWalletSurface.bounds.width).toBe(walletSurface.bounds.width);
+
+    await layoutToggle.click();
+    await expect(layoutToggle).toHaveAttribute('aria-label', 'Undock sidebar');
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await waitForSettledShellWindowDebugState(launched.app);
+        return shellWindow.surfaces.find((surface) => surface.surface === 'wallet')?.layoutMode;
+      })
+      .toBe('dock');
     await expect(trustedWalletWindow.locator('#wallet-list li')).toHaveCount(2);
     await expect(trustedWalletWindow.locator('#create-wallet-submit')).toBeVisible();
     await trustedWalletWindow.locator('#create-wallet-name').fill('Trading');

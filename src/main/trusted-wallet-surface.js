@@ -219,7 +219,7 @@ function buildSurfaceContext(context = {}) {
     : null;
   return {
     surface: 'wallet',
-    title: 'Wallet',
+    title: 'Freedom Wallet',
     heading: 'Wallet Accounts',
     surfaceOwner: 'shell',
     trusted: true,
@@ -258,6 +258,26 @@ function getShellWindowSurfaceHost(ownerWindow) {
     host.canHostTrustedSurfaceWindows?.() === true
     ? host
     : null;
+}
+
+function normalizeSurfaceLayoutMode(layoutMode) {
+  if (layoutMode === 'overlay') {
+    return 'overlay';
+  }
+  if (layoutMode === 'dock') {
+    return 'dock';
+  }
+  throw new Error('layoutMode must be dock or overlay');
+}
+
+function getSurfaceLayoutMode(surfaceWindow, surfaceMode) {
+  if (surfaceMode !== SURFACE_MODE_COMPOSITOR) {
+    return null;
+  }
+  if (typeof surfaceWindow?.getLayoutMode === 'function') {
+    return surfaceWindow.getLayoutMode();
+  }
+  return SURFACE_DRAWER_LAYOUT_MODE;
 }
 
 async function buildSnapshot() {
@@ -329,6 +349,21 @@ function notifyThemeUpdated(theme) {
   });
 }
 
+function notifyLayoutUpdated(layoutMode) {
+  if (
+    !activeWindow ||
+    typeof activeWindow.isDestroyed !== 'function' ||
+    activeWindow.isDestroyed() ||
+    !activeSurfaceId
+  ) {
+    return;
+  }
+  activeWindow.webContents?.send?.(channelFor('layout-updated', activeSurfaceId), {
+    ok: true,
+    layoutMode,
+  });
+}
+
 function cleanupSurface(electronIpcMain) {
   activeChannels.forEach((channel) => removeHandlerSafe(electronIpcMain, channel));
   activeChannels = [];
@@ -377,7 +412,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
       surface: 'wallet',
       mode: activeSurfaceMode || SURFACE_MODE_WINDOW,
       layoutMode:
-        activeSurfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
+        getSurfaceLayoutMode(activeWindow, activeSurfaceMode),
       reused: true,
       trusted: true,
       owner: 'shell',
@@ -409,6 +444,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     deleteWallet: channelFor('delete-wallet', surfaceId),
     exportMnemonic: channelFor('export-mnemonic', surfaceId),
     exportPrivateKey: channelFor('export-private-key', surfaceId),
+    setLayoutMode: channelFor('set-layout-mode', surfaceId),
     close: channelFor('close', surfaceId),
   };
   const preload = path.join(__dirname, 'trusted-wallet-preload.js');
@@ -469,8 +505,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
   activeSurfaceId = surfaceId;
   activeSurfaceMode = surfaceMode;
   contextPayload.mode = surfaceMode;
-  contextPayload.layoutMode =
-    surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null;
+  contextPayload.layoutMode = getSurfaceLayoutMode(surfaceWindow, surfaceMode);
   activeChannels = [];
   if (onClosed) {
     closeListeners.add(onClosed);
@@ -623,6 +658,33 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     }
   });
 
+  registerSurfaceHandler(electronIpcMain, channels.setLayoutMode, (event, payload = {}) => {
+    const mismatch = requireSurfaceSender(event);
+    if (mismatch) return mismatch;
+    if (
+      surfaceMode !== SURFACE_MODE_COMPOSITOR ||
+      typeof surfaceWindow.setLayoutMode !== 'function'
+    ) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_LAYOUT_UNAVAILABLE',
+        'Trusted wallet layout controls are unavailable for this surface'
+      );
+    }
+    try {
+      const layoutMode = normalizeSurfaceLayoutMode(payload.layoutMode);
+      const appliedLayoutMode = surfaceWindow.setLayoutMode(layoutMode);
+      const normalizedAppliedLayoutMode = normalizeSurfaceLayoutMode(appliedLayoutMode);
+      contextPayload.layoutMode = normalizedAppliedLayoutMode;
+      notifyLayoutUpdated(normalizedAppliedLayoutMode);
+      return { ok: true, layoutMode: normalizedAppliedLayoutMode };
+    } catch (err) {
+      return errorResult(
+        'TRUSTED_WALLET_SURFACE_SET_LAYOUT_FAILED',
+        err?.message || 'Failed to update wallet surface layout'
+      );
+    }
+  });
+
   registerSurfaceHandler(electronIpcMain, channels.close, (event) => {
     const mismatch = requireSurfaceSender(event);
     if (mismatch) return mismatch;
@@ -690,7 +752,7 @@ async function openTrustedWalletSurface(context = {}, deps = {}) {
     ok: true,
     surface: 'wallet',
     mode: surfaceMode,
-    layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
+    layoutMode: getSurfaceLayoutMode(surfaceWindow, surfaceMode),
     reused: false,
     trusted: true,
     owner: 'shell',
@@ -709,7 +771,7 @@ function closeTrustedWalletSurface() {
       ok: true,
       surface: 'wallet',
       mode: surfaceMode,
-      layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
+      layoutMode: getSurfaceLayoutMode(surfaceWindow, surfaceMode),
       closed: false,
       trusted: true,
       owner: 'shell',
@@ -721,7 +783,7 @@ function closeTrustedWalletSurface() {
       ok: true,
       surface: 'wallet',
       mode: surfaceMode,
-      layoutMode: surfaceMode === SURFACE_MODE_COMPOSITOR ? SURFACE_DRAWER_LAYOUT_MODE : null,
+      layoutMode: getSurfaceLayoutMode(surfaceWindow, surfaceMode),
       closed: true,
       trusted: true,
       owner: 'shell',

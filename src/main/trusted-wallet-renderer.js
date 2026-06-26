@@ -1,9 +1,9 @@
 (function initTrustedWalletSurface() {
   const api = window.trustedWalletSurface;
   const heading = document.getElementById('heading');
-  const packageLabel = document.getElementById('package-label');
   const sidebarFrame = window.trustedSidebarFrame?.init({
     onClose: () => api?.close?.(),
+    onLayoutToggle: (layoutMode) => handleLayoutToggle(layoutMode),
   });
   const walletList = document.getElementById('wallet-list');
   const permissionList = document.getElementById('permission-list');
@@ -29,6 +29,7 @@
 
   let exportRequest = null;
   let currentSnapshot = {};
+  let currentLayoutMode = 'dock';
 
   function applyTheme(theme) {
     if (sidebarFrame) {
@@ -42,20 +43,42 @@
   }
 
   function applySurfaceContext(context = {}) {
-    const subtitle = context.caller?.packageId
-      ? `Opened by ${context.caller.packageId}`
-      : 'Shell-owned trusted surface';
+    const hasCompositorLayout = context.layoutMode === 'overlay' || context.layoutMode === 'dock';
+    currentLayoutMode = context.layoutMode === 'overlay' ? 'overlay' : 'dock';
     if (sidebarFrame) {
       sidebarFrame.setContext({
         ...context,
-        title: context.title || 'Wallet',
-        subtitle,
+        title: context.title || 'Freedom Wallet',
+        subtitle: '',
+        eyebrow: '',
+        layoutMode: hasCompositorLayout ? currentLayoutMode : null,
       });
       return;
     }
     applyTheme(context.theme);
-    heading.textContent = context.title || context.heading || 'Wallet';
-    packageLabel.textContent = subtitle;
+    heading.textContent = context.title || 'Freedom Wallet';
+  }
+
+  function applyLayoutMode(layoutMode) {
+    currentLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
+    sidebarFrame?.setLayoutMode(currentLayoutMode);
+  }
+
+  async function handleLayoutToggle(layoutMode) {
+    if (!api?.setLayoutMode) {
+      return;
+    }
+    const requestedLayoutMode = layoutMode === 'overlay' ? 'overlay' : 'dock';
+    try {
+      const result = await api.setLayoutMode({ layoutMode: requestedLayoutMode });
+      if (result?.ok === true) {
+        applyLayoutMode(result.layoutMode);
+        return;
+      }
+      setManagementError(result?.error?.message || 'Failed to update wallet layout.');
+    } catch (err) {
+      setManagementError(err?.message || 'Failed to update wallet layout.');
+    }
   }
 
   function setError(message) {
@@ -442,6 +465,13 @@
     api.onThemeUpdated((payload) => {
       if (payload?.ok === true) {
         applyTheme(payload.theme);
+      }
+    });
+  }
+  if (api && typeof api.onLayoutUpdated === 'function') {
+    api.onLayoutUpdated((payload) => {
+      if (payload?.ok === true) {
+        applyLayoutMode(payload.layoutMode);
       }
     });
   }
