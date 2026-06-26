@@ -2268,9 +2268,9 @@ test('official browser chrome launch truth markers prove package mode', async ()
     expect(shellWindow.chromeWebContentsId).not.toBe(shellWindow.hostWebContentsId);
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.hostWebContentsId);
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.chromeWebContentsId);
-    expect(shellWindow.surfaceRail.bounds.x).toBe(
+    expect(shellWindow.surfaceRail.bounds.x - (
       shellWindow.chromeBounds.x + shellWindow.chromeBounds.width
-    );
+    )).toBe(shellWindow.layout.gap);
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });

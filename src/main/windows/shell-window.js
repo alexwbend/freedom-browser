@@ -159,7 +159,11 @@ function getCompositorTileLayout(
     : null;
   const dockedRecords = surfaceRecords.filter(isDockedSurfaceRecord);
   const surfaceBoundsByRecord = new Map();
-  let nextRightEdge = railBounds ? railBounds.x : rootBounds.x + rootBounds.width;
+  const hasDockedTiles = dockedRecords.length > 0;
+  let nextRightEdge = railBounds
+    ? railBounds.x - (hasDockedTiles ? 0 : COMPOSITOR_PANEL_GAP)
+    : rootBounds.x + rootBounds.width;
+  nextRightEdge = Math.max(rootBounds.x, nextRightEdge);
 
   // Tile docked right surfaces from the outside in. The root itself has no
   // padding; the compositor inserts gutters only between adjacent tiles.
@@ -190,7 +194,7 @@ function getCompositorTileLayout(
       height: rootBounds.height,
     },
     surfaceBoundsByRecord,
-    hasDockedTiles: dockedRecords.length > 0,
+    hasDockedTiles,
   };
 }
 
@@ -627,7 +631,7 @@ class ShellWindow {
       });
       setViewBorderRadius(
         this.chromeView,
-        tileLayout.hasDockedTiles ? COMPOSITOR_PANEL_RADIUS : 0
+        tileLayout.hasDockedTiles || tileLayout.railBounds ? COMPOSITOR_PANEL_RADIUS : 0
       );
     }
     if (this.surfaceRailView && tileLayout.railBounds) {

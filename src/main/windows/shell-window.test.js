@@ -231,9 +231,13 @@ describe('ShellWindow', () => {
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
       x: 0,
       y: 0,
-      width: 1156,
+      width: 1148,
       height: 800,
     });
+    expect(railView.getBounds().x - (
+      chromeView.getBounds().x + chromeView.getBounds().width
+    )).toBe(8);
+    expect(chromeView.setBorderRadius).toHaveBeenLastCalledWith(12);
     expect(nativeWindow.__freedomShellWindow.getSurfaceRailWebContents()).toBe(
       railView.webContents
     );
