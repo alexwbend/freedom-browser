@@ -76,4 +76,5 @@
     canvasTheme: 'dark',
     panes: [],
   });
+  canvasApi?.ready?.();
 }());

@@ -6,8 +6,9 @@
   --shell-canvas-speckle-light: rgba(255, 255, 255, 0.06);
   --shell-canvas-speckle-dark: rgba(10, 14, 12, 0.09);
   --shell-canvas-vignette: rgba(0, 0, 0, 0.14);
-  --shell-pane-shadow: rgba(0, 0, 0, 0.46);
-  --shell-pane-shadow-soft: rgba(0, 0, 0, 0.24);
+  --shell-pane-shadow: rgba(0, 0, 0, 0.36);
+  --shell-pane-shadow-soft: rgba(0, 0, 0, 0.18);
+  --shell-pane-shadow-body: rgba(0, 0, 0, 0.24);
   --shell-pane-rim: rgba(255, 255, 255, 0.10);
   background: var(--shell-canvas-bg);
 }
@@ -20,8 +21,9 @@
   --shell-canvas-speckle-light: rgba(255, 255, 255, 0.13);
   --shell-canvas-speckle-dark: rgba(68, 52, 32, 0.08);
   --shell-canvas-vignette: rgba(84, 66, 42, 0.16);
-  --shell-pane-shadow: rgba(58, 44, 27, 0.38);
-  --shell-pane-shadow-soft: rgba(58, 44, 27, 0.20);
+  --shell-pane-shadow: rgba(58, 44, 27, 0.32);
+  --shell-pane-shadow-soft: rgba(58, 44, 27, 0.16);
+  --shell-pane-shadow-body: rgba(58, 44, 27, 0.22);
   --shell-pane-rim: rgba(255, 255, 255, 0.36);
 }
 
@@ -76,9 +78,27 @@ body {
 .shell-canvas-pane-shadow {
   position: absolute;
   pointer-events: none;
-  background: rgba(255, 255, 255, 0.006);
+  background: transparent;
+}
+
+.shell-canvas-pane-shadow::before,
+.shell-canvas-pane-shadow::after {
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.shell-canvas-pane-shadow::before {
+  background: var(--shell-pane-shadow-body);
+  filter: blur(16px);
+  transform: translateX(8px);
+}
+
+.shell-canvas-pane-shadow::after {
   box-shadow:
-    18px 0 34px 7px var(--shell-pane-shadow-soft),
-    6px 0 16px 2px var(--shell-pane-shadow),
+    14px 0 30px 4px var(--shell-pane-shadow-soft),
+    5px 0 14px 1px var(--shell-pane-shadow),
     0 0 0 1px var(--shell-pane-rim);
 }

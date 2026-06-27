@@ -358,6 +358,7 @@ class ShellWindow {
     };
     this.handleChromeContentsDestroyed = null;
     this.handleCanvasContentsDestroyed = null;
+    this.handleCanvasIpcMessage = null;
     this.handleCanvasReady = null;
     this.handleSurfaceRailContentsDestroyed = null;
     this.handleSurfaceRailReady = null;
@@ -392,13 +393,20 @@ class ShellWindow {
       this.canvasView = null;
       this.canvasBounds = null;
       this.handleCanvasContentsDestroyed = null;
+      this.handleCanvasIpcMessage = null;
       this.handleCanvasReady = null;
     };
     this.handleCanvasReady = () => {
       this.sendCanvasState();
     };
+    this.handleCanvasIpcMessage = (_event, channel) => {
+      if (channel === IPC.SHELL_CANVAS_READY) {
+        this.sendCanvasState();
+      }
+    };
     this.nativeWindow.getContentView().addChildView(canvasView);
     canvasView.webContents.once?.('destroyed', this.handleCanvasContentsDestroyed);
+    canvasView.webContents.on?.('ipc-message', this.handleCanvasIpcMessage);
     canvasView.webContents.on?.('dom-ready', this.handleCanvasReady);
     canvasView.webContents.on?.('did-finish-load', this.handleCanvasReady);
   }
@@ -505,6 +513,14 @@ class ShellWindow {
         this.handleCanvasContentsDestroyed
       );
       this.handleCanvasContentsDestroyed = null;
+    }
+    if (this.handleCanvasIpcMessage) {
+      removeContentsListener(
+        this.canvasView.webContents,
+        'ipc-message',
+        this.handleCanvasIpcMessage
+      );
+      this.handleCanvasIpcMessage = null;
     }
     if (this.handleCanvasReady) {
       removeContentsListener(this.canvasView.webContents, 'dom-ready', this.handleCanvasReady);

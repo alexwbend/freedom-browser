@@ -290,6 +290,26 @@ describe('ShellWindow', () => {
       },
     });
 
+    canvasView.webContents.send.mockClear();
+    canvasView.webContents.emit('ipc-message', {}, 'shell-canvas:ready');
+    expect(canvasView.webContents.send).toHaveBeenCalledWith(
+      'shell-canvas:state',
+      expect.objectContaining({
+        canvasTheme: 'dark',
+        backgroundColor: '#4b524b',
+        panes: [
+          expect.objectContaining({
+            id: 'chrome',
+            radius: 0,
+          }),
+        ],
+      })
+    );
+
+    canvasView.webContents.send.mockClear();
+    canvasView.webContents.emit('ipc-message', {}, 'shell-canvas:unknown');
+    expect(canvasView.webContents.send).not.toHaveBeenCalled();
+
     shellWindow.cleanup();
 
     expect(contentView.removeChildView).toHaveBeenCalledWith(canvasView);

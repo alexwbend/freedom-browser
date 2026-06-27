@@ -2299,6 +2299,39 @@ test('official browser chrome launch truth markers prove package mode', async ()
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.chromeWebContentsId);
     expect(shellWindow.surfaceRail.webContentsId).not.toBe(shellWindow.canvas.webContentsId);
     expect(shellWindow.canvas.state.panes[0].bounds).toEqual(shellWindow.chromeBounds);
+    await expect
+      .poll(async () =>
+        launched.app.windows().some((candidate) => candidate.url().includes('shell-canvas.html'))
+      )
+      .toBe(true);
+    const canvasPage = launched.app.windows()
+      .find((candidate) => candidate.url().includes('shell-canvas.html'));
+    const canvasDom = await canvasPage.evaluate(() => {
+      const pane = document.querySelector('.shell-canvas-pane-shadow');
+      const rect = pane?.getBoundingClientRect();
+      const before = pane ? getComputedStyle(pane, '::before') : null;
+      return {
+        hasBridge: 'freedomShellCanvas' in window,
+        foundPane: Boolean(pane),
+        rect: rect
+          ? {
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            }
+          : null,
+        radius: pane ? getComputedStyle(pane).borderRadius : null,
+        beforeFilter: before?.filter || null,
+      };
+    });
+    expect(canvasDom).toMatchObject({
+      hasBridge: true,
+      foundPane: true,
+      rect: shellWindow.chromeBounds,
+      radius: `${shellWindow.canvas.state.panes[0].radius}px`,
+      beforeFilter: expect.stringContaining('blur('),
+    });
     expect(shellWindow.surfaceRail.bounds.x - (
       shellWindow.chromeBounds.x + shellWindow.chromeBounds.width
     )).toBe(shellWindow.layout.gap);
