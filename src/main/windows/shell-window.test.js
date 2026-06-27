@@ -27,10 +27,12 @@ function makeNativeWindow() {
 
 function makeChromeView() {
   let bounds = { x: 0, y: 0, width: 1200, height: 800 };
+  let visible = true;
   const webContents = Object.assign(new EventEmitter(), {
     id: 2,
     isDestroyed: jest.fn(() => false),
     close: jest.fn(),
+    focus: jest.fn(),
     getURL: jest.fn(() => 'file:///package/index.html'),
   });
   const view = {
@@ -39,7 +41,10 @@ function makeChromeView() {
       bounds = nextBounds;
     }),
     getBounds: jest.fn(() => bounds),
-    getVisible: jest.fn(() => true),
+    getVisible: jest.fn(() => visible),
+    setVisible: jest.fn((nextVisible) => {
+      visible = nextVisible;
+    }),
     setBorderRadius: jest.fn(),
   };
   return view;
@@ -324,6 +329,7 @@ describe('ShellWindow', () => {
           browser: {
             status: 'launching',
             error: null,
+            snapshotDataUrl: null,
           },
         },
       }
@@ -367,6 +373,74 @@ describe('ShellWindow', () => {
     expect(canvasView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
   });
 
+  test('shows the launcher with a minimized browser tile and restores browser chrome', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow } = makeNativeWindow();
+    const canvasView = makeCanvasView();
+    const chromeView = makeChromeView();
+    const railView = makeSurfaceRailView();
+
+    const shellWindow = createTestShellWindow(mod, {
+      nativeWindow,
+      chromePackage: { kind: 'local-package', packageId: 'package' },
+      useChromeView: true,
+      createCanvasView: () => canvasView,
+      createChromeView: () => chromeView,
+      createSurfaceRailView: () => railView,
+    });
+
+    canvasView.webContents.send.mockClear();
+    railView.webContents.send.mockClear();
+
+    const launcherState = shellWindow.showAppLauncher({
+      snapshotDataUrl: 'data:image/png;base64,snapshot',
+    });
+
+    expect(chromeView.setVisible).toHaveBeenLastCalledWith(false);
+    expect(launcherState).toMatchObject({
+      panes: [],
+      launcher: {
+        visible: true,
+        activeApp: null,
+        browser: {
+          status: 'minimized',
+          snapshotDataUrl: 'data:image/png;base64,snapshot',
+        },
+      },
+    });
+    expect(railView.webContents.send).toHaveBeenLastCalledWith(
+      'shell-surface-rail:state',
+      expect.objectContaining({
+        launcherVisible: true,
+      })
+    );
+
+    canvasView.webContents.send.mockClear();
+    railView.webContents.send.mockClear();
+
+    const restoredState = shellWindow.restoreBrowserApp('browser');
+
+    expect(chromeView.setVisible).toHaveBeenLastCalledWith(true);
+    expect(chromeView.webContents.focus).toHaveBeenCalled();
+    expect(restoredState).toMatchObject({
+      launcher: {
+        visible: false,
+        activeApp: 'browser',
+        browser: {
+          status: 'running',
+          snapshotDataUrl: null,
+        },
+      },
+    });
+    expect(restoredState.panes).toHaveLength(1);
+    expect(railView.webContents.send).toHaveBeenLastCalledWith(
+      'shell-surface-rail:state',
+      expect.objectContaining({
+        launcherVisible: false,
+      })
+    );
+  });
+
   test('attaches a fixed shell surface rail beside package chrome', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow, contentView } = makeNativeWindow();
@@ -406,6 +480,7 @@ describe('ShellWindow', () => {
       activeSurface: null,
       lastActiveSurface: 'wallet',
       canvasTheme: 'dark',
+      launcherVisible: false,
       surfaces: [{ surface: 'wallet', open: false }],
     });
 
@@ -418,6 +493,7 @@ describe('ShellWindow', () => {
       activeSurface: 'wallet',
       lastActiveSurface: 'wallet',
       canvasTheme: 'dark',
+      launcherVisible: false,
       surfaces: [{ surface: 'wallet', open: true }],
     });
     expect(railView.webContents.send).toHaveBeenLastCalledWith(
@@ -426,6 +502,7 @@ describe('ShellWindow', () => {
         activeSurface: 'wallet',
         lastActiveSurface: 'wallet',
         canvasTheme: 'dark',
+        launcherVisible: false,
         surfaces: [{ surface: 'wallet', open: true }],
       }
     );
@@ -436,6 +513,7 @@ describe('ShellWindow', () => {
         activeSurface: 'wallet',
         lastActiveSurface: 'wallet',
         canvasTheme: 'dark',
+        launcherVisible: false,
         surfaces: [{ surface: 'wallet', open: true }],
       },
     });

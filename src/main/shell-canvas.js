@@ -1,10 +1,15 @@
 (function initShellCanvas() {
   const canvasApi = window.freedomShellCanvas || null;
   const paneHost = document.querySelector('[data-shell-canvas-panes]');
+  const runningAppsHost = document.querySelector('[data-shell-running-apps]');
   const launcher = document.querySelector('[data-shell-app-launcher]');
   const launchBrowserButton = document.querySelector('[data-shell-launch-app="browser"]');
   const appStatus = document.querySelector('[data-shell-app-status]');
   const paneElements = new Map();
+  let currentBrowserState = {
+    status: 'idle',
+    snapshotDataUrl: '',
+  };
 
   function normalizeTheme(theme) {
     return theme === 'light' ? 'light' : 'dark';
@@ -56,6 +61,8 @@
       visible: launcherState.visible !== false,
       status: typeof appState.status === 'string' ? appState.status : 'idle',
       error: typeof appState.error === 'string' ? appState.error : '',
+      snapshotDataUrl:
+        typeof appState.snapshotDataUrl === 'string' ? appState.snapshotDataUrl : '',
     };
   }
 
@@ -64,6 +71,7 @@
       return;
     }
     const browser = getBrowserAppState(state);
+    currentBrowserState = browser;
     launcher.hidden = !browser.visible;
     launcher.dataset.status = browser.status;
     if (launchBrowserButton) {
@@ -77,9 +85,46 @@
       appStatus.textContent = 'Opening...';
     } else if (browser.status === 'failed') {
       appStatus.textContent = browser.error || 'Could not open';
+    } else if (browser.status === 'minimized') {
+      appStatus.textContent = 'Running';
     } else {
       appStatus.textContent = 'Open the web';
     }
+  }
+
+  function renderRunningApps(state = {}) {
+    if (!runningAppsHost) {
+      return;
+    }
+    const browser = getBrowserAppState(state);
+    runningAppsHost.replaceChildren();
+    runningAppsHost.hidden = !(browser.visible && browser.status === 'minimized');
+    if (runningAppsHost.hidden) {
+      return;
+    }
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'shell-running-app-card';
+    button.dataset.shellActivateApp = 'browser';
+    button.setAttribute('aria-label', 'Restore Browser');
+    button.title = 'Restore Browser';
+
+    const preview = document.createElement('span');
+    preview.className = 'shell-running-app-card__preview';
+    if (browser.snapshotDataUrl) {
+      const image = document.createElement('img');
+      image.alt = '';
+      image.src = browser.snapshotDataUrl;
+      preview.appendChild(image);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'shell-running-app-card__label';
+    label.textContent = 'Browser';
+
+    button.append(preview, label);
+    runningAppsHost.appendChild(button);
   }
 
   function renderPane(pane = {}) {
@@ -110,6 +155,14 @@
     });
     prunePaneElements(activeIds);
     renderLauncher(state);
+    renderRunningApps(state);
+  }
+
+  async function sendAppCommand(command, app = 'browser') {
+    if (!canvasApi?.command) {
+      return null;
+    }
+    return canvasApi.command(command, { app });
   }
 
   async function launchBrowser() {
@@ -122,7 +175,10 @@
       appStatus.textContent = 'Opening...';
     }
     try {
-      const result = await canvasApi.command('launch-app', { app: 'browser' });
+      const command = currentBrowserState.status === 'minimized'
+        ? 'activate-app'
+        : 'launch-app';
+      const result = await sendAppCommand(command);
       if (result?.ok === false && appStatus) {
         appStatus.textContent = result.error?.message || 'Could not open';
         launchBrowserButton.disabled = false;
@@ -138,6 +194,14 @@
   }
 
   launchBrowserButton?.addEventListener('click', launchBrowser);
+  runningAppsHost?.addEventListener('click', (event) => {
+    const button = event.target?.closest?.('[data-shell-activate-app]');
+    const app = button?.dataset?.shellActivateApp;
+    if (!app) {
+      return;
+    }
+    sendAppCommand('activate-app', app).catch(() => {});
+  });
 
   canvasApi?.onState?.(renderState);
   renderState({
@@ -147,6 +211,7 @@
       visible: true,
       browser: {
         status: 'idle',
+        snapshotDataUrl: '',
       },
     },
   });

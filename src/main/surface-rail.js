@@ -11,10 +11,17 @@
       button,
     ])
   );
+  const commandButtons = new Map(
+    [...document.querySelectorAll('[data-rail-command]')].map((button) => [
+      button.dataset.railCommand,
+      button,
+    ])
+  );
   let currentState = {
     activeSurface: null,
     lastActiveSurface: 'wallet',
     canvasTheme: 'dark',
+    launcherVisible: true,
     surfaces: [],
   };
 
@@ -40,6 +47,7 @@
       lastActiveSurface:
         typeof state.lastActiveSurface === 'string' ? state.lastActiveSurface : 'wallet',
       canvasTheme: state.canvasTheme === 'light' ? 'light' : 'dark',
+      launcherVisible: state.launcherVisible === true,
       surfaces: Array.isArray(state.surfaces) ? state.surfaces : [],
     };
 
@@ -69,6 +77,10 @@
           : `Open ${getSurfaceLabel(surface)} sidebar`
       );
     });
+
+    commandButtons.forEach((button, command) => {
+      button.dataset.active = String(command === 'show-launcher' && state.launcherVisible === true);
+    });
   }
 
   async function sendCommand(command, payload = {}) {
@@ -96,6 +108,12 @@
         return;
       }
       sendCommand('open-surface', { surface });
+    });
+  });
+
+  commandButtons.forEach((button, command) => {
+    button.addEventListener('click', () => {
+      sendCommand(command);
     });
   });
 

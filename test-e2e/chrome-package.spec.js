@@ -2677,7 +2677,7 @@ test('official browser chrome can launch as a local package with transitional we
       'dark'
     );
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
-    await expect(surfaceRailWindow.locator('[data-rail-stub]')).toHaveCount(4);
+    await expect(surfaceRailWindow.locator('[data-rail-stub]')).toHaveCount(3);
     await expect(surfaceRailWindow.locator('[data-rail-stub="profile"]')).toHaveAttribute(
       'aria-disabled',
       'true'
@@ -2686,10 +2686,7 @@ test('official browser chrome can launch as a local package with transitional we
       'aria-disabled',
       'true'
     );
-    await expect(surfaceRailWindow.locator('[data-rail-stub="apps"]')).toHaveAttribute(
-      'aria-disabled',
-      'true'
-    );
+    await expect(surfaceRailWindow.locator('[data-rail-command="show-launcher"]')).toBeVisible();
     await expect(surfaceRailWindow.locator('[data-rail-stub="settings"]')).toHaveAttribute(
       'aria-disabled',
       'true'
@@ -2698,6 +2695,37 @@ test('official browser chrome can launch as a local package with transitional we
       'background-color',
       'rgba(0, 0, 0, 0)'
     );
+
+    await surfaceRailWindow.locator('[data-rail-command="show-launcher"]').click();
+    const canvasWindow = await waitForShellCanvasWindow(launched.app);
+    await expect(canvasWindow.locator('[data-shell-app-launcher]')).toBeVisible();
+    await expect(canvasWindow.locator('[data-shell-activate-app="browser"]')).toBeVisible();
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await getShellWindowDebugState(launched.app);
+        return shellWindow?.canvas?.state?.launcher;
+      })
+      .toMatchObject({
+        visible: true,
+        activeApp: null,
+        browser: {
+          status: 'minimized',
+        },
+      });
+    await canvasWindow.locator('[data-shell-activate-app="browser"]').click();
+    await expect
+      .poll(async () => {
+        const [shellWindow] = await getShellWindowDebugState(launched.app);
+        return shellWindow?.canvas?.state?.launcher;
+      })
+      .toMatchObject({
+        visible: false,
+        activeApp: 'browser',
+        browser: {
+          status: 'running',
+        },
+      });
+    await expect(page.locator('[data-test="address-input"]')).toBeVisible();
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
       'border-top-left-radius',
       '0px'

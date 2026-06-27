@@ -282,6 +282,43 @@ function normalizeRailSurface(surface) {
   return surface === 'wallet' ? surface : null;
 }
 
+async function captureBrowserAppSnapshot(shellWindow) {
+  const webContents = shellWindow?.getChromeWebContents?.() || null;
+  if (!webContents || webContents.isDestroyed?.()) {
+    return null;
+  }
+  if (typeof webContents.capturePage !== 'function') {
+    return null;
+  }
+  try {
+    const image = await webContents.capturePage();
+    const thumbnail =
+      image && typeof image.resize === 'function'
+        ? image.resize({ width: 360 })
+        : image;
+    if (thumbnail && typeof thumbnail.toDataURL === 'function') {
+      return thumbnail.toDataURL();
+    }
+  } catch (error) {
+    log.warn('[shell-apps] failed to capture browser app snapshot', {
+      message: error?.message || String(error),
+    });
+  }
+  return null;
+}
+
+async function showShellAppLauncher(shellWindow) {
+  const snapshotDataUrl = await captureBrowserAppSnapshot(shellWindow);
+  const canvasState = shellWindow.showAppLauncher?.({
+    snapshotDataUrl,
+  }) || null;
+  return {
+    ok: true,
+    app: 'launcher',
+    canvasState,
+  };
+}
+
 async function setSurfaceOpenForShellRail(shellWindow, window, surface, open) {
   if (surface !== 'wallet') {
     return {
@@ -342,6 +379,14 @@ async function handleSurfaceRailCommand(event, request = {}) {
     };
   }
 
+  if (command === 'show-launcher') {
+    const state = await showShellAppLauncher(shellWindow);
+    return {
+      ...state,
+      railState: shellWindow.getSurfaceRailState?.() || currentRailState,
+    };
+  }
+
   let surface = null;
   let open = true;
   if (command === 'toggle-last-surface') {
@@ -398,6 +443,24 @@ async function handleShellCanvasCommand(event, request = {}) {
     return {
       ok: true,
       canvasState: shellWindow.getCanvasState?.() || null,
+    };
+  }
+
+  if (command === 'activate-app') {
+    const appId = typeof request?.payload?.app === 'string' ? request.payload.app : '';
+    if (appId !== 'browser') {
+      return {
+        ok: false,
+        error: {
+          code: 'SHELL_APP_UNSUPPORTED',
+          message: 'Unsupported shell app',
+        },
+      };
+    }
+    return {
+      ok: true,
+      app: appId,
+      canvasState: shellWindow.restoreBrowserApp?.(appId) || null,
     };
   }
 
@@ -698,6 +761,7 @@ function createMainWindow(initialUrl = null, options = {}) {
 
     const existingChrome = shellWindow.getChromeWebContents?.() || chromeWebContents;
     if (existingChrome && !existingChrome.isDestroyed?.()) {
+      shellWindow.restoreBrowserApp?.('browser');
       return {
         ok: true,
         app: 'browser',

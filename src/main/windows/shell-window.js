@@ -357,9 +357,11 @@ class ShellWindow {
     this.shellTheme = shellTheme || DEFAULT_SHELL_THEME;
     this.canvasTheme = getCanvasThemeForShellTheme(this.shellTheme);
     this.canvasBackgroundColor = getCanvasBackgroundColor(this.canvasTheme);
+    this.appSwitcherVisible = useChromeView;
     this.browserAppState = {
       status: useChromeView ? 'idle' : 'running',
       error: null,
+      snapshotDataUrl: null,
     };
     this.animationDurationMs = normalizeAnimationDurationMs(animationDurationMs);
     this.animationFrameMs = normalizeAnimationFrameMs(animationFrameMs);
@@ -417,9 +419,11 @@ class ShellWindow {
     this.chromeWebContents = chromeView.webContents;
     this.chromeLoadTarget = chromeView.webContents;
     this.mode = SHELL_WINDOW_COMPOSITOR_MODE;
+    this.appSwitcherVisible = false;
     this.setBrowserAppState({
       status: 'launching',
       error: null,
+      snapshotDataUrl: null,
     });
     this.applyCanvasTheme();
     setViewBorderRadius(chromeView);
@@ -442,6 +446,7 @@ class ShellWindow {
     this.nativeWindow.on?.('enter-full-screen', this.updateChromeBounds);
     this.nativeWindow.on?.('leave-full-screen', this.updateChromeBounds);
     chromeView.webContents.once?.('destroyed', this.handleChromeContentsDestroyed);
+    this.sendSurfaceRailState();
   }
 
   raiseTrustedSurfaceViews() {
@@ -496,6 +501,8 @@ class ShellWindow {
       getCanvasState: () => this.getCanvasState(),
       setShellTheme: (theme) => this.setShellTheme(theme),
       setBrowserAppState: (state) => this.setBrowserAppState(state),
+      showAppLauncher: (state) => this.showAppLauncher(state),
+      restoreBrowserApp: (appId) => this.restoreBrowserApp(appId),
       updateSurfaceRailState: (state) => this.updateSurfaceRailState(state),
       canHostTrustedSurfaceWindows: () => this.mode === SHELL_WINDOW_COMPOSITOR_MODE,
       createTrustedSurfaceWindow: (options) => this.createTrustedSurfaceWindow(options),
@@ -585,6 +592,7 @@ class ShellWindow {
       activeSurface: this.surfaceRailState.activeSurface,
       lastActiveSurface: this.surfaceRailState.lastActiveSurface,
       canvasTheme: this.canvasTheme,
+      launcherVisible: this.appSwitcherVisible,
       surfaces: [...this.surfaceRailState.surfaces.entries()].map(([surface, open]) => ({
         surface,
         open,
@@ -596,6 +604,7 @@ class ShellWindow {
     return {
       status: this.browserAppState.status,
       error: this.browserAppState.error,
+      snapshotDataUrl: this.browserAppState.snapshotDataUrl,
     };
   }
 
@@ -607,27 +616,86 @@ class ShellWindow {
       this.browserAppState.error =
         typeof state.error === 'string' && state.error ? state.error : null;
     }
+    if (Object.prototype.hasOwnProperty.call(state, 'snapshotDataUrl')) {
+      this.browserAppState.snapshotDataUrl =
+        typeof state.snapshotDataUrl === 'string' && state.snapshotDataUrl
+          ? state.snapshotDataUrl
+          : null;
+    }
     this.sendCanvasState();
     return this.getBrowserAppState();
   }
 
+  showAppLauncher(state = {}) {
+    if (this.mode !== SHELL_WINDOW_COMPOSITOR_MODE) {
+      return this.getCanvasState();
+    }
+    this.appSwitcherVisible = true;
+    if (this.chromeView && this.chromeView.webContents?.isDestroyed?.() !== true) {
+      this.chromeView.setVisible?.(false);
+      this.setBrowserAppState({
+        status: 'minimized',
+        error: null,
+        snapshotDataUrl: state.snapshotDataUrl,
+      });
+    } else {
+      this.setBrowserAppState({
+        status: 'idle',
+        error: null,
+        snapshotDataUrl: null,
+      });
+    }
+    this.updateCompositorLayout();
+    this.sendSurfaceRailState();
+    return this.getCanvasState();
+  }
+
+  restoreBrowserApp(appId = 'browser') {
+    if (appId !== 'browser') {
+      return this.getCanvasState();
+    }
+    if (!this.chromeView || this.chromeView.webContents?.isDestroyed?.() === true) {
+      this.appSwitcherVisible = true;
+      this.setBrowserAppState({
+        status: 'idle',
+        error: null,
+        snapshotDataUrl: null,
+      });
+      this.sendSurfaceRailState();
+      return this.getCanvasState();
+    }
+    this.appSwitcherVisible = false;
+    this.chromeView.setVisible?.(true);
+    this.setBrowserAppState({
+      status: 'running',
+      error: null,
+      snapshotDataUrl: null,
+    });
+    this.updateCompositorLayout();
+    this.sendSurfaceRailState();
+    this.chromeView.webContents.focus?.();
+    return this.getCanvasState();
+  }
+
   getCanvasState() {
     const panes = [];
-    const chromePane = createCanvasPaneState({
-      id: 'chrome',
-      bounds: this.chromeBounds,
-      radius: this.chromeBorderRadius,
-    });
-    if (chromePane) {
-      panes.push(chromePane);
+    if (this.chromeView && !this.appSwitcherVisible) {
+      const chromePane = createCanvasPaneState({
+        id: 'chrome',
+        bounds: this.chromeBounds,
+        radius: this.chromeBorderRadius,
+      });
+      if (chromePane) {
+        panes.push(chromePane);
+      }
     }
     return {
       canvasTheme: this.canvasTheme,
       backgroundColor: this.canvasBackgroundColor,
       panes,
       launcher: {
-        visible: this.mode === SHELL_WINDOW_COMPOSITOR_MODE && !this.chromeView,
-        activeApp: this.chromeView ? 'browser' : null,
+        visible: this.mode === SHELL_WINDOW_COMPOSITOR_MODE && this.appSwitcherVisible,
+        activeApp: this.chromeView && !this.appSwitcherVisible ? 'browser' : null,
         apps: [
           {
             id: 'browser',
