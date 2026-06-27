@@ -402,7 +402,7 @@ test('opens wallet as a shell compositor view when the owner window supports sur
   expect(mockHandlers.size).toBe(0);
 });
 
-test('opens wallet compositor view with the saved surface layout mode', async () => {
+test('opens wallet compositor view docked while floating controls are unavailable', async () => {
   mockLoadSettings.mockReturnValue({ walletSurfaceLayoutMode: 'overlay' });
   const { ownerWindow, surfaceWindow } = createCompositorOwnerWindow();
   const result = await openTrustedWalletSurface({
@@ -413,11 +413,11 @@ test('opens wallet compositor view with the saved surface layout mode', async ()
   expect(result).toMatchObject({
     ok: true,
     mode: 'shell-owned-webcontents-view',
-    layoutMode: 'overlay',
+    layoutMode: 'dock',
   });
   expect(ownerWindow.__freedomShellWindow.createTrustedSurfaceWindow).toHaveBeenCalledWith(
     expect.objectContaining({
-      layoutMode: 'overlay',
+      layoutMode: 'dock',
     })
   );
 
@@ -425,7 +425,7 @@ test('opens wallet compositor view with the saved surface layout mode', async ()
   const contextResult = await mockHandlers.get(channelFor('context', surfaceId))({
     sender: surfaceWindow.webContents,
   });
-  expect(contextResult.context.layoutMode).toBe('overlay');
+  expect(contextResult.context.layoutMode).toBe('dock');
 });
 
 test('falls back to a trusted window when the shell window cannot host surfaces', async () => {
@@ -491,9 +491,7 @@ test('sets compositor wallet layout only through the trusted surface window', as
     layoutMode: 'overlay',
   });
   expect(surfaceWindow.setLayoutMode).toHaveBeenCalledWith('overlay');
-  expect(mockSaveSettings).toHaveBeenCalledWith({
-    walletSurfaceLayoutMode: 'overlay',
-  });
+  expect(mockSaveSettings).not.toHaveBeenCalled();
   expect(surfaceWindow.webContents.send).toHaveBeenCalledWith(
     channelFor('layout-updated', surfaceId),
     {

@@ -5,7 +5,9 @@
   --surface-rail-muted: #cbc5b8;
   --surface-rail-hover: #566057;
   --surface-rail-active: #6fca96;
-  --surface-rail-active-bg: #3a5847;
+  --surface-rail-active-border: rgba(166, 227, 196, 0.24);
+  --surface-rail-active-bg: rgba(166, 227, 196, 0.1);
+  --surface-rail-active-icon: #f6f2e8;
   background: transparent;
   color: var(--surface-rail-icon);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -18,7 +20,9 @@
   --surface-rail-muted: #625a4f;
   --surface-rail-hover: #aaa293;
   --surface-rail-active: #2f7d59;
-  --surface-rail-active-bg: #a9c4b4;
+  --surface-rail-active-border: rgba(47, 125, 89, 0.2);
+  --surface-rail-active-bg: rgba(47, 125, 89, 0.08);
+  --surface-rail-active-icon: #2f2b25;
 }
 
 * {
@@ -72,20 +76,15 @@ body {
   outline-offset: 2px;
 }
 
-.surface-rail-button[aria-pressed="true"],
 .surface-rail-button[data-active="true"] {
   background: var(--surface-rail-active-bg);
-  border-color: var(--surface-rail-active);
-  color: #a6e3c4;
+  border-color: var(--surface-rail-active-border);
+  color: var(--surface-rail-active-icon);
 }
 
 .surface-rail-button svg {
   height: 17px;
   width: 17px;
-}
-
-.surface-rail-toggle[data-open="true"] svg {
-  transform: rotate(180deg);
 }
 
 .surface-rail-separator {

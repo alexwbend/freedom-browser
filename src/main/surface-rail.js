@@ -52,7 +52,7 @@
     document.body.dataset.canvasTheme = currentState.canvasTheme;
     document.body.dataset.surfaceOpen = String(isOpen);
     toggleButton?.setAttribute('data-open', String(isOpen));
-    toggleButton?.setAttribute('data-active', String(isOpen));
+    toggleButton?.removeAttribute('data-active');
     setButtonLabel(
       toggleButton,
       isOpen ? 'Close sidebar' : `Open ${getSurfaceLabel(lastSurface)} sidebar`
@@ -62,7 +62,12 @@
       const open = getSurfaceOpen(surface);
       button.setAttribute('aria-pressed', String(open));
       button.dataset.active = String(currentState.activeSurface === surface);
-      setButtonLabel(button, open ? `${getSurfaceLabel(surface)} is open` : `Open ${getSurfaceLabel(surface)}`);
+      setButtonLabel(
+        button,
+        open
+          ? `Close ${getSurfaceLabel(surface)} sidebar`
+          : `Open ${getSurfaceLabel(surface)} sidebar`
+      );
     });
   }
 
@@ -86,6 +91,10 @@
 
   surfaceButtons.forEach((button, surface) => {
     button.addEventListener('click', () => {
+      if (getSurfaceOpen(surface) && currentState.activeSurface === surface) {
+        sendCommand('toggle-last-surface');
+        return;
+      }
       sendCommand('open-surface', { surface });
     });
   });

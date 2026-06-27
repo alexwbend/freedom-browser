@@ -13,6 +13,8 @@ const SURFACE_HEIGHT = 680;
 const SURFACE_DRAWER_WIDTH = 360;
 const SURFACE_DRAWER_MIN_WIDTH = 320;
 const SURFACE_DRAWER_LAYOUT_MODE = 'dock';
+// The compositor still supports overlay surfaces, but the wallet UX is dock-only for now.
+const SURFACE_DRAWER_LAYOUT_MEMORY_ENABLED = false;
 const SURFACE_MODE_WINDOW = 'shell-owned-trusted-window';
 const SURFACE_MODE_COMPOSITOR = 'shell-owned-webcontents-view';
 const CREATE_WALLET_VAULT_LOCKED_MESSAGE = 'Vault must be unlocked to create a new wallet';
@@ -271,6 +273,9 @@ function normalizeSurfaceLayoutMode(layoutMode) {
 }
 
 function getSavedSurfaceLayoutMode() {
+  if (!SURFACE_DRAWER_LAYOUT_MEMORY_ENABLED) {
+    return SURFACE_DRAWER_LAYOUT_MODE;
+  }
   try {
     const settingsStore = require('./settings-store');
     const settings = typeof settingsStore.loadSettings === 'function'
@@ -283,6 +288,9 @@ function getSavedSurfaceLayoutMode() {
 }
 
 function saveSurfaceLayoutMode(layoutMode) {
+  if (!SURFACE_DRAWER_LAYOUT_MEMORY_ENABLED) {
+    return;
+  }
   try {
     const settingsStore = require('./settings-store');
     if (typeof settingsStore.saveSettings === 'function') {

@@ -220,10 +220,6 @@ body {
   width: 15px;
 }
 
-.trusted-sidebar-icon-button[data-sidebar-layout-toggle][data-layout-mode="overlay"] svg {
-  transform: rotate(-45deg);
-}
-
 .trusted-sidebar-content {
   display: grid;
   gap: 24px;
