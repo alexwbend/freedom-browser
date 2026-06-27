@@ -38,6 +38,7 @@ body {
 }
 
 .surface-rail {
+  -webkit-app-region: drag;
   align-items: center;
   background: transparent;
   border-radius: 0;
@@ -51,6 +52,7 @@ body {
 }
 
 .surface-rail-button {
+  -webkit-app-region: no-drag;
   align-items: center;
   appearance: none;
   background: transparent;
