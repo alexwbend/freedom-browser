@@ -1,6 +1,6 @@
 {
   "name": "freedom-browser",
-  "version": "0.7.5-dev",
+  "version": "0.8.0-dev",
   "license": "MPL-2.0",
   "description": "Freedom – A browser for the decentralized web, with Swarm, IPFS, and ENS as first-class protocols.",
   "author": {
@@ -111,6 +111,11 @@
       "icon": "assets/icons",
       "category": "Network;WebBrowser",
       "executableName": "freedom",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "freedom-browser"
+        }
+      },
       "mimeTypes": [
         "x-scheme-handler/ipfs",
         "x-scheme-handler/ipns",
@@ -194,7 +199,7 @@
   },
   "dependencies": {
     "@adraffy/ens-normalize": "^1.11.1",
-    "@corpus-core/colibri-stateless": "^1.1.26",
+    "@corpus-core/colibri-stateless": "^1.1.30",
     "@ensdomains/content-hash": "^3.0.0",
     "@ethersphere/bee-js": "^12.2.1",
     "@metamask/browser-passworder": "^6.0.0",

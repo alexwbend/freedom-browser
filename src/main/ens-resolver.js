@@ -571,13 +571,6 @@ function isResolverNotFoundError(err) {
   return sel !== null && UR_NOT_FOUND_SELECTORS.has(sel);
 }
 
-function isSemanticCallException(err) {
-  if (err?.code !== 'CALL_EXCEPTION') return false;
-  if (getRevertData(err)) return true;
-  const msg = err?.message || '';
-  return /reverted/i.test(msg) && !/missing revert data/i.test(msg);
-}
-
 // UR.reverse reverts with this when the claimed primary name doesn't
 // forward-resolve back to the input address. Semantically: spoofed or
 // stale reverse record.
@@ -883,7 +876,7 @@ async function tryColibriPath(name, callData) {
         block: null,
       };
     }
-    if (isSemanticCallException(err)) {
+    if (err.code === 'CALL_EXCEPTION' && getRevertData(err)) {
       // Verified revert with an unknown selector — same semantics as the
       // quorum path's NO_CONTENTHASH bucket. Upstream maps that to
       // RESOLUTION_ERROR for addr lookups and "no contenthash" for content.
@@ -978,7 +971,13 @@ async function tryDirectResolve(rpcUrl, name, callData, userConfigured) {
       block,
     };
   }
-  return { outcome: 'not_found', reason: leg.reason || 'NO_RESOLVER', trust, block };
+  return {
+    outcome: 'not_found',
+    reason: leg.reason || 'NO_RESOLVER',
+    error: leg.error?.message,
+    trust,
+    block,
+  };
 }
 
 // Degraded resolution against a single RPC. Shared by the K<3 config
@@ -1012,7 +1011,13 @@ async function resolveSingleSourceUnverified(url, name, callData, anchor, timeou
     };
   }
   if (legResult.status === 'not_found') {
-    return { outcome: 'not_found', reason: legResult.reason || 'NO_RESOLVER', trust, block };
+    return {
+      outcome: 'not_found',
+      reason: legResult.reason || 'NO_RESOLVER',
+      error: legResult.error?.message,
+      trust,
+      block,
+    };
   }
   throw legResult.error || new Error('Single-provider resolution failed');
 }
@@ -1315,6 +1320,12 @@ async function doResolveEnsContent(normalized) {
       trust,
     };
     if (consensus.error) out.error = consensus.error;
+    if (out.reason === 'NO_CONTENTHASH' && out.error) {
+      // Unknown UR/CCIP reverts are transient failures, not authoritative
+      // empty records. Let reloads re-probe instead of pinning a negative.
+      log.info(`[ens] NO_CONTENTHASH for ${normalized} (not cached)`);
+      return out;
+    }
     return cacheContentResult(normalized, out);
   }
 

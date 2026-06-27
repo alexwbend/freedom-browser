@@ -518,6 +518,10 @@ function createMainWindow(initialUrl = null, options = {}) {
   ensureSurfaceRailIpcRegistered();
   ensureShellCanvasIpcRegistered();
   const isMac = process.platform === 'darwin';
+  const isLinux = process.platform === 'linux';
+  // Linux only: tab strip doubles as the titlebar unless the user opted out.
+  // `frame` can't change on a live window, so this is read once at creation.
+  const linuxFrameless = isLinux && settingsStore.loadSettings().tabsInTitlebar !== false;
   const packageStoreRoot =
     options.packageStoreRoot || getChromePackageStoreRoot({ userDataDir: app.getPath('userData') });
   const chromePackage =
@@ -551,6 +555,8 @@ function createMainWindow(initialUrl = null, options = {}) {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 14, y: 14 },
     }),
+    // Linux: drop the OS frame so the in-app tab strip is the titlebar
+    ...(linuxFrameless && { frame: false }),
     webPreferences: useShellCompositor
       ? getCompositorHostWebPreferences()
       : getChromeWindowWebPreferences(chromePackage),

@@ -47,6 +47,8 @@ const DEFAULT_SETTINGS = {
   sidebarOpen: false,
   sidebarWidth: 320,
   walletSurfaceLayoutMode: 'dock',
+  // Linux only: render the tab strip as the window titlebar (frameless window).
+  tabsInTitlebar: true,
 };
 
 const PACKAGE_WRITABLE_SETTINGS = Object.freeze({
