@@ -75,6 +75,116 @@ body {
   pointer-events: none;
 }
 
+.shell-app-launcher {
+  align-items: center;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 56px;
+  pointer-events: none;
+  position: absolute;
+}
+
+.shell-app-launcher[hidden] {
+  display: none;
+}
+
+.shell-app-launcher__inner {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: min(420px, 100%);
+  pointer-events: auto;
+  text-align: center;
+}
+
+.shell-app-launcher__eyebrow {
+  color: rgba(242, 239, 226, 0.62);
+  font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  margin: 0;
+}
+
+.shell-app-launcher__title {
+  color: rgba(255, 253, 242, 0.92);
+  font: 600 28px/1.12 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+}
+
+.shell-app-card {
+  align-items: center;
+  appearance: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    rgba(31, 32, 32, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  box-shadow:
+    0 18px 50px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: rgba(255, 253, 242, 0.94);
+  cursor: default;
+  display: flex;
+  gap: 14px;
+  min-height: 76px;
+  min-width: min(340px, calc(100vw - 112px));
+  padding: 14px 18px;
+  text-align: left;
+}
+
+.shell-app-card:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.055)),
+    rgba(31, 32, 32, 0.62);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.shell-app-card:focus-visible {
+  outline: 2px solid rgba(245, 241, 222, 0.72);
+  outline-offset: 3px;
+}
+
+.shell-app-card:disabled {
+  opacity: 0.72;
+}
+
+.shell-app-card__icon {
+  align-items: center;
+  background: rgba(245, 241, 222, 0.12);
+  border-radius: 14px;
+  display: flex;
+  flex: 0 0 48px;
+  height: 48px;
+  justify-content: center;
+  width: 48px;
+}
+
+.shell-app-card__icon svg {
+  fill: none;
+  height: 25px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 25px;
+}
+
+.shell-app-card__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.shell-app-card__name {
+  font: 600 16px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.shell-app-card__status {
+  color: rgba(255, 253, 242, 0.62);
+  font: 500 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
 .shell-canvas-pane-shadow {
   position: absolute;
   pointer-events: none;

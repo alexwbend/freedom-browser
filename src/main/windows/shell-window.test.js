@@ -117,10 +117,14 @@ function makeSurfaceView(id = 3) {
 }
 
 function createTestShellWindow(mod, options) {
-  return mod.createShellWindow({
+  const shellWindow = mod.createShellWindow({
     animationDurationMs: 0,
     ...options,
   });
+  if (typeof options?.createChromeView === 'function') {
+    shellWindow.attachChromeView(options.createChromeView(options.chromePackage));
+  }
+  return shellWindow;
 }
 
 describe('ShellWindow', () => {
@@ -185,6 +189,40 @@ describe('ShellWindow', () => {
       chromeBounds: null,
     });
     expect(nativeWindow.__freedomShellWindow.canHostTrustedSurfaceWindows()).toBe(false);
+  });
+
+  test('starts local package compositor with shell canvas before browser chrome launches', () => {
+    const { mod } = loadShellWindow();
+    const { nativeWindow, contentView } = makeNativeWindow();
+    const canvasView = makeCanvasView();
+    const railView = makeSurfaceRailView();
+
+    const shellWindow = mod.createShellWindow({
+      nativeWindow,
+      chromePackage: { kind: 'local-package', packageId: 'package' },
+      useChromeView: true,
+      createCanvasView: () => canvasView,
+      createSurfaceRailView: () => railView,
+      animationDurationMs: 0,
+    });
+
+    expect(shellWindow.chromeWebContents).toBeNull();
+    expect(shellWindow.chromeLoadTarget).toBeNull();
+    expect(contentView.addChildView).toHaveBeenCalledWith(canvasView);
+    expect(contentView.addChildView).toHaveBeenCalledWith(railView);
+    expect(nativeWindow.__freedomShellWindow.canHostTrustedSurfaceWindows()).toBe(true);
+    expect(shellWindow.getCanvasState()).toMatchObject({
+      canvasTheme: 'dark',
+      panes: [],
+      launcher: {
+        visible: true,
+        activeApp: null,
+        browser: {
+          status: 'idle',
+          error: null,
+        },
+      },
+    });
   });
 
   test('attaches package chrome as a full-window compositor view', () => {
@@ -279,6 +317,15 @@ describe('ShellWindow', () => {
             radius: 0,
           },
         ],
+        launcher: {
+          visible: false,
+          activeApp: 'browser',
+          apps: [{ id: 'browser', name: 'Browser' }],
+          browser: {
+            status: 'launching',
+            error: null,
+          },
+        },
       }
     );
     expect(shellWindow.getDebugState().canvas).toMatchObject({
@@ -303,6 +350,10 @@ describe('ShellWindow', () => {
             radius: 0,
           }),
         ],
+        launcher: expect.objectContaining({
+          visible: false,
+          activeApp: 'browser',
+        }),
       })
     );
 
@@ -434,7 +485,7 @@ describe('ShellWindow', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow } = makeNativeWindow();
     const chromeView = makeChromeView();
-    nativeWindow.getContentSize.mockReturnValueOnce([1200, 800]).mockReturnValueOnce([900, 700]);
+    nativeWindow.getContentSize.mockReturnValue([1200, 800]);
 
     createTestShellWindow(mod, {
       nativeWindow,
@@ -442,6 +493,7 @@ describe('ShellWindow', () => {
       useChromeView: true,
       createChromeView: () => chromeView,
     });
+    nativeWindow.getContentSize.mockReturnValue([900, 700]);
     nativeWindow.emit('resize');
 
     expect(chromeView.setBounds).toHaveBeenLastCalledWith({
@@ -618,10 +670,10 @@ describe('ShellWindow', () => {
       nativeWindow,
       chromePackage: { kind: 'local-package' },
       useChromeView: true,
-      createChromeView: () => chromeView,
       animationDurationMs: 160,
       animationFrameMs: 16,
     });
+    shellWindow.attachChromeView(chromeView);
     const surfaceWindow = shellWindow.createTrustedSurfaceWindow({
       surface: 'wallet',
       width: 520,
@@ -868,11 +920,7 @@ describe('ShellWindow', () => {
     const { nativeWindow } = makeNativeWindow();
     const chromeView = makeChromeView();
     const surfaceView = makeSurfaceView();
-    nativeWindow.getContentSize
-      .mockReturnValueOnce([1200, 800])
-      .mockReturnValueOnce([1200, 800])
-      .mockReturnValueOnce([900, 700])
-      .mockReturnValueOnce([900, 700]);
+    nativeWindow.getContentSize.mockReturnValue([1200, 800]);
 
     const shellWindow = createTestShellWindow(mod, {
       nativeWindow,
@@ -887,6 +935,7 @@ describe('ShellWindow', () => {
       createView: () => surfaceView,
     });
     surfaceWindow.show();
+    nativeWindow.getContentSize.mockReturnValue([900, 700]);
     nativeWindow.emit('resize');
 
     expect(surfaceView.setBounds).toHaveBeenLastCalledWith({

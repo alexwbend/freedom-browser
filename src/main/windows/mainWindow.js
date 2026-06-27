@@ -19,6 +19,7 @@ const {
   registerPackageWebContents,
   setSurfaceOpenForPackageWebContents,
 } = require('../shell-api');
+const trustedWalletSurface = require('../trusted-wallet-surface');
 const settingsStore = require('../settings-store');
 const { SHELL_API_EVENTS } = require('../../shared/shell-api-policy');
 const {
@@ -33,6 +34,7 @@ let currentWindowTitle = 'Freedom';
 // Track all main browser windows we create
 const mainWindows = new Set();
 let surfaceRailIpcRegistered = false;
+let shellCanvasIpcRegistered = false;
 
 // Get the app icon path (works in both dev and packaged)
 function getIconPath() {
@@ -263,8 +265,59 @@ function findShellWindowForSurfaceRailSender(sender) {
   return null;
 }
 
+function findShellWindowForCanvasSender(sender) {
+  for (const window of mainWindows) {
+    if (!window || window.isDestroyed?.()) {
+      continue;
+    }
+    const shellWindow = window.__freedomShellWindow || null;
+    if (shellWindow?.getCanvasWebContents?.() === sender) {
+      return { window, shellWindow };
+    }
+  }
+  return null;
+}
+
 function normalizeRailSurface(surface) {
   return surface === 'wallet' ? surface : null;
+}
+
+async function setSurfaceOpenForShellRail(shellWindow, window, surface, open) {
+  if (surface !== 'wallet') {
+    return {
+      ok: false,
+      surface,
+      owner: 'shell',
+      trusted: true,
+      error: {
+        code: 'SURFACE_RAIL_SURFACE_UNSUPPORTED',
+        message: 'Unsupported shell surface',
+      },
+    };
+  }
+
+  const result = open
+    ? await trustedWalletSurface.openTrustedWalletSurface({
+        ownerWindow: window,
+        caller: {
+          packageId: 'freedom.shell.surface-rail',
+          name: 'Freedom Shell',
+          source: 'shell',
+        },
+        onClosed: () => {
+          shellWindow.updateSurfaceRailState?.({ surface, open: false });
+        },
+      })
+    : trustedWalletSurface.closeTrustedWalletSurface();
+
+  if (result?.ok === true) {
+    shellWindow.updateSurfaceRailState?.({ surface, open });
+  }
+
+  return {
+    ...result,
+    open: result?.ok === true ? open : false,
+  };
 }
 
 async function handleSurfaceRailCommand(event, request = {}) {
@@ -313,16 +366,73 @@ async function handleSurfaceRailCommand(event, request = {}) {
   }
 
   const chromeWebContents = shellWindow.getChromeWebContents?.() || null;
-  const state = await setSurfaceOpenForPackageWebContents(
-    chromeWebContents,
-    { surface },
-    open,
-    { ownerWindow: window }
-  );
+  const state = chromeWebContents
+    ? await setSurfaceOpenForPackageWebContents(
+        chromeWebContents,
+        { surface },
+        open,
+        { ownerWindow: window }
+      )
+    : await setSurfaceOpenForShellRail(shellWindow, window, surface, open);
   return {
     ...state,
     railState: shellWindow.getSurfaceRailState?.() || currentRailState,
   };
+}
+
+async function handleShellCanvasCommand(event, request = {}) {
+  const match = findShellWindowForCanvasSender(event?.sender || null);
+  if (!match) {
+    return {
+      ok: false,
+      error: {
+        code: 'SHELL_CANVAS_UNAUTHORIZED',
+        message: 'Shell canvas command came from an unauthorized sender',
+      },
+    };
+  }
+
+  const { window, shellWindow } = match;
+  const command = typeof request?.command === 'string' ? request.command : '';
+  if (command === 'sync-state') {
+    return {
+      ok: true,
+      canvasState: shellWindow.getCanvasState?.() || null,
+    };
+  }
+
+  if (command !== 'launch-app') {
+    return {
+      ok: false,
+      error: {
+        code: 'SHELL_CANVAS_COMMAND_UNSUPPORTED',
+        message: 'Unsupported shell canvas command',
+      },
+    };
+  }
+
+  const appId = typeof request?.payload?.app === 'string' ? request.payload.app : '';
+  if (appId !== 'browser') {
+    return {
+      ok: false,
+      error: {
+        code: 'SHELL_APP_UNSUPPORTED',
+        message: 'Unsupported shell app',
+      },
+    };
+  }
+
+  if (typeof window.__freedomLaunchShellApp !== 'function') {
+    return {
+      ok: false,
+      error: {
+        code: 'SHELL_APP_LAUNCH_UNAVAILABLE',
+        message: 'Shell app launcher is unavailable',
+      },
+    };
+  }
+
+  return window.__freedomLaunchShellApp(appId);
 }
 
 function ensureSurfaceRailIpcRegistered() {
@@ -333,8 +443,17 @@ function ensureSurfaceRailIpcRegistered() {
   surfaceRailIpcRegistered = true;
 }
 
+function ensureShellCanvasIpcRegistered() {
+  if (shellCanvasIpcRegistered) {
+    return;
+  }
+  ipcMain.handle(IPC.SHELL_CANVAS_COMMAND, handleShellCanvasCommand);
+  shellCanvasIpcRegistered = true;
+}
+
 function createMainWindow(initialUrl = null, options = {}) {
   ensureSurfaceRailIpcRegistered();
+  ensureShellCanvasIpcRegistered();
   const isMac = process.platform === 'darwin';
   const packageStoreRoot =
     options.packageStoreRoot || getChromePackageStoreRoot({ userDataDir: app.getPath('userData') });
@@ -381,19 +500,30 @@ function createMainWindow(initialUrl = null, options = {}) {
     nativeWindow: window,
     chromePackage,
     useChromeView: useShellCompositor,
-    createChromeView: createChromeCompositorView,
     createCanvasView: createShellCanvasView,
     createSurfaceRailView,
     shellTheme: settingsStore.getShellTheme(),
   });
-  const chromeWebContents = shellWindow.chromeWebContents;
-  const chromeLoadTarget = shellWindow.chromeLoadTarget;
+  let chromeWebContents = shellWindow.chromeWebContents;
+  let chromeLoadTarget = shellWindow.chromeLoadTarget;
 
   let recoveredFromPackageLoadFailure = false;
+  let browserAppLaunching = false;
   let cleanupShellThemeUpdates = () => {};
   let cleanupPackageReadyWait = () => {};
   let cleanupPackageCaller = () => {};
-  let cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(chromeWebContents, chromePackage);
+  let cleanupPackageWebviewSecurity = () => {};
+  let cleanupChromeLifecycleListeners = () => {};
+  const cleanupChromeRuntime = () => {
+    cleanupPackageReadyWait();
+    cleanupPackageCaller();
+    cleanupPackageWebviewSecurity();
+    cleanupChromeLifecycleListeners();
+    cleanupPackageReadyWait = () => {};
+    cleanupPackageCaller = () => {};
+    cleanupPackageWebviewSecurity = () => {};
+    cleanupChromeLifecycleListeners = () => {};
+  };
   if (useShellCompositor) {
     cleanupShellThemeUpdates = settingsStore.onSettingsUpdated((settings) => {
       shellWindow.setShellTheme(settings.shellTheme || settingsStore.getShellTheme(settings));
@@ -438,10 +568,8 @@ function createMainWindow(initialUrl = null, options = {}) {
       return null;
     }
     recoveredFromPackageLoadFailure = true;
-    cleanupPackageReadyWait();
+    cleanupChromeRuntime();
     cleanupShellThemeUpdates();
-    cleanupPackageCaller();
-    cleanupPackageWebviewSecurity();
     shellWindow.cleanup();
     const rollbackWindow = tryPackageRollback(details);
     if (rollbackWindow) {
@@ -469,9 +597,60 @@ function createMainWindow(initialUrl = null, options = {}) {
     return replacement;
   };
 
-  if (chromePackage.kind === 'local-package') {
-    cleanupPackageCaller = registerPackageWebContents(chromeWebContents, chromePackage);
+  const registerChromeLifecycleListeners = (webContents) => {
+    if (!webContents) {
+      return () => {};
+    }
+    const handleFailLoad = (
+      _event,
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    ) => {
+      if (isMainFrame === false) {
+        return;
+      }
+      recoverFromPackageLoadFailure({
+        message: `${errorCode}: ${errorDescription}`,
+        validatedURL,
+      });
+    };
+    const handleRenderProcessGone = (_event, details) => {
+      log.error('[render-process-gone]', details);
+      recoverFromPackageLoadFailure({
+        code: 'PACKAGE_RENDERER_GONE',
+        message: `Chrome package renderer exited: ${details?.reason || 'unknown'}`,
+      });
+    };
+    const handleUnresponsive = () => {
+      log.warn('[webcontents] renderer became unresponsive');
+    };
+    const handleResponsive = () => {
+      console.info('[webcontents] renderer responsive again');
+    };
 
+    webContents.on('did-fail-load', handleFailLoad);
+    webContents.on('render-process-gone', handleRenderProcessGone);
+    webContents.on('unresponsive', handleUnresponsive);
+    webContents.on('responsive', handleResponsive);
+
+    return () => {
+      if (typeof webContents.isDestroyed === 'function' && webContents.isDestroyed()) {
+        return;
+      }
+      webContents.removeListener?.('did-fail-load', handleFailLoad);
+      webContents.removeListener?.('render-process-gone', handleRenderProcessGone);
+      webContents.removeListener?.('unresponsive', handleUnresponsive);
+      webContents.removeListener?.('responsive', handleResponsive);
+    };
+  };
+
+  const startPackageReadyWait = (webContents) => {
+    if (chromePackage.kind !== 'local-package') {
+      return;
+    }
+    cleanupPackageCaller = registerPackageWebContents(webContents, chromePackage);
     const readyTimeout = setTimeout(() => {
       recoverFromPackageLoadFailure({
         code: 'PACKAGE_READY_TIMEOUT',
@@ -480,10 +659,15 @@ function createMainWindow(initialUrl = null, options = {}) {
     }, getPackageReadyTimeoutMs());
 
     const disposePackageReady = onPackageReady(({ sender }) => {
-      if (sender !== chromeWebContents) {
+      if (sender !== webContents) {
         return;
       }
       cleanupPackageReadyWait();
+      browserAppLaunching = false;
+      shellWindow.setBrowserAppState?.({
+        status: 'running',
+        error: null,
+      });
       log.info('[chrome-package] local package signaled readiness', {
         packageId: chromePackage.packageId,
       });
@@ -494,7 +678,92 @@ function createMainWindow(initialUrl = null, options = {}) {
       disposePackageReady();
       cleanupPackageReadyWait = () => {};
     };
-  }
+  };
+
+  const registerChromeRuntime = (webContents) => {
+    cleanupChromeRuntime();
+    cleanupPackageWebviewSecurity = registerPackageWebviewSecurity(webContents, chromePackage);
+    cleanupChromeLifecycleListeners = registerChromeLifecycleListeners(webContents);
+    startPackageReadyWait(webContents);
+  };
+
+  const launchBrowserApp = async () => {
+    if (!useShellCompositor) {
+      return {
+        ok: true,
+        app: 'browser',
+        alreadyRunning: true,
+      };
+    }
+
+    const existingChrome = shellWindow.getChromeWebContents?.() || chromeWebContents;
+    if (existingChrome && !existingChrome.isDestroyed?.()) {
+      return {
+        ok: true,
+        app: 'browser',
+        alreadyRunning: true,
+      };
+    }
+    if (browserAppLaunching) {
+      return {
+        ok: true,
+        app: 'browser',
+        launching: true,
+      };
+    }
+
+    browserAppLaunching = true;
+    shellWindow.setBrowserAppState?.({
+      status: 'launching',
+      error: null,
+    });
+
+    try {
+      const chromeView = createChromeCompositorView(chromePackage);
+      shellWindow.attachChromeView(chromeView);
+      chromeWebContents = shellWindow.chromeWebContents;
+      chromeLoadTarget = shellWindow.chromeLoadTarget;
+      registerChromeRuntime(chromeWebContents);
+      const loadPromise = loadChromeEntry(chromeLoadTarget, chromePackage, initialUrl);
+      if (loadPromise && typeof loadPromise.then === 'function') {
+        await loadPromise;
+      }
+      return {
+        ok: true,
+        app: 'browser',
+        status: 'launching',
+      };
+    } catch (error) {
+      browserAppLaunching = false;
+      const message = error?.message || String(error);
+      shellWindow.setBrowserAppState?.({
+        status: 'failed',
+        error: message,
+      });
+      recoverFromPackageLoadFailure({ message });
+      return {
+        ok: false,
+        app: 'browser',
+        error: {
+          code: 'SHELL_APP_LAUNCH_FAILED',
+          message,
+        },
+      };
+    }
+  };
+
+  window.__freedomLaunchShellApp = (appId) => {
+    if (appId !== 'browser') {
+      return {
+        ok: false,
+        error: {
+          code: 'SHELL_APP_UNSUPPORTED',
+          message: 'Unsupported shell app',
+        },
+      };
+    }
+    return launchBrowserApp();
+  };
 
   window.on('ready-to-show', () => {
     window.setTitle(currentWindowTitle);
@@ -506,60 +775,43 @@ function createMainWindow(initialUrl = null, options = {}) {
   });
 
   window.on('closed', () => {
-    cleanupPackageReadyWait();
+    cleanupChromeRuntime();
     cleanupShellThemeUpdates();
-    cleanupPackageCaller();
-    cleanupPackageWebviewSecurity();
     shellWindow.cleanup();
+    delete window.__freedomLaunchShellApp;
     mainWindows.delete(window);
   });
 
 
   // Close renderer menus when window loses focus (e.g., clicking system menu)
   window.on('blur', () => {
+    const currentChromeWebContents = shellWindow.getChromeWebContents?.() || chromeWebContents;
+    if (!currentChromeWebContents || currentChromeWebContents.isDestroyed?.()) {
+      return;
+    }
     const delivery = emitShellEventToPackageWebContents(
-      chromeWebContents,
+      currentChromeWebContents,
       SHELL_API_EVENTS.CHROME_CLOSE_MENUS_REQUESTED
     );
     if (delivery.reason === 'not-package') {
-      chromeWebContents.send('menus:close');
+      currentChromeWebContents.send('menus:close');
     }
   });
 
-  const wc = chromeWebContents;
-  if (wc) {
-    wc.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-      if (isMainFrame === false) {
-        return;
-      }
-      recoverFromPackageLoadFailure({
-        message: `${errorCode}: ${errorDescription}`,
-        validatedURL,
+  if (useShellCompositor) {
+    if (initialUrl) {
+      launchBrowserApp().catch((error) => {
+        recoverFromPackageLoadFailure({ message: error?.message || String(error) });
       });
-    });
-    wc.on('render-process-gone', (_event, details) => {
-      log.error('[render-process-gone]', details);
-      recoverFromPackageLoadFailure({
-        code: 'PACKAGE_RENDERER_GONE',
-        message: `Chrome package renderer exited: ${details?.reason || 'unknown'}`,
+    }
+  } else {
+    registerChromeRuntime(chromeWebContents);
+    const loadPromise = loadChromeEntry(chromeLoadTarget, chromePackage, initialUrl);
+    if (loadPromise && typeof loadPromise.catch === 'function') {
+      loadPromise.catch((error) => {
+        recoverFromPackageLoadFailure({ message: error?.message || String(error) });
       });
-    });
-    wc.on('unresponsive', () => {
-      log.warn('[webcontents] renderer became unresponsive');
-    });
-    wc.on('responsive', () => {
-      console.info('[webcontents] renderer responsive again');
-    });
-  }
-
-  // Load bundled chrome with optional initial URL. Local package chrome gets
-  // only its manifest entry; persisted activation/launch parameters are out of
-  // scope for the dev-only v0 runtime.
-  const loadPromise = loadChromeEntry(chromeLoadTarget, chromePackage, initialUrl);
-  if (loadPromise && typeof loadPromise.catch === 'function') {
-    loadPromise.catch((error) => {
-      recoverFromPackageLoadFailure({ message: error?.message || String(error) });
-    });
+    }
   }
 
   return window;

@@ -10,6 +10,26 @@
     <main class="shell-canvas" aria-hidden="true">
       <div class="shell-canvas-grain"></div>
       <div class="shell-canvas-panes" data-shell-canvas-panes></div>
+      <section class="shell-app-launcher" data-shell-app-launcher aria-label="Freedom apps">
+        <div class="shell-app-launcher__inner">
+          <p class="shell-app-launcher__eyebrow">Freedom Shell</p>
+          <h1 class="shell-app-launcher__title">Choose an app</h1>
+          <button class="shell-app-card" type="button" data-shell-launch-app="browser">
+            <span class="shell-app-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4 8.5C4 6.57 5.57 5 7.5 5h9C18.43 5 20 6.57 20 8.5v7c0 1.93-1.57 3.5-3.5 3.5h-9A3.5 3.5 0 0 1 4 15.5v-7Z" />
+                <path d="M4.75 9h14.5" />
+                <path d="M8 7.15h.01" />
+                <path d="M11 7.15h.01" />
+              </svg>
+            </span>
+            <span class="shell-app-card__copy">
+              <span class="shell-app-card__name">Browser</span>
+              <span class="shell-app-card__status" data-shell-app-status>Open the web</span>
+            </span>
+          </button>
+        </div>
+      </section>
     </main>
     <script src="./shell-canvas.js"></script>
   </body>

@@ -1041,9 +1041,94 @@ async function waitForBundledChromeWindow(app) {
   throw new Error('Bundled chrome fallback window did not appear');
 }
 
+const shellBrowserLaunchRequests = new WeakSet();
+
+async function waitForShellCanvasWindow(app) {
+  const deadline = Date.now() + 8_000;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const candidate of windows) {
+      if (!candidate || candidate.isClosed()) {
+        continue;
+      }
+      try {
+        await candidate.waitForSelector('[data-shell-app-launcher]', {
+          state: 'attached',
+          timeout: 500,
+        });
+        return candidate;
+      } catch {
+        // Keep polling; other WebContents do not host the shell canvas.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 500 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed()) {
+      try {
+        await nextWindow.waitForSelector('[data-shell-app-launcher]', {
+          state: 'attached',
+          timeout: 500,
+        });
+        return nextWindow;
+      } catch {
+        // Keep polling until the shell canvas is ready.
+      }
+    }
+  }
+
+  throw new Error('Shell canvas window did not appear');
+}
+
+async function launchBrowserFromShellCanvas(app) {
+  const deadline = Date.now() + 1_500;
+  while (Date.now() < deadline) {
+    const windows = typeof app.windows === 'function' ? app.windows() : [];
+    for (const canvasWindow of windows) {
+      if (!canvasWindow || canvasWindow.isClosed() || shellBrowserLaunchRequests.has(canvasWindow)) {
+        continue;
+      }
+      try {
+        await canvasWindow.waitForSelector('[data-shell-app-launcher]', {
+          state: 'attached',
+          timeout: 100,
+        });
+        const launchButton = canvasWindow.locator('[data-shell-launch-app="browser"]');
+        if (await launchButton.isHidden().catch(() => true)) {
+          continue;
+        }
+        shellBrowserLaunchRequests.add(canvasWindow);
+        await launchButton.click();
+        return canvasWindow;
+      } catch {
+        // Keep scanning; other WebContents may not host a launchable shell canvas.
+      }
+    }
+
+    const nextWindow = await app.waitForEvent('window', { timeout: 100 }).catch(() => null);
+    if (nextWindow && !nextWindow.isClosed() && !shellBrowserLaunchRequests.has(nextWindow)) {
+      try {
+        await nextWindow.waitForSelector('[data-shell-app-launcher]', {
+          state: 'attached',
+          timeout: 100,
+        });
+        const launchButton = nextWindow.locator('[data-shell-launch-app="browser"]');
+        if (await launchButton.isVisible().catch(() => false)) {
+          shellBrowserLaunchRequests.add(nextWindow);
+          await launchButton.click();
+          return nextWindow;
+        }
+      } catch {
+        // Keep polling until a launchable shell canvas appears.
+      }
+    }
+  }
+  return null;
+}
+
 async function waitForPackageChromeWindow(app, expected) {
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
+    await launchBrowserFromShellCanvas(app);
     const windows = typeof app.windows === 'function' ? app.windows() : [];
     for (const candidate of windows) {
       if (!candidate || candidate.isClosed()) {
@@ -1115,6 +1200,7 @@ async function waitForOfficialPackageChromeWindow(app, expected) {
   };
 
   while (Date.now() < deadline) {
+    await launchBrowserFromShellCanvas(app);
     const windows = typeof app.windows === 'function' ? app.windows() : [];
     for (const candidate of windows) {
       if (!candidate || candidate.isClosed()) {
@@ -2180,6 +2266,34 @@ test('official browser chrome launch truth markers prove package mode', async ()
     FREEDOM_CHROME_PACKAGE_DIR: packageDir,
   });
   try {
+    const launcherPage = await waitForShellCanvasWindow(launched.app);
+    await expect(launcherPage.locator('[data-shell-app-launcher]')).toBeVisible();
+    await expect(launcherPage.locator('[data-shell-launch-app="browser"]')).toBeVisible();
+    await expect
+      .poll(async () => getShellWindowDebugState(launched.app), {
+        timeout: 5000,
+      })
+      .toHaveLength(1);
+    const [shellOnlyWindow] = await getShellWindowDebugState(launched.app);
+    expect(shellOnlyWindow).toMatchObject({
+      mode: 'webcontents-view-compositor',
+      chromeWebContentsId: null,
+      chromeBounds: null,
+      canvas: {
+        state: {
+          panes: [],
+          launcher: {
+            visible: true,
+            activeApp: null,
+            browser: {
+              status: 'idle',
+              error: null,
+            },
+          },
+        },
+      },
+    });
+    await launchBrowserFromShellCanvas(launched.app);
     const page = await waitForOfficialPackageChromeWindow(launched.app, { source: 'local' });
     await page.waitForLoadState('domcontentloaded');
     await page.waitForSelector('[data-test="address-input"]', { state: 'visible' });
