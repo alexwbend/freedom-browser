@@ -43,26 +43,7 @@
 }
 
 :root[data-sidebar-layout-mode="dock"][data-theme="dark"],
-:root[data-sidebar-layout-mode="overlay"][data-theme="dark"] {
-  color-scheme: light;
-  --trusted-sidebar-bg: #b6afa1;
-  --trusted-sidebar-panel: #c8c0b1;
-  --trusted-sidebar-panel-subtle: #beb6a8;
-  --trusted-sidebar-export-bg: #d2c6ba;
-  --trusted-sidebar-error-bg: #d0c1bb;
-  --trusted-sidebar-text: #302f2b;
-  --trusted-sidebar-muted: #5c554b;
-  --trusted-sidebar-muted-2: #6d6559;
-  --trusted-sidebar-border: #a69d8d;
-  --trusted-sidebar-border-strong: #968b7d;
-  --trusted-sidebar-danger-border: #c38c83;
-  --trusted-sidebar-danger-text: #7d2d24;
-  --trusted-sidebar-accent: #2f7d59;
-  --trusted-sidebar-badge-bg: #a9c4b4;
-  --trusted-sidebar-badge-text: #1c5d3f;
-  --trusted-sidebar-button-hover: #aaa293;
-}
-
+:root[data-sidebar-layout-mode="overlay"][data-theme="dark"],
 :root[data-sidebar-layout-mode="dock"][data-theme="light"],
 :root[data-sidebar-layout-mode="overlay"][data-theme="light"] {
   color-scheme: dark;

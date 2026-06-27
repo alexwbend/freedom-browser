@@ -33,6 +33,17 @@ export const initTheme = async () => {
       applyTheme('system');
     }
   });
+
+  runtimeApi.onThemeChanged?.((theme = {}) => {
+    const prev = previous;
+    previous = {
+      ...previous,
+      theme: theme.mode || 'system',
+    };
+    if (prev.theme !== previous.theme || previous.theme === 'system') {
+      applyTheme(previous.theme);
+    }
+  });
 };
 
 const applyAntModeChange = async (nextAntNodeMode) => {

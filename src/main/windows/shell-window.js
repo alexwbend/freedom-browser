@@ -94,14 +94,8 @@ function normalizeSurfaceLayoutMode(layoutMode) {
   return DEFAULT_SURFACE_LAYOUT_MODE;
 }
 
-function normalizeEffectiveTheme(theme) {
-  return theme?.effective === 'dark' ? 'dark' : 'light';
-}
-
-function getCanvasThemeForShellTheme(theme = DEFAULT_SHELL_THEME) {
-  return normalizeEffectiveTheme(theme) === 'dark'
-    ? SHELL_CANVAS_THEME_LIGHT
-    : SHELL_CANVAS_THEME_DARK;
+function getCanvasThemeForShellTheme(_theme = DEFAULT_SHELL_THEME) {
+  return SHELL_CANVAS_THEME_DARK;
 }
 
 function getCanvasBackgroundColor(canvasTheme = SHELL_CANVAS_THEME_DARK) {

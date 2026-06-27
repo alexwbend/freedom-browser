@@ -154,10 +154,10 @@ describe('ShellWindow', () => {
     expect(mod.shouldUseShellWindowCompositor(null)).toBe(false);
   });
 
-  test('derives a muted counter-tone shell canvas from the effective app theme', () => {
+  test('uses a consistent material shell canvas for every app theme', () => {
     const { mod } = loadShellWindow();
 
-    expect(mod.getCanvasThemeForShellTheme({ effective: 'dark' })).toBe('light');
+    expect(mod.getCanvasThemeForShellTheme({ effective: 'dark' })).toBe('dark');
     expect(mod.getCanvasThemeForShellTheme({ effective: 'light' })).toBe('dark');
     expect(mod.getCanvasBackgroundColor('light')).toBe('#b6afa1');
     expect(mod.getCanvasBackgroundColor('dark')).toBe('#4b524b');
@@ -395,7 +395,7 @@ describe('ShellWindow', () => {
     expect(railView.webContents.close).toHaveBeenCalledWith({ waitForBeforeUnload: false });
   });
 
-  test('updates compositor canvas state when the shell theme changes', () => {
+  test('keeps compositor canvas state stable when the shell theme changes', () => {
     const { mod } = loadShellWindow();
     const { nativeWindow, contentView } = makeNativeWindow();
     const chromeView = makeChromeView();
@@ -410,24 +410,20 @@ describe('ShellWindow', () => {
       shellTheme: { mode: 'dark', effective: 'dark' },
     });
 
-    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#b6afa1');
+    expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#4b524b');
     expect(shellWindow.getDebugState().layout).toMatchObject({
-      canvasTheme: 'light',
-      backgroundColor: '#b6afa1',
+      canvasTheme: 'dark',
+      backgroundColor: '#4b524b',
     });
     expect(shellWindow.getSurfaceRailState()).toMatchObject({
-      canvasTheme: 'light',
+      canvasTheme: 'dark',
     });
+    railView.webContents.send.mockClear();
 
     shellWindow.setShellTheme({ mode: 'light', effective: 'light' });
 
     expect(contentView.setBackgroundColor).toHaveBeenLastCalledWith('#4b524b');
-    expect(railView.webContents.send).toHaveBeenLastCalledWith(
-      'shell-surface-rail:state',
-      expect.objectContaining({
-        canvasTheme: 'dark',
-      })
-    );
+    expect(railView.webContents.send).not.toHaveBeenCalled();
     expect(shellWindow.getDebugState().layout).toMatchObject({
       canvasTheme: 'dark',
       backgroundColor: '#4b524b',

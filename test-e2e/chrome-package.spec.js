@@ -2251,8 +2251,8 @@ test('official browser chrome launch truth markers prove package mode', async ()
           height: expect.any(Number),
         },
         state: {
-          canvasTheme: expect.stringMatching(/^(dark|light)$/),
-          backgroundColor: expect.stringMatching(/^#(4b524b|b6afa1)$/),
+          canvasTheme: 'dark',
+          backgroundColor: '#4b524b',
           panes: [
             {
               id: 'chrome',
@@ -2272,8 +2272,8 @@ test('official browser chrome launch truth markers prove package mode', async ()
         gap: 4,
         radius: 12,
         railWidth: 44,
-        canvasTheme: expect.stringMatching(/^(dark|light)$/),
-        backgroundColor: expect.stringMatching(/^#(4b524b|b6afa1)$/),
+        canvasTheme: 'dark',
+        backgroundColor: '#4b524b',
       },
       surfaceRail: {
         webContentsId: expect.any(Number),
@@ -2560,7 +2560,7 @@ test('official browser chrome can launch as a local package with transitional we
     const railWalletButton = surfaceRailWindow.locator('[data-rail-surface="wallet"]');
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute(
       'data-canvas-theme',
-      /^(dark|light)$/
+      'dark'
     );
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
@@ -2665,10 +2665,7 @@ test('official browser chrome can launch as a local package with transitional we
     );
     await expect(trustedWalletWindow.locator('[data-sidebar-subtitle]')).toHaveCount(0);
     await expect(trustedWalletWindow.locator('[data-sidebar-layout-toggle]')).toHaveCount(0);
-    await expect(trustedWalletWindow.locator('[data-sidebar-close]')).toHaveAttribute(
-      'aria-label',
-      'Close Freedom Wallet'
-    );
+    await expect(trustedWalletWindow.locator('[data-sidebar-close]')).toHaveCount(0);
     await expect(trustedWalletWindow.locator('html')).toHaveAttribute(
       'data-theme',
       /^(light|dark)$/
@@ -2841,6 +2838,10 @@ test('official browser chrome can launch as a local package with transitional we
       open: false,
     });
 
+    const packageChromeRoot = page.locator('html');
+    await page.evaluate(() => window.freedomShell.saveSettings({ theme: 'dark' }));
+    await expect(packageChromeRoot).not.toHaveAttribute('data-theme', 'light');
+
     const settingsWriteResult = await page.evaluate(async () => {
       const before = await window.freedomShell.getSettings();
       const saved = await window.freedomShell.saveSettings({
@@ -2861,6 +2862,7 @@ test('official browser chrome can launch as a local package with transitional we
     expect(settingsWriteResult.after.startAntAtLaunch).toBe(
       settingsWriteResult.before.startAntAtLaunch
     );
+    await expect(packageChromeRoot).toHaveAttribute('data-theme', 'light');
 
     await expect(page.locator('[data-test="bookmarks-bar"]')).toBeVisible();
     await expect(page.locator('[data-test="bookmark-item"]')).toHaveCount(7);

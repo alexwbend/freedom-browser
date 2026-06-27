@@ -53,6 +53,7 @@ const loadSettingsModule = async (options = {}) => {
   const eventTarget = createWindowEventTarget();
   const electronAPI = {
     getSettings: jest.fn().mockResolvedValue(initialSettings),
+    onThemeChanged: jest.fn(),
   };
   const beeApi = {
     getStatus: jest.fn().mockResolvedValue(beeStatusResult),
@@ -126,11 +127,28 @@ describe('settings-ui', () => {
     expect(electronAPI.getSettings).toHaveBeenCalledTimes(1);
     expect(documentElement.removeAttribute).toHaveBeenCalledWith('data-theme');
     expect(mediaQueryList.addEventListener).toHaveBeenCalledWith('change', expect.any(Function));
+    expect(electronAPI.onThemeChanged).toHaveBeenCalledWith(expect.any(Function));
 
     mediaQueryList.matches = false;
     mediaQueryList.addEventListener.mock.calls[0][1]();
 
     expect(documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'light');
+  });
+
+  test('initTheme reacts to shell theme change events', async () => {
+    const { mod, documentElement, electronAPI } = await loadSettingsModule({
+      initialSettings: { theme: 'dark', antNodeMode: 'ultraLight' },
+      prefersDark: true,
+    });
+
+    await mod.initTheme();
+    const onThemeChanged = electronAPI.onThemeChanged.mock.calls[0][0];
+
+    onThemeChanged({ mode: 'light', effective: 'light' });
+    expect(documentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'light');
+
+    onThemeChanged({ mode: 'dark', effective: 'dark' });
+    expect(documentElement.removeAttribute).toHaveBeenCalledWith('data-theme');
   });
 
   test('initSettingsEffects restarts bundled Bee when bee mode flips', async () => {
