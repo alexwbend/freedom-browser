@@ -571,6 +571,13 @@ function isResolverNotFoundError(err) {
   return sel !== null && UR_NOT_FOUND_SELECTORS.has(sel);
 }
 
+function isSemanticCallException(err) {
+  if (err?.code !== 'CALL_EXCEPTION') return false;
+  if (getRevertData(err)) return true;
+  const msg = err?.message || '';
+  return /reverted/i.test(msg) && !/missing revert data/i.test(msg);
+}
+
 // UR.reverse reverts with this when the claimed primary name doesn't
 // forward-resolve back to the input address. Semantically: spoofed or
 // stale reverse record.
@@ -876,7 +883,7 @@ async function tryColibriPath(name, callData) {
         block: null,
       };
     }
-    if (err.code === 'CALL_EXCEPTION') {
+    if (isSemanticCallException(err)) {
       // Verified revert with an unknown selector — same semantics as the
       // quorum path's NO_CONTENTHASH bucket. Upstream maps that to
       // RESOLUTION_ERROR for addr lookups and "no contenthash" for content.

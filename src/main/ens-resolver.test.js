@@ -1902,6 +1902,22 @@ describe('ens-resolver', () => {
       expect(result.trust.method).toBe('colibri');
     });
 
+    test('CALL_EXCEPTION without revert data falls through to quorum', async () => {
+      withColibri();
+      const err = Object.assign(new Error('missing revert data (action="call")'), {
+        code: 'CALL_EXCEPTION',
+      });
+      mockResolveViaColibri.mockRejectedValue(err);
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('vitalik.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.uri).toBe(`ipfs://${IPFS_V0}`);
+      expect(mockUrResolve).toHaveBeenCalled();
+      expect(result.trust.method).not.toBe('colibri');
+    });
+
     test('non-revert error falls through to the quorum path by default', async () => {
       withColibri();
       mockResolveViaColibri.mockRejectedValue(new Error('proof verification failed'));
