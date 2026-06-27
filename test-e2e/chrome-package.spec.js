@@ -2563,6 +2563,23 @@ test('official browser chrome can launch as a local package with transitional we
       'dark'
     );
     await expect(surfaceRailWindow.locator('html')).toHaveAttribute('data-surface-open', 'false');
+    await expect(surfaceRailWindow.locator('[data-rail-stub]')).toHaveCount(4);
+    await expect(surfaceRailWindow.locator('[data-rail-stub="profile"]')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    await expect(surfaceRailWindow.locator('[data-rail-stub="nodes"]')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    await expect(surfaceRailWindow.locator('[data-rail-stub="apps"]')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+    await expect(surfaceRailWindow.locator('[data-rail-stub="settings"]')).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
     await expect(surfaceRailWindow.locator('.surface-rail')).toHaveCSS(
       'background-color',
       'rgba(0, 0, 0, 0)'

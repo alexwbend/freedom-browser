@@ -51,6 +51,18 @@ body {
   width: 100vw;
 }
 
+.surface-rail-group {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.surface-rail-bottom {
+  margin-top: auto;
+}
+
 .surface-rail-button {
   -webkit-app-region: no-drag;
   align-items: center;
@@ -82,6 +94,17 @@ body {
   background: var(--surface-rail-active-bg);
   border-color: var(--surface-rail-active-border);
   color: var(--surface-rail-active-icon);
+}
+
+.surface-rail-stub {
+  color: var(--surface-rail-muted);
+  cursor: default;
+  opacity: 0.76;
+}
+
+.surface-rail-stub:hover {
+  background: transparent;
+  border-color: transparent;
 }
 
 .surface-rail-button svg {
