@@ -444,7 +444,9 @@ guest preferences through `will-attach-webview`.
 
 See [`docs/local-package-chrome-runtime.md`](docs/local-package-chrome-runtime.md)
 for the manifest shape, shell API v0, recovery behavior, and smoke-test
-commands.
+commands. See
+[`docs/freedom-apps/README.md`](docs/freedom-apps/README.md) for the draft
+developer guide for building apps that run inside Freedom Shell.
 
 ---
 

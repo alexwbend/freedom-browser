@@ -47,7 +47,7 @@ default, and receives only `window.freedomShell`. The package window is created
 with hardened preferences: context isolation on, Node integration off, remote
 module off, web security on, insecure content disabled, experimental features
 off, and package-owned `<webview>` support disabled unless the manifest opts
-into the transitional guest-webview bridge described below.
+into package guest webviews described below.
 
 ### Official Chrome Package Source
 
@@ -99,6 +99,9 @@ The boundary guard for official package source and generated output is:
 ```bash
 npm run chrome:package:check-boundary
 ```
+
+For the app-developer-facing runtime contract, see
+[`docs/freedom-apps/README.md`](freedom-apps/README.md).
 
 ### Cached Package Chrome
 
