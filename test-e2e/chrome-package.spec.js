@@ -244,7 +244,7 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
 
-function writeEmbeddedWebviewPackage(root, webviewSrc) {
+function writeEmbeddedWebviewPackage(root, webviewSrc, options = {}) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
     path.join(root, 'index.html'),
@@ -280,8 +280,8 @@ function writeEmbeddedWebviewPackage(root, webviewSrc) {
   const manifest = {
     manifestVersion: 1,
     packageType: 'browser-chrome',
-    packageId: 'baby.freedom.chrome.embedded-webview-fixture',
-    name: 'Embedded Webview Fixture',
+    packageId: options.packageId || 'baby.freedom.chrome.embedded-webview-fixture',
+    name: options.name || 'Embedded Webview Fixture',
     version: '0.0.1',
     entry: 'index.html',
     shellCompatibility: {
@@ -289,9 +289,9 @@ function writeEmbeddedWebviewPackage(root, webviewSrc) {
       maxShellApi: '0.1.x',
     },
     capabilities: ['shell.info', 'shell.ready'],
-    guestContent: {
-      webviews: true,
-    },
+    ...(options.guestContent === null
+      ? {}
+      : { guestContent: options.guestContent || { webviews: true } }),
     files: listPackageFiles(root),
   };
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -2627,6 +2627,93 @@ test('non-browser package can embed a Freedom-powered guest webview', async () =
         hasElectronAPI: false,
       },
     });
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('package without guest webview opt-in cannot attach guest webviews', async () => {
+  test.setTimeout(40_000);
+
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-denied-webview-package-'));
+  const packageDir = path.join(parent, 'package');
+  const guestUrl = 'https://denied-embedded.example/page';
+  writeEmbeddedWebviewPackage(packageDir, guestUrl, {
+    packageId: 'baby.freedom.chrome.denied-webview-fixture',
+    name: 'Denied Webview Fixture',
+    guestContent: null,
+  });
+
+  const launched = await launchFreedom({
+    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+  });
+  try {
+    await setContentFixture(launched.app, guestUrl, {
+      body: '<!doctype html><title>Should Not Load</title>',
+    });
+
+    const page = await waitForPackageChromeWindow(launched.app, { source: 'local' });
+    await expect(page.locator('[data-test="fixture-title"]')).toHaveText(
+      'Embedded Webview Fixture'
+    );
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+
+    const info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.denied-webview-fixture',
+        source: 'local',
+        capabilities: ['shell.info', 'shell.ready'],
+        guestContent: {
+          webviews: false,
+        },
+      },
+      caller: {
+        packageId: 'baby.freedom.chrome.denied-webview-fixture',
+        capabilities: ['shell.info', 'shell.ready'],
+        guestContent: {
+          webviews: false,
+        },
+      },
+    });
+
+    await delay(500);
+    const inertWebview = await page.evaluate(() => {
+      const webview = document.querySelector('[data-test="embedded-webview"]');
+      return {
+        exists: Boolean(webview),
+        tagName: webview?.tagName || '',
+        hasExecuteJavaScript: typeof webview?.executeJavaScript === 'function',
+        hasGetURL: typeof webview?.getURL === 'function',
+        hasGetWebContentsId: typeof webview?.getWebContentsId === 'function',
+        webContentsId:
+          typeof webview?.getWebContentsId === 'function' ? webview.getWebContentsId() : null,
+      };
+    });
+    expect(inertWebview).toEqual({
+      exists: true,
+      tagName: 'WEBVIEW',
+      hasExecuteJavaScript: false,
+      hasGetURL: false,
+      hasGetWebContentsId: false,
+      webContentsId: null,
+    });
+
+    const matchingGuestWebContents = await launched.app.evaluate(
+      ({ webContents }, payload) =>
+        webContents
+          .getAllWebContents()
+          .map((contents) => ({
+            id: contents.id,
+            type: contents.getType?.() || '',
+            url: contents.getURL?.() || '',
+          }))
+          .filter((contents) => contents.type === 'webview' || contents.url === payload.guestUrl),
+      { guestUrl }
+    );
+    expect(matchingGuestWebContents).toEqual([]);
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });
