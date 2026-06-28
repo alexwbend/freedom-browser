@@ -73,7 +73,7 @@ The builder (`scripts/build-official-chrome-package.js`) copies the package
 source, excludes development-only files, writes deterministic `manifest.json`,
 computes package-relative SHA-256 hashes for every declared file, declares the
 official shell API capabilities, opts into
-`guestContent.transitionalWebviews: true`, and validates the generated package
+`guestContent.webviews: true`, and validates the generated package
 with the same local package validator used at runtime.
 
 Run the generated package directly in local package mode:
@@ -286,7 +286,8 @@ Validation is intentionally local and conservative:
 - entry must exist and be a file
 - capabilities, when declared, must be known shell capabilities
 - `guestContent`, when declared, must be an object
-- `guestContent.transitionalWebviews`, when declared, must be a boolean
+- `guestContent.webviews`, when declared, must be a boolean
+- legacy `guestContent.transitionalWebviews`, when declared, must be a boolean
 - `files` must be a non-empty array of package-relative paths and SHA-256 hashes
 - every listed file must exist, stay inside the package root after realpath resolution, and match its manifest hash
 - the package entry must be listed in `files`
@@ -301,16 +302,15 @@ SHA-256 hash against the manifest, and does not expose arbitrary store paths or
 install metadata. Package HTML responses include a conservative package CSP
 header compatible with the current official renderer and its internal pages.
 
-## Transitional Guest Webviews
+## Package Guest Webviews
 
-The local full-runtime phase may need to run the current bundled renderer as a
-local package before the browser fully migrates to shell-owned guest views. To
-support that bridge, a manifest can opt into package-created `<webview>` tags:
+Packages that need to embed normal web pages can opt into package-created
+`<webview>` tags:
 
 ```json
 {
   "guestContent": {
-    "transitionalWebviews": true
+    "webviews": true
   }
 }
 ```
@@ -322,9 +322,9 @@ Main process code handles `will-attach-webview`, strips package-supplied guest
 preference attributes, and applies the shell-owned guest preload and hardened
 guest preferences unconditionally.
 
-This is a transitional bridge for the local full-runtime work. The target
-architecture remains shell-owned guest contents instead of arbitrary
-package-owned `<webview>` creation.
+`guestContent.transitionalWebviews` is still accepted as a legacy alias for
+older local development packages, but new packages should use
+`guestContent.webviews`.
 
 ## Official Local Chrome Smoke
 
@@ -332,7 +332,7 @@ The launched package smoke builds a temporary official chrome package through
 `scripts/build-official-chrome-package.js`. It uses the same
 `packages/official-browser-chrome/src/` source tree and materialization path as
 developer commands, rather than hand-copying `src/renderer` in the e2e harness.
-The generated manifest opts into `guestContent.transitionalWebviews: true` and
+The generated manifest opts into `guestContent.webviews: true` and
 declares only the shell capabilities needed for startup readiness,
 deterministic navigation coverage, ordinary browser-state reads/writes,
 package-safe service status, package-safe app/window commands, clipboard/image
@@ -602,10 +602,10 @@ bundled chrome window and destroys the failed package window. The default
 timeout is 5000 ms; tests can override it with
 `FREEDOM_CHROME_PACKAGE_READY_TIMEOUT_MS`.
 
-The tab methods are the first Phase 2 shell-owned tab contract. They expose a
-serializable tab snapshot and validated tab command results for package chrome.
-This contract is intentionally main-owned and does not yet migrate bundled
-renderer tabs away from their current `<webview>` implementation.
+The tab methods are a main-mediated tab state and command contract. They expose
+a serializable tab snapshot and validated tab command results for package
+chrome, while normal page content remains in package-created, main-hardened
+`<webview>` elements.
 
 The browser-state methods expose ordinary browser UI state through the same
 sender-checked shell bridge. `getSettings()` provides settings needed by

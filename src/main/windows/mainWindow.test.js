@@ -56,7 +56,7 @@ describe('mainWindow chrome package preferences', () => {
     });
   });
 
-  test('allows manifest-gated transitional webview support for local packages', () => {
+  test('allows manifest-gated guest webview support for local packages', () => {
     const { mod } = loadMainWindow();
 
     expect(
@@ -64,7 +64,9 @@ describe('mainWindow chrome package preferences', () => {
         kind: 'local-package',
         preloadPath: path.join('/app', 'package-preload.js'),
         webviewTag: false,
-        transitionalWebviews: true,
+        guestContent: {
+          webviews: true,
+        },
       })
     ).toMatchObject({
       preload: path.join('/app', 'package-preload.js'),
@@ -118,7 +120,7 @@ describe('mainWindow chrome package preferences', () => {
     expect(path.basename(mod.getShellCanvasPreloadPath())).toBe('shell-canvas-preload.js');
   });
 
-  test('enforces shell-owned guest webview preferences for transitional package webviews', () => {
+  test('enforces shell-owned guest webview preferences for package guest webviews', () => {
     const { mod } = loadMainWindow();
     const preferences = {
       preload: path.join('/package', 'guest-preload.js'),
@@ -190,7 +192,9 @@ describe('mainWindow chrome package preferences', () => {
 
     const cleanup = mod.registerPackageWebviewSecurity(window, {
       kind: 'local-package',
-      transitionalWebviews: true,
+      guestContent: {
+        webviews: true,
+      },
     });
 
     destroyed = true;
@@ -212,7 +216,9 @@ describe('mainWindow chrome package preferences', () => {
       { webContents },
       {
         kind: 'local-package',
-        transitionalWebviews: true,
+        guestContent: {
+          webviews: true,
+        },
       }
     );
 

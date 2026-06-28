@@ -175,6 +175,10 @@ describe('chrome-package', () => {
       version: '0.0.1',
       capabilities: ['shell.info', 'navigation.resolve'],
       webviewTag: false,
+      guestContent: {
+        webviews: false,
+      },
+      webviews: false,
       transitionalWebviews: false,
     });
     expect(result.chromePackage.files).toEqual([
@@ -189,7 +193,28 @@ describe('chrome-package', () => {
     );
   });
 
-  test('allows explicit transitional webview support in local package manifests', () => {
+  test('allows explicit guest webview support in local package manifests', () => {
+    const root = makeTempDir();
+    writePackage(root, {
+      guestContent: {
+        webviews: true,
+      },
+    });
+
+    const result = validateLocalChromePackage(root);
+
+    expect(result.ok).toBe(true);
+    expect(result.chromePackage).toMatchObject({
+      webviewTag: true,
+      guestContent: {
+        webviews: true,
+      },
+      webviews: true,
+      transitionalWebviews: false,
+    });
+  });
+
+  test('keeps legacy transitional webview manifests compatible', () => {
     const root = makeTempDir();
     writePackage(root, {
       guestContent: {
@@ -202,6 +227,10 @@ describe('chrome-package', () => {
     expect(result.ok).toBe(true);
     expect(result.chromePackage).toMatchObject({
       webviewTag: true,
+      guestContent: {
+        webviews: true,
+      },
+      webviews: true,
       transitionalWebviews: true,
     });
   });
@@ -216,12 +245,20 @@ describe('chrome-package', () => {
     expect(invalidResult.error.code).toBe('GUEST_CONTENT_INVALID');
 
     const invalidFlagRoot = makeTempDir();
-    writePackage(invalidFlagRoot, { guestContent: { transitionalWebviews: 'yes' } });
+    writePackage(invalidFlagRoot, { guestContent: { webviews: 'yes' } });
 
     const invalidFlagResult = validateLocalChromePackage(invalidFlagRoot);
 
     expect(invalidFlagResult.ok).toBe(false);
     expect(invalidFlagResult.error.code).toBe('GUEST_CONTENT_WEBVIEWS_INVALID');
+
+    const invalidLegacyFlagRoot = makeTempDir();
+    writePackage(invalidLegacyFlagRoot, { guestContent: { transitionalWebviews: 'yes' } });
+
+    const invalidLegacyFlagResult = validateLocalChromePackage(invalidLegacyFlagRoot);
+
+    expect(invalidLegacyFlagResult.ok).toBe(false);
+    expect(invalidLegacyFlagResult.error.code).toBe('GUEST_CONTENT_WEBVIEWS_INVALID');
   });
 
   test('normalizes and deduplicates known shell capabilities', () => {

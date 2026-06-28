@@ -156,7 +156,7 @@ function createManifest(outputDir, version = appVersion) {
     },
     capabilities: [...OFFICIAL_CHROME_CAPABILITIES],
     guestContent: {
-      transitionalWebviews: true,
+      webviews: true,
     },
     files,
   };

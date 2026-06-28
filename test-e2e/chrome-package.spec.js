@@ -244,6 +244,59 @@ function writePackage(root, manifestOverrides = {}, options = {}) {
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
 }
 
+function writeEmbeddedWebviewPackage(root, webviewSrc) {
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'index.html'),
+    `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Embedded Webview Fixture</title>
+          <style>
+            html, body { margin: 0; height: 100%; background: #101112; color: white; }
+            webview { width: 480px; height: 320px; border: 0; display: block; }
+          </style>
+        </head>
+        <body data-test="package-root">
+          <h1 data-test="fixture-title">Embedded Webview Fixture</h1>
+          <pre data-test="shell-info-json">{}</pre>
+          <webview data-test="embedded-webview" src="${webviewSrc}"></webview>
+          <script>
+            (async () => {
+              const info = await window.freedomShell.getInfo();
+              document.querySelector('[data-test="shell-info-json"]').textContent =
+                JSON.stringify(info);
+              await window.freedomShell.markReady();
+              document.body.dataset.ready = 'true';
+            })().catch((error) => {
+              document.body.dataset.ready = 'error';
+              document.body.dataset.error = error && error.message ? error.message : String(error);
+            });
+          </script>
+        </body>
+      </html>`
+  );
+  const manifest = {
+    manifestVersion: 1,
+    packageType: 'browser-chrome',
+    packageId: 'baby.freedom.chrome.embedded-webview-fixture',
+    name: 'Embedded Webview Fixture',
+    version: '0.0.1',
+    entry: 'index.html',
+    shellCompatibility: {
+      minShellApi: '0.1.0',
+      maxShellApi: '0.1.x',
+    },
+    capabilities: ['shell.info', 'shell.ready'],
+    guestContent: {
+      webviews: true,
+    },
+    files: listPackageFiles(root),
+  };
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(manifest, null, 2));
+}
+
 function seedWalletMetadata(userDataDir, address = packageSmokeWalletAddress, options = {}) {
   const identityDir = path.join(userDataDir, 'identity');
   fs.mkdirSync(identityDir, { recursive: true });
@@ -897,13 +950,27 @@ async function navigateAddress(page, value, expectedValue = value) {
   await expect(input).toHaveValue(expectedValue);
 }
 
+async function waitForTestHarness(app) {
+  await expect
+    .poll(
+      () =>
+        app.evaluate(() => {
+          return Boolean(globalThis.__FREEDOM_TEST_HARNESS__);
+        }),
+      { timeout: 5000 }
+    )
+    .toBe(true);
+}
+
 async function setContentFixture(app, url, fixture) {
+  await waitForTestHarness(app);
   await app.evaluate(({ ipcMain: _ipcMain }, payload) => {
     globalThis.__FREEDOM_TEST_HARNESS__.setContentFixture(payload.url, payload.fixture);
   }, { url, fixture });
 }
 
 async function setEnsFixture(app, name, result) {
+  await waitForTestHarness(app);
   await app.evaluate(({ ipcMain: _ipcMain }, payload) => {
     globalThis.__FREEDOM_TEST_HARNESS__.setEnsFixture(payload.name, payload.result);
   }, { name, result });
@@ -2328,12 +2395,18 @@ test('official browser chrome launch truth markers prove package mode', async ()
         runtimeMode: 'local-package',
         source: 'local',
         packageId: 'baby.freedom.chrome.official-local',
+        guestContent: {
+          webviews: true,
+        },
         fallback: null,
       },
       caller: {
         runtimeMode: 'local-package',
         source: 'local',
         packageId: 'baby.freedom.chrome.official-local',
+        guestContent: {
+          webviews: true,
+        },
       },
     });
     await expect
@@ -2449,6 +2522,111 @@ test('official browser chrome launch truth markers prove package mode', async ()
     expect(shellWindow.surfaceRail.bounds.x - (
       shellWindow.chromeBounds.x + shellWindow.chromeBounds.width
     )).toBe(shellWindow.layout.gap);
+  } finally {
+    await launched.close();
+    fs.rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test('non-browser package can embed a Freedom-powered guest webview', async () => {
+  test.setTimeout(40_000);
+
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-embedded-webview-package-'));
+  const packageDir = path.join(parent, 'package');
+  const guestUrl = 'https://embedded.example/page';
+  writeEmbeddedWebviewPackage(packageDir, guestUrl);
+
+  const launched = await launchFreedom({
+    FREEDOM_CHROME_PACKAGE_DIR: packageDir,
+  });
+  try {
+    await setContentFixture(launched.app, guestUrl, {
+      body: `<!doctype html>
+        <title>Embedded Guest</title>
+        <p data-test="guest-ready">ready</p>`,
+    });
+
+    const page = await waitForPackageChromeWindow(launched.app, { source: 'local' });
+    await expect(page.locator('[data-test="fixture-title"]')).toHaveText(
+      'Embedded Webview Fixture'
+    );
+    await expect(page.locator('body')).toHaveAttribute('data-ready', 'true');
+
+    const packageExposure = await page.evaluate(() => ({
+      hasFreedomShell: typeof window.freedomShell === 'object',
+      hasElectronAPI: 'electronAPI' in window,
+      hasWallet: 'wallet' in window,
+      hasIdentity: 'identity' in window,
+      hasSwarmProvider: 'swarmProvider' in window,
+      hasDappPermissions: 'dappPermissions' in window,
+    }));
+    expect(packageExposure).toEqual({
+      hasFreedomShell: true,
+      hasElectronAPI: false,
+      hasWallet: false,
+      hasIdentity: false,
+      hasSwarmProvider: false,
+      hasDappPermissions: false,
+    });
+
+    const info = await readShellInfo(page);
+    expect(info).toMatchObject({
+      runtimeMode: 'local-package',
+      chromePackage: {
+        packageId: 'baby.freedom.chrome.embedded-webview-fixture',
+        source: 'local',
+        capabilities: ['shell.info', 'shell.ready'],
+        guestContent: {
+          webviews: true,
+        },
+      },
+      caller: {
+        packageId: 'baby.freedom.chrome.embedded-webview-fixture',
+        capabilities: ['shell.info', 'shell.ready'],
+        guestContent: {
+          webviews: true,
+        },
+      },
+    });
+
+    const guestState = await page.evaluate(async () => {
+      const webview = document.querySelector('[data-test="embedded-webview"]');
+      if (!webview || typeof webview.executeJavaScript !== 'function') {
+        return { exists: false };
+      }
+      await new Promise((resolve) => {
+        if (typeof webview.getURL === 'function' && webview.getURL()) {
+          resolve();
+          return;
+        }
+        webview.addEventListener('dom-ready', resolve, { once: true });
+        setTimeout(resolve, 5000);
+      });
+      return {
+        exists: true,
+        url: typeof webview.getURL === 'function' ? webview.getURL() : '',
+        webContentsId:
+          typeof webview.getWebContentsId === 'function' ? webview.getWebContentsId() : null,
+        guest: await webview.executeJavaScript(`(() => ({
+          href: location.href,
+          hasEthereum: typeof window.ethereum === 'object',
+          hasSwarm: typeof window.swarm === 'object',
+          hasElectronAPI: 'electronAPI' in window
+        }))()`),
+      };
+    });
+
+    expect(guestState).toMatchObject({
+      exists: true,
+      url: guestUrl,
+      webContentsId: expect.any(Number),
+      guest: {
+        href: guestUrl,
+        hasEthereum: true,
+        hasSwarm: true,
+        hasElectronAPI: false,
+      },
+    });
   } finally {
     await launched.close();
     fs.rmSync(parent, { recursive: true, force: true });
@@ -2587,7 +2765,7 @@ test('shell compositor renders a shell-owned WebContentsView surface', async () 
   }
 });
 
-test('official browser chrome can launch as a local package with transitional webviews', async () => {
+test('official browser chrome can launch as a local package with guest webviews', async () => {
   test.setTimeout(60_000);
 
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-official-package-'));

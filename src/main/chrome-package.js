@@ -125,6 +125,17 @@ function isVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion = SHE
   return isShellApiVersionCompatible({ minShellApi, maxShellApi }, shellApiVersion);
 }
 
+function normalizeGuestContentPolicy(guestContent = {}) {
+  return {
+    webviews:
+      guestContent.webviews === true ||
+      // Legacy local packages generated during the pre-swarm hardening phase
+      // used this name. Keep accepting it while generated packages move to
+      // the final guestContent.webviews contract.
+      guestContent.transitionalWebviews === true,
+  };
+}
+
 function fail(code, message, details = {}) {
   return {
     ok: false,
@@ -273,6 +284,13 @@ function validateLocalChromePackage(packageDir, options = {}) {
   }
 
   const guestContent = manifest.guestContent || {};
+  if (guestContent.webviews !== undefined && typeof guestContent.webviews !== 'boolean') {
+    return fail(
+      'GUEST_CONTENT_WEBVIEWS_INVALID',
+      'Chrome package guestContent.webviews must be a boolean',
+      { packageRoot }
+    );
+  }
   if (
     guestContent.transitionalWebviews !== undefined &&
     typeof guestContent.transitionalWebviews !== 'boolean'
@@ -283,6 +301,7 @@ function validateLocalChromePackage(packageDir, options = {}) {
       { packageRoot }
     );
   }
+  const guestContentPolicy = normalizeGuestContentPolicy(guestContent);
 
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     return fail('PACKAGE_FILES_MISSING', 'Chrome package manifest requires a non-empty files array', {
@@ -364,8 +383,6 @@ function validateLocalChromePackage(packageDir, options = {}) {
     });
   }
 
-  const transitionalWebviews = guestContent.transitionalWebviews === true;
-
   return {
     ok: true,
     chromePackage: {
@@ -377,8 +394,10 @@ function validateLocalChromePackage(packageDir, options = {}) {
       entry: normalizedEntry,
       entryPath,
       preloadPath: path.join(__dirname, 'package-preload.js'),
-      webviewTag: transitionalWebviews,
-      transitionalWebviews,
+      webviewTag: guestContentPolicy.webviews,
+      guestContent: guestContentPolicy,
+      webviews: guestContentPolicy.webviews,
+      transitionalWebviews: guestContent.transitionalWebviews === true,
       packageId: manifest.packageId,
       packageType: manifest.packageType,
       name: manifest.name,
@@ -521,6 +540,7 @@ module.exports = {
   hashFileSha256,
   isVersionCompatible,
   normalizePackageFilePath,
+  normalizeGuestContentPolicy,
   selectChromePackage,
   setActiveChromePackage,
   shouldUseChromePackageStore,

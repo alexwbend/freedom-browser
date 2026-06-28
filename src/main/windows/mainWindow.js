@@ -100,8 +100,13 @@ function getShellCanvasHtmlPath() {
   return path.join(__dirname, '..', 'shell-canvas.html');
 }
 
-function packageUsesTransitionalWebviews(chromePackage) {
-  return chromePackage.kind === 'local-package' && chromePackage.transitionalWebviews === true;
+function packageAllowsGuestWebviews(chromePackage) {
+  return (
+    chromePackage.kind === 'local-package' &&
+    (chromePackage.guestContent?.webviews === true ||
+      chromePackage.webviews === true ||
+      chromePackage.transitionalWebviews === true)
+  );
 }
 
 function getChromeWindowWebPreferences(chromePackage) {
@@ -113,7 +118,7 @@ function getChromeWindowWebPreferences(chromePackage) {
     nodeIntegrationInWorker: false,
     nodeIntegrationInSubFrames: false,
     webviewTag: isLocalPackage
-      ? packageUsesTransitionalWebviews(chromePackage)
+      ? packageAllowsGuestWebviews(chromePackage)
       : chromePackage.webviewTag === true,
     enableRemoteModule: false,
     webSecurity: true,
@@ -231,7 +236,7 @@ function getPackageWebContents(target) {
 }
 
 function registerPackageWebviewSecurity(target, chromePackage) {
-  if (!packageUsesTransitionalWebviews(chromePackage)) {
+  if (!packageAllowsGuestWebviews(chromePackage)) {
     return () => {};
   }
 

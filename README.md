@@ -437,6 +437,11 @@ npm run chrome:package:run
 The launch helper resolves the generated package path absolutely; direct
 `FREEDOM_CHROME_PACKAGE_DIR` usage should do the same.
 
+Packages that need to render normal web content opt into
+`guestContent.webviews: true`. The package owns the `<webview>` element and its
+browser/app UI, while the main process still pins the guest preload and hardened
+guest preferences through `will-attach-webview`.
+
 See [`docs/local-package-chrome-runtime.md`](docs/local-package-chrome-runtime.md)
 for the manifest shape, shell API v0, recovery behavior, and smoke-test
 commands.

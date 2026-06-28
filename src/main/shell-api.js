@@ -159,6 +159,15 @@ function sanitizeDiagnosticValue(value, key = '') {
   return value;
 }
 
+function describeGuestContentPolicy(guestContent) {
+  if (!guestContent || typeof guestContent !== 'object') {
+    return null;
+  }
+  return {
+    webviews: guestContent.webviews === true,
+  };
+}
+
 function describeChromePackage(chromePackage = getActiveChromePackage()) {
   return {
     runtimeMode: chromePackage.runtimeMode,
@@ -168,6 +177,7 @@ function describeChromePackage(chromePackage = getActiveChromePackage()) {
     name: chromePackage.name,
     version: chromePackage.version,
     capabilities: [...(chromePackage.capabilities || [])],
+    guestContent: describeGuestContentPolicy(chromePackage.guestContent),
     fallback: chromePackage.fallback
       ? {
           error: sanitizeDiagnosticValue(chromePackage.fallback.error),
@@ -186,6 +196,9 @@ function createPackageCallerIdentity(sender, chromePackage = getActiveChromePack
     name: chromePackage.name,
     version: chromePackage.version,
     capabilities: Object.freeze([...(chromePackage.capabilities || [])]),
+    guestContent: Object.freeze(
+      describeGuestContentPolicy(chromePackage.guestContent) || { webviews: false }
+    ),
   });
 }
 
@@ -202,6 +215,7 @@ function describePackageCaller(identity) {
     name: identity.name,
     version: identity.version,
     capabilities: [...(identity.capabilities || [])],
+    guestContent: describeGuestContentPolicy(identity.guestContent),
   };
 }
 

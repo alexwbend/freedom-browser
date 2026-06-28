@@ -40,7 +40,7 @@ test('buildOfficialChromePackage materializes a valid deterministic package', ()
       maxShellApi: '0.1.x',
     },
     guestContent: {
-      transitionalWebviews: true,
+      webviews: true,
     },
   });
   expect(result.manifest.capabilities).toEqual([...OFFICIAL_CHROME_CAPABILITIES]);

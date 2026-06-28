@@ -278,6 +278,9 @@ describe('shell-api', () => {
       name: 'Fixture Chrome',
       version: '0.0.1',
       capabilities: ['shell.info'],
+      guestContent: {
+        webviews: true,
+      },
       fallback: {
         requestedDir: '/tmp/requested-package',
         error: {
@@ -314,6 +317,9 @@ describe('shell-api', () => {
         name: 'Fixture Chrome',
         version: '0.0.1',
         capabilities: ['shell.info'],
+        guestContent: {
+          webviews: true,
+        },
         fallback: {
           error: {
             code: 'PACKAGE_FILE_HASH_MISMATCH',
@@ -356,9 +362,13 @@ describe('shell-api', () => {
       name: 'Fixture Chrome',
       version: '0.0.1',
       capabilities: ['shell.info', 'shell.ready', 'navigation.resolve'],
+      guestContent: {
+        webviews: false,
+      },
     });
     expect(Object.isFrozen(identity)).toBe(true);
     expect(Object.isFrozen(identity.capabilities)).toBe(true);
+    expect(Object.isFrozen(identity.guestContent)).toBe(true);
     expect(JSON.stringify(identity)).not.toContain('/tmp/package');
   });
 
@@ -487,6 +497,9 @@ describe('shell-api', () => {
         name: 'Caller Chrome',
         version: '1.2.3',
         capabilities: ['shell.info'],
+        guestContent: {
+          webviews: false,
+        },
         fallback: null,
       },
       caller: {
@@ -497,6 +510,9 @@ describe('shell-api', () => {
         name: 'Caller Chrome',
         version: '1.2.3',
         capabilities: ['shell.info'],
+        guestContent: {
+          webviews: false,
+        },
       },
     });
   });

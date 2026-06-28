@@ -798,56 +798,39 @@ Exit criteria:
 - package chrome cannot read wallet/identity globals or trusted surface DOM
 - smoke proves surface composition, close/reopen, resize, focus, and shutdown
 
-### Phase 4: Shell-Owned Tab Engine
+### Phase 4: Package-Owned Embedded Web Pages
 
-Goal: move guest page content out of package-owned `<webview>` tabs.
+Goal: keep normal browser/app page content inside package-created hardened
+`<webview>` elements, while shell-owned trusted surfaces remain sibling
+`WebContentsView`s in the main compositor.
 
-This is the second major todo and the bigger product/API project.
-
-Detailed contract: [shell-tab-engine-contract.md](shell-tab-engine-contract.md).
+The shell-owned tab engine contract remains a useful research artifact, but the
+spike showed it is not the production browser-content topology: native
+`WebContentsView` stacking prevents package DOM menus, suggestions, and
+toolbars from reliably overlaying page content, while making the chrome view
+transparent blocks ordinary page input.
 
 Target:
 
-- main owns tab/content `WebContentsView`s
-- chrome requests tab operations through high-level `freedomShell.tabs.*`
-- chrome renders tab strip/address UI from shell state
-- package chrome may provide layout hints, but main validates and composes
-  content views
-- package chrome does not create guest webviews
-- provider identity and committed origin authority stay in main
-- raw Electron content handles never cross into package chrome
-
-Initial API shape:
-
-```js
-await freedomShell.tabs.create({ url, active: true })
-await freedomShell.tabs.navigate({ tabId, input })
-await freedomShell.tabs.activate({ tabId })
-await freedomShell.tabs.close({ tabId })
-await freedomShell.tabs.reload({ tabId })
-await freedomShell.tabs.stop({ tabId })
-await freedomShell.layout.setContentRegion({ tabId, region: 'main' })
-```
-
-Events:
-
-```js
-freedomShell.onEvent((event) => {
-  if (event.type === 'tabs.changed') {
-    // title, favicon, loading, committedDisplayUrl, active tab, etc.
-  }
-})
-```
+- package chrome owns its own browser/app DOM and creates embedded page
+  `<webview>` elements when its manifest opts into `guestContent.webviews`
+- main owns the native shell compositor, rail, launcher, and trusted surfaces
+- main enables `webviewTag` only for opted-in local packages
+- main pins guest preload/security preferences in `will-attach-webview`
+- provider identity, committed origin authority, protocols, permission prompts,
+  and trusted surfaces stay in shell/main
+- raw Electron `WebContentsView`, `webContents`, `BrowserWindow`, and session
+  handles never cross into package chrome
 
 Exit criteria:
 
-- official package chrome uses shell tab APIs for core tab workflows
-- package chrome no longer needs `guestContent.transitionalWebviews`
-- page content receives shell-owned provider/preload bridges
-- tab snapshots become main-derived
-- tab commands return real execution results
-- navigation, provider identity, permissions, history, favicon, and crash
-  handling remain correct
+- official browser package uses package-created hardened webviews for tabs
+- a non-browser package fixture can embed a Freedom-powered page without
+  browser-state or browser-command capabilities
+- packages without `guestContent.webviews` cannot create usable guest webviews
+- provider/preload paths in guest content still go through shell/main
+- shell rail, launcher, and trusted surfaces keep working as compositor-owned
+  sibling views
 
 ### Phase 5: Production Package Runtime
 
