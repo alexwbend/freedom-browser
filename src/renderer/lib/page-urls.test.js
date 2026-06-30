@@ -90,6 +90,11 @@ describe('page-urls', () => {
       suffix: '#top',
       assertedTransport: null,
     });
+    expect(mod.parseEnsInput('alice.wei/site')).toEqual({
+      name: 'alice.wei',
+      suffix: '/site',
+      assertedTransport: null,
+    });
     expect(mod.parseEnsInput('example.com')).toBeNull();
     expect(mod.parseEnsInput('')).toBeNull();
   });
@@ -122,6 +127,11 @@ describe('page-urls', () => {
       name: 'app.box',
       suffix: '#fragment',
       assertedTransport: 'ipns',
+    });
+    expect(mod.parseEnsInput('ipfs://alice.wei/docs')).toEqual({
+      name: 'alice.wei',
+      suffix: '/docs',
+      assertedTransport: 'ipfs',
     });
 
     // Transport prefixes with non-ENS hosts must NOT be treated as ENS input;

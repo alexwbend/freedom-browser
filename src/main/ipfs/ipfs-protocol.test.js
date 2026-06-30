@@ -298,6 +298,22 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
     });
 
+    test('resolves .wei host via WNS resolver result', async () => {
+      mockResolveEnsContent.mockResolvedValue({
+        type: 'ok',
+        system: 'wns',
+        protocol: 'ipfs',
+        decoded: CIDV0,
+        uri: `ipfs://${CIDV0}`,
+      });
+
+      await expect(buildGatewayUrl('ipfs', 'ipfs://alice.wei/')).resolves.toEqual({
+        ok: true,
+        url: `http://freedom-ipfs.localhost/ipfs/${CIDV0}/`,
+      });
+      expect(mockResolveEnsContent).toHaveBeenCalledWith('alice.wei');
+    });
+
     test('returns 404 when ENS contenthash is Swarm, not IPFS', async () => {
       mockResolveEnsContent.mockResolvedValue({
         type: 'ok',
@@ -311,6 +327,23 @@ describe('buildGatewayUrl(ipfs)', () => {
         ok: false,
         status: 404,
         message: 'ENS name swarm.eth resolves to bzz, not IPFS',
+      });
+    });
+
+    test('uses WNS label for .wei transport mismatch errors', async () => {
+      mockResolveEnsContent.mockResolvedValue({
+        type: 'ok',
+        system: 'wns',
+        protocol: 'bzz',
+        decoded: 'a'.repeat(64),
+        uri: `bzz://${'a'.repeat(64)}`,
+      });
+
+      const result = await buildGatewayUrl('ipfs', 'ipfs://alice.wei/');
+      expect(result).toEqual({
+        ok: false,
+        status: 404,
+        message: 'WNS name alice.wei resolves to bzz, not IPFS',
       });
     });
 
@@ -468,6 +501,23 @@ describe('buildGatewayUrl(ipns)', () => {
         url: `http://freedom-ipfs.localhost/ipns/${IPNS_KEY_BASE58_ED25519}/`,
       });
       expect(mockResolveEnsContent).toHaveBeenCalledWith('jalil.eth');
+    });
+
+    test('routes WNS hosts to the resolver, not the raw IPNS branch', async () => {
+      mockResolveEnsContent.mockResolvedValue({
+        type: 'ok',
+        system: 'wns',
+        protocol: 'ipns',
+        decoded: IPNS_KEY_BASE58_ED25519,
+        uri: `ipns://${IPNS_KEY_BASE58_ED25519}`,
+        name: 'alice.wei',
+      });
+
+      await expect(buildGatewayUrl('ipns', 'ipns://alice.wei/')).resolves.toEqual({
+        ok: true,
+        url: `http://freedom-ipfs.localhost/ipns/${IPNS_KEY_BASE58_ED25519}/`,
+      });
+      expect(mockResolveEnsContent).toHaveBeenCalledWith('alice.wei');
     });
 
     test('returns 404 when ENS contenthash is IPFS, not IPNS', async () => {

@@ -153,15 +153,17 @@ describe('navigation-utils', () => {
       });
     });
 
-    test('returns badge for bare .eth and .box URLs', async () => {
+    test('returns badge for bare .eth, .box, and .wei URLs', async () => {
       const { resolveTrustBadge } = await loadNavigationUtils();
       const ensTrustByName = new Map([
         ['vitalik.eth', verifiedTrust],
         ['example.box', conflictTrust],
+        ['alice.wei', { ...verifiedTrust, system: 'wns' }],
       ]);
 
       expect(resolveTrustBadge({ value: 'vitalik.eth', ensTrustByName }).level).toBe('verified');
       expect(resolveTrustBadge({ value: 'example.box', ensTrustByName }).level).toBe('conflict');
+      expect(resolveTrustBadge({ value: 'alice.wei', ensTrustByName }).trust.system).toBe('wns');
     });
 
     test('strips path and is case-insensitive', async () => {
@@ -298,6 +300,23 @@ describe('navigation-utils', () => {
         display: '2/3',
         copy: '',
       });
+    });
+
+    test('WNS trust uses WNS-specific status copy', async () => {
+      const { buildTrustRows } = await loadNavigationUtils();
+
+      const result = buildTrustRows({
+        level: 'verified',
+        trust: {
+          system: 'wns',
+          agreed: ['ethereum.publicnode.com', 'eth.drpc.org'],
+          queried: ['ethereum.publicnode.com', 'eth.drpc.org'],
+          block: { number: 25038025 },
+        },
+        uri: 'ipfs://QmHash',
+      });
+
+      expect(result.status).toBe('WNS resolution verified');
     });
 
     test('user-configured: skips quorum and labels the single RPC "Your RPC"', async () => {

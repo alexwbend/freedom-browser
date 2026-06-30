@@ -21,6 +21,8 @@ const INPUTS = [
   '1inch.eth/path/to/page',
   'myapp.box',
   'myapp.box/docs',
+  'alice.wei',
+  'alice.wei/docs',
   'VITALIK.ETH',
   'Vitalik.ETH/Blog',
   'sub.example.eth',
@@ -52,6 +54,7 @@ const INPUTS = [
   'ipns://app.eth/guide',
   'bzz://Meinhard.ETH',
   'ipfs://myapp.box/path',
+  'ipfs://alice.wei/path',
 
   // Query / fragment must not fork the permission key per route. Hash-routed
   // SPAs (#/swap) and share-link queries (?ref=...) collapse to the same

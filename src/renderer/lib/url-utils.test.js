@@ -1038,6 +1038,7 @@ describe('url-utils', () => {
       expect(isEnsBackedDisplay('vitalik.eth')).toBe(true);
       expect(isEnsBackedDisplay('vitalik.eth/docs')).toBe(true);
       expect(isEnsBackedDisplay('myapp.box')).toBe(true);
+      expect(isEnsBackedDisplay('alice.wei')).toBe(true);
     });
 
     test('recognises legacy ens:// form', () => {
@@ -1049,6 +1050,7 @@ describe('url-utils', () => {
       expect(isEnsBackedDisplay('bzz://meinhard.eth')).toBe(true);
       expect(isEnsBackedDisplay('ipfs://vitalik.eth/docs')).toBe(true);
       expect(isEnsBackedDisplay('ipns://app.box/page')).toBe(true);
+      expect(isEnsBackedDisplay('ipfs://alice.wei/page')).toBe(true);
     });
 
     test('rejects raw transport URLs (hash/CID hosts) and other schemes', () => {

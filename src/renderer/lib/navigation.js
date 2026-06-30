@@ -68,6 +68,9 @@ const isIpfsProgressUrl = (value) => {
   return normalized.startsWith('ipfs://') || normalized.startsWith('ipns://');
 };
 
+const nameSystemLabelForName = (name = '') =>
+  String(name).toLowerCase().endsWith('.wei') ? 'WNS' : 'ENS';
+
 const shouldShowIpfsProgress = ({ data = {}, tab = null, navState = null } = {}) => {
   const candidates = [
     data.url,
@@ -836,7 +839,7 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
       // `aborted` aren't content failures — leave the cache alone.
       const ensNameForInvalidation = (() => {
         const match = (target.bzzLoadUrl || '').match(/^bzz:\/\/([^/?#]+)/i);
-        return match && (match[1].toLowerCase().endsWith('.eth') || match[1].toLowerCase().endsWith('.box'))
+        return match && parseEnsInput(`bzz://${match[1]}`)
           ? match[1].toLowerCase()
           : null;
       })();
@@ -953,6 +956,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     // Check for ENS
     const ens = parseEnsInput(innerUrl);
     if (ens && electronAPI?.resolveEns) {
+      const systemLabel = nameSystemLabelForName(ens.name);
       const capturedWebview = webview;
       // Tab id pinned for the duration of this async resolution so a tab
       // switch can't redirect the spinner to the wrong tab when the
@@ -976,7 +980,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
           setLoading(false, capturedTabId);
           if (!result || result.type !== 'ok') {
             if (isActiveTab(capturedTabId)) {
-              alert(`ENS resolution failed for ${ens.name}: ${result?.reason || 'no response'}`);
+              alert(`${systemLabel} resolution failed for ${ens.name}: ${result?.reason || 'no response'}`);
             }
             return;
           }
@@ -1012,7 +1016,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         .catch((err) => {
           setLoading(false, capturedTabId);
           if (isActiveTab(capturedTabId)) {
-            alert(`ENS resolution error: ${err.message}`);
+            alert(`${systemLabel} resolution error: ${err.message}`);
           }
         });
       return;
@@ -1065,9 +1069,10 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     return;
   }
 
-  // Try ENS first (ens:// or .eth/.box addresses)
+  // Try Ethereum names first (legacy ens:// plus supported name suffixes)
   const ens = parseEnsInput(value);
   if (ens && electronAPI?.resolveEns) {
+    const systemLabel = nameSystemLabelForName(ens.name);
     // Capture the webview reference before async operation to prevent loading in wrong tab
     const capturedWebview = webview;
     // Capture the tab id too so async callbacks can route per-tab UI
@@ -1092,7 +1097,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     // time. Backgrounded-tab routing and protocol-icon refresh are
     // handled inside `setAddressDisplayForTab`.
     setAddressDisplayForTab(displayOverride || value, capturedTabId);
-    pushDebug(`Resolving ENS name: ${ens.name}`);
+    pushDebug(`Resolving ${systemLabel} name: ${ens.name}`);
     // Surface a resolution failure: log the structured trail unconditionally
     // (so devtools / the in-browser debug console always see it), but only
     // pop the modal alert if the originating tab is still in the foreground.
@@ -1110,8 +1115,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         setLoading(false, capturedTabId);
         if (!result) {
           failEnsResolution(
-            `ENS resolution failed for ${ens.name}: no response`,
-            'ENS resolution failed: no response'
+            `${systemLabel} resolution failed for ${ens.name}: no response`,
+            `${systemLabel} resolution failed: no response`
           );
           return;
         }
@@ -1130,7 +1135,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
           // Defensive cap: the resolver already bounds groups by K (≤9),
           // but a malformed payload shouldn't be able to explode the URL.
           const groups = (result.groups || []).slice(0, 10);
-          pushDebug(`ENS conflict for ${ens.name}: ${groups.length} groups`);
+          pushDebug(`${systemLabel} conflict for ${ens.name}: ${groups.length} groups`);
           capturedWebview.loadURL(
             buildInternalPageUrl('ens-conflict.html', {
               name: ens.name,
@@ -1144,16 +1149,16 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         if (result.type !== 'ok') {
           const reason = result.reason || 'Unknown error';
           failEnsResolution(
-            `ENS resolution failed for ${ens.name}: ${reason}`,
-            `ENS resolution failed for ${ens.name}: ${reason}`
+            `${systemLabel} resolution failed for ${ens.name}: ${reason}`,
+            `${systemLabel} resolution failed for ${ens.name}: ${reason}`
           );
           return;
         }
 
         if (!isSupportedEnsTransport(result.protocol)) {
           failEnsResolution(
-            `ENS content for ${ens.name} uses unsupported protocol ${result.protocol}`,
-            `ENS content uses unsupported protocol "${result.protocol}". Supported: Swarm (bzz), IPFS, IPNS.`
+            `${systemLabel} content for ${ens.name} uses unsupported protocol ${result.protocol}`,
+            `${systemLabel} content uses unsupported protocol "${result.protocol}". Supported: Swarm (bzz), IPFS, IPNS.`
           );
           return;
         }
@@ -1166,8 +1171,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         // signal to retry with the correct scheme.
         if (assertedTransport && assertedTransport !== result.protocol) {
           failEnsResolution(
-            `ENS transport mismatch for ${ens.name}: asserted ${assertedTransport}, got ${result.protocol}`,
-            `ENS name ${ens.name} resolves to ${result.protocol}, not ${assertedTransport}. ` +
+            `${systemLabel} transport mismatch for ${ens.name}: asserted ${assertedTransport}, got ${result.protocol}`,
+            `${systemLabel} name ${ens.name} resolves to ${result.protocol}, not ${assertedTransport}. ` +
               `Try ${result.protocol}://${ens.name} instead.`
           );
           return;
@@ -1182,14 +1187,14 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
           && state.blockUnverifiedEns
           && !options.allowUnverifiedOnce
         ) {
-          pushDebug(`ENS unverified for ${ens.name} → interstitial`);
+          pushDebug(`${systemLabel} unverified for ${ens.name} → interstitial`);
           capturedWebview.loadURL(
             buildInternalPageUrl('ens-unverified.html', { name: ens.name, uri: targetUri })
           );
           return;
         }
 
-        pushDebug(`ENS resolved: ${ens.name} -> ${targetUri}`);
+        pushDebug(`${systemLabel} resolved: ${ens.name} -> ${targetUri}`);
 
         storeEnsResolutionMetadata(targetUri, ens.name);
 
@@ -1228,8 +1233,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         // unrelated current page with a stale alert is more confusing
         // than informative. Console log + debug entry preserve the trail.
         failEnsResolution(
-          `ENS resolution error for ${ens.name}: ${err.message}`,
-          `ENS resolution error for ${ens.name}: ${err.message}`
+          `${systemLabel} resolution error for ${ens.name}: ${err.message}`,
+          `${systemLabel} resolution error for ${ens.name}: ${err.message}`
         );
       });
     return;
