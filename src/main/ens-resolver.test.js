@@ -311,6 +311,9 @@ describe('ens-resolver', () => {
     // Real IPFS v0 hash (34 bytes: 0x12 0x20 + 32-byte digest). Using a known
     // valid CID here so encodeBase58 round-trips cleanly.
     const IPFS_V0 = 'QmW81r84Aihiqqi2Jw6nM1LnpeMfRCenRxtjwHNkXVkZYa';
+    const WNS_WEI_RAW_CONTENTHASH =
+      '0xe30101551220178009fb926120f294c60ebc3ae54de9dccaace22db785445f6f54a807b322fd';
+    const WNS_WEI_CIDV1 = 'bafkreiaxqae7xetbedzjjrqoxq5oktpj3tfkzyrnw6cuix3pksuapmzc7u';
 
     test('decodes ipfs contenthash and returns CIDv0 base58 URI', async () => {
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
@@ -342,6 +345,25 @@ describe('ens-resolver', () => {
         protocol: 'ipfs',
         uri: `ipfs://${IPFS_V0}`,
         decoded: IPFS_V0,
+      });
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
+      expect(mockWnsContenthash).toHaveBeenCalledTimes(3);
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('decodes .wei CIDv1 raw contenthash through the WNS contract', async () => {
+      mockWnsContenthash.mockResolvedValue(WNS_WEI_RAW_CONTENTHASH);
+
+      const result = await resolveEnsContent('wns.wei');
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        name: 'wns.wei',
+        system: 'wns',
+        codec: 'ipfs-ns',
+        protocol: 'ipfs',
+        uri: `ipfs://${WNS_WEI_CIDV1}`,
+        decoded: WNS_WEI_CIDV1,
       });
       expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
       expect(mockWnsContenthash).toHaveBeenCalledTimes(3);

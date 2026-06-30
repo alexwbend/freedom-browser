@@ -3,6 +3,7 @@ const { ipcMain } = require('electron');
 const { ethers } = require('ethers');
 const { ens_normalize } = require('@adraffy/ens-normalize');
 const IPC = require('../shared/ipc-channels');
+const { cidV1BytesToBase32 } = require('../shared/cid-utils');
 const registry = require('./networks/network-registry');
 const { prefetchGatewayUrl, NOOP_HANDLE: NOOP_PREFETCH } = require('./ens-prefetch');
 
@@ -48,14 +49,19 @@ const ADDR_SELECTOR = '0x3b3b57de';
 const ETH_COIN_TYPE = 60n;
 
 // ENS contenthash byte patterns (EIP-1577). We preserve the CIDv0 base58
-// output ("QmFoo…") for IPFS/IPNS to stay byte-compatible with the
+// output ("QmFoo…") for IPFS dag-pb to stay byte-compatible with the
 // previous ethers-based implementation — users' bookmarks and history
-// entries keyed on the old URI form keep matching.
+// entries keyed on the old URI form keep matching. Non-dag-pb CIDv1 IPFS
+// records are returned as CIDv1 base32, which is Chromium-safe.
 //   0xe3 01 70             — ipfs-ns, cidv1, dag-pb
+//   0xe3 01 55             — ipfs-ns, cidv1, raw
 //   0xe5 01 72             — ipns-ns, cidv1, libp2p-key
 //   0xe4 01 01 fa 01 1b 20 — swarm-ns + manifest codec, 32-byte keccak
-const IPFS_CONTENTHASH_RE =
-  /^0x(?<codecPrefix>e3010170|e5010172)(?<multihash>(?<mhCode>[0-9a-f]{2})(?<mhLen>[0-9a-f]{2})(?<digest>[0-9a-f]*))$/;
+const IPFS_DAG_PB_CONTENTHASH_RE =
+  /^0xe3010170(?<multihash>(?<mhCode>[0-9a-f]{2})(?<mhLen>[0-9a-f]{2})(?<digest>[0-9a-f]*))$/;
+const IPFS_CIDV1_CONTENTHASH_RE = /^0xe301(?<cid>01[0-9a-f]+)$/;
+const IPNS_CONTENTHASH_RE =
+  /^0xe5010172(?<multihash>(?<mhCode>[0-9a-f]{2})(?<mhLen>[0-9a-f]{2})(?<digest>[0-9a-f]*))$/;
 const SWARM_CONTENTHASH_RE = /^0xe40101fa011b20(?<swarmHash>[0-9a-f]{64})$/;
 
 // ---------------------------------------------------------------------------
@@ -1541,16 +1547,40 @@ async function doResolveEnsContent(normalized) {
 // history/bookmark matching on names users already visited.
 // Returns null for any format we don't support.
 function parseContentHashBytes(hex0x) {
-  const ipfs = hex0x.match(IPFS_CONTENTHASH_RE);
-  if (ipfs) {
-    const { codecPrefix, multihash, mhLen, digest } = ipfs.groups;
+  const dagPb = hex0x.match(IPFS_DAG_PB_CONTENTHASH_RE);
+  if (dagPb) {
+    const { multihash, mhLen, digest } = dagPb.groups;
     if (digest.length === parseInt(mhLen, 16) * 2) {
-      const scheme = codecPrefix === 'e3010170' ? 'ipfs' : 'ipns';
       const decoded = ethers.encodeBase58('0x' + multihash);
       return {
-        codec: `${scheme}-ns`,
-        protocol: scheme,
-        uri: `${scheme}://${decoded}`,
+        codec: 'ipfs-ns',
+        protocol: 'ipfs',
+        uri: `ipfs://${decoded}`,
+        decoded,
+      };
+    }
+  }
+  const ipfsCidV1 = hex0x.match(IPFS_CIDV1_CONTENTHASH_RE);
+  if (ipfsCidV1) {
+    const decoded = cidV1BytesToBase32(ethers.getBytes('0x' + ipfsCidV1.groups.cid));
+    if (decoded) {
+      return {
+        codec: 'ipfs-ns',
+        protocol: 'ipfs',
+        uri: `ipfs://${decoded}`,
+        decoded,
+      };
+    }
+  }
+  const ipns = hex0x.match(IPNS_CONTENTHASH_RE);
+  if (ipns) {
+    const { multihash, mhLen, digest } = ipns.groups;
+    if (digest.length === parseInt(mhLen, 16) * 2) {
+      const decoded = ethers.encodeBase58('0x' + multihash);
+      return {
+        codec: 'ipns-ns',
+        protocol: 'ipns',
+        uri: `ipns://${decoded}`,
         decoded,
       };
     }
