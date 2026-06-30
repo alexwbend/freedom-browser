@@ -136,6 +136,9 @@ const mockUrReverse = jest.fn();
 const mockWnsContenthash = jest.fn();
 const mockWnsAddr = jest.fn();
 const mockWnsReverseResolve = jest.fn();
+const mockGnsContenthash = jest.fn();
+const mockGnsAddr = jest.fn();
+const mockGnsReverseResolve = jest.fn();
 
 // Last URL passed to JsonRpcProvider — lets per-provider test helpers know
 // which URL they're being called on during the current ur.resolve invocation.
@@ -152,6 +155,9 @@ let mockProviderRouteMap = null;
 // headNumber can be a number or an Error (rejects). getBlock is a function
 // the provider.getBlock proxy delegates to — typically returns {number, hash}.
 let mockProviderAnchorMap = null;
+
+const WNS_ADDRESS = '0x0000000000696760e15f265e828db644a0c242eb';
+const GNS_ADDRESS = '0x9d51d507bc7264d4fe8ad1cf7fe191933a0a81d6';
 
 jest.mock('ethers', () => {
   const actual = jest.requireActual('ethers').ethers;
@@ -186,7 +192,7 @@ jest.mock('ethers', () => {
           destroy: mockDestroy,
         };
       }),
-      Contract: jest.fn().mockImplementation((_addr, _abi, provider) => ({
+      Contract: jest.fn().mockImplementation((addr, _abi, provider) => ({
         resolve: (...args) => {
           // Per-URL routing takes precedence; otherwise the shared mock.
           if (mockProviderRouteMap) {
@@ -199,9 +205,24 @@ jest.mock('ethers', () => {
           return mockUrResolve(...args);
         },
         reverse: (...args) => mockUrReverse(...args),
-        contenthash: (...args) => mockWnsContenthash(...args),
-        addr: (...args) => mockWnsAddr(...args),
-        reverseResolve: (...args) => mockWnsReverseResolve(...args),
+        contenthash: (...args) => {
+          const lower = String(addr || '').toLowerCase();
+          if (lower === GNS_ADDRESS) return mockGnsContenthash(...args);
+          if (lower === WNS_ADDRESS) return mockWnsContenthash(...args);
+          return mockWnsContenthash(...args);
+        },
+        addr: (...args) => {
+          const lower = String(addr || '').toLowerCase();
+          if (lower === GNS_ADDRESS) return mockGnsAddr(...args);
+          if (lower === WNS_ADDRESS) return mockWnsAddr(...args);
+          return mockWnsAddr(...args);
+        },
+        reverseResolve: (...args) => {
+          const lower = String(addr || '').toLowerCase();
+          if (lower === GNS_ADDRESS) return mockGnsReverseResolve(...args);
+          if (lower === WNS_ADDRESS) return mockWnsReverseResolve(...args);
+          return mockWnsReverseResolve(...args);
+        },
       })),
       // Pure helpers — use the real implementations so the UR helper's
       // encoding and the inline contenthash decoder are actually exercised.
@@ -244,6 +265,9 @@ beforeEach(() => {
   mockWnsContenthash.mockResolvedValue('0x');
   mockWnsAddr.mockResolvedValue('0x0000000000000000000000000000000000000000');
   mockWnsReverseResolve.mockResolvedValue('');
+  mockGnsContenthash.mockResolvedValue('0x');
+  mockGnsAddr.mockResolvedValue('0x0000000000000000000000000000000000000000');
+  mockGnsReverseResolve.mockResolvedValue('');
   mockLoadSettings.mockReturnValue({
     enableEnsCustomRpc: false,
     ensRpcUrl: '',
@@ -367,6 +391,26 @@ describe('ens-resolver', () => {
       });
       expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
       expect(mockWnsContenthash).toHaveBeenCalledTimes(3);
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('resolves .gwei contenthash through the GNS contract', async () => {
+      mockGnsContenthash.mockResolvedValue(ipfsContenthashFor(IPFS_V0));
+
+      const result = await resolveEnsContent('apoorv.gwei');
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        name: 'apoorv.gwei',
+        system: 'gns',
+        codec: 'ipfs-ns',
+        protocol: 'ipfs',
+        uri: `ipfs://${IPFS_V0}`,
+        decoded: IPFS_V0,
+      });
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
+      expect(mockGnsContenthash).toHaveBeenCalledTimes(3);
+      expect(mockWnsContenthash).not.toHaveBeenCalled();
       expect(mockUrResolve).not.toHaveBeenCalled();
     });
 
@@ -656,6 +700,23 @@ describe('ens-resolver', () => {
       expect(mockUrResolve).not.toHaveBeenCalled();
     });
 
+    test('resolves .gwei name to its GNS addr record', async () => {
+      mockGnsAddr.mockResolvedValue('0x2222222222222222222222222222222222222222');
+
+      const result = await resolveEnsAddress('apoorv.gwei');
+
+      expect(result).toMatchObject({
+        success: true,
+        name: 'apoorv.gwei',
+        system: 'gns',
+        address: '0x2222222222222222222222222222222222222222',
+      });
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
+      expect(mockGnsAddr).toHaveBeenCalledTimes(3);
+      expect(mockWnsAddr).not.toHaveBeenCalled();
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
     test('normalizes mixed-case input to lowercase', async () => {
       mockUrResolve.mockResolvedValue(
         urReturnsAddress('0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045')
@@ -798,6 +859,25 @@ describe('ens-resolver', () => {
       });
       expect(mockUrReverse).toHaveBeenCalledTimes(1);
       expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+    });
+
+    test('falls back to GNS reverse after empty WNS reverse', async () => {
+      const input = addr('1004');
+      mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
+      mockWnsReverseResolve.mockResolvedValue('');
+      mockGnsReverseResolve.mockResolvedValue('apoorv.gwei');
+
+      const result = await resolveEnsReverse(input);
+
+      expect(result).toEqual({
+        success: true,
+        address: input.toLowerCase(),
+        name: 'apoorv.gwei',
+        system: 'gns',
+      });
+      expect(mockUrReverse).toHaveBeenCalledTimes(1);
+      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(1);
     });
 
     test('UNVERIFIED when UR reverts with ReverseAddressMismatch', async () => {

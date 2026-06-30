@@ -19,11 +19,12 @@ const UR_ABI = [
   'function reverse(bytes lookupAddress, uint256 coinType) view returns (string primary, address resolver, address reverseResolver)',
 ];
 
-// Wei Name Service (WNS) on Ethereum mainnet. WNS stores resolver data
-// directly on its ERC-721 contract, using ENS-style namehash token IDs and
-// ENS-compatible resolver function signatures.
+// Contract-backed Ethereum name systems on mainnet. WNS and GNS store
+// resolver data directly on NameNFT-style ERC-721 contracts, using ENS-style
+// namehash token IDs and ENS-compatible resolver function signatures.
 const WNS_ADDRESS = '0x0000000000696760E15f265e828DB644A0c242EB';
-const WNS_ABI = [
+const GNS_ADDRESS = '0x9D51D507BC7264d4fE8Ad1cf7Fe191933A0a81d6';
+const NAME_NFT_ABI = [
   'function contenthash(bytes32 node) view returns (bytes)',
   'function addr(bytes32 node) view returns (address)',
   'function reverseResolve(address addr) view returns (string)',
@@ -31,13 +32,28 @@ const WNS_ABI = [
 
 const NAME_SYSTEMS = {
   ens: { id: 'ens', label: 'ENS', emptyNameError: 'ENS name is empty' },
-  wns: { id: 'wns', label: 'WNS', emptyNameError: 'Ethereum name is empty' },
+  wns: {
+    id: 'wns',
+    label: 'WNS',
+    suffix: '.wei',
+    contractAddress: WNS_ADDRESS,
+    emptyNameError: 'Ethereum name is empty',
+  },
+  gns: {
+    id: 'gns',
+    label: 'GNS',
+    suffix: '.gwei',
+    contractAddress: GNS_ADDRESS,
+    emptyNameError: 'Ethereum name is empty',
+  },
 };
 
 function nameSystemForName(name) {
-  return String(name || '').toLowerCase().endsWith('.wei')
-    ? NAME_SYSTEMS.wns
-    : NAME_SYSTEMS.ens;
+  const lower = String(name || '').toLowerCase();
+  for (const system of [NAME_SYSTEMS.wns, NAME_SYSTEMS.gns]) {
+    if (lower.endsWith(system.suffix)) return system;
+  }
+  return NAME_SYSTEMS.ens;
 }
 
 // bytes4(keccak256("contenthash(bytes32)"))
@@ -658,38 +674,46 @@ function nodeFromResolverCallData(callData) {
   return '0x' + hex.slice(10, 74);
 }
 
-// WNS stores ENS-compatible resolver records directly on the NameNFT
-// contract. This adapter returns the same raw `resolvedData` shape as the
-// Universal Resolver path so the quorum analyzer and record decoders can be
-// shared unchanged.
-async function wnsResolverCall(provider, _name, callData, overrides = {}) {
+// NameNFT-backed systems store ENS-compatible resolver records directly on
+// their registry contracts. This adapter returns the same raw `resolvedData`
+// shape as the Universal Resolver path so the quorum analyzer and record
+// decoders can be shared unchanged.
+async function nameNftResolverCall(provider, name, callData, overrides = {}) {
+  const nameSystem = nameSystemForName(name);
+  if (!nameSystem.contractAddress) {
+    throw new Error(`No NameNFT contract configured for ${nameSystem.label}`);
+  }
   const selector = String(callData || '').slice(0, 10).toLowerCase();
   const node = nodeFromResolverCallData(callData);
-  const wns = new ethers.Contract(WNS_ADDRESS, WNS_ABI, provider);
+  const registryContract = new ethers.Contract(
+    nameSystem.contractAddress,
+    NAME_NFT_ABI,
+    provider
+  );
 
   if (selector === CONTENTHASH_SELECTOR) {
-    const contenthash = await wns.contenthash(node, overrides);
+    const contenthash = await registryContract.contenthash(node, overrides);
     return {
       resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(
         ['bytes'],
         [contenthash || '0x'],
       ),
-      resolverAddress: WNS_ADDRESS,
+      resolverAddress: nameSystem.contractAddress,
     };
   }
 
   if (selector === ADDR_SELECTOR) {
-    const address = await wns.addr(node, overrides);
+    const address = await registryContract.addr(node, overrides);
     return {
       resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(
         ['address'],
         [address || ethers.ZeroAddress],
       ),
-      resolverAddress: WNS_ADDRESS,
+      resolverAddress: nameSystem.contractAddress,
     };
   }
 
-  throw new Error(`Unsupported WNS resolver selector: ${selector}`);
+  throw new Error(`Unsupported ${nameSystem.label} resolver selector: ${selector}`);
 }
 
 // Reverse counterpart: call the UR's reverse(bytes, uint256). The UR
@@ -1460,7 +1484,7 @@ async function doResolveEnsContent(normalized) {
 
   const consensus = await consensusResolve(normalized, callData, 'content', {
     onFirstData: prefetchOnFirstData,
-    callResolver: nameSystem.id === 'wns' ? wnsResolverCall : universalResolverCall,
+    callResolver: nameSystem.contractAddress ? nameNftResolverCall : universalResolverCall,
     nameSystem,
   });
   const { trust } = consensus;
@@ -1700,7 +1724,7 @@ async function doResolveEnsAddress(normalized) {
   const nameSystem = nameSystemForName(normalized);
 
   const consensus = await consensusResolve(normalized, callData, 'addr', {
-    callResolver: nameSystem.id === 'wns' ? wnsResolverCall : universalResolverCall,
+    callResolver: nameSystem.contractAddress ? nameNftResolverCall : universalResolverCall,
     nameSystem,
   });
   const { trust } = consensus;
@@ -1861,24 +1885,38 @@ async function tryColibriReverse(normalizedAddress) {
   return { success: true, address: normalizedAddress, name, system: 'ens', trust };
 }
 
-async function withWnsReverseFallback(normalizedAddress, ensResult) {
+const CONTRACT_BACKED_REVERSE_SYSTEMS = [NAME_SYSTEMS.wns, NAME_SYSTEMS.gns];
+
+async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
   if (ensResult?.reason !== 'NO_REVERSE') return ensResult;
 
   let provider;
   try {
     provider = await getWorkingProvider();
-    const wns = new ethers.Contract(WNS_ADDRESS, WNS_ABI, provider);
-    const name = await wns.reverseResolve(normalizedAddress);
-    if (!name) return ensResult;
-    return {
-      success: true,
-      address: normalizedAddress,
-      name,
-      system: 'wns',
-    };
+    for (const nameSystem of CONTRACT_BACKED_REVERSE_SYSTEMS) {
+      try {
+        const registryContract = new ethers.Contract(
+          nameSystem.contractAddress,
+          NAME_NFT_ABI,
+          provider
+        );
+        const name = await registryContract.reverseResolve(normalizedAddress);
+        if (!name) continue;
+        return {
+          success: true,
+          address: normalizedAddress,
+          name,
+          system: nameSystem.id,
+        };
+      } catch (err) {
+        if (isProviderError(err)) throw err;
+        log.info(`[${nameSystem.id}] reverse failed for ${normalizedAddress}: ${err.message}`);
+      }
+    }
+    return ensResult;
   } catch (err) {
     if (isProviderError(err)) throw err;
-    log.info(`[wns] reverse failed for ${normalizedAddress}: ${err.message}`);
+    log.info(`[ens] contract-backed reverse fallback failed for ${normalizedAddress}: ${err.message}`);
     return ensResult;
   }
 }
@@ -1891,7 +1929,7 @@ async function doResolveEnsReverse(normalizedAddress) {
       const ensResult = await tryColibriReverse(normalizedAddress);
       return cacheReverseResult(
         normalizedAddress,
-        await withWnsReverseFallback(normalizedAddress, ensResult)
+        await withContractBackedReverseFallback(normalizedAddress, ensResult)
       );
     } catch (err) {
       log.warn(
@@ -1913,7 +1951,7 @@ async function doResolveEnsReverse(normalizedAddress) {
     if (isResolverNotFoundError(err)) {
       return cacheReverseResult(
         normalizedAddress,
-        await withWnsReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
+        await withContractBackedReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
       );
     }
     if (isReverseAddressMismatchError(err)) {
@@ -1939,7 +1977,7 @@ async function doResolveEnsReverse(normalizedAddress) {
   if (!claimedName) {
     return cacheReverseResult(
       normalizedAddress,
-      await withWnsReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
+      await withContractBackedReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
     );
   }
 

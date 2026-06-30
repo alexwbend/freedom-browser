@@ -380,13 +380,26 @@ function hasEmptyLabel(host) {
   return host.split('.').some((label) => label.length === 0);
 }
 
+function nameSystemLabelForHost(host) {
+  const lower = String(host || '').toLowerCase();
+  if (lower.endsWith('.wei')) return 'WNS';
+  if (lower.endsWith('.gwei')) return 'GNS';
+  return 'ENS';
+}
+
+function nameSystemLabelForResult(result, host) {
+  if (result?.system === 'wns') return 'WNS';
+  if (result?.system === 'gns') return 'GNS';
+  return nameSystemLabelForHost(host);
+}
+
 // Second arg is destructured to `{ pathname, search }` so both the
 // non-rewritten path (top-level `ipfs://name.eth/...`) and the rewritten
 // path (sub-resource `ipfs://localhost/ipfs/<cid>/...` → effectively
 // `ipfs://<cid>/...`) flow in cleanly.
 async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   let result;
-  const fallbackSystemLabel = host.toLowerCase().endsWith('.wei') ? 'WNS' : 'ENS';
+  const fallbackSystemLabel = nameSystemLabelForHost(host);
   try {
     result = await resolveEnsContent(host);
   } catch (err) {
@@ -409,7 +422,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   }
 
   if (result.type === 'ok') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     if (result.protocol !== namespace) {
       return {
         ok: false,
@@ -424,7 +437,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   }
 
   if (result.type === 'not_found') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return {
       ok: false,
       status: 404,
@@ -433,7 +446,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   }
 
   if (result.type === 'unsupported') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return {
       ok: false,
       status: 415,
@@ -442,14 +455,14 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   }
 
   if (result.type === 'conflict') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return { ok: false, status: 502, message: `${systemLabel} providers disagree on ${host}` };
   }
 
   return {
     ok: false,
     status: 502,
-    message: `${result.system === 'wns' ? 'WNS' : 'ENS'} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
+    message: `${nameSystemLabelForResult(result, host)} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
   };
 }
 

@@ -95,6 +95,11 @@ describe('page-urls', () => {
       suffix: '/site',
       assertedTransport: null,
     });
+    expect(mod.parseEnsInput('apoorv.gwei/site')).toEqual({
+      name: 'apoorv.gwei',
+      suffix: '/site',
+      assertedTransport: null,
+    });
     expect(mod.parseEnsInput('example.com')).toBeNull();
     expect(mod.parseEnsInput('')).toBeNull();
   });
@@ -130,6 +135,11 @@ describe('page-urls', () => {
     });
     expect(mod.parseEnsInput('ipfs://alice.wei/docs')).toEqual({
       name: 'alice.wei',
+      suffix: '/docs',
+      assertedTransport: 'ipfs',
+    });
+    expect(mod.parseEnsInput('ipfs://apoorv.gwei/docs')).toEqual({
+      name: 'apoorv.gwei',
       suffix: '/docs',
       assertedTransport: 'ipfs',
     });

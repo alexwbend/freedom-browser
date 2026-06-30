@@ -153,17 +153,19 @@ describe('navigation-utils', () => {
       });
     });
 
-    test('returns badge for bare .eth, .box, and .wei URLs', async () => {
+    test('returns badge for bare .eth, .box, .wei, and .gwei URLs', async () => {
       const { resolveTrustBadge } = await loadNavigationUtils();
       const ensTrustByName = new Map([
         ['vitalik.eth', verifiedTrust],
         ['example.box', conflictTrust],
         ['alice.wei', { ...verifiedTrust, system: 'wns' }],
+        ['apoorv.gwei', { ...verifiedTrust, system: 'gns' }],
       ]);
 
       expect(resolveTrustBadge({ value: 'vitalik.eth', ensTrustByName }).level).toBe('verified');
       expect(resolveTrustBadge({ value: 'example.box', ensTrustByName }).level).toBe('conflict');
       expect(resolveTrustBadge({ value: 'alice.wei', ensTrustByName }).trust.system).toBe('wns');
+      expect(resolveTrustBadge({ value: 'apoorv.gwei', ensTrustByName }).trust.system).toBe('gns');
     });
 
     test('strips path and is case-insensitive', async () => {
@@ -317,6 +319,23 @@ describe('navigation-utils', () => {
       });
 
       expect(result.status).toBe('WNS resolution verified');
+    });
+
+    test('GNS trust uses GNS-specific status copy', async () => {
+      const { buildTrustRows } = await loadNavigationUtils();
+
+      const result = buildTrustRows({
+        level: 'verified',
+        trust: {
+          system: 'gns',
+          agreed: ['ethereum.publicnode.com', 'eth.drpc.org'],
+          queried: ['ethereum.publicnode.com', 'eth.drpc.org'],
+          block: { number: 25038025 },
+        },
+        uri: 'ipfs://QmHash',
+      });
+
+      expect(result.status).toBe('GNS resolution verified');
     });
 
     test('user-configured: skips quorum and labels the single RPC "Your RPC"', async () => {

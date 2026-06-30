@@ -68,8 +68,12 @@ const isIpfsProgressUrl = (value) => {
   return normalized.startsWith('ipfs://') || normalized.startsWith('ipns://');
 };
 
-const nameSystemLabelForName = (name = '') =>
-  String(name).toLowerCase().endsWith('.wei') ? 'WNS' : 'ENS';
+const nameSystemLabelForName = (name = '') => {
+  const lower = String(name).toLowerCase();
+  if (lower.endsWith('.wei')) return 'WNS';
+  if (lower.endsWith('.gwei')) return 'GNS';
+  return 'ENS';
+};
 
 const shouldShowIpfsProgress = ({ data = {}, tab = null, navState = null } = {}) => {
   const candidates = [

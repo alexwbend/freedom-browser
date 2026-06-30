@@ -34,7 +34,11 @@ export const TRUST_STATUS_SENTENCE = {
   conflict: 'Verification failed: RPCs disagree',
 };
 
-const nameSystemLabel = (trust = {}) => (trust.system === 'wns' ? 'WNS' : 'ENS');
+const nameSystemLabel = (trust = {}) => {
+  if (trust.system === 'wns') return 'WNS';
+  if (trust.system === 'gns') return 'GNS';
+  return 'ENS';
+};
 
 export const getTrustStatusSentence = (statusKey, trust = {}) => {
   if (statusKey === 'verified' || statusKey === 'verified-colibri') {

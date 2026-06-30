@@ -686,7 +686,7 @@ export function formatWeiToDecimal(wei, decimals = 18) {
   return `${integerPart}.${trimmed}`;
 }
 
-// Supported Ethereum names (.eth/.box ENS, .wei WNS) are resolved on mainnet;
+// Supported Ethereum names (.eth/.box ENS, .wei WNS, .gwei GNS) are resolved on mainnet;
 // resolution decides whether the name actually has an addr record.
 function classifyRecipient() {
   const recipient = sendRecipientInput?.value?.trim() || '';

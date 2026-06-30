@@ -27,7 +27,7 @@
 
 /**
  * True when `host` looks like a supported Ethereum name
- * (`.eth`, `.box`, or `.wei`).
+ * (`.eth`, `.box`, `.wei`, or `.gwei`).
  * Used by the carve-out below and (via the renderer mirror) by every other
  * name-host classifier in the codebase. Centralising the predicate keeps a
  * single source of truth for supported name suffixes.
@@ -38,7 +38,12 @@
 function isEnsHost(host) {
   if (!host || typeof host !== 'string') return false;
   const lower = host.toLowerCase();
-  return lower.endsWith('.eth') || lower.endsWith('.box') || lower.endsWith('.wei');
+  return (
+    lower.endsWith('.eth') ||
+    lower.endsWith('.box') ||
+    lower.endsWith('.wei') ||
+    lower.endsWith('.gwei')
+  );
 }
 
 /**
@@ -58,7 +63,7 @@ function getPermissionKey(displayUrl) {
   // Split on /, ?, and # so that hash-routed SPAs (`name.eth#/swap`) and
   // share-link queries (`name.eth?ref=...`) collapse to the same key as
   // the canonical bare name.
-  if (/^[a-z0-9-]+\.(eth|box|wei)/i.test(trimmed)) {
+  if (/^[a-z0-9-]+\.(eth|box|wei|gwei)/i.test(trimmed)) {
     return trimmed.split(/[/?#]/, 1)[0].toLowerCase();
   }
 

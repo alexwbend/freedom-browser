@@ -10,8 +10,8 @@ export const extractRootDomain = (url) => {
       return match ? match[1] : null;
     }
 
-    if (url.includes('.eth') || url.includes('.box') || url.includes('.wei')) {
-      const match = url.match(/^([a-zA-Z0-9-]+\.(?:eth|box|wei))/);
+    if (url.includes('.eth') || url.includes('.box') || url.includes('.wei') || url.includes('.gwei')) {
+      const match = url.match(/^([a-zA-Z0-9-]+\.(?:eth|box|wei|gwei))/);
       return match ? match[1] : null;
     }
 
@@ -27,7 +27,8 @@ export const detectSuggestionProtocol = (url) => {
     url.startsWith('bzz://') ||
     url.includes('.eth') ||
     url.includes('.box') ||
-    url.includes('.wei')
+    url.includes('.wei') ||
+    url.includes('.gwei')
   ) return 'swarm';
   if (url.startsWith('ipfs://')) return 'ipfs';
   if (url.startsWith('ipns://')) return 'ipns';

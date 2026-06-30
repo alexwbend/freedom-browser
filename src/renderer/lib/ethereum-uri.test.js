@@ -77,6 +77,12 @@ describe('parseEthereumUri', () => {
     expect(result.target).toBe('alice.wei');
   });
 
+  test('.gwei name supported', () => {
+    const result = parseEthereumUri('ethereum:apoorv.gwei');
+    expect(result.ok).toBe(true);
+    expect(result.target).toBe('apoorv.gwei');
+  });
+
   test('subdomain ENS name supported', () => {
     const result = parseEthereumUri('ethereum:tips.author.eth@100?value=1e18');
     expect(result.ok).toBe(true);

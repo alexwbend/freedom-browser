@@ -164,6 +164,19 @@ function hasEmptyLabel(host) {
   return host.split('.').some((label) => label.length === 0);
 }
 
+function nameSystemLabelForHost(host) {
+  const lower = String(host || '').toLowerCase();
+  if (lower.endsWith('.wei')) return 'WNS';
+  if (lower.endsWith('.gwei')) return 'GNS';
+  return 'ENS';
+}
+
+function nameSystemLabelForResult(result, host) {
+  if (result?.system === 'wns') return 'WNS';
+  if (result?.system === 'gns') return 'GNS';
+  return nameSystemLabelForHost(host);
+}
+
 // Resolve a supported Ethereum name host to a Bee gateway URL. `parsed` is the
 // original `bzz://name.eth/path?q` URL — pathname/search are forwarded verbatim.
 // Cross-transport mismatches (e.g. bzz://swarm.eth where the contenthash
@@ -172,7 +185,7 @@ function hasEmptyLabel(host) {
 // don't silently switch transports.
 async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   let result;
-  const fallbackSystemLabel = host.toLowerCase().endsWith('.wei') ? 'WNS' : 'ENS';
+  const fallbackSystemLabel = nameSystemLabelForHost(host);
   try {
     result = await resolveEnsContent(host);
   } catch (err) {
@@ -193,7 +206,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   }
 
   if (result.type === 'ok') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     if (result.protocol !== 'bzz') {
       return {
         ok: false,
@@ -208,7 +221,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   }
 
   if (result.type === 'not_found') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return {
       ok: false,
       status: 404,
@@ -217,7 +230,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   }
 
   if (result.type === 'unsupported') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return {
       ok: false,
       status: 415,
@@ -226,7 +239,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   }
 
   if (result.type === 'conflict') {
-    const systemLabel = result.system === 'wns' ? 'WNS' : 'ENS';
+    const systemLabel = nameSystemLabelForResult(result, host);
     return { ok: false, status: 502, message: `${systemLabel} providers disagree on ${host}` };
   }
 
@@ -234,7 +247,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   return {
     ok: false,
     status: 502,
-    message: `${result.system === 'wns' ? 'WNS' : 'ENS'} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
+    message: `${nameSystemLabelForResult(result, host)} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
   };
 }
 

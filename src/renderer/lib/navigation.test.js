@@ -230,7 +230,12 @@ const loadNavigationModule = async (options = {}) => {
       if (lower.startsWith('ens://')) return true;
       const transportMatch = lower.match(/^(?:bzz|ipfs|ipns):\/\/([^/?#]+)/);
       const host = transportMatch ? transportMatch[1] : trimmed.split(/[/?#]/)[0].toLowerCase();
-      return host.endsWith('.eth') || host.endsWith('.box') || host.endsWith('.wei');
+      return (
+        host.endsWith('.eth') ||
+        host.endsWith('.box') ||
+        host.endsWith('.wei') ||
+        host.endsWith('.gwei')
+      );
     }),
     isSupportedEnsTransport: jest.fn(
       (protocol) => protocol === 'bzz' || protocol === 'ipfs' || protocol === 'ipns'
@@ -932,7 +937,12 @@ describe('navigation', () => {
         const m = value.match(/^(?:(?:ens|bzz|ipfs|ipns):\/\/)?([^?/]+)(.*)?$/i);
         if (!m) return null;
         const host = m[1].toLowerCase();
-        if (!host.endsWith('.eth') && !host.endsWith('.box') && !host.endsWith('.wei')) {
+        if (
+          !host.endsWith('.eth') &&
+          !host.endsWith('.box') &&
+          !host.endsWith('.wei') &&
+          !host.endsWith('.gwei')
+        ) {
           return null;
         }
         return { name: host, suffix: m[2] || '', assertedTransport };
@@ -1478,7 +1488,12 @@ describe('navigation', () => {
         const m = value.match(/^(?:(?:ens|bzz|ipfs|ipns):\/\/)?([^?/]+)(.*)?$/i);
         if (!m) return null;
         const name = m[1].toLowerCase();
-        return name.endsWith('.eth') || name.endsWith('.box') || name.endsWith('.wei')
+        return (
+          name.endsWith('.eth') ||
+          name.endsWith('.box') ||
+          name.endsWith('.wei') ||
+          name.endsWith('.gwei')
+        )
           ? { name, suffix: m[2] || '', assertedTransport }
           : null;
       });
@@ -1716,7 +1731,12 @@ describe('navigation', () => {
         const m = value.match(/^(?:(?:ens|bzz|ipfs|ipns):\/\/)?([^?/]+)(.*)?$/i);
         if (!m) return null;
         const name = m[1].toLowerCase();
-        return name.endsWith('.eth') || name.endsWith('.box') || name.endsWith('.wei')
+        return (
+          name.endsWith('.eth') ||
+          name.endsWith('.box') ||
+          name.endsWith('.wei') ||
+          name.endsWith('.gwei')
+        )
           ? { name, suffix: m[2] || '', assertedTransport }
           : null;
       });

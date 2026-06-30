@@ -76,7 +76,7 @@ export const getInternalPageName = (url) => {
 };
 
 // Parse Ethereum name input. Accepts:
-//   - bare names (vitalik.eth, name.box, name.wei, with optional path/query/fragment)
+//   - bare names (vitalik.eth, name.box, name.wei, name.gwei, with optional path/query/fragment)
 //   - legacy ens:// URLs (kept for bookmark + history compatibility)
 //   - transport-aware ENS URLs (bzz://name.eth/, ipfs://name.eth/, ipns://name.eth/)
 //

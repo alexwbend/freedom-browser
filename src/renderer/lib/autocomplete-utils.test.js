@@ -21,6 +21,7 @@ describe('autocomplete-utils', () => {
       expect(extractRootDomain('vitalik.eth/about')).toBe('vitalik.eth');
       expect(extractRootDomain('name.box/docs')).toBe('name.box');
       expect(extractRootDomain('alice.wei/docs')).toBe('alice.wei');
+      expect(extractRootDomain('apoorv.gwei/docs')).toBe('apoorv.gwei');
     });
 
     test('returns null for unsupported inputs', () => {
@@ -34,6 +35,7 @@ describe('autocomplete-utils', () => {
       expect(detectSuggestionProtocol('bzz://hash')).toBe('swarm');
       expect(detectSuggestionProtocol('vitalik.eth')).toBe('swarm');
       expect(detectSuggestionProtocol('alice.wei')).toBe('swarm');
+      expect(detectSuggestionProtocol('apoorv.gwei')).toBe('swarm');
       expect(detectSuggestionProtocol('ipfs://cid')).toBe('ipfs');
       expect(detectSuggestionProtocol('ipns://name')).toBe('ipns');
       expect(detectSuggestionProtocol('https://example.com')).toBe('https');
