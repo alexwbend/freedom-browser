@@ -21,6 +21,7 @@ import {
   formatBzzUrl,
   formatIpfsUrl,
   formatRadicleUrl,
+  looksLikeBzzInput,
   deriveDisplayValue,
   deriveBzzBaseFromUrl,
   deriveRadBaseFromUrl,
@@ -125,6 +126,16 @@ const buildErrorPageUrl = (errorCode, targetUrl, extras = {}) => {
   if (extras.retry) errorUrl.searchParams.set('retry', extras.retry);
   return errorUrl.toString();
 };
+
+// True when the IPFS node can't currently serve content — disabled for this
+// profile, or stopped/errored. Used to route ipfs:// / ipns:// navigations to
+// the friendly error page instead of letting the ipfs: protocol handler return
+// a raw JSON 503 body that Chromium would render verbatim. `starting` and
+// `running` are allowed through (the load proceeds normally).
+const isIpfsNodeUnavailable = () =>
+  state.registry?.ipfs?.mode === 'disabled' ||
+  state.currentIpfsStatus === 'stopped' ||
+  state.currentIpfsStatus === 'error';
 
 // Cancel any pending Swarm content probe on the given navState and clear it.
 //
@@ -1314,6 +1325,34 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
   // Try IPFS (ipfs://, ipns://, or raw CID)
   const ipfsTarget = formatIpfsUrl(value, state.ipfsRoutePrefix);
   if (ipfsTarget) {
+    // Node disabled or not running: surface the friendly "node not running"
+    // page rather than letting webview.loadURL hit the ipfs: handler, which
+    // returns a raw JSON 503 body Chromium renders verbatim. Reuses error.html
+    // via the same ERR_CONNECTION_REFUSED path the Swarm probe uses, and the
+    // Radicle disabled gate above. Unlike Swarm, `state.ipfsRoutePrefix` keeps
+    // a native fallback even when disabled, so `formatIpfsUrl` still resolves —
+    // hence the explicit availability check here.
+    if (isIpfsNodeUnavailable()) {
+      // Prefer the ENS-named load URL when the resolver supplied one, so the
+      // error page's display + retry preserve the ENS host (ipfs://name.eth)
+      // rather than the resolved CID — the ipfs: handler re-resolves the host
+      // per request, so the named form is loadable. See buildErrorPageUrl's
+      // note on ENS-backed retries.
+      const ipfsErrorUrl = options.ipfsLoadUrl || ipfsTarget.displayValue;
+      const protocol = ipfsErrorUrl.toLowerCase().startsWith('ipns://') ? 'ipns' : 'ipfs';
+      pushDebug(`[AddressBar] IPFS node unavailable — error page for ${ipfsErrorUrl}`);
+      addressInput.value = value.trim();
+      const errorUrl = buildErrorPageUrl('ERR_CONNECTION_REFUSED', ipfsErrorUrl, {
+        protocol,
+        retry: ipfsErrorUrl,
+      });
+      navState.pendingNavigationUrl = errorUrl;
+      navState.hasNavigatedDuringCurrentLoad = false;
+      webview.loadURL(errorUrl);
+      syncBzzBase(null);
+      syncRadBase(null);
+      return;
+    }
     const cidMatch = ipfsTarget.displayValue.match(/^ipfs:\/\/([A-Za-z0-9]+)/);
     const ipnsMatch = ipfsTarget.displayValue.match(/^ipns:\/\/([A-Za-z0-9.-]+)/);
     // Load via the native `ipfs:`/`ipns:` schemes so the main-process
@@ -1332,6 +1371,30 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     pushDebug(`[AddressBar] Loading IPFS target, set to: ${ipfsDisplayValue}`);
     webview.loadURL(ipfsLoadUrl);
     pushDebug(`Loading ${ipfsTarget.displayValue} via ${ipfsLoadUrl}`);
+    syncBzzBase(null);
+    syncRadBase(null);
+    return;
+  }
+
+  // Swarm node disabled or not running: `state.bzzRoutePrefix` is null, so
+  // `formatBzzUrl` below returns null and the navigation would otherwise fall
+  // through to "Ignoring empty input or invalid URL" — a silent failure. Detect
+  // the Swarm intent from the raw input and show the same friendly "node not
+  // running" page the probe produces for an unreachable node (see
+  // startBzzNavigationWithProbe / error.html). Mirrors the Radicle disabled gate
+  // above.
+  if (!state.bzzRoutePrefix && looksLikeBzzInput(value)) {
+    const trimmed = value.trim();
+    const retry = /^bzz:/i.test(trimmed) ? trimmed : `bzz://${trimmed}`;
+    pushDebug(`[AddressBar] Swarm node unavailable — error page for ${trimmed}`);
+    addressInput.value = trimmed;
+    const errorUrl = buildErrorPageUrl('ERR_CONNECTION_REFUSED', retry, {
+      protocol: 'swarm',
+      retry,
+    });
+    navState.pendingNavigationUrl = errorUrl;
+    navState.hasNavigatedDuringCurrentLoad = false;
+    webview.loadURL(errorUrl);
     syncBzzBase(null);
     syncRadBase(null);
     return;
