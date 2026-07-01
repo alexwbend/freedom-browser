@@ -878,6 +878,27 @@ describe('navigation', () => {
       expect(loadedUrl).toContain(encodeURIComponent(`bzz://${VALID_HASH}`));
     });
 
+    test('Swarm: ENS-backed retry preserves the ENS host, not the resolved hash', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      ctx.state.bzzRoutePrefix = null;
+
+      // Mirrors the ENS resolution recursion: value is the resolved hash form,
+      // while displayOverride / options.bzzLoadUrl carry the ENS-named URL. The
+      // disabled path must keep the ENS host on the error/retry URL, matching
+      // the probe path (startBzzNavigationWithProbe).
+      ctx.mod.loadTarget(`bzz://${VALID_HASH}`, 'bzz://vitalik.eth', null, {
+        bzzLoadUrl: 'bzz://vitalik.eth',
+      });
+      await flushMicrotasks();
+
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=swarm');
+      expect(loadedUrl).toContain(`retry=${encodeURIComponent('bzz://vitalik.eth')}`);
+      expect(loadedUrl).not.toContain(encodeURIComponent(`bzz://${VALID_HASH}`));
+    });
+
     test('IPFS: shows the friendly error page instead of raw JSON when the node is disabled', async () => {
       const ctx = await loadNavigationModule({ registry: { ipfs: { mode: 'disabled' } } });
       await ctx.mod.initNavigation();
@@ -927,6 +948,75 @@ describe('navigation', () => {
       await ctx.mod.initNavigation();
 
       ctx.mod.loadTarget('ipfs://QmTest');
+      await flushMicrotasks();
+
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=ipfs');
+    });
+
+    test('IPFS: background-tab error page leaves the foreground address bar alone', async () => {
+      const tabA = createTab(1, 'https://a.example', { title: 'Tab A' });
+      const tabB = createTab(2, 'about:blank', { title: 'Tab B' });
+      const ctx = await loadNavigationModule({
+        firstTab: tabA,
+        tabs: [tabA, tabB],
+        activeTab: tabB,
+        registry: { ipfs: { mode: 'disabled' } },
+      });
+      ctx.tabsRef.list = [tabA, tabB];
+      ctx.activeRef.tab = tabB;
+      await ctx.mod.initNavigation();
+      ctx.elements.addressInput.value = 'about:blank';
+
+      // A background ENS/dweb navigation targets Tab A while Tab B is foreground.
+      ctx.mod.loadTarget('ipfs://QmBackground', null, tabA.webview);
+      await flushMicrotasks();
+
+      // Error page loads in Tab A's webview, not the active tab's.
+      const loadedUrl = tabA.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=ipfs');
+      // Foreground (Tab B) address bar is untouched...
+      expect(ctx.elements.addressInput.value).toBe('about:blank');
+      // ...and Tab A's snapshot carries the resolved display for switchback.
+      expect(tabA.navigationState.addressBarSnapshot).toBe('ipfs://QmBackground');
+    });
+
+    test('Swarm: background-tab error page leaves the foreground address bar alone', async () => {
+      const tabA = createTab(1, 'https://a.example', { title: 'Tab A' });
+      const tabB = createTab(2, 'about:blank', { title: 'Tab B' });
+      const ctx = await loadNavigationModule({
+        firstTab: tabA,
+        tabs: [tabA, tabB],
+        activeTab: tabB,
+      });
+      ctx.tabsRef.list = [tabA, tabB];
+      ctx.activeRef.tab = tabB;
+      await ctx.mod.initNavigation();
+      ctx.state.bzzRoutePrefix = null;
+      ctx.elements.addressInput.value = 'about:blank';
+
+      ctx.mod.loadTarget(`bzz://${VALID_HASH}`, null, tabA.webview);
+      await flushMicrotasks();
+
+      const loadedUrl = tabA.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=swarm');
+      expect(ctx.elements.addressInput.value).toBe('about:blank');
+      expect(tabA.navigationState.addressBarSnapshot).toBe(`bzz://${VALID_HASH}`);
+    });
+
+    test('IPFS: honors a just-flipped-off Nodes-menu toggle before the status catches up', async () => {
+      // Reproduces navigating immediately after switching the node off: the
+      // toggle sets ipfsDesiredRunning=false synchronously, but currentIpfsStatus
+      // still reads 'running' until the async stop lands. The guard must honor
+      // the pending intent so the friendly page shows instead of the raw 503.
+      const ctx = await loadNavigationModule({ currentIpfsStatus: 'running' });
+      await ctx.mod.initNavigation();
+      ctx.state.ipfsDesiredRunning = false;
+
+      ctx.mod.loadTarget('ipfs://QmStillRunning');
       await flushMicrotasks();
 
       const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
@@ -1988,6 +2078,64 @@ describe('navigation', () => {
       expect(ctx.activeRef.tab.webview.reload).not.toHaveBeenCalled();
       expect(ctx.electronAPI.resolveEns).not.toHaveBeenCalled();
       expect(ctx.electronAPI.invalidateEnsContent).not.toHaveBeenCalled();
+    });
+
+    test('reload of a bare-CID IPFS page routes to the error page when the node is disabled', async () => {
+      const ctx = await loadNavigationModule({ registry: { ipfs: { mode: 'disabled' } } });
+      installEnsParser(ctx);
+      await ctx.mod.initNavigation();
+
+      // Node was running when the page loaded; committedDisplayUrl holds the
+      // bare-CID ipfs URL. It has since been disabled — a plain webview.reload()
+      // would re-hit the ipfs: handler and render its raw JSON 503.
+      const cidUrl = 'ipfs://bafybeihhofqwesc552xtojljmjslqryb6fco4kvfgpujf44dm2jp4e6jxm/';
+      commitDisplay(ctx, cidUrl);
+      ctx.activeRef.tab.webview.getURL.mockReturnValue(cidUrl);
+      ctx.activeRef.tab.webview.loadURL.mockClear();
+
+      ctx.elements.reloadBtn.dispatch('click', { shiftKey: false });
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.reload).not.toHaveBeenCalled();
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=ipfs');
+    });
+
+    test('reload of a bare-hash Swarm page routes to the error page when the node is disabled', async () => {
+      const ctx = await loadNavigationModule();
+      installEnsParser(ctx);
+      await ctx.mod.initNavigation();
+      ctx.state.bzzRoutePrefix = null;
+
+      const hashUrl = `bzz://${'a'.repeat(64)}/`;
+      commitDisplay(ctx, hashUrl);
+      ctx.activeRef.tab.webview.getURL.mockReturnValue(hashUrl);
+      ctx.activeRef.tab.webview.loadURL.mockClear();
+
+      ctx.elements.reloadBtn.dispatch('click', { shiftKey: false });
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.reload).not.toHaveBeenCalled();
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('pages/error.html');
+      expect(loadedUrl).toContain('protocol=swarm');
+    });
+
+    test('reload of a bare-CID IPFS page still uses webview.reload() when the node is available', async () => {
+      const ctx = await loadNavigationModule();
+      installEnsParser(ctx);
+      await ctx.mod.initNavigation();
+
+      const cidUrl = 'ipfs://bafybeihhofqwesc552xtojljmjslqryb6fco4kvfgpujf44dm2jp4e6jxm/';
+      commitDisplay(ctx, cidUrl);
+      ctx.activeRef.tab.webview.getURL.mockReturnValue(cidUrl);
+
+      ctx.elements.reloadBtn.dispatch('click', { shiftKey: false });
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.reload).toHaveBeenCalled();
+      expect(ctx.electronAPI.resolveEns).not.toHaveBeenCalled();
     });
 
     test('reload from an ENS error page recovers via the original-URL branch', async () => {
