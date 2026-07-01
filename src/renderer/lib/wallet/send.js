@@ -1206,3 +1206,8 @@ async function handleSendConfirm() {
     showSendErrorView(err.message || 'Transaction failed');
   }
 }
+
+export const __test__ = {
+  lookupPrimaryNameForAddress,
+  renderRecipientReview,
+};

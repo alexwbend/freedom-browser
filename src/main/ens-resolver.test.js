@@ -848,17 +848,20 @@ describe('ens-resolver', () => {
       const input = addr('1003');
       mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
       mockWnsReverseResolve.mockResolvedValue('alice.wei');
+      mockWnsAddr.mockResolvedValue(input);
 
       const result = await resolveEnsReverse(input);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: true,
         address: input.toLowerCase(),
         name: 'alice.wei',
         system: 'wns',
       });
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
       expect(mockUrReverse).toHaveBeenCalledTimes(1);
       expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockWnsAddr).toHaveBeenCalledTimes(3);
     });
 
     test('falls back to GNS reverse after empty WNS reverse', async () => {
@@ -866,18 +869,86 @@ describe('ens-resolver', () => {
       mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
       mockWnsReverseResolve.mockResolvedValue('');
       mockGnsReverseResolve.mockResolvedValue('apoorv.gwei');
+      mockGnsAddr.mockResolvedValue(input);
 
       const result = await resolveEnsReverse(input);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: true,
         address: input.toLowerCase(),
         name: 'apoorv.gwei',
         system: 'gns',
       });
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
       expect(mockUrReverse).toHaveBeenCalledTimes(1);
       expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
       expect(mockGnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockGnsAddr).toHaveBeenCalledTimes(3);
+    });
+
+    test('returns UNVERIFIED when WNS reverse does not forward-resolve to the address', async () => {
+      const input = addr('1010');
+      mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
+      mockWnsReverseResolve.mockResolvedValue('spoof.wei');
+      mockWnsAddr.mockResolvedValue(addr('9999'));
+
+      const result = await resolveEnsReverse(input);
+
+      expect(result).toMatchObject({
+        success: false,
+        address: input.toLowerCase(),
+        system: 'wns',
+        reason: 'UNVERIFIED',
+        claimedName: 'spoof.wei',
+      });
+      expect(result.name).toBeUndefined();
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
+      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockWnsAddr).toHaveBeenCalledTimes(3);
+    });
+
+    test('returns UNVERIFIED when GNS reverse does not forward-resolve to the address', async () => {
+      const input = addr('1011');
+      mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
+      mockWnsReverseResolve.mockResolvedValue('');
+      mockGnsReverseResolve.mockResolvedValue('spoof.gwei');
+      mockGnsAddr.mockResolvedValue(addr('9998'));
+
+      const result = await resolveEnsReverse(input);
+
+      expect(result).toMatchObject({
+        success: false,
+        address: input.toLowerCase(),
+        system: 'gns',
+        reason: 'UNVERIFIED',
+        claimedName: 'spoof.gwei',
+      });
+      expect(result.name).toBeUndefined();
+      expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
+      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockGnsAddr).toHaveBeenCalledTimes(3);
+    });
+
+    test('short-caches unverified contract-backed reverse claims', async () => {
+      const input = addr('1012');
+      const now = jest.spyOn(Date, 'now');
+      now.mockReturnValue(1_000_000);
+      mockUrReverse.mockResolvedValue(['', RESOLVER, RESOLVER]);
+      mockWnsReverseResolve.mockResolvedValue('stale.wei');
+      mockWnsAddr.mockResolvedValue(addr('9997'));
+
+      try {
+        await resolveEnsReverse(input);
+        await resolveEnsReverse(input);
+        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+
+        now.mockReturnValue(1_061_000);
+        await resolveEnsReverse(input);
+
+        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(2);
+      } finally {
+        now.mockRestore();
+      }
     });
 
     test('UNVERIFIED when UR reverts with ReverseAddressMismatch', async () => {
@@ -890,9 +961,7 @@ describe('ens-resolver', () => {
 
       expect(result.success).toBe(false);
       expect(result.reason).toBe('UNVERIFIED');
-      // No claimed-name field — keeps spoofed names out of the return shape
-      // entirely so no caller can accidentally surface them.
-      expect(result.claimedUnverifiedName).toBeUndefined();
+      expect(result.claimedName).toBeNull();
     });
 
     test('NO_REVERSE when UR returns empty name', async () => {

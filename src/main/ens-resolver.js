@@ -1887,6 +1887,62 @@ async function tryColibriReverse(normalizedAddress) {
 
 const CONTRACT_BACKED_REVERSE_SYSTEMS = [NAME_SYSTEMS.wns, NAME_SYSTEMS.gns];
 
+function unverifiedReverseResult(normalizedAddress, nameSystem, claimedName, detail, trust = undefined) {
+  return {
+    success: false,
+    address: normalizedAddress,
+    system: nameSystem.id,
+    reason: 'UNVERIFIED',
+    claimedName: claimedName || null,
+    error: detail || `Reverse record for ${normalizedAddress} does not forward-verify`,
+    ...(trust ? { trust } : {}),
+  };
+}
+
+async function verifyContractBackedReverseName(normalizedAddress, nameSystem, claimedName) {
+  if (!claimedName) return null;
+  const claimedSystem = nameSystemForName(claimedName);
+  if (claimedSystem.id !== nameSystem.id) {
+    return unverifiedReverseResult(
+      normalizedAddress,
+      nameSystem,
+      claimedName,
+      `Reverse record for ${normalizedAddress} claims a non-${nameSystem.label} name`
+    );
+  }
+
+  let forwardResult;
+  try {
+    forwardResult = await resolveEnsAddress(claimedName);
+  } catch (err) {
+    return unverifiedReverseResult(
+      normalizedAddress,
+      nameSystem,
+      claimedName,
+      `Reverse record for ${normalizedAddress} could not be forward-verified: ${err.message}`
+    );
+  }
+
+  const forwardAddress = String(forwardResult?.address || '').toLowerCase();
+  if (forwardResult?.success && forwardAddress === normalizedAddress) {
+    return {
+      success: true,
+      address: normalizedAddress,
+      name: forwardResult.name || claimedName,
+      system: nameSystem.id,
+      trust: forwardResult.trust,
+    };
+  }
+
+  return unverifiedReverseResult(
+    normalizedAddress,
+    nameSystem,
+    claimedName,
+    `Reverse record for ${normalizedAddress} does not forward-verify`,
+    forwardResult?.trust
+  );
+}
+
 async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
   if (ensResult?.reason !== 'NO_REVERSE') return ensResult;
 
@@ -1902,12 +1958,7 @@ async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
         );
         const name = await registryContract.reverseResolve(normalizedAddress);
         if (!name) continue;
-        return {
-          success: true,
-          address: normalizedAddress,
-          name,
-          system: nameSystem.id,
-        };
+        return await verifyContractBackedReverseName(normalizedAddress, nameSystem, name);
       } catch (err) {
         if (isProviderError(err)) throw err;
         log.info(`[${nameSystem.id}] reverse failed for ${normalizedAddress}: ${err.message}`);

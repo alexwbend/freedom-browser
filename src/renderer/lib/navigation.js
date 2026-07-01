@@ -282,10 +282,10 @@ let currentPageSecure = false;
 // Screen-reader label for the shield button, keyed on trust level. Updated
 // alongside the data-trust attribute so assistive tech announces the state.
 const TRUST_ARIA_LABEL = {
-  verified: 'ENS resolution trust: verified',
-  'user-configured': 'ENS resolution trust: user-configured',
-  unverified: 'ENS resolution trust: unverified',
-  conflict: 'ENS resolution trust: conflict',
+  verified: 'Ethereum name resolution trust: verified',
+  'user-configured': 'Ethereum name resolution trust: user-configured',
+  unverified: 'Ethereum name resolution trust: unverified',
+  conflict: 'Ethereum name resolution trust: conflict',
 };
 
 // Shrink a long value to fit on a single line in the popover by
@@ -592,12 +592,12 @@ const updateProtocolIcon = () => {
       trustShield.setAttribute('data-trust', badge.level);
       trustShield.setAttribute(
         'aria-label',
-        TRUST_ARIA_LABEL[badge.level] || 'ENS resolution trust status'
+        TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
       );
       trustShield.hidden = false;
     } else {
       trustShield.removeAttribute('data-trust');
-      trustShield.setAttribute('aria-label', 'ENS resolution trust status');
+      trustShield.setAttribute('aria-label', 'Ethereum name resolution trust status');
       trustShield.hidden = true;
     }
 
