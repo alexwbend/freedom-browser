@@ -2,27 +2,57 @@
 
 All notable changes to Freedom will be documented in this file.
 
-## [Unreleased]
+## [0.8.0] - 2026-07-02
 
 ### Added
 
-- Native `freedom-ipfs` IPFS runtime:
-  - `ipfs://` and `ipns://` pages load through the embedded native request API
-  - Node panels show ephemeral IPFS identity mode and native request diagnostics
 - Profiles overhaul:
   - A profiles flyout in the hamburger menu and a native Profiles menu for switching, creating, and managing profiles
   - A standalone `freedom://profiles` manager page for opening, registering, renaming (via each profile's Settings), and deleting profiles
   - The last active profile reopens automatically on cold start
+- Native `freedom-ipfs` IPFS runtime:
+  - `ipfs://` and `ipns://` pages load through the embedded native request API
+  - Node panels show ephemeral IPFS identity mode and native request diagnostics
+  - IPFS load progress in the status bar, behind an experimental setting
+- `.wei` and `.gwei` name resolution alongside ENS — navigate the names and use them as wallet recipient addresses
+- `Tabs in title bar` setting on Linux, off by default
 
 ### Changed
 
+- Upgraded Electron 41 to 43 (Chromium 146.0.7680.216 to 150.0.7871.46, Node 24.15.0 to 24.17.0)
 - Internal `freedom://` pages (History, Settings, Profiles, …) now open as singleton tabs — opening one via a link or menu focuses the existing tab instead of creating a duplicate
 - Deleting a profile now uses a simpler yes/no confirmation (with a brief arm delay on the Delete button) instead of typing the profile name to confirm
-- Bundled Swarm node switched from Bee to Ant (antd), a bee-compatible light node — node status, menus, and wallet copy now read "Ant"
-- Existing Bee node data is migrated to Ant on first launch after upgrading, so the injected Swarm identity (overlay address, postage stamps, chequebook) is preserved
-- Updated the bundled Ant node to v0.5.21; runtime postage-batch management (added in v0.5.8) means publishing to Swarm (buying stamps, uploading data/files/sites) works end-to-end in light mode, and the Bee-compatible `/wallet` and stamp-purchase behavior (v0.5.19) means balance checks and feed/post retrieval work without Ant-specific browser logic
-- Bundled IPFS runtime moves from Kubo 0.41.0 to `freedom-ipfs` 0.4.1 native addons for macOS, Linux, and Windows
-- Updated the bundled Ant node to v0.5.33; the wallet → nodes → storage panel now shows each postage stamp's real, decreasing time-remaining (derived from chainstate) instead of a flat 3650-day placeholder, including in the default ultra-light node mode
+- Bundled Swarm node switched from Bee to Ant (antd) v0.5.33, a Bee-compatible light node — node status, menus, and wallet copy now read "Ant":
+  - Existing Bee node data migrates to Ant on first launch, preserving the injected Swarm identity (overlay address, postage stamps, chequebook)
+  - Publishing to Swarm (buying stamps, uploading data, files, and sites) works end-to-end in light mode
+  - Wallet > Nodes > Storage shows each postage stamp's real, decreasing time-remaining instead of a flat placeholder
+- Bundled IPFS runtime moves from Kubo 0.41.0 to `freedom-ipfs` 0.4.3 native addons for macOS, Linux, and Windows
+
+### Fixed
+
+- Opening a `bzz://` or `ipfs://` page with its node disabled now shows a friendly error page instead of a failed load
+
+### Security
+
+- ENS resolution falls back to the public-RPC quorum on Colibri prover or network outages instead of treating them as verified reverts
+- Updated runtime dependencies:
+  - `better-sqlite3` 12.10.0 to 12.11.1
+  - `ethers` 6.16.0 to 6.17.0
+  - `@x402/core` 2.14.0 to 2.17.0
+  - `@x402/evm` 2.14.0 to 2.17.0
+  - `@ethersphere/bee-js` 12.2.1 to 12.2.2
+  - `@ensdomains/content-hash` 3.0.0 to 3.1.1
+  - `@corpus-core/colibri-stateless` 1.1.28 to 1.1.30
+  - `micro-key-producer` 0.8.6 to 0.9.0
+  - `electron-updater` 6.8.3 to 6.8.9
+- Override `ws` to ^8.21.0 under `viem` to clear `GHSA-96hv-2xvq-fx4p` (memory-exhaustion DoS); the auto-fix would have downgraded `@x402/evm` across a major
+- Updated dev dependencies:
+  - `@babel/preset-env` 7.29.7 to 8.0.2 (with `@babel/core` 8)
+  - `@playwright/test` 1.60.0 to 1.61.1
+  - `electron-builder` 26.8.1 to 26.15.3
+  - `eslint` 10.4.1 to 10.6.0
+  - `prettier` 3.8.3 to 3.9.4
+  - `globals` 17.6.0 to 17.7.0
 
 ## [0.7.4] - 2026-06-01
 
