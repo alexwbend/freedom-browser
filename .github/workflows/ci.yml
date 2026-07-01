@@ -48,7 +48,7 @@ jobs:
   # The bee->ant carry has OS-specific filesystem semantics (Windows EPERM on
   # locked handles, rename-vs-copy fallbacks), so the migration + profile
   # resolver/paths suites must be green on Windows and macOS too — not just the
-  # ubuntu-only `test` job. Pure jest, no display or native nodes required. (#107)
+  # ubuntu-only `test` job. Pure jest, no display or native nodes required.
   migration-cross-platform:
     strategy:
       fail-fast: false

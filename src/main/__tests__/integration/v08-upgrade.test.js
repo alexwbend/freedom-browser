@@ -322,7 +322,7 @@ describe('v0.8.0 upgrade path (end-to-end, in place)', () => {
     expect(fs.existsSync(path.join(userDataDir, 'ipfs-data', 'blocks', 'CIQ.data'))).toBe(true);
   });
 
-  // #107: crash mid bee→ant migration must be recoverable on the next launch —
+  // A crash mid bee→ant migration must be recoverable on the next launch —
   // no lost keystore, no duplicated/corrupted data. This drives the merge path
   // (ant-data already present because antd self-generated a throwaway identity),
   // injects a Windows-EPERM-style failure part way through the carry, then
@@ -372,7 +372,7 @@ describe('v0.8.0 upgrade path (end-to-end, in place)', () => {
     expect(fs.existsSync(path.join(antData, 'identity.json'))).toBe(false);
   });
 
-  // #107: a v0.7.x install kept its Radicle identity in a profile-local
+  // A v0.7.x install kept its Radicle identity in a profile-local
   // radicle-data/. On upgrade the default profile is catalog-managed, so the
   // Radicle home moves to the short, app-owned <appRoot>/R/<slot> (radicle-node
   // canonicalizes RAD_HOME before binding its control.sock, which has a hard

@@ -266,7 +266,7 @@ describe('profile resolver', () => {
     expect(logger.warn).toHaveBeenCalledTimes(2);
   });
 
-  // #107: warn-only is the accepted behavior for dev pre-profile data. Legacy
+  // Warn-only is the accepted behavior for dev pre-profile data. Legacy
   // repo-root dirs must be left untouched (not moved) and must NOT be copied
   // into the new default profile — the dev boots a fresh default profile.
   test('does not auto-migrate legacy dev repo-root data into the default profile', () => {
