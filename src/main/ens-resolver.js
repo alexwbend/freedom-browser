@@ -31,20 +31,18 @@ const NAME_NFT_ABI = [
 ];
 
 const NAME_SYSTEMS = {
-  ens: { id: 'ens', label: 'ENS', emptyNameError: 'ENS name is empty' },
+  ens: { id: 'ens', label: 'ENS' },
   wns: {
     id: 'wns',
     label: 'WNS',
     suffix: '.wei',
     contractAddress: WNS_ADDRESS,
-    emptyNameError: 'Ethereum name is empty',
   },
   gns: {
     id: 'gns',
     label: 'GNS',
     suffix: '.gwei',
     contractAddress: GNS_ADDRESS,
-    emptyNameError: 'Ethereum name is empty',
   },
 };
 
@@ -1949,6 +1947,12 @@ async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
   let provider;
   try {
     provider = await getWorkingProvider();
+    // Return the first forward-verified name across systems. A claim that
+    // doesn't forward-verify shouldn't stop us from checking the next system
+    // (an address can have a stale/spoofed .wei record but a valid .gwei
+    // primary), so keep the first unverified claim only as a fallback so its
+    // warning still surfaces when no system verifies.
+    let firstUnverified = null;
     for (const nameSystem of CONTRACT_BACKED_REVERSE_SYSTEMS) {
       try {
         const registryContract = new ethers.Contract(
@@ -1958,13 +1962,15 @@ async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
         );
         const name = await registryContract.reverseResolve(normalizedAddress);
         if (!name) continue;
-        return await verifyContractBackedReverseName(normalizedAddress, nameSystem, name);
+        const verified = await verifyContractBackedReverseName(normalizedAddress, nameSystem, name);
+        if (verified?.success) return verified;
+        if (!firstUnverified) firstUnverified = verified;
       } catch (err) {
         if (isProviderError(err)) throw err;
         log.info(`[${nameSystem.id}] reverse failed for ${normalizedAddress}: ${err.message}`);
       }
     }
-    return ensResult;
+    return firstUnverified || ensResult;
   } catch (err) {
     if (isProviderError(err)) throw err;
     log.info(`[ens] contract-backed reverse fallback failed for ${normalizedAddress}: ${err.message}`);
