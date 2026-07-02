@@ -6,36 +6,44 @@ All notable changes to Freedom will be documented in this file.
 
 ### Added
 
-- Profiles overhaul:
-  - A profiles flyout in the hamburger menu and a native Profiles menu for switching, creating, and managing profiles
-  - A standalone `freedom://profiles` manager page for opening, registering, renaming (via each profile's Settings), and deleting profiles
-  - The last active profile reopens automatically on cold start
-- Native `freedom-ipfs` IPFS runtime:
-  - `ipfs://` and `ipns://` pages load through the embedded native request API
-  - Node panels show ephemeral IPFS identity mode and native request diagnostics
-  - IPFS load progress in the status bar, behind an experimental setting
-- `.wei` and `.gwei` name resolution alongside ENS — navigate the names and use them as wallet recipient addresses
-- `Tabs in title bar` setting on Linux, off by default
+- In-house Rust implementations of the bundled Swarm and IPFS nodes, built for the upcoming mobile apps:
+  - Reasoning: mobile needs small binaries and bounded memory; every platform gains speed and room for specialised node features
+- [Ant](https://github.com/solardev-xyz/ant) 0.5.33, a lean Swarm light node, replaces bundled Bee:
+  - Full Bee parity: retrieval, feeds, stamp purchase, publishing, and chequebook payments
+  - Instant publishing setup (no more lengthy Gnosis chain-state download)
+  - Node data and Swarm identity migrate in place on first launch
+- [freedom-ipfs](https://github.com/solardev-xyz/freedom-ipfs) 0.4.3, a retrieval-only IPFS implementation, replaces bundled Kubo:
+  - The node runs inside the browser process instead of as a separate daemon
+  - No standing peer connections — the node connects instantly when IPFS content loads
+  - IPFS load progress in the status bar (Settings > Experimental)
+- Support for multiple profiles with separate tabs, history, settings, wallet, identities, and nodes, running side by side in separate windows:
+  - Profiles flyout in the browser menu, a native Profiles menu, and a `freedom://profiles` manager page
+  - Existing data carries over as the first profile on upgrade
+- Prompt to adopt system Swarm or Radicle nodes found on their default ports as external nodes
+- `.wei` and `.gwei` name resolution alongside ENS, for navigation and wallet recipients
+- `Tabs in title bar` setting on Linux, off by default (thanks @agazso!)
 
 ### Changed
 
-- Upgraded Electron 41 to 43 (Chromium 146.0.7680.216 to 150.0.7871.46, Node 24.15.0 to 24.17.0)
-- Internal `freedom://` pages (History, Settings, Profiles, …) now open as singleton tabs — opening one via a link or menu focuses the existing tab instead of creating a duplicate
-- Deleting a profile now uses a simpler yes/no confirmation (with a brief arm delay on the Delete button) instead of typing the profile name to confirm
-- Bundled Swarm node switched from Bee to Ant (antd) v0.5.33, a Bee-compatible light node — node status, menus, and wallet copy now read "Ant":
-  - Existing Bee node data migrates to Ant on first launch, preserving the injected Swarm identity (overlay address, postage stamps, chequebook)
-  - Publishing to Swarm (buying stamps, uploading data, files, and sites) works end-to-end in light mode
-  - Wallet > Nodes > Storage shows each postage stamp's real, decreasing time-remaining instead of a flat placeholder
-- Bundled IPFS runtime moves from Kubo 0.41.0 to `freedom-ipfs` 0.4.3 native addons for macOS, Linux, and Windows
+- Freedom-managed nodes use dedicated ports (Ant 11633, Radicle 18780), leaving the ecosystem defaults (1633, 8780) to system nodes
+- Internal `freedom://` pages (History, Settings, Profiles) open as singleton tabs, focusing the existing tab instead of duplicating it
+
+### Removed
+
+- Local Kubo API and gateway ports (5001, 8080) — the embedded IPFS node exposes no local endpoints
 
 ### Fixed
 
-- Opening a `bzz://` or `ipfs://` page with its node disabled now shows a friendly error page instead of a failed load
+- Opening an `ipfs://` or `ipns://` page with the IPFS node stopped now shows a friendly error page instead of a raw JSON error
+- Swarm publishing setup: the Swap xDAI to xBZZ action opens the swap flow again instead of the wallet receive screen
+- ENS resolution falls back to the public-RPC quorum during Colibri prover or network outages instead of failing to resolve
+- Radicle peer discovery follows the community seeds' move to radicle.network, updating existing configurations
+- The Linux taskbar and dock now show the Freedom icon instead of a generic placeholder (also @agazso)
 
 ### Security
 
-- ENS resolution falls back to the public-RPC quorum on Colibri prover or network outages instead of treating them as verified reverts
 - Updated runtime dependencies:
+  - Electron 41.7.1 to 43.0.0 (Chromium 146.0.7680.216 to 150.0.7871.46, Node 24.15.0 to 24.17.0)
   - `better-sqlite3` 12.10.0 to 12.11.1
   - `ethers` 6.16.0 to 6.17.0
   - `@x402/core` 2.14.0 to 2.17.0
