@@ -137,6 +137,18 @@ function focusBrowserWindow(window) {
   try {
     if (process.platform === 'darwin' && app.focus) {
       app.focus({ steal: true });
+    } else if (process.platform === 'win32') {
+      // Windows foreground-stealing prevention ignores focus() from a
+      // process that isn't already foreground (the cross-profile switch
+      // case). Briefly toggling always-on-top raises and activates the
+      // window without permanently changing its z-order.
+      window.setAlwaysOnTop(true);
+      window.focus();
+      window.setAlwaysOnTop(false);
+      if (!window.isFocused()) {
+        window.flashFrame(true);
+        window.once('focus', () => window.flashFrame(false));
+      }
     }
   } catch {
     // Best-effort only; BrowserWindow.focus() below is the real fallback.

@@ -116,6 +116,18 @@ function currentPackageTarget() {
   return arch ? `${osName}-${arch}` : null;
 }
 
+function requestedPlatformKey() {
+  const idx = process.argv.indexOf('--target');
+  return idx !== -1 && process.argv[idx + 1] ? process.argv[idx + 1] : null;
+}
+
+function packageTargetForPlatformKey(platformKey) {
+  const [platform, arch] = platformKey.split('-');
+  const osName = packagePlatformByNodePlatform[platform];
+  if (!osName || !['x64', 'arm64'].includes(arch)) return null;
+  return `${osName}-${arch}`;
+}
+
 function releaseManifest() {
   const manifest = prebuiltAssets[releaseTag];
   if (!manifest) {
@@ -124,10 +136,6 @@ function releaseManifest() {
     );
   }
   return manifest;
-}
-
-function currentAsset() {
-  return releaseManifest()[currentPlatformKey()] || null;
 }
 
 function sha256(file) {
@@ -209,11 +217,12 @@ function copyAddon(source, destination) {
 }
 
 async function installPrebuilt() {
-  const target = currentPackageTarget();
-  const asset = currentAsset();
+  const platformKey = requestedPlatformKey() || currentPlatformKey();
+  const target = packageTargetForPlatformKey(platformKey);
+  const asset = releaseManifest()[platformKey] || null;
   if (!asset || !target) {
     console.warn(
-      `[freedom-ipfs-native] no pinned ${releaseTag} addon for ${currentPlatformKey()}; skipping prebuilt download`
+      `[freedom-ipfs-native] no pinned ${releaseTag} addon for ${platformKey}; skipping prebuilt download`
     );
     console.warn('[freedom-ipfs-native] set FREEDOM_IPFS_NATIVE_FROM_SOURCE=1 to build locally');
     return;
@@ -239,9 +248,11 @@ async function installPrebuilt() {
     fs.mkdirSync(prebuildDir, { recursive: true });
     run('tar', ['-xzf', archive, '-C', prebuildDir, ADDON_FILENAME]);
     const prebuildAddon = path.join(prebuildDir, ADDON_FILENAME);
-    copyAddon(prebuildAddon, addonPath);
     console.log(`[freedom-ipfs-native] installed packaged addon ${prebuildAddon}`);
-    console.log(`[freedom-ipfs-native] installed development addon ${addonPath}`);
+    if (platformKey === currentPlatformKey()) {
+      copyAddon(prebuildAddon, addonPath);
+      console.log(`[freedom-ipfs-native] installed development addon ${addonPath}`);
+    }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

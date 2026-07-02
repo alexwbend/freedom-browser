@@ -1,6 +1,6 @@
 {
   "name": "freedom-browser",
-  "version": "0.8.0-dev",
+  "version": "0.8.0",
   "license": "MPL-2.0",
   "description": "Freedom – A browser for the decentralized web, with Swarm, IPFS, and ENS as first-class protocols.",
   "author": {
@@ -36,8 +36,8 @@
     "dist:mac:notary-status": "dotenv -- node scripts/macos-notary.js status",
     "dist:mac:notary-log": "dotenv -- node scripts/macos-notary.js log",
     "dist:mac:staple-notary": "dotenv -- node scripts/macos-notary.js staple",
-    "dist:linux:arm64:docker": "docker run --rm -v \"$PWD\":/app -v /app/node_modules -v \"${ELECTRON_CACHE:-$HOME/Library/Caches/electron}\":/root/.cache/electron -w /app -e USE_SYSTEM_FPM=true --platform linux/arm64 node:20 bash -c \"apt-get update && apt-get install -y ruby ruby-dev build-essential xz-utils && gem install fpm --no-document && npm ci && npm run radicle:download && npm run ipfs:download && npm run dist -- --linux --arm64\"",
-    "dist:linux:x64:docker": "docker run --rm -v \"$PWD\":/app -v /app/node_modules -v \"${ELECTRON_CACHE:-$HOME/Library/Caches/electron}\":/root/.cache/electron -w /app --platform linux/amd64 electronuserland/builder:20 bash -c \"npm ci && npm run radicle:download && npm run ipfs:download && npm run dist -- --linux --x64\"",
+    "dist:linux:arm64:docker": "docker run --rm -v \"$PWD\":/app -v /app/node_modules -v \"${ELECTRON_CACHE:-$HOME/Library/Caches/electron}\":/root/.cache/electron -w /app -e USE_SYSTEM_FPM=true --platform linux/arm64 node:24-trixie bash -c \"apt-get update && apt-get install -y ruby ruby-dev build-essential xz-utils && gem install fpm --no-document && npm ci && npm run radicle:download && npm run ipfs:download && npm run dist -- --linux --arm64\"",
+    "dist:linux:x64:docker": "docker run --rm -v \"$PWD\":/app -v /app/node_modules -v \"${ELECTRON_CACHE:-$HOME/Library/Caches/electron}\":/root/.cache/electron -w /app -e USE_SYSTEM_FPM=true --platform linux/amd64 node:24-trixie bash -c \"apt-get update && apt-get install -y ruby ruby-dev build-essential xz-utils && gem install fpm --no-document && npm ci && npm run radicle:download && npm run ipfs:download && npm run dist -- --linux --x64\"",
     "ant:download": "node scripts/fetch-ant.js",
     "ant:init": "node scripts/init-ant.js",
     "ant:start": "echo 'ant:start is a legacy alias for system-ant:start (repo-root ant-data on ecosystem port 1633).'; npm run system-ant:start",
@@ -181,17 +181,17 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.29.7",
+    "@babel/core": "^8.0.1",
+    "@babel/preset-env": "^8.0.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "babel-jest": "^30.4.1",
     "dotenv-cli": "^11.0.0",
-    "electron": "^41.7.0",
+    "electron": "^43.0.0",
     "electron-builder": "^26.8.1",
     "eslint": "^10.4.0",
     "globals": "^17.6.0",
     "jest": "^30.4.2",
-    "node-addon-api": "^1.7.2",
     "prettier": "^3.8.3"
   },
   "dependencies": {
@@ -207,7 +207,7 @@
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.3",
     "ethers": "^6.16.0",
-    "micro-key-producer": "^0.8.6",
+    "micro-key-producer": "^0.9.0",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4"
   },
@@ -216,6 +216,9 @@
       "uuid": "^14.0.0"
     },
     "ethers": {
+      "ws": "^8.21.0"
+    },
+    "viem": {
       "ws": "^8.21.0"
     }
   },
