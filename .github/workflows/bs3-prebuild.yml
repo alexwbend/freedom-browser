@@ -18,11 +18,14 @@ on:
 
 jobs:
   prebuild-win-x64:
-    runs-on: windows-latest
+    # windows-2022 + setuptools matches better-sqlite3's own release CI;
+    # newer runner images ship a Visual Studio its pinned node-gyp can't find.
+    runs-on: windows-2022
     steps:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: pip.exe install setuptools
       - name: Build prebuilt
         shell: pwsh
         run: |
@@ -31,7 +34,7 @@ jobs:
           npm install "better-sqlite3@${{ inputs.bs3-version }}" --ignore-scripts
           cd node_modules/better-sqlite3
           npm install --ignore-scripts
-          npx prebuild -t ${{ inputs.electron-version }} -r electron --arch x64 --strip
+          npx prebuild -t ${{ inputs.electron-version }} -r electron --arch x64 --strip --include-regex 'better_sqlite3.node$'
           Get-ChildItem prebuilds
       - uses: actions/upload-artifact@v4
         with:
