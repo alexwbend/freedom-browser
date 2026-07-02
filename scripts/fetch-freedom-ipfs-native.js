@@ -138,10 +138,6 @@ function releaseManifest() {
   return manifest;
 }
 
-function currentAsset() {
-  return releaseManifest()[currentPlatformKey()] || null;
-}
-
 function sha256(file) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
