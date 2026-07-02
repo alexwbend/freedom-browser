@@ -1,0 +1,40 @@
+name: better-sqlite3 Electron prebuild
+
+# Builds a better-sqlite3 prebuilt for a given Electron version on native
+# Windows, for injection into the macOS cross-build when upstream prebuilds
+# lag a new Electron major (see docs/agent-playbooks/release-process.md §2).
+
+on:
+  workflow_dispatch:
+    inputs:
+      bs3-version:
+        description: better-sqlite3 version
+        default: '12.11.1'
+        required: true
+      electron-version:
+        description: Electron version to target
+        default: '43.0.0'
+        required: true
+
+jobs:
+  prebuild-win-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build prebuilt
+        shell: pwsh
+        run: |
+          mkdir bs3; cd bs3
+          npm init -y | Out-Null
+          npm install "better-sqlite3@${{ inputs.bs3-version }}" --ignore-scripts
+          cd node_modules/better-sqlite3
+          npm install --ignore-scripts
+          npx prebuild -t ${{ inputs.electron-version }} -r electron --arch x64 --strip
+          Get-ChildItem prebuilds
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bs3-prebuilt-win32-x64
+          path: bs3/node_modules/better-sqlite3/prebuilds/*.tar.gz
+          if-no-files-found: error
