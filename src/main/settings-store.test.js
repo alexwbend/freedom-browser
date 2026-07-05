@@ -133,9 +133,7 @@ describe('settings-store', () => {
       true
     );
 
-    expect(
-      JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'))
-    ).toEqual(
+    expect(JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'))).toEqual(
       expect.objectContaining({
         theme: 'light',
         autoUpdate: false,
@@ -190,12 +188,26 @@ describe('settings-store', () => {
 
     expect(mod.saveSettings({ theme: 'light', injected: 'value', extra: 1 })).toBe(true);
 
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8')
-    );
+    const persisted = JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'));
     expect(persisted.theme).toBe('light');
     expect(persisted).not.toHaveProperty('injected');
     expect(persisted).not.toHaveProperty('extra');
+  });
+
+  test('saveSettings rebuilds the adblock engine only when an adblock key changes', () => {
+    const refreshEngine = jest.fn(() => Promise.resolve());
+    const { mod } = loadSettingsStore({
+      userDataDir,
+      extraMocks: {
+        [require.resolve('./adblock/service')]: () => ({ refreshEngine }),
+      },
+    });
+
+    expect(mod.saveSettings({ adblockCookies: true })).toBe(true);
+    expect(refreshEngine).toHaveBeenCalledTimes(1);
+
+    expect(mod.saveSettings({ theme: 'dark' })).toBe(true);
+    expect(refreshEngine).toHaveBeenCalledTimes(1);
   });
 
   test('saveSettings swallows send errors from destroyed webContents', () => {
@@ -225,8 +237,9 @@ describe('settings-store', () => {
         antNodeMode: 'ultraLight',
       })
     );
-    await expect(ipcMain.invoke(IPC.SETTINGS_SAVE, { theme: 'dark', antNodeMode: 'light' }))
-      .resolves.toBe(true);
+    await expect(
+      ipcMain.invoke(IPC.SETTINGS_SAVE, { theme: 'dark', antNodeMode: 'light' })
+    ).resolves.toBe(true);
 
     expect(nativeTheme.themeSource).toBe('dark');
   });
