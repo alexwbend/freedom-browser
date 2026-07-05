@@ -267,6 +267,20 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   ),
   relaunchApp: guardInternal('relaunchApp', () => ipcRenderer.send('app:relaunch')),
 
+  // Ad blocking (settings page)
+  adblockGetStatus: guardInternal('adblockGetStatus', () =>
+    ipcRenderer.invoke('adblock:get-status')
+  ),
+  adblockGetAllowlist: guardInternal('adblockGetAllowlist', () =>
+    ipcRenderer.invoke('adblock:get-allowlist')
+  ),
+  adblockAddAllowlistHost: guardSettingsPage('adblockAddAllowlistHost', (host) =>
+    ipcRenderer.invoke('adblock:add-allowlist-host', host)
+  ),
+  adblockRemoveAllowlistHost: guardSettingsPage('adblockRemoveAllowlistHost', (host) =>
+    ipcRenderer.invoke('adblock:remove-allowlist-host', host)
+  ),
+
   // Platform / environment info needed by settings page
   getPlatform: guardInternal('getPlatform', () => ipcRenderer.invoke('window:get-platform')),
   getActiveProfile: guardInternal('getActiveProfile', () =>

@@ -720,6 +720,21 @@
             </svg>
             Name Resolution
           </button>
+          <button type="button" class="nav-item" data-target="adblock">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            Ad Blocking
+          </button>
           <button type="button" class="nav-item" data-target="experimental" id="nav-experimental">
             <svg
               width="16"
@@ -879,9 +894,9 @@
         <section class="section" id="ens">
           <h2 class="section-title">Ethereum Name Resolution</h2>
           <p class="row-help" style="margin-bottom: 16px">
-            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>,
-            and <code>.gwei</code> names. These records live on Ethereum — manage RPC
-            endpoints under <a href="#chains">Chains settings</a>.
+            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>, and
+            <code>.gwei</code> names. These records live on Ethereum — manage RPC endpoints under
+            <a href="#chains">Chains settings</a>.
           </p>
           <div class="card">
             <div class="row">
@@ -919,9 +934,9 @@
               <div class="row-body">
                 <p class="row-label">Block unverified name navigation</p>
                 <p class="row-help">
-                  Show a warning page before navigating to a name that resolved without
-                  verification (for example, when only one RPC answered). Turn off to navigate
-                  straight through with only the amber shield indicator.
+                  Show a warning page before navigating to a name that resolved without verification
+                  (for example, when only one RPC answered). Turn off to navigate straight through
+                  with only the amber shield indicator.
                 </p>
               </div>
               <div class="row-control">
@@ -935,6 +950,99 @@
         </section>
 
         <!-- Experimental -->
+        <!-- Ad Blocking -->
+        <section class="section" id="adblock">
+          <h2 class="section-title">Ad Blocking</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Enable ad blocking</p>
+                <p class="row-help" id="adblock-status">Loading…</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-enabled" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-ads-row">
+              <div class="row-body">
+                <p class="row-label">Block ads</p>
+                <p class="row-help" id="adblock-ads-help">EasyList</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-ads" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-privacy-row">
+              <div class="row-body">
+                <p class="row-label">Block trackers</p>
+                <p class="row-help" id="adblock-privacy-help">EasyPrivacy</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-privacy" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-cookies-row">
+              <div class="row-body">
+                <p class="row-label">Block cookie banners</p>
+                <p class="row-help" id="adblock-cookies-help">Fanboy Cookiemonster</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-cookies" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-annoyances-row">
+              <div class="row-body">
+                <p class="row-label">Block other annoyances</p>
+                <p class="row-help" id="adblock-annoyances-help">Fanboy Annoyances</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-annoyances" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Allowlisted sites</p>
+                <p class="row-help">
+                  Ad blocking is turned off on these sites, including their subdomains. Changes
+                  apply to pages loaded afterwards — reload open tabs.
+                </p>
+              </div>
+              <div class="row-control">
+                <input
+                  type="text"
+                  id="adblock-allowlist-input"
+                  class="rpc-input"
+                  spellcheck="false"
+                  placeholder="example.com"
+                />
+                <button type="button" class="btn" id="adblock-allowlist-add">Add</button>
+              </div>
+            </div>
+            <div id="adblock-allowlist-list"></div>
+          </div>
+          <p class="row-help" style="margin-top: 16px">
+            Filter lists © The EasyList authors (https://easylist.to/), redistributed under CC
+            BY-SA.
+          </p>
+        </section>
+
         <section class="section" id="experimental">
           <h2 class="section-title">Experimental</h2>
           <div class="card">
@@ -1036,7 +1144,21 @@
         enableIdentity: $('enable-identity-wallet'),
         showIpfsProgressStatus: $('show-ipfs-progress-status'),
         autoUpdate: $('auto-update'),
+        adblockEnabled: $('adblock-enabled'),
+        adblockAds: $('adblock-ads'),
+        adblockPrivacy: $('adblock-privacy'),
+        adblockCookies: $('adblock-cookies'),
+        adblockAnnoyances: $('adblock-annoyances'),
       };
+
+      // id ties together the manifest category, the #adblock-<id>-row
+      // element, and the status field; field is the checkbox input.
+      const ADBLOCK_CATEGORIES = [
+        { id: 'ads', field: fields.adblockAds },
+        { id: 'privacy', field: fields.adblockPrivacy },
+        { id: 'cookies', field: fields.adblockCookies },
+        { id: 'annoyances', field: fields.adblockAnnoyances },
+      ];
 
       const swarmModeHelp = $('swarm-mode-help');
       const swarmModeBtn = $('swarm-mode-action-btn');
@@ -1427,6 +1549,11 @@
         showIpfsProgressStatus: fields.showIpfsProgressStatus.checked,
         autoUpdate: fields.autoUpdate.checked,
         blockUnverifiedEns: fields.blockUnverifiedEns.checked,
+        adblockEnabled: fields.adblockEnabled.checked,
+        adblockAds: fields.adblockAds.checked,
+        adblockPrivacy: fields.adblockPrivacy.checked,
+        adblockCookies: fields.adblockCookies.checked,
+        adblockAnnoyances: fields.adblockAnnoyances.checked,
       });
 
       const applyFormState = (settings) => {
@@ -1441,7 +1568,93 @@
         fields.showIpfsProgressStatus.checked = settings.showIpfsProgressStatus === true;
         fields.autoUpdate.checked = settings.autoUpdate !== false;
         fields.blockUnverifiedEns.checked = settings.blockUnverifiedEns !== false;
+        fields.adblockEnabled.checked = settings.adblockEnabled !== false;
+        fields.adblockAds.checked = settings.adblockAds !== false;
+        fields.adblockPrivacy.checked = settings.adblockPrivacy !== false;
+        fields.adblockCookies.checked = settings.adblockCookies === true;
+        fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
+        applyAdblockGating();
+      };
+
+      const applyAdblockGating = () => {
+        for (const { id, field } of ADBLOCK_CATEGORIES) {
+          setFieldEnabled(fields.adblockEnabled, $(`adblock-${id}-row`), field);
+        }
+      };
+
+      // Rule counts / list version come from the main-process engine, not
+      // settings. The engine rebuilds asynchronously after a toggle, so
+      // refresh once more shortly after a save.
+      const renderAdblockStatus = async () => {
+        try {
+          const status = await freedomAPI.adblockGetStatus();
+          $('adblock-status').textContent = status.engineReady
+            ? `Filter lists ${status.listsVersion} · engine active`
+            : status.listsVersion
+              ? `Filter lists ${status.listsVersion} · engine preparing…`
+              : 'No filter lists bundled — blocking is inactive.';
+          for (const { id } of ADBLOCK_CATEGORIES) {
+            const meta = status.categories?.[id];
+            if (meta?.ruleCount) {
+              $(`adblock-${id}-help`).textContent =
+                `${meta.title} · ${meta.ruleCount.toLocaleString()} rules`;
+            }
+          }
+        } catch {
+          $('adblock-status').textContent = 'Status unavailable.';
+        }
+      };
+      let adblockStatusTimer = null;
+      const refreshAdblockStatusSoon = () => {
+        clearTimeout(adblockStatusTimer);
+        adblockStatusTimer = setTimeout(renderAdblockStatus, 1500);
+      };
+
+      const renderAdblockAllowlist = async () => {
+        const list = $('adblock-allowlist-list');
+        let hosts = [];
+        try {
+          hosts = await freedomAPI.adblockGetAllowlist();
+        } catch {
+          return;
+        }
+        list.textContent = '';
+        for (const host of hosts) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const body = document.createElement('div');
+          body.className = 'row-body';
+          const label = document.createElement('p');
+          label.className = 'row-label';
+          label.textContent = host;
+          body.appendChild(label);
+          const control = document.createElement('div');
+          control.className = 'row-control';
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'btn danger';
+          removeBtn.textContent = 'Remove';
+          removeBtn.addEventListener('click', async () => {
+            await freedomAPI.adblockRemoveAllowlistHost(host).catch(() => {});
+            renderAdblockAllowlist();
+          });
+          control.appendChild(removeBtn);
+          row.appendChild(body);
+          row.appendChild(control);
+          list.appendChild(row);
+        }
+      };
+
+      const addAllowlistHostFromInput = async () => {
+        const input = $('adblock-allowlist-input');
+        const host = input.value.trim();
+        if (!host) return;
+        const ok = await freedomAPI.adblockAddAllowlistHost(host).catch(() => false);
+        if (ok) {
+          input.value = '';
+          renderAdblockAllowlist();
+        }
       };
 
       let cachedSettings = null;
@@ -1551,6 +1764,21 @@
       fields.showIpfsProgressStatus.addEventListener('change', save);
       fields.autoUpdate.addEventListener('change', save);
       fields.blockUnverifiedEns.addEventListener('change', save);
+      fields.adblockEnabled.addEventListener('change', () => {
+        applyAdblockGating();
+        save();
+        refreshAdblockStatusSoon();
+      });
+      for (const { field } of ADBLOCK_CATEGORIES) {
+        field.addEventListener('change', () => {
+          save();
+          refreshAdblockStatusSoon();
+        });
+      }
+      $('adblock-allowlist-add').addEventListener('click', addAllowlistHostFromInput);
+      $('adblock-allowlist-input').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') addAllowlistHostFromInput();
+      });
 
       const formStateMatches = (settings) => {
         const form = currentFormState();
@@ -1603,6 +1831,9 @@
         } catch {
           console.error('[settings] failed to load settings');
         }
+
+        renderAdblockStatus();
+        renderAdblockAllowlist();
       })();
 
       // ── Chains settings page ────────────────────────────────────────

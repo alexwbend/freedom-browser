@@ -44,6 +44,12 @@ module.exports = {
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_UPDATED: 'settings:updated',
 
+  // Ad blocking
+  ADBLOCK_GET_STATUS: 'adblock:get-status',
+  ADBLOCK_GET_ALLOWLIST: 'adblock:get-allowlist',
+  ADBLOCK_ADD_ALLOWLIST_HOST: 'adblock:add-allowlist-host',
+  ADBLOCK_REMOVE_ALLOWLIST_HOST: 'adblock:remove-allowlist-host',
+
   // Bzz routing (Swarm)
   BZZ_SET_BASE: 'bzz:set-base',
   BZZ_CLEAR_BASE: 'bzz:clear-base',

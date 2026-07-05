@@ -129,7 +129,7 @@ const { BrowserWindow, protocol, session } = require('electron');
 const { registerBaseIpcHandlers, broadcastProfileUpdated } = require('./ipc-handlers');
 const { watchProfileRegistry } = require('./profile-registry-watcher');
 const { installRequestRewriter } = require('./request-rewriter');
-const { installAdblockInterception } = require('./adblock/service');
+const { installAdblockInterception, registerAdblockIpc } = require('./adblock/service');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
@@ -255,6 +255,7 @@ async function bootstrap() {
     onNewWindow: createMainWindow,
   });
   registerSettingsIpc();
+  registerAdblockIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
   registerFaviconsIpc();

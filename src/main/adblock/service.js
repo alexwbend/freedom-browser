@@ -27,7 +27,12 @@ const { FiltersEngine, Request, ENGINE_VERSION } = require('@ghostery/adblocker'
 const ADBLOCKER_VERSION = require('@ghostery/adblocker/package.json').version;
 const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const { loadSettings } = require('../settings-store');
-const { getAllowlistedHosts } = require('./allowlist-store');
+const IPC = require('../../shared/ipc-channels');
+const {
+  getAllowlistedHosts,
+  addAllowlistedHost,
+  removeAllowlistedHost,
+} = require('./allowlist-store');
 const {
   mapResourceType,
   isInterceptableUrl,
@@ -48,6 +53,7 @@ const CATEGORY_SETTINGS = [
 let artifactsDir = null;
 let cacheDir = null;
 let engine = null;
+let lastManifest = null;
 let allowlistedHosts = [];
 // webContentsId -> top-level URL, maintained from mainFrame requests so
 // subresources get first-party context and allowlist scoping.
@@ -158,6 +164,7 @@ async function refreshEngine() {
 
   const settings = loadSettings();
   const manifest = await readManifest();
+  lastManifest = manifest;
   if (!manifest) {
     engine = null;
     return;
@@ -271,10 +278,32 @@ function cleanupAdblockWebContents(webContentsId) {
 
 /**
  * Whether a filter engine is loaded and blocking is live. Consumed by the
- * E2E readiness poll and the settings-page status (WP3).
+ * E2E readiness poll and the settings-page status.
  */
 function isEngineReady() {
   return engine !== null;
+}
+
+/** Status snapshot for the settings page. */
+function getAdblockStatus() {
+  const categories = {};
+  for (const [category, meta] of Object.entries(lastManifest?.categories || {})) {
+    categories[category] = { title: meta.title, ruleCount: meta.ruleCount };
+  }
+  return {
+    engineReady: isEngineReady(),
+    listsVersion: lastManifest?.version || null,
+    categories,
+  };
+}
+
+/** Register the settings-page IPC surface. */
+function registerAdblockIpc() {
+  const { ipcMain } = require('electron');
+  ipcMain.handle(IPC.ADBLOCK_GET_STATUS, () => getAdblockStatus());
+  ipcMain.handle(IPC.ADBLOCK_GET_ALLOWLIST, () => getAllowlistedHosts());
+  ipcMain.handle(IPC.ADBLOCK_ADD_ALLOWLIST_HOST, (_event, host) => addAllowlistedHost(host));
+  ipcMain.handle(IPC.ADBLOCK_REMOVE_ALLOWLIST_HOST, (_event, host) => removeAllowlistedHost(host));
 }
 
 /** Test-only: clear module state between suites. */
@@ -282,12 +311,14 @@ function _resetAdblockForTests() {
   artifactsDir = null;
   cacheDir = null;
   engine = null;
+  lastManifest = null;
   allowlistedHosts = [];
   topLevelUrls.clear();
 }
 
 module.exports = {
   installAdblockInterception,
+  registerAdblockIpc,
   adblockRequestForDispatch,
   refreshEngine,
   setAllowlistedHosts,
