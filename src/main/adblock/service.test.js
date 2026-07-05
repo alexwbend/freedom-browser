@@ -23,6 +23,7 @@ const { loadSettings } = require('../settings-store');
 const {
   installAdblockInterception,
   adblockRequestForDispatch,
+  getCosmeticFilters,
   refreshEngine,
   cleanupAdblockWebContents,
   setAllowlistedHosts,
@@ -37,11 +38,15 @@ const DEFAULT_TEST_SETTINGS = {
   adblockAnnoyances: false,
 };
 
-// Minimal ABP-syntax fixture lists, one per category.
+// Minimal ABP-syntax fixture lists, one per category. The ads list also
+// carries cosmetic (element-hiding) rules exercised by getCosmeticFilters.
 const FIXTURE_LISTS = {
-  'easylist.txt': ['||ads.tracker.test^$third-party', '@@||ads.tracker.test/acceptable^'].join(
-    '\n'
-  ),
+  'easylist.txt': [
+    '||ads.tracker.test^$third-party',
+    '@@||ads.tracker.test/acceptable^',
+    'news.example##.hostname-ad',
+    '##.generic-ad',
+  ].join('\n'),
   'easyprivacy.txt': '||telemetry.test^',
   'easylist-cookies.txt': '||cookiewall.test^',
 };
@@ -209,6 +214,65 @@ describe('cleanupAdblockWebContents', () => {
     // scoped $third-party stop matching too — unknown source is treated
     // as first-party for safety — so probe with an unscoped rule.)
     expect(adblockRequestForDispatch(makeDetails(beacon))).toEqual({ cancel: true });
+  });
+});
+
+describe('getCosmeticFilters', () => {
+  test('initial call returns hostname-specific hiding rules', () => {
+    const res = getCosmeticFilters({
+      url: 'https://news.example/story',
+      sourceId: 7,
+      initial: true,
+    });
+    expect(res.active).toBe(true);
+    expect(res.styles).toContain('.hostname-ad');
+    // Generic rules need DOM features, absent on the initial call.
+    expect(res.styles).not.toContain('.generic-ad');
+  });
+
+  test('feature call returns generic rules matching provided classes/ids', () => {
+    const res = getCosmeticFilters({
+      url: 'https://news.example/story',
+      sourceId: 7,
+      classes: ['generic-ad', 'unrelated'],
+      ids: [],
+      hrefs: [],
+    });
+    expect(res.active).toBe(true);
+    expect(res.styles).toContain('.generic-ad');
+  });
+
+  test('is inactive for an allowlisted top-level host', () => {
+    setAllowlistedHosts(['news.example']);
+    expect(
+      getCosmeticFilters({ url: 'https://news.example/story', sourceId: 7, initial: true })
+    ).toEqual({
+      active: false,
+      styles: '',
+    });
+  });
+
+  test('scopes the allowlist to the tab top-level host, not the frame', () => {
+    setAllowlistedHosts(['news.example']);
+    // A third-party subframe within the allowlisted tab is also spared.
+    expect(
+      getCosmeticFilters({ url: 'https://widget.other/frame', sourceId: 7, initial: true })
+    ).toEqual({ active: false, styles: '' });
+  });
+
+  test('is inactive when adblock is disabled', () => {
+    loadSettings.mockReturnValue({ ...DEFAULT_TEST_SETTINGS, adblockEnabled: false });
+    expect(getCosmeticFilters({ url: 'https://news.example/story', initial: true })).toEqual({
+      active: false,
+      styles: '',
+    });
+  });
+
+  test('ignores non-http(s) frames', () => {
+    expect(getCosmeticFilters({ url: 'bzz://abc/', initial: true })).toEqual({
+      active: false,
+      styles: '',
+    });
   });
 });
 

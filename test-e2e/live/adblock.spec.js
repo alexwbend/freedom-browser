@@ -34,7 +34,10 @@ fs.writeFileSync(
     categories: { ads: { file: 'e2e-list.txt' } },
   })
 );
-fs.writeFileSync(path.join(adblockDir, 'e2e-list.txt'), '||blocked.test.localhost^\n');
+fs.writeFileSync(
+  path.join(adblockDir, 'e2e-list.txt'),
+  ['||blocked.test.localhost^', '##.ad-slot'].join('\n')
+);
 
 test.use({
   launchEnv: { FREEDOM_ADBLOCK_DIR: adblockDir },
@@ -68,7 +71,9 @@ test.beforeAll(async () => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(`<!doctype html><title>adblock e2e</title>
       <img src="http://allowed.test.localhost:${port}/allowed-pixel.png">
-      <img src="http://blocked.test.localhost:${port}/blocked-pixel.png">`);
+      <img src="http://blocked.test.localhost:${port}/blocked-pixel.png">
+      <div class="ad-slot" id="ad">ad</div>
+      <div class="content" id="content">content</div>`);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   port = server.address().port;
@@ -114,4 +119,23 @@ test('blocks listed third-party subresources and passes others through', async (
   await new Promise((resolve) => setTimeout(resolve, 750));
   expect(hits.includes('blocked.test.localhost/blocked-pixel.png')).toBe(false);
   expect(hits.includes('page.test.localhost/index.html')).toBe(true);
+
+  // Cosmetic filtering: the preload requested `##.ad-slot` hiding CSS from
+  // the engine and injected it, so the ad div is display:none while the
+  // content div is untouched. The page renders inside a <webview> guest.
+  let guest;
+  await expect
+    .poll(() => {
+      guest = electronApp.windows().find((p) => p.url().includes('page.test.localhost'));
+      return Boolean(guest);
+    })
+    .toBe(true);
+  await expect
+    .poll(() => guest.locator('#ad').evaluate((el) => getComputedStyle(el).display), {
+      timeout: 15_000,
+    })
+    .toBe('none');
+  expect(await guest.locator('#content').evaluate((el) => getComputedStyle(el).display)).not.toBe(
+    'none'
+  );
 });

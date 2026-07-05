@@ -49,6 +49,7 @@ module.exports = {
   ADBLOCK_GET_ALLOWLIST: 'adblock:get-allowlist',
   ADBLOCK_ADD_ALLOWLIST_HOST: 'adblock:add-allowlist-host',
   ADBLOCK_REMOVE_ALLOWLIST_HOST: 'adblock:remove-allowlist-host',
+  ADBLOCK_COSMETIC: 'adblock:cosmetic',
 
   // Bzz routing (Swarm)
   BZZ_SET_BASE: 'bzz:set-base',

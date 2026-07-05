@@ -42,6 +42,14 @@ const {
   isHostAllowlisted,
 } = require('./request-classifier');
 
+// Cosmetic filtering is loaded (element hiding); extended/procedural
+// selectors and scriptlet resources are out of scope for now. This config
+// is folded into the cache key (below) so any change to it — enabling
+// cosmetics, a later scriptlet milestone — automatically invalidates caches
+// serialized under a different shape, with no separate version to bump.
+const ENGINE_CONFIG = { loadCosmeticFilters: true, loadExtendedSelectors: false };
+const ENGINE_CONFIG_KEY = JSON.stringify(ENGINE_CONFIG);
+
 // Category name in manifest.json -> settings key gating it.
 const CATEGORY_SETTINGS = [
   ['ads', 'adblockAds'],
@@ -58,6 +66,28 @@ let allowlistedHosts = [];
 // webContentsId -> top-level URL, maintained from mainFrame requests so
 // subresources get first-party context and allowlist scoping.
 const topLevelUrls = new Map();
+
+// Cosmetic requests hit the same frame URL repeatedly (once per mutation
+// batch); Request parsing does a public-suffix lookup, so cache the derived
+// hostname/domain. Bounded, oldest-evicted — frames are few and long-lived.
+const frameUrlCache = new Map();
+const FRAME_URL_CACHE_MAX = 128;
+
+function parseFrameUrl(url) {
+  if (frameUrlCache.has(url)) return frameUrlCache.get(url);
+  let parsed;
+  try {
+    const req = Request.fromRawDetails({ url });
+    parsed = { hostname: req.hostname, domain: req.domain };
+  } catch {
+    parsed = null;
+  }
+  if (frameUrlCache.size >= FRAME_URL_CACHE_MAX) {
+    frameUrlCache.delete(frameUrlCache.keys().next().value);
+  }
+  frameUrlCache.set(url, parsed);
+  return parsed;
+}
 
 // Lists live in assets/adblock (fetched by scripts/fetch-adblock-lists.js,
 // gitignored); packaged builds ship the whole assets/ dir via extraResources.
@@ -119,7 +149,9 @@ async function readEnabledListsText(settings, manifest) {
 function cacheFileFor(manifest, categoriesKey) {
   const key = crypto
     .createHash('sha256')
-    .update(`${ADBLOCKER_VERSION}|${ENGINE_VERSION}|${manifest.version}|${categoriesKey}`)
+    .update(
+      `${ADBLOCKER_VERSION}|${ENGINE_VERSION}|${ENGINE_CONFIG_KEY}|${manifest.version}|${categoriesKey}`
+    )
     .digest('hex')
     .slice(0, 16);
   return path.join(cacheDir, `engine-${key}.bin`);
@@ -189,9 +221,7 @@ async function refreshEngine() {
     engine = null;
     return;
   }
-  // Network filtering only for now; cosmetic filtering arrives with the
-  // preload-injection milestone.
-  engine = FiltersEngine.parse(text, { loadCosmeticFilters: false });
+  engine = FiltersEngine.parse(text, ENGINE_CONFIG);
   log.info(`[adblock] filter engine ready (${manifest.version}, categories: ${categoriesKey})`);
   if (cacheFile) {
     await writeEngineCache(cacheFile, engine);
@@ -249,6 +279,54 @@ function adblockRequestForDispatch(details) {
 }
 
 /**
+ * Compute cosmetic (element-hiding) CSS for a frame, requested by the
+ * webview preload. Two phases: `initial` returns the frame's
+ * hostname-specific rules; subsequent calls pass newly-seen DOM
+ * classes/ids/hrefs and get the generic rules that match them, so the
+ * hostname rules aren't re-sent on every mutation.
+ *
+ * @param {object} args
+ * @param {string} args.url       Frame document URL (styles are per-frame).
+ * @param {number} [args.sourceId] Guest webContents id, for allowlist scoping.
+ * @param {boolean} [args.initial]
+ * @returns {{ active: boolean, styles: string }}
+ */
+function getCosmeticFilters({ url, sourceId, initial, classes = [], ids = [], hrefs = [] }) {
+  const inactive = { active: false, styles: '' };
+  if (!engine || loadSettings().adblockEnabled === false) return inactive;
+  if (!isInterceptableUrl(url)) return inactive;
+
+  // Allowlist is keyed on the tab's top-level host, not the (possibly
+  // sub-frame) document being styled.
+  const topUrl = (typeof sourceId === 'number' && topLevelUrls.get(sourceId)) || url;
+  const topHost = normalizeHost(hostnameFromUrl(topUrl));
+  if (topHost && allowlistedHosts.length > 0 && isHostAllowlisted(topHost, allowlistedHosts)) {
+    return inactive;
+  }
+
+  const parsed = parseFrameUrl(url);
+  if (!parsed) return inactive;
+
+  // Initial call: hostname/base rules (DOM-independent), fetched once.
+  // Later calls: generic rules keyed on the newly-seen DOM tokens.
+  const wantHostname = initial === true;
+  const { active, styles } = engine.getCosmeticsFilters({
+    url,
+    hostname: parsed.hostname,
+    domain: parsed.domain,
+    classes,
+    ids,
+    hrefs,
+    getRulesFromHostname: wantHostname,
+    getRulesFromDOM: !wantHostname,
+    getInjectionRules: false,
+    getExtendedRules: false,
+    getBaseRules: wantHostname,
+  });
+  return { active, styles: styles || '' };
+}
+
+/**
  * Register the adblock handler. Must run before
  * `attachWebRequestDispatcher()`. The initial engine build is kicked off
  * in the background; blocking starts once it completes.
@@ -297,13 +375,18 @@ function getAdblockStatus() {
   };
 }
 
-/** Register the settings-page IPC surface. */
+/** Register the settings-page and cosmetic-injection IPC surface. */
 function registerAdblockIpc() {
   const { ipcMain } = require('electron');
   ipcMain.handle(IPC.ADBLOCK_GET_STATUS, () => getAdblockStatus());
   ipcMain.handle(IPC.ADBLOCK_GET_ALLOWLIST, () => getAllowlistedHosts());
   ipcMain.handle(IPC.ADBLOCK_ADD_ALLOWLIST_HOST, (_event, host) => addAllowlistedHost(host));
   ipcMain.handle(IPC.ADBLOCK_REMOVE_ALLOWLIST_HOST, (_event, host) => removeAllowlistedHost(host));
+  // Requested per-frame by the webview preload; sender id scopes the
+  // allowlist to the tab's top-level host.
+  ipcMain.handle(IPC.ADBLOCK_COSMETIC, (event, args) =>
+    getCosmeticFilters({ ...args, sourceId: event.sender?.id })
+  );
 }
 
 /** Test-only: clear module state between suites. */
@@ -314,12 +397,14 @@ function _resetAdblockForTests() {
   lastManifest = null;
   allowlistedHosts = [];
   topLevelUrls.clear();
+  frameUrlCache.clear();
 }
 
 module.exports = {
   installAdblockInterception,
   registerAdblockIpc,
   adblockRequestForDispatch,
+  getCosmeticFilters,
   refreshEngine,
   setAllowlistedHosts,
   cleanupAdblockWebContents,
