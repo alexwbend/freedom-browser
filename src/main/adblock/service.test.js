@@ -212,6 +212,54 @@ describe('cleanupAdblockWebContents', () => {
   });
 });
 
+describe('engine cache', () => {
+  let cacheDir;
+
+  beforeEach(() => {
+    cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-cache-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  });
+
+  test('writes a serialized engine and can rebuild from it without list files', async () => {
+    _resetAdblockForTests();
+    installAdblockInterception({ artifactsDir, cacheDir });
+    await refreshEngine();
+    expect(fs.readdirSync(cacheDir).filter((f) => f.startsWith('engine-'))).toHaveLength(1);
+
+    // Same manifest (same cache key) but no list files on disk: blocking
+    // still works, proving the engine came from the serialized cache.
+    const manifestOnly = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-manifest-'));
+    fs.copyFileSync(
+      path.join(artifactsDir, 'manifest.json'),
+      path.join(manifestOnly, 'manifest.json')
+    );
+    _resetAdblockForTests();
+    installAdblockInterception({ artifactsDir: manifestOnly, cacheDir });
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+    expect(adblockRequestForDispatch(makeDetails())).toEqual({ cancel: true });
+
+    fs.rmSync(manifestOnly, { recursive: true, force: true });
+  });
+
+  test('a category change misses the cache, rebuilds, and prunes stale caches', async () => {
+    _resetAdblockForTests();
+    installAdblockInterception({ artifactsDir, cacheDir });
+    await refreshEngine();
+
+    loadSettings.mockReturnValue({ ...DEFAULT_TEST_SETTINGS, adblockCookies: true });
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://cookiewall.test/banner.js' }))
+    ).toEqual({ cancel: true });
+    expect(fs.readdirSync(cacheDir).filter((f) => f.startsWith('engine-'))).toHaveLength(1);
+  });
+});
+
 describe('refreshEngine', () => {
   test('leaves blocking disabled when the artifacts dir is missing', async () => {
     _resetAdblockForTests();

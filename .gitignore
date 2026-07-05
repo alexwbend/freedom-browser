@@ -16,6 +16,7 @@ tmp/
 .env
 ant-bin/
 ant-data/
+assets/adblock/
 ipfs-bin/
 ipfs-data/
 dev-scripts/

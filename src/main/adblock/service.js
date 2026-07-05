@@ -21,10 +21,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const log = require('../logger');
-const { FiltersEngine, Request } = require('@ghostery/adblocker');
+const { FiltersEngine, Request, ENGINE_VERSION } = require('@ghostery/adblocker');
+const ADBLOCKER_VERSION = require('@ghostery/adblocker/package.json').version;
 const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const { loadSettings } = require('../settings-store');
+const { getAllowlistedHosts } = require('./allowlist-store');
 const {
   mapResourceType,
   isInterceptableUrl,
@@ -43,17 +46,24 @@ const CATEGORY_SETTINGS = [
 ];
 
 let artifactsDir = null;
+let cacheDir = null;
 let engine = null;
 let allowlistedHosts = [];
 // webContentsId -> top-level URL, maintained from mainFrame requests so
 // subresources get first-party context and allowlist scoping.
 const topLevelUrls = new Map();
 
+// Lists live in assets/adblock (fetched by scripts/fetch-adblock-lists.js,
+// gitignored); packaged builds ship the whole assets/ dir via extraResources.
+// FREEDOM_ADBLOCK_DIR overrides for development and E2E tests.
 function getDefaultArtifactsDir() {
+  if (process.env.FREEDOM_ADBLOCK_DIR) {
+    return process.env.FREEDOM_ADBLOCK_DIR;
+  }
   try {
     const { app } = require('electron');
     if (app && app.isPackaged) {
-      return path.join(process.resourcesPath, 'adblock');
+      return path.join(process.resourcesPath, 'assets', 'adblock');
     }
   } catch {
     // Running outside Electron (e.g. Jest).
@@ -61,16 +71,27 @@ function getDefaultArtifactsDir() {
   return path.join(__dirname, '..', '..', '..', 'assets', 'adblock');
 }
 
-async function readEnabledListsText(settings) {
-  let manifest;
+function getDefaultCacheDir() {
+  try {
+    const { app } = require('electron');
+    return path.join(app.getPath('userData'), 'adblock-cache');
+  } catch {
+    // Running outside Electron (e.g. Jest) — caching off unless injected.
+    return null;
+  }
+}
+
+async function readManifest() {
   try {
     const raw = await fs.promises.readFile(path.join(artifactsDir, 'manifest.json'), 'utf-8');
-    manifest = JSON.parse(raw);
+    return JSON.parse(raw);
   } catch (err) {
     log.info(`[adblock] no filter-list artifacts at ${artifactsDir}: ${err.message}`);
     return null;
   }
+}
 
+async function readEnabledListsText(settings, manifest) {
   const texts = [];
   for (const [category, settingKey] of CATEGORY_SETTINGS) {
     const entry = manifest.categories?.[category];
@@ -85,16 +106,78 @@ async function readEnabledListsText(settings) {
   return texts.length > 0 ? texts.join('\n') : null;
 }
 
+// The serialized-engine format is version-locked, so the cache key covers
+// the exact library + format versions, the list bundle version, and which
+// categories were compiled in. Any mismatch is simply a different filename,
+// so stale caches are never read — and pruned on the next write.
+function cacheFileFor(manifest, categoriesKey) {
+  const key = crypto
+    .createHash('sha256')
+    .update(`${ADBLOCKER_VERSION}|${ENGINE_VERSION}|${manifest.version}|${categoriesKey}`)
+    .digest('hex')
+    .slice(0, 16);
+  return path.join(cacheDir, `engine-${key}.bin`);
+}
+
+async function readEngineCache(cacheFile) {
+  try {
+    const buf = await fs.promises.readFile(cacheFile);
+    return FiltersEngine.deserialize(buf);
+  } catch {
+    return null; // Missing or unreadable cache is just a rebuild.
+  }
+}
+
+async function writeEngineCache(cacheFile, builtEngine) {
+  try {
+    await fs.promises.mkdir(cacheDir, { recursive: true });
+    // Prune caches from other engine/list/category combinations.
+    for (const entry of await fs.promises.readdir(cacheDir)) {
+      if (entry.startsWith('engine-') && entry !== path.basename(cacheFile)) {
+        await fs.promises.unlink(path.join(cacheDir, entry)).catch(() => {});
+      }
+    }
+    const tmpFile = `${cacheFile}.tmp`;
+    await fs.promises.writeFile(tmpFile, builtEngine.serialize());
+    await fs.promises.rename(tmpFile, cacheFile);
+  } catch (err) {
+    log.warn(`[adblock] failed to write engine cache: ${err.message}`);
+  }
+}
+
 /**
  * (Re)build the engine from the artifacts on disk for the current
  * settings, then swap it in. Called at install, by settings-store when
  * an adblock setting changes, and after a list update lands (WP5 Swarm
- * channel).
+ * channel). Prefers a serialized-engine cache (milliseconds) over
+ * parsing raw list text (hundreds of milliseconds of main-thread CPU).
  */
 async function refreshEngine() {
   // Not installed yet (e.g. a settings save before bootstrap wires us up).
   if (!artifactsDir) return;
-  const text = await readEnabledListsText(loadSettings());
+
+  const settings = loadSettings();
+  const manifest = await readManifest();
+  if (!manifest) {
+    engine = null;
+    return;
+  }
+
+  const categoriesKey = CATEGORY_SETTINGS.filter(([, key]) => settings[key] === true)
+    .map(([category]) => category)
+    .join(',');
+  const cacheFile = cacheDir ? cacheFileFor(manifest, categoriesKey) : null;
+
+  if (cacheFile) {
+    const cached = await readEngineCache(cacheFile);
+    if (cached) {
+      engine = cached;
+      log.info('[adblock] filter engine ready (cache)');
+      return;
+    }
+  }
+
+  const text = await readEnabledListsText(settings, manifest);
   if (text === null) {
     engine = null;
     return;
@@ -102,7 +185,10 @@ async function refreshEngine() {
   // Network filtering only for now; cosmetic filtering arrives with the
   // preload-injection milestone.
   engine = FiltersEngine.parse(text, { loadCosmeticFilters: false });
-  log.info('[adblock] filter engine ready');
+  log.info(`[adblock] filter engine ready (${manifest.version}, categories: ${categoriesKey})`);
+  if (cacheFile) {
+    await writeEngineCache(cacheFile, engine);
+  }
 }
 
 /**
@@ -162,6 +248,8 @@ function adblockRequestForDispatch(details) {
  */
 function installAdblockInterception(options = {}) {
   artifactsDir = options.artifactsDir || getDefaultArtifactsDir();
+  cacheDir = options.cacheDir !== undefined ? options.cacheDir : getDefaultCacheDir();
+  setAllowlistedHosts(getAllowlistedHosts());
   registerWebRequestHandler('onBeforeRequest', 'adblock', adblockRequestForDispatch);
   refreshEngine().catch((err) => {
     log.error(`[adblock] initial engine build failed: ${err.message}`);
@@ -169,7 +257,8 @@ function installAdblockInterception(options = {}) {
 }
 
 /**
- * Replace the set of allowlisted hosts (persistence lands with WP2).
+ * Replace the set of allowlisted hosts. Called at install with the
+ * persisted allowlist and by allowlist-store after each mutation.
  * Entries are normalized here, once, so the hot path only compares.
  */
 function setAllowlistedHosts(hosts) {
@@ -180,9 +269,18 @@ function cleanupAdblockWebContents(webContentsId) {
   topLevelUrls.delete(webContentsId);
 }
 
+/**
+ * Whether a filter engine is loaded and blocking is live. Consumed by the
+ * E2E readiness poll and the settings-page status (WP3).
+ */
+function isEngineReady() {
+  return engine !== null;
+}
+
 /** Test-only: clear module state between suites. */
 function _resetAdblockForTests() {
   artifactsDir = null;
+  cacheDir = null;
   engine = null;
   allowlistedHosts = [];
   topLevelUrls.clear();
@@ -194,5 +292,6 @@ module.exports = {
   refreshEngine,
   setAllowlistedHosts,
   cleanupAdblockWebContents,
+  isEngineReady,
   _resetAdblockForTests,
 };
