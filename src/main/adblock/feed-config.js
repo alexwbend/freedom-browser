@@ -21,8 +21,13 @@ const FEED_TOPIC = 'freedom/adblock/lists/v1';
 // `isTrustAnchorConfigured()` is false and the update-manager stays dormant,
 // so the browser ships on bundled lists (the permanent floor) with no live
 // updates. Do NOT enable the update path against a zero address.
-const FEED_OWNER_ADDRESS = '0x0000000000000000000000000000000000000000';
-const MANIFEST_SIG_ADDRESS = '0x0000000000000000000000000000000000000000';
+//
+// The env overrides let a dev/E2E build point at a test publisher's feed
+// without recompiling; production relies on the hardcoded constants.
+const FEED_OWNER_ADDRESS =
+  process.env.FREEDOM_ADBLOCK_FEED_OWNER || '0x0000000000000000000000000000000000000000';
+const MANIFEST_SIG_ADDRESS =
+  process.env.FREEDOM_ADBLOCK_SIG_ADDRESS || '0x0000000000000000000000000000000000000000';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 

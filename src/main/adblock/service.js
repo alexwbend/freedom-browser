@@ -89,13 +89,32 @@ function parseFrameUrl(url) {
   return parsed;
 }
 
+/**
+ * Where the Swarm update-manager writes downloaded lists, when present and
+ * valid. Preferred over the bundled floor so live updates take effect.
+ * Returns null when no verified update has landed.
+ */
+function getUpdatedArtifactsDir() {
+  try {
+    const { app } = require('electron');
+    const dir = path.join(app.getPath('userData'), 'adblock', 'updated');
+    if (fs.existsSync(path.join(dir, 'manifest.json'))) return dir;
+  } catch {
+    // Running outside Electron (e.g. Jest).
+  }
+  return null;
+}
+
 // Lists live in assets/adblock (fetched by scripts/fetch-adblock-lists.js,
 // gitignored); packaged builds ship the whole assets/ dir via extraResources.
-// FREEDOM_ADBLOCK_DIR overrides for development and E2E tests.
+// Resolution order: FREEDOM_ADBLOCK_DIR (dev/E2E override) → a landed Swarm
+// update in userData → the bundled floor.
 function getDefaultArtifactsDir() {
   if (process.env.FREEDOM_ADBLOCK_DIR) {
     return process.env.FREEDOM_ADBLOCK_DIR;
   }
+  const updated = getUpdatedArtifactsDir();
+  if (updated) return updated;
   try {
     const { app } = require('electron');
     if (app && app.isPackaged) {
@@ -389,6 +408,14 @@ function registerAdblockIpc() {
   );
 }
 
+/** The category keys currently enabled in settings (e.g. ['ads','privacy']). */
+function getEnabledCategories() {
+  const settings = loadSettings();
+  return CATEGORY_SETTINGS.filter(([, key]) => settings[key] === true).map(
+    ([category]) => category
+  );
+}
+
 /** Test-only: clear module state between suites. */
 function _resetAdblockForTests() {
   artifactsDir = null;
@@ -409,5 +436,7 @@ module.exports = {
   setAllowlistedHosts,
   cleanupAdblockWebContents,
   isEngineReady,
+  getEnabledCategories,
+  getUpdatedArtifactsDir,
   _resetAdblockForTests,
 };
