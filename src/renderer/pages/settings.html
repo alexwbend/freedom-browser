@@ -1014,6 +1014,18 @@
                 </label>
               </div>
             </div>
+            <div class="row sub" id="adblock-autoupdate-row">
+              <div class="row-body">
+                <p class="row-label">Keep filter lists up to date</p>
+                <p class="row-help">Pulls refreshed lists from Swarm automatically.</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-autoupdate" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
           <div class="card" style="margin-top: 12px">
             <div class="row">
@@ -1149,6 +1161,7 @@
         adblockPrivacy: $('adblock-privacy'),
         adblockCookies: $('adblock-cookies'),
         adblockAnnoyances: $('adblock-annoyances'),
+        adblockAutoUpdate: $('adblock-autoupdate'),
       };
 
       // id ties together the manifest category, the #adblock-<id>-row
@@ -1554,6 +1567,7 @@
         adblockPrivacy: fields.adblockPrivacy.checked,
         adblockCookies: fields.adblockCookies.checked,
         adblockAnnoyances: fields.adblockAnnoyances.checked,
+        adblockAutoUpdate: fields.adblockAutoUpdate.checked,
       });
 
       const applyFormState = (settings) => {
@@ -1573,6 +1587,7 @@
         fields.adblockPrivacy.checked = settings.adblockPrivacy !== false;
         fields.adblockCookies.checked = settings.adblockCookies === true;
         fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
+        fields.adblockAutoUpdate.checked = settings.adblockAutoUpdate !== false;
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         applyAdblockGating();
       };
@@ -1581,6 +1596,11 @@
         for (const { id, field } of ADBLOCK_CATEGORIES) {
           setFieldEnabled(fields.adblockEnabled, $(`adblock-${id}-row`), field);
         }
+        setFieldEnabled(
+          fields.adblockEnabled,
+          $('adblock-autoupdate-row'),
+          fields.adblockAutoUpdate
+        );
       };
 
       // Rule counts / list version come from the main-process engine, not
@@ -1775,6 +1795,7 @@
           refreshAdblockStatusSoon();
         });
       }
+      fields.adblockAutoUpdate.addEventListener('change', save);
       $('adblock-allowlist-add').addEventListener('click', addAllowlistHostFromInput);
       $('adblock-allowlist-input').addEventListener('keydown', (event) => {
         if (event.key === 'Enter') addAllowlistHostFromInput();

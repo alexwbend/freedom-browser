@@ -81,9 +81,7 @@ const profileFocusWatcher = startProfileFocusRequestWatcher(
       if (typeof focusCurrentProfileWindow !== 'function') {
         throw new Error('Main window focus handler is not ready');
       }
-      return focusCurrentProfileWindow(
-        request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null
-      );
+      return focusCurrentProfileWindow(request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null);
     }),
   {
     logger: console,
@@ -130,6 +128,7 @@ const { registerBaseIpcHandlers, broadcastProfileUpdated } = require('./ipc-hand
 const { watchProfileRegistry } = require('./profile-registry-watcher');
 const { installRequestRewriter } = require('./request-rewriter');
 const { installAdblockInterception, registerAdblockIpc } = require('./adblock/service');
+const { installAdblockUpdater } = require('./adblock/update-scheduler');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
@@ -351,9 +350,7 @@ async function bootstrap() {
   const settings = loadSettings();
   // A profile cold-started from another window's "edit" button (Profiles
   // manager) carries --open-settings; land its first tab on Profile settings.
-  const coldStartUrl = process.argv.includes('--open-settings')
-    ? PROFILE_SETTINGS_DEEPLINK
-    : null;
+  const coldStartUrl = process.argv.includes('--open-settings') ? PROFILE_SETTINGS_DEEPLINK : null;
   const mainWindow = createMainWindow(coldStartUrl);
 
   if (!TEST_MODE) {
@@ -389,6 +386,9 @@ async function bootstrap() {
   // freedom.baby.
   if (!TEST_MODE) {
     initUpdater(mainWindow, setupApplicationMenu, { profile: activeProfile });
+    // Schedule Swarm filter-list update checks. No-op until a feed trust
+    // anchor is compiled in (WP5); safe to install unconditionally.
+    installAdblockUpdater();
   }
 
   app.on('activate', () => {

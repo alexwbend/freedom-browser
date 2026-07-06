@@ -62,6 +62,9 @@ const DEFAULT_SETTINGS = {
   adblockPrivacy: true,
   adblockCookies: false,
   adblockAnnoyances: false,
+  // Pull refreshed filter lists from Swarm on a schedule (WP5). On by
+  // default; dormant anyway until a feed trust anchor is compiled in.
+  adblockAutoUpdate: true,
 };
 
 let cachedSettings = null;
