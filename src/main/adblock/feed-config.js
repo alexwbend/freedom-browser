@@ -17,16 +17,17 @@
 const MANIFEST_SCHEMA = 1;
 const FEED_TOPIC = 'freedom/adblock/lists/v1';
 
-// PLACEHOLDERS — filled once the publisher key exists (WP5 5.A2). Until then
-// `isTrustAnchorConfigured()` is false and the update-manager stays dormant,
-// so the browser ships on bundled lists (the permanent floor) with no live
-// updates. Do NOT enable the update path against a zero address.
+// The production publisher's address (key ceremony 2026-07-06; the key lives
+// only in the publisher's deployment secrets and the password manager — see
+// research/adblock-production-key-ceremony.md). One key currently fills both
+// roles; they are pinned separately for key-rotation headroom.
 //
 // The env overrides let a dev/E2E build point at a test publisher's feed
 // without recompiling; production relies on the hardcoded constants.
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-const FEED_OWNER_ADDRESS = process.env.FREEDOM_ADBLOCK_FEED_OWNER || ZERO_ADDRESS;
-const MANIFEST_SIG_ADDRESS = process.env.FREEDOM_ADBLOCK_SIG_ADDRESS || ZERO_ADDRESS;
+const PRODUCTION_PUBLISHER = '0xb818FF019BC15BC3DfbdaD4CE0ab66A6f74e8f1E';
+const FEED_OWNER_ADDRESS = process.env.FREEDOM_ADBLOCK_FEED_OWNER || PRODUCTION_PUBLISHER;
+const MANIFEST_SIG_ADDRESS = process.env.FREEDOM_ADBLOCK_SIG_ADDRESS || PRODUCTION_PUBLISHER;
 
 /**
  * Whether real publisher-key constants have been compiled in. The update
