@@ -24,12 +24,9 @@ const FEED_TOPIC = 'freedom/adblock/lists/v1';
 //
 // The env overrides let a dev/E2E build point at a test publisher's feed
 // without recompiling; production relies on the hardcoded constants.
-const FEED_OWNER_ADDRESS =
-  process.env.FREEDOM_ADBLOCK_FEED_OWNER || '0x0000000000000000000000000000000000000000';
-const MANIFEST_SIG_ADDRESS =
-  process.env.FREEDOM_ADBLOCK_SIG_ADDRESS || '0x0000000000000000000000000000000000000000';
-
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+const FEED_OWNER_ADDRESS = process.env.FREEDOM_ADBLOCK_FEED_OWNER || ZERO_ADDRESS;
+const MANIFEST_SIG_ADDRESS = process.env.FREEDOM_ADBLOCK_SIG_ADDRESS || ZERO_ADDRESS;
 
 /**
  * Whether real publisher-key constants have been compiled in. The update

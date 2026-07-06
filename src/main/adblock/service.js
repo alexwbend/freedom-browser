@@ -59,6 +59,12 @@ const CATEGORY_SETTINGS = [
 ];
 
 let artifactsDir = null;
+// When set (tests / E2E via options.artifactsDir), the artifacts dir is
+// pinned. Otherwise refreshEngine re-resolves it each build so a Swarm update
+// promoted into userData/adblock/updated takes effect in-session, not just on
+// the next restart.
+let artifactsDirOverride = null;
+let installed = false;
 let cacheDir = null;
 let engine = null;
 let lastManifest = null;
@@ -211,7 +217,9 @@ async function writeEngineCache(cacheFile, builtEngine) {
  */
 async function refreshEngine() {
   // Not installed yet (e.g. a settings save before bootstrap wires us up).
-  if (!artifactsDir) return;
+  if (!installed) return;
+  // Re-resolve each build (unless pinned) so a just-promoted update dir wins.
+  artifactsDir = artifactsDirOverride || getDefaultArtifactsDir();
 
   const settings = loadSettings();
   const manifest = await readManifest();
@@ -221,9 +229,7 @@ async function refreshEngine() {
     return;
   }
 
-  const categoriesKey = CATEGORY_SETTINGS.filter(([, key]) => settings[key] === true)
-    .map(([category]) => category)
-    .join(',');
+  const categoriesKey = getEnabledCategories().join(',');
   const cacheFile = cacheDir ? cacheFileFor(manifest, categoriesKey) : null;
 
   if (cacheFile) {
@@ -351,8 +357,9 @@ function getCosmeticFilters({ url, sourceId, initial, classes = [], ids = [], hr
  * in the background; blocking starts once it completes.
  */
 function installAdblockInterception(options = {}) {
-  artifactsDir = options.artifactsDir || getDefaultArtifactsDir();
+  artifactsDirOverride = options.artifactsDir || null;
   cacheDir = options.cacheDir !== undefined ? options.cacheDir : getDefaultCacheDir();
+  installed = true;
   setAllowlistedHosts(getAllowlistedHosts());
   registerWebRequestHandler('onBeforeRequest', 'adblock', adblockRequestForDispatch);
   refreshEngine().catch((err) => {
@@ -419,6 +426,8 @@ function getEnabledCategories() {
 /** Test-only: clear module state between suites. */
 function _resetAdblockForTests() {
   artifactsDir = null;
+  artifactsDirOverride = null;
+  installed = false;
   cacheDir = null;
   engine = null;
   lastManifest = null;
@@ -437,6 +446,5 @@ module.exports = {
   cleanupAdblockWebContents,
   isEngineReady,
   getEnabledCategories,
-  getUpdatedArtifactsDir,
   _resetAdblockForTests,
 };

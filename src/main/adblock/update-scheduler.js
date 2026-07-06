@@ -74,14 +74,8 @@ function installAdblockUpdater() {
   }
 }
 
-/** Manual "check now" — runs a cycle regardless of the timers. */
-async function checkForListUpdateNow() {
-  return runUpdateOnce();
-}
-
 module.exports = {
   installAdblockUpdater,
-  checkForListUpdateNow,
   _tick: tick,
   _updatesEnabled: updatesEnabled,
   _clearTimers: clearTimers,

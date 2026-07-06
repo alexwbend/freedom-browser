@@ -333,6 +333,32 @@ describe('refreshEngine', () => {
     expect(adblockRequestForDispatch(makeDetails())).toBe(null);
   });
 
+  test('re-resolves the artifacts dir each build when not pinned (FREEDOM_ADBLOCK_DIR)', async () => {
+    // When no artifactsDir is injected, refreshEngine picks up a dir change
+    // between builds — this is what lets a just-promoted Swarm update apply
+    // in-session instead of only after a restart.
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-empty-'));
+    fs.writeFileSync(
+      path.join(empty, 'manifest.json'),
+      JSON.stringify({ version: 'x', categories: {} })
+    );
+
+    _resetAdblockForTests();
+    process.env.FREEDOM_ADBLOCK_DIR = empty;
+    installAdblockInterception({}); // no pinned artifactsDir
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+    expect(adblockRequestForDispatch(makeDetails())).toBe(null); // empty list -> no block
+
+    // Point the env at the real fixture and rebuild: the new dir takes effect.
+    process.env.FREEDOM_ADBLOCK_DIR = artifactsDir;
+    await refreshEngine();
+    expect(adblockRequestForDispatch(makeDetails())).toEqual({ cancel: true });
+
+    delete process.env.FREEDOM_ADBLOCK_DIR;
+    fs.rmSync(empty, { recursive: true, force: true });
+  });
+
   test('skips unreadable list files without disabling the rest', async () => {
     const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-broken-'));
     fs.writeFileSync(
