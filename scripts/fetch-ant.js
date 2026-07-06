@@ -15,7 +15,7 @@ const ANT_REPO = process.env.ANT_REPO || 'solardev-xyz/ant';
 // could ship a different Ant than CI validated. Override via ANT_RELEASE_TAG
 // for local testing of newer releases; set it to `latest` to resolve the
 // repo's most recent published release.
-const PINNED_RELEASE_TAG = 'v0.5.33';
+const PINNED_RELEASE_TAG = 'v0.5.34';
 // In-repo trust root for the pinned release: the sha256 of its SHA256SUMS
 // asset, recorded at pin time (trust-on-first-use by the author). The release
 // downloads its SHA256SUMS from the same GitHub release as the binaries, so
@@ -24,7 +24,7 @@ const PINNED_RELEASE_TAG = 'v0.5.33';
 // that tampering detectable. Update alongside PINNED_RELEASE_TAG on every
 // deliberate bump: `shasum -a 256` the freshly downloaded SHA256SUMS.
 const PINNED_SHA256SUMS_DIGEST =
-  '4647fb92f635ded61de1afda45fcb72766c93138ae8d2019eb56ec93e226df9d';
+  '1296ae9426fc886818ab6879769421559df94b5bf1303bdeac4fb9fc66ac2ee7';
 const ANT_RELEASE_TAG = process.env.ANT_RELEASE_TAG || PINNED_RELEASE_TAG;
 
 function fetchReleaseOnce() {
