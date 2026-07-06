@@ -58,6 +58,25 @@ function requireText(value, { field, reason, maxBytes, allowEmpty = false }) {
   return value;
 }
 
+/**
+ * Extract the created COB id from `-q` output. The id is printed on its
+ * own line, but announce chatter ("No seeds found for …") may follow it,
+ * so scan for the hex line instead of taking the last one.
+ */
+function parseQuietCobId(stdout, operation) {
+  const line = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => /^[0-9a-f]{40}$/.test(l));
+  if (!line) {
+    log.warn(`[cob-service] ${operation}: could not parse id from quiet output`);
+    throw Object.assign(new Error(`${operation} succeeded but id could not be determined`), {
+      reason: 'cli_failed',
+    });
+  }
+  return line;
+}
+
 /** Map CLI failures to a stable error shape for the provider layer. */
 function cliError(err, operation) {
   const stderr = err.stderr?.toString() || '';
@@ -79,7 +98,7 @@ async function createIssue({ rid, title, description, labels } = {}) {
     maxBytes: LIMITS.maxBodyBytes,
   });
 
-  const args = ['issue', 'open', '-r', fullRid, '--title', title, '--description', description];
+  const args = ['issue', 'open', '--repo', fullRid, '--title', title, '--description', description];
   if (labels !== undefined) {
     if (!Array.isArray(labels) || labels.length > LIMITS.maxLabels) {
       throw new CobValidationError('invalid_labels', 'labels must be an array (max 10)');
@@ -118,16 +137,15 @@ async function commentIssue({ rid, issueId, body, replyTo } = {}) {
   requireCobId(issueId, 'invalid_id');
   requireText(body, { field: 'body', reason: 'invalid_body', maxBytes: LIMITS.maxBodyBytes });
 
-  const args = ['issue', 'comment', issueId, '-r', fullRid, '--message', body, '-q'];
+  const args = ['issue', 'comment', issueId, '--repo', fullRid, '--message', body, '-q'];
   if (replyTo !== undefined) {
     requireCobId(replyTo, 'invalid_id');
     args.push('--reply-to', replyTo);
   }
 
   try {
-    // -q prints exactly the new comment id.
     const { stdout } = await runRad(args);
-    return { id: stdout.trim().split('\n').pop() };
+    return { id: parseQuietCobId(stdout, 'commentIssue') };
   } catch (err) {
     throw cliError(err, 'commentIssue');
   }
@@ -147,7 +165,7 @@ async function editIssueState({ rid, issueId, state } = {}) {
   }
 
   try {
-    await runRad(['issue', 'state', issueId, '-r', fullRid, flag, '-q']);
+    await runRad(['issue', 'state', issueId, '--repo', fullRid, flag, '-q']);
     return { id: issueId, state };
   } catch (err) {
     throw cliError(err, 'editIssueState');
@@ -170,13 +188,13 @@ async function commentPatch({ rid, patchId, body, revisionId } = {}) {
       'patch',
       'comment',
       target,
-      '-r',
+      '--repo',
       fullRid,
       '--message',
       body,
       '-q',
     ]);
-    return { id: stdout.trim().split('\n').pop() };
+    return { id: parseQuietCobId(stdout, 'commentPatch') };
   } catch (err) {
     throw cliError(err, 'commentPatch');
   }
