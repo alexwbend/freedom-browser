@@ -25,13 +25,13 @@ bytes are obtainable from any seed.
 
 The provider exists for everything that is **not** a public read:
 
-| Concern | Why it needs consent |
-|---|---|
-| Seeding | Commits the user's disk + bandwidth indefinitely; node-state change |
-| Syncing | Consumes bandwidth on demand |
-| Identity disclosure | The user's DID is a persistent cross-site identifier |
-| COB writes | Sign with the user's key; irrevocable once gossiped |
-| Node introspection (seeded-repo list, node info) | Private information about the user |
+| Concern                                          | Why it needs consent                                                |
+| ------------------------------------------------ | ------------------------------------------------------------------- |
+| Seeding                                          | Commits the user's disk + bandwidth indefinitely; node-state change |
+| Syncing                                          | Consumes bandwidth on demand                                        |
+| Identity disclosure                              | The user's DID is a persistent cross-site identifier                |
+| COB writes                                       | Sign with the user's key; irrevocable once gossiped                 |
+| Node introspection (seeded-repo list, node info) | Private information about the user                                  |
 
 ## Provider object
 
@@ -45,8 +45,8 @@ window.radicle.request({ method: string, params?: object }): Promise<any>
 plus convenience wrappers (one per method below), and EIP-1193-style events:
 
 ```javascript
-window.radicle.on('connect' | 'disconnect', handler)
-window.radicle.removeListener(event, handler)
+window.radicle.on('connect' | 'disconnect', handler);
+window.radicle.removeListener(event, handler);
 ```
 
 `connect` fires on access grant, `disconnect` on revocation.
@@ -56,14 +56,14 @@ window.radicle.removeListener(event, handler)
 JSON-RPC error objects `{ code, message, data? }`, aligned with the Swarm
 provider:
 
-| Code | Meaning |
-|---|---|
-| 4001 | User rejected the request |
-| 4100 | Unauthorized (no connection grant / grant revoked / tier not granted) |
-| 4200 | Unknown method |
-| 4900 | Radicle unavailable (integration disabled, node stopped, or not ready) |
-| -32602 | Invalid params (`data.reason` gives a machine-readable cause) |
-| -32603 | Internal error |
+| Code   | Meaning                                                                |
+| ------ | ---------------------------------------------------------------------- |
+| 4001   | User rejected the request                                              |
+| 4100   | Unauthorized (no connection grant / grant revoked / tier not granted)  |
+| 4200   | Unknown method                                                         |
+| 4900   | Radicle unavailable (integration disabled, node stopped, or not ready) |
+| -32602 | Invalid params (`data.reason` gives a machine-readable cause)          |
+| -32603 | Internal error                                                         |
 
 `data.reason` values include: `invalid_rid`, `invalid_id`, `invalid_title`,
 `invalid_body`, `not_seeded`, `repo_not_found`, `announce_failed`,
@@ -82,7 +82,7 @@ provider:
    require a separate **signing grant** (analog of the Swarm feed tier).
    First call MAY prompt; rejection → 4001. Writes sign with the user's
    node identity — there are no per-origin sub-identities in v1 (a forge
-   wants you to be *you*; see Design decisions).
+   wants you to be _you_; see Design decisions).
 
 Auto-approve per origin and per tier MAY be offered, revocable at any
 time, mirroring the Swarm provider's `{ publish, feeds, signing }` model
@@ -91,10 +91,12 @@ with `{ node, signing }`.
 ## Methods
 
 ### `radicle_requestAccess` → `{ connected, origin, capabilities }`
+
 Prompt (once) for connection. Repeat calls return existing state. Emits
 `connect`.
 
 ### `radicle_getCapabilities` → capability object (no permission)
+
 ```javascript
 {
   specVersion: '0.1',
@@ -106,37 +108,46 @@ Prompt (once) for connection. Repeat calls return existing state. Emits
 ```
 
 ### `radicle_getNodeStatus` → `{ running, nid?, peers? }` (connection tier)
+
 Coarse node state for UI (peer count, running/stopped). `nid` is only
 included once the signing grant exists (the NID is identifying).
 
 ### `radicle_listSeededRepos` → `[{ rid, name, description }]` (connection tier)
+
 The repos the user's node seeds. Unlike `swarm_listFeeds` this is NOT
 permission-free: the seeded-repo list is private information about the
 user, not data the origin could compute itself.
 
 ### `radicle_seed { rid }` / `radicle_unseed { rid }` (node tier, per-repo prompt)
+
 Update the node's seeding policy and (for `seed`) fetch the repo from the
 network. Resolves `{ rid, seeded: boolean, fetched?: boolean }`. This is
 the gateway action for browsing repos the node doesn't have yet.
 
 ### `radicle_sync { rid }` (node tier)
+
 Fetch + announce the given seeded repo. Resolves
 `{ rid, fetched: boolean }`.
 
 ### `radicle_getIdentity` → `{ did, nid, alias }` (signing tier)
+
 The user's Radicle identity. Bootstrap path for the signing grant, like
 `swarm_getSigningIdentity`.
 
 ### `radicle_createIssue { rid, title, description, labels? }` (signing tier)
+
 → `{ id }`. Title ≤ 200 bytes, description ≤ 64 KiB.
 
 ### `radicle_commentIssue { rid, issueId, body, replyTo? }` (signing tier)
+
 → `{ id }`.
 
 ### `radicle_editIssueState { rid, issueId, state }` (signing tier)
+
 `state` ∈ `'open' | 'closed' | 'solved'`. → `{ id, state }`.
 
 ### `radicle_commentPatch { rid, patchId, body, revisionId? }` (signing tier)
+
 → `{ id }`. Defaults to the latest revision.
 
 ## Backend mapping (implementation note)
@@ -144,13 +155,13 @@ The user's Radicle identity. Bootstrap path for the signing grant, like
 Writes execute the bundled `rad` CLI against the node's `RAD_HOME`
 (verified non-interactive on rad 1.9.1):
 
-| Method | Command |
-|---|---|
-| createIssue | `rad issue open -r <rid> -t <title> -d <desc> [--labels …] -q` |
-| commentIssue | `rad issue comment <id> -r <rid> -m <body> -q` |
-| editIssueState | `rad issue state <id> -r <rid> --closed/--solved` (reopen: `--open`) |
-| commentPatch | `rad patch comment <rev> -r <rid> -m <body> -q` |
-| seed/unseed/sync | `rad seed/unseed/sync <rid>` |
+| Method           | Command                                                                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| createIssue      | `rad issue open --repo <rid> -t <title> -d <desc> [--labels …]` (verbose — `-q` prints nothing for `open`; the id is parsed from output) |
+| commentIssue     | `rad issue comment <id> --repo <rid> -m <body> -q`                                                                                       |
+| editIssueState   | `rad issue state <id> --repo <rid> --open/--closed/--solved`                                                                             |
+| commentPatch     | `rad patch comment <rev> --repo <rid> -m <body> -q` (only the long `--repo` form exists here)                                            |
+| seed/unseed/sync | `rad seed/unseed/sync <rid>`                                                                                                             |
 
 All COB writes work storage-only via `--repo` — no working copy needed.
 Writes announce to the network by default (that is the point); the node

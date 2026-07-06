@@ -12,7 +12,7 @@
  */
 
 const log = require('../logger');
-const { runRad, validateAndNormalizeRid } = require('../radicle-manager');
+const { runRad, validateAndNormalizeRid, getActiveRadHome } = require('../radicle-manager');
 
 // COB ids as returned by the CLI / accepted by it (full or truncated hex).
 const COB_ID_RE = /^[0-9a-f]{6,40}$/;
@@ -113,6 +113,9 @@ async function createIssue({ rid, title, description, labels } = {}) {
     if (labels.length) args.push('--labels', labels.join(','));
   }
 
+  // Deliberately NOT -q: unlike `issue comment`, `issue open -q` prints
+  // nothing at all (verified on rad 1.9.1), so the id must be parsed from
+  // the verbose output.
   let stdout;
   try {
     ({ stdout } = await runRad(args));
@@ -201,16 +204,23 @@ async function commentPatch({ rid, patchId, body, revisionId } = {}) {
 }
 
 /**
- * The user's Radicle identity. @returns {Promise<{did, nid, alias}>}
+ * The user's Radicle identity. Immutable for a given RAD_HOME, so the two
+ * CLI spawns are memoized per home — getNodeStatus may be polled.
+ * @returns {Promise<{did, nid, alias}>}
  */
+let identityCache = null; // { radHome, identity }
 async function getIdentity() {
+  const radHome = getActiveRadHome();
+  if (identityCache?.radHome === radHome) return identityCache.identity;
   try {
     const [didOut, aliasOut] = await Promise.all([
       runRad(['self', '--did']),
       runRad(['self', '--alias']),
     ]);
     const did = didOut.stdout.trim();
-    return { did, nid: did.replace(/^did:key:/, ''), alias: aliasOut.stdout.trim() };
+    const identity = { did, nid: did.replace(/^did:key:/, ''), alias: aliasOut.stdout.trim() };
+    identityCache = { radHome, identity };
+    return identity;
   } catch (err) {
     throw cliError(err, 'getIdentity');
   }

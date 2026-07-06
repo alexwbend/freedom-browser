@@ -95,10 +95,11 @@ function unavailableReason(origin) {
 // checks against it have already been re-done in executeRadicleMethod.
 
 async function handleGetCapabilities(origin) {
+  const reason = unavailableReason(origin);
   return {
     specVersion: SPEC_VERSION,
-    canUseNode: unavailableReason(origin) === null,
-    reason: unavailableReason(origin),
+    canUseNode: reason === null,
+    reason,
     writes: ['issue', 'issueComment', 'issueState', 'patchComment'],
   };
 }
@@ -305,7 +306,4 @@ function registerRadicleProviderIpc() {
 module.exports = {
   executeRadicleMethod,
   registerRadicleProviderIpc,
-  ERRORS,
-  METHOD_TIERS,
-  SPEC_VERSION,
 };

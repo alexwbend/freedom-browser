@@ -1392,10 +1392,7 @@ async function unseedRepository(rid) {
 
   log.info(`[Radicle] Unseeding repository: ${fullRid}`);
   try {
-    await execFileAsync(getRadicleBinaryPath('rad'), ['unseed', fullRid], {
-      env: { ...process.env, RAD_HOME: getActiveRadHome(), RAD_PASSPHRASE: '' },
-      timeout: 30000,
-    });
+    await runRad(['unseed', fullRid]);
     return success();
   } catch (err) {
     log.error(`[Radicle] Unseed failed for ${fullRid}:`, err.message);
