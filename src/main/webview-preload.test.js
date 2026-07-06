@@ -174,7 +174,7 @@ describe('webview-preload', () => {
     }
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)'
+      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
     );
   });
 

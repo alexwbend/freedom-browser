@@ -206,6 +206,8 @@ const paymentHistory = require('./payment-history');
 const { getTransactionStatus: getTxStatus } = require('./wallet/transaction-service');
 const { registerSwarmPermissionsIpc } = require('./swarm/swarm-permissions');
 const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
+const { registerRadiclePermissionsIpc } = require('./radicle/radicle-permissions');
+const { registerRadicleProviderIpc } = require('./radicle/radicle-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
@@ -294,6 +296,8 @@ async function bootstrap() {
   registerPublishHistoryIpc();
   registerSwarmPermissionsIpc();
   registerSwarmProviderIpc();
+  registerRadiclePermissionsIpc();
+  registerRadicleProviderIpc();
   registerFeedStoreIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt

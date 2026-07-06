@@ -252,4 +252,18 @@ module.exports = {
   SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY: 'swarm:ensure-ethereum-wallet-identity',
   SWARM_ACTIVATE_FEED_IDENTITY: 'swarm:activate-feed-identity',
   SWARM_REVOKE_FEED_ACCESS: 'swarm:revoke-feed-access',
+
+  // Radicle Provider Permissions
+  RADICLE_GET_PERMISSION: 'radicle:get-permission',
+  RADICLE_GRANT_PERMISSION: 'radicle:grant-permission',
+  RADICLE_REVOKE_PERMISSION: 'radicle:revoke-permission',
+  RADICLE_GET_ALL_PERMISSIONS: 'radicle:get-all-permissions',
+  RADICLE_UPDATE_LAST_USED: 'radicle:update-last-used',
+  RADICLE_HAS_SIGNING_GRANT: 'radicle:has-signing-grant',
+  RADICLE_GRANT_SIGNING: 'radicle:grant-signing',
+  RADICLE_GET_AUTO_APPROVE: 'radicle:get-auto-approve',
+  RADICLE_SET_AUTO_APPROVE: 'radicle:set-auto-approve',
+
+  // Radicle Provider (main-process authority)
+  RADICLE_PROVIDER_EXECUTE: 'radicle:provider-execute',
 };
