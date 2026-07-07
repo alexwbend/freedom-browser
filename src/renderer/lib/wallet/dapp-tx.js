@@ -6,6 +6,7 @@
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel } from '../sidebar.js';
+import { bypassUnlockGateForHardware, signingButtonLabel } from './wallet-utils.js';
 
 // DOM references
 let dappTxScreen;
@@ -224,6 +225,10 @@ async function populateDappTxDetails(txParams, chainId) {
 
 async function checkDappTxUnlockStatus() {
   try {
+    if (bypassUnlockGateForHardware(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)) {
+      return;
+    }
+
     const status = await window.identity.getStatus();
 
     if (status.isUnlocked) {
@@ -316,7 +321,7 @@ async function approveDappTx() {
   try {
     if (dappTxApproveBtn) {
       dappTxApproveBtn.disabled = true;
-      dappTxApproveBtn.textContent = 'Signing...';
+      dappTxApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
 
     const tx = {

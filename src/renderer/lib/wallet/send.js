@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml } from './wallet-utils.js';
+import { escapeHtml, isLedgerAccount, bypassUnlockGateForHardware } from './wallet-utils.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
   getTrustStatusSentence,
@@ -319,6 +319,17 @@ function showSendPendingView() {
   sendPendingView?.classList.remove('hidden');
   sendSuccessView?.classList.add('hidden');
   sendErrorView?.classList.add('hidden');
+
+  // Hardware accounts wait on a physical confirmation, not the network.
+  const onLedger = isLedgerAccount(walletState.activeWalletIndex);
+  const title = sendPendingView?.querySelector('.send-pending-title');
+  const text = sendPendingView?.querySelector('.send-pending-text');
+  if (title) title.textContent = onLedger ? 'Confirm on your Ledger' : 'Sending Transaction';
+  if (text) {
+    text.textContent = onLedger
+      ? 'Review the transaction on your Ledger and approve it there.'
+      : 'Please wait while your transaction is being processed...';
+  }
 }
 
 function showSendSuccessView(explorerUrl) {
@@ -1053,6 +1064,10 @@ function buildRecipientVerifiedBadge(trust) {
 
 async function configureSendUnlockUI() {
   try {
+    if (bypassUnlockGateForHardware(walletState.activeWalletIndex, sendUnlockSection, sendConfirmBtn)) {
+      return;
+    }
+
     const status = await window.identity.getStatus();
 
     if (status.isUnlocked) {

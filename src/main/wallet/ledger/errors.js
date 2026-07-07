@@ -16,7 +16,7 @@ const LEDGER_ERROR_CODES = {
   USER_REJECTED: 'LEDGER_USER_REJECTED',
   DISCONNECTED: 'LEDGER_DISCONNECTED',
   BUSY: 'LEDGER_BUSY',
-  SIGNING_UNAVAILABLE: 'LEDGER_SIGNING_UNAVAILABLE',
+  WRONG_DEVICE: 'LEDGER_WRONG_DEVICE',
   UNKNOWN: 'LEDGER_UNKNOWN',
 };
 
@@ -27,7 +27,8 @@ const MESSAGES = {
   [LEDGER_ERROR_CODES.USER_REJECTED]: 'Request rejected on the Ledger device.',
   [LEDGER_ERROR_CODES.DISCONNECTED]: 'Ledger was disconnected. Reconnect it and try again.',
   [LEDGER_ERROR_CODES.BUSY]: 'Ledger is busy with another request. Finish or dismiss it on the device.',
-  [LEDGER_ERROR_CODES.SIGNING_UNAVAILABLE]: 'Ledger signing is not available yet in this build',
+  [LEDGER_ERROR_CODES.WRONG_DEVICE]:
+    'This Ledger does not hold the selected account. Connect the device this account was added from.',
   [LEDGER_ERROR_CODES.UNKNOWN]: 'Ledger error. Reconnect the device and try again.',
 };
 

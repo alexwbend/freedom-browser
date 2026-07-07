@@ -11,6 +11,13 @@ const mockIdentity = {
 const mockResetVaultAutoLockTimer = jest.fn();
 
 const mockGetWalletRecord = jest.fn();
+const mockLedgerBackend = {
+  getAddress: jest.fn(),
+  signTransaction: jest.fn(),
+  signMessage: jest.fn(),
+  signTypedData: jest.fn(),
+};
+const mockCreateLedgerBackend = jest.fn(() => mockLedgerBackend);
 
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
@@ -19,6 +26,9 @@ jest.mock('../identity-manager', () => ({
 }));
 jest.mock('../vault-timer', () => ({
   resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
+}));
+jest.mock('./ledger/signer', () => ({
+  createLedgerBackend: (...args) => mockCreateLedgerBackend(...args),
 }));
 
 const { getSigner } = require('./signers');
@@ -134,7 +144,7 @@ describe('getSigner (vault-backed)', () => {
   });
 });
 
-describe('getSigner (ledger-backed)', () => {
+describe('getSigner (ledger-backed dispatch)', () => {
   const LEDGER_RECORD = {
     index: 2,
     name: 'My Stax',
@@ -145,26 +155,31 @@ describe('getSigner (ledger-backed)', () => {
 
   beforeEach(() => {
     mockGetWalletRecord.mockReturnValue(LEDGER_RECORD);
+    mockLedgerBackend.getAddress.mockReset().mockResolvedValue(LEDGER_RECORD.address);
+    mockLedgerBackend.signTransaction.mockReset().mockResolvedValue('0xsignedtx');
+    mockLedgerBackend.signMessage.mockReset().mockResolvedValue('0xsig');
+    mockLedgerBackend.signTypedData.mockReset().mockResolvedValue('0xsig712');
+    mockCreateLedgerBackend.mockClear();
   });
 
-  test('getAddress serves the stored device address without touching the vault', async () => {
+  test('routes to the ledger backend built from the wallet record, never the vault', async () => {
     const signer = getSigner(2);
     await expect(signer.getAddress()).resolves.toBe(LEDGER_RECORD.address);
+    await expect(signer.signTransaction({ chainId: 1 })).resolves.toBe('0xsignedtx');
+    expect(mockCreateLedgerBackend).toHaveBeenCalledWith(LEDGER_RECORD);
     expect(mockIdentity.isUnlocked).not.toHaveBeenCalled();
     expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
   });
 
-  test('signing fails closed until device signing lands (never vault-signs)', async () => {
+  test('factory-level normalization applies to ledger backends too', async () => {
     const signer = getSigner(2);
-    await expect(signer.signMessage('0x48656c6c6f')).rejects.toMatchObject({
-      code: 'LEDGER_SIGNING_UNAVAILABLE',
-    });
-    await expect(signer.signTransaction({ chainId: 1 })).rejects.toMatchObject({
-      code: 'LEDGER_SIGNING_UNAVAILABLE',
-    });
-    await expect(signer.signTypedData({ domain: {}, types: {}, message: {} })).rejects.toMatchObject({
-      code: 'LEDGER_SIGNING_UNAVAILABLE',
-    });
-    expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
+
+    // 0x-hex message reaches the backend as raw bytes
+    await signer.signMessage('0x48656c6c6f');
+    expect(mockLedgerBackend.signMessage).toHaveBeenCalledWith(Buffer.from('Hello', 'utf8'));
+
+    // JSON-string typed data reaches the backend parsed
+    await signer.signTypedData('{"domain":{},"types":{},"message":{}}');
+    expect(mockLedgerBackend.signTypedData).toHaveBeenCalledWith({ domain: {}, types: {}, message: {} });
   });
 });

@@ -56,9 +56,9 @@ describe('mapLedgerError', () => {
 
 describe('createLedgerError', () => {
   test('mints an error with the registry code and message', () => {
-    const err = createLedgerError(LEDGER_ERROR_CODES.SIGNING_UNAVAILABLE);
-    expect(err.code).toBe('LEDGER_SIGNING_UNAVAILABLE');
-    expect(err.message).toMatch(/not available/i);
+    const err = createLedgerError(LEDGER_ERROR_CODES.WRONG_DEVICE);
+    expect(err.code).toBe('LEDGER_WRONG_DEVICE');
+    expect(err.message).toMatch(/does not hold/i);
     // Round-trips through mapLedgerError unchanged (LEDGER_ prefix pass-through)
     expect(mapLedgerError(err)).toBe(err);
   });
