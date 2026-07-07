@@ -117,6 +117,9 @@ module.exports = {
   // Window with URL
   WINDOW_NEW_WITH_URL: 'window:new-with-url',
 
+  // Find in page (main → renderer: Edit menu / accelerator opens the bar)
+  FIND_IN_PAGE_OPEN: 'find:open',
+
   // Tab navigation
   TAB_NEXT: 'tab:next',
   TAB_PREV: 'tab:prev',
