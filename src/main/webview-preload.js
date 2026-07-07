@@ -800,6 +800,7 @@ try {
         },
 
         requestAccess() { return this.request({ method: 'radicle_requestAccess' }); },
+        disconnect() { return this.request({ method: 'radicle_disconnect' }); },
         getCapabilities() { return this.request({ method: 'radicle_getCapabilities' }); },
         getNodeStatus() { return this.request({ method: 'radicle_getNodeStatus' }); },
         listSeededRepos() { return this.request({ method: 'radicle_listSeededRepos' }); },

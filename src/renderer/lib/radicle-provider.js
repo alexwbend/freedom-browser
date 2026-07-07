@@ -94,9 +94,16 @@ async function handleRadicleRequest(webview, request) {
       result = await forwardToMain(method, params, permissionKey);
     } else {
       // Remaining connection-tier methods: getNodeStatus, listSeededRepos,
-      // unseed, sync.
+      // unseed, sync, getSeedStatus, disconnect.
       await requirePermission(permissionKey);
       result = await forwardToMain(method, params, permissionKey);
+      if (method === 'radicle_disconnect') {
+        // Symmetric with the 'connect' event above. NOTE: if a chrome-side
+        // revocation surface (permission-management UI) ever appears, the
+        // event should move to main — the authority — so every revocation
+        // path emits it, not just this request path.
+        sendRadicleEvent(webview, 'disconnect', { origin: permissionKey });
+      }
     }
 
     sendRadicleResponse(webview, id, result, null);

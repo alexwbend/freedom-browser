@@ -95,6 +95,13 @@ with `{ node, signing }`.
 Prompt (once) for connection. Repeat calls return existing state. Emits
 `connect`.
 
+### `radicle_disconnect` → `{ connected: false }` (connection tier)
+
+The inverse of `requestAccess`: the origin relinquishes its own grant
+(connection AND signing, plus auto-approvals). No consent prompt — an
+origin may always drop its own access. Works while the node is stopped.
+Emits the `disconnect` provider event.
+
 ### `radicle_getCapabilities` → capability object (no permission)
 
 ```javascript

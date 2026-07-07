@@ -15,7 +15,7 @@
  *  - none:       radicle_getCapabilities
  *  - connection: radicle_getNodeStatus, radicle_listSeededRepos,
  *                radicle_seed, radicle_unseed, radicle_sync,
- *                radicle_getSeedStatus
+ *                radicle_getSeedStatus, radicle_disconnect
  *  - signing:    radicle_getIdentity, radicle_createIssue,
  *                radicle_commentIssue, radicle_editIssueState,
  *                radicle_commentPatch
@@ -73,6 +73,7 @@ const METHOD_TIERS = {
   radicle_unseed: 'connection',
   radicle_sync: 'connection',
   radicle_getSeedStatus: 'connection',
+  radicle_disconnect: 'connection',
   radicle_getIdentity: 'signing',
   radicle_createIssue: 'signing',
   radicle_commentIssue: 'signing',
@@ -81,6 +82,15 @@ const METHOD_TIERS = {
 };
 
 const KNOWN_METHODS = new Set(Object.keys(METHOD_TIERS));
+
+// Methods that report or change grant/node state rather than requiring a
+// running node — a dApp must be able to connect (and disconnect) while
+// the node is down.
+const WORKS_WHILE_STOPPED = new Set([
+  'radicle_getNodeStatus',
+  'radicle_requestAccess',
+  'radicle_disconnect',
+]);
 
 function integrationEnabled() {
   return loadSettings().enableRadicleIntegration === true;
@@ -264,11 +274,7 @@ async function executeRadicleMethod(method, params = {}, origin) {
         reason: 'signing_not_granted',
       });
     }
-    // requestAccess and getNodeStatus report node state rather than
-    // requiring it — a dApp must be able to connect while the node is down.
-    const worksWhileStopped =
-      method === 'radicle_getNodeStatus' || method === 'radicle_requestAccess';
-    if (!nodeRunning() && !worksWhileStopped) {
+    if (!nodeRunning() && !WORKS_WHILE_STOPPED.has(method)) {
       throw providerError(ERRORS.UNAVAILABLE, 'Radicle node is not running', {
         reason: 'node-stopped',
       });
@@ -299,6 +305,11 @@ async function executeRadicleMethod(method, params = {}, origin) {
       return handleSync(origin, params);
     case 'radicle_getSeedStatus':
       return handleGetSeedStatus(origin, params);
+    case 'radicle_disconnect':
+      // An origin may relinquish its own grant (connection AND signing) —
+      // the inverse of requestAccess, no consent needed.
+      permissions.revokePermission(origin);
+      return { connected: false };
     case 'radicle_getIdentity':
       return handleCobWrite(() => cob.getIdentity(), params);
     case 'radicle_createIssue':

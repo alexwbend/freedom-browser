@@ -67,6 +67,7 @@ jest.mock('./radicle-permissions', () => ({
   getPermission: jest.fn(() => ({ origin: 'test', signing: false })),
   hasSigningGrant: jest.fn(() => false),
   updateLastUsed: jest.fn(),
+  revokePermission: jest.fn(() => true),
 }));
 
 const { executeRadicleMethod } = require('./radicle-provider-ipc');
@@ -204,6 +205,13 @@ describe('node actions', () => {
     const result = await executeRadicleMethod('radicle_getSeedStatus', { rid: RID }, ORIGIN);
     expect(result).toEqual(mockSeedFetchStatus);
     expect(manager.getSeedFetchStatus).toHaveBeenCalledWith(RID);
+  });
+
+  test('radicle_disconnect revokes the origin grant, works while node stopped', async () => {
+    manager.getCurrentStatus.mockReturnValue({ status: 'stopped', error: null });
+    const result = await executeRadicleMethod('radicle_disconnect', {}, ORIGIN);
+    expect(result).toEqual({ connected: false });
+    expect(permissions.revokePermission).toHaveBeenCalledWith(ORIGIN);
   });
 
   test('radicle_getSeedStatus validates rid', async () => {
