@@ -2,9 +2,10 @@
  * Signer factory.
  *
  * Resolves a wallet index to a signer object so callers never touch raw
- * private keys. Today every account is vault-backed (mnemonic-derived);
- * hardware-wallet account types plug in here by returning a different
- * backend behind the same interface.
+ * private keys. The account's `type` (from vault-meta, see
+ * identity-manager's WALLET_TYPES) picks the backend: vault-backed
+ * mnemonic accounts sign locally with a borrowed key, Ledger accounts
+ * sign on the device.
  *
  * Input normalization (0x-hex personal messages → raw bytes, JSON-string
  * typed data → object) happens once in the factory, so backends always
@@ -20,6 +21,8 @@
 const { Wallet, computeAddress } = require('ethers');
 
 const { withVaultPrivateKey, isValidWalletIndex } = require('./vault-access');
+const { getWalletRecord, WALLET_TYPES } = require('../identity-manager');
+const { createLedgerBackend } = require('./ledger/signer');
 
 /**
  * @typedef {Object} Signer
@@ -95,7 +98,13 @@ function getSigner(walletIndex) {
     throw new Error('Invalid wallet index');
   }
 
-  const backend = createVaultBackend(walletIndex);
+  // Unknown indexes fall through to the vault backend, which fails with
+  // its own vault-derivation errors — the pre-hardware-wallet behaviour.
+  const record = getWalletRecord(walletIndex);
+  const backend =
+    record && record.type === WALLET_TYPES.LEDGER
+      ? createLedgerBackend(record)
+      : createVaultBackend(walletIndex);
 
   let address = null;
   return {

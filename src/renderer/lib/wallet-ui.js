@@ -26,6 +26,7 @@ import { initChainSwitcher, updateChainSwitcherDisplay, getSelectedChainId, setS
 import { initReceive, closeReceive } from './wallet/receive.js';
 import { initWalletSettings, closeWalletSettings } from './wallet/wallet-settings.js';
 import { initCreateWallet, openCreateWallet, closeCreateWallet } from './wallet/create-wallet.js';
+import { initConnectLedger, openConnectLedger, closeConnectLedger } from './wallet/connect-ledger.js';
 import { initPublishSetup, openPublishSetup, closePublishSetup } from './wallet/publish-setup.js';
 import { initStampManager, closeStampManager } from './wallet/stamp-manager.js';
 import { initChequebookDeposit, closeChequebookDeposit } from './wallet/chequebook-deposit.js';
@@ -85,11 +86,12 @@ export function initWalletUi() {
   initDappSign();
   initSend();
   initExportMnemonic(switchTab);
-  initWalletSelector(openCreateWallet);
+  initWalletSelector(openCreateWallet, openConnectLedger);
   initChainSwitcher();
   initReceive();
   initWalletSettings(switchTab);
   initCreateWallet();
+  initConnectLedger();
   initPublishSetup();
   initStampManager();
   initChequebookDeposit();
@@ -391,6 +393,7 @@ function closeAllSubscreens() {
 
   closeExportMnemonic();
   closeCreateWallet();
+  closeConnectLedger();
   closeReceive();
   closeWalletSettings();
   closeSend();

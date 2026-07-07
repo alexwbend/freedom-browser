@@ -236,6 +236,131 @@ describe('identity-manager wallet deletion', () => {
   });
 });
 
+describe('identity-manager ledger accounts', () => {
+  let tmpDir;
+  let envSnapshot;
+  let identityManager;
+
+  const LEDGER_ADDRESS = '0x209693Bc6afc0C5328bA36FaF03C514EF312287C';
+  const LEDGER_PATH = "44'/60'/0'/0/0";
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-manager-ledger-'));
+    envSnapshot = snapshotEnv();
+    process.env.FREEDOM_IDENTITY_DATA = tmpDir;
+    identityManager = loadMainModule(require.resolve('./identity-manager'), {
+      userDataDir: tmpDir,
+      extraMocks: {
+        [require.resolve('./identity')]: () => ({
+          getMnemonic: jest.fn(() => null), // vault locked — ledger ops must not need it
+          isUnlocked: jest.fn(() => false),
+        }),
+      },
+    }).mod;
+  });
+
+  afterEach(() => {
+    restoreEnv(envSnapshot);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeVaultMeta(meta) {
+    fs.writeFileSync(path.join(tmpDir, 'vault-meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+  }
+
+  function readVaultMeta() {
+    return JSON.parse(fs.readFileSync(path.join(tmpDir, 'vault-meta.json'), 'utf-8'));
+  }
+
+  function seedMainWallet() {
+    writeVaultMeta({
+      activeWalletIndex: 0,
+      addresses: { userWallet: '0x0000000000000000000000000000000000000001' },
+      derivedWallets: [
+        { index: 0, name: 'Main Wallet', address: '0x0000000000000000000000000000000000000001' },
+      ],
+    });
+  }
+
+  test('addLedgerWallet appends a typed record with device address and path', async () => {
+    seedMainWallet();
+
+    const wallet = await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    expect(wallet).toEqual({
+      index: 1,
+      name: 'My Stax',
+      address: LEDGER_ADDRESS,
+      type: 'ledger',
+      path: LEDGER_PATH,
+    });
+    expect(readVaultMeta().derivedWallets).toHaveLength(2);
+    expect(readVaultMeta().derivedWallets[1]).toMatchObject({ type: 'ledger', path: LEDGER_PATH });
+  });
+
+  test('addLedgerWallet auto-names and works with the vault locked', async () => {
+    seedMainWallet();
+    const wallet = await identityManager.addLedgerWallet('', LEDGER_ADDRESS, LEDGER_PATH);
+    expect(wallet.name).toBe('Ledger 1');
+  });
+
+  test('addLedgerWallet rejects duplicates and bad input', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    await expect(identityManager.addLedgerWallet('Again', LEDGER_ADDRESS.toLowerCase(), LEDGER_PATH))
+      .rejects.toThrow(/already in your wallet list/);
+    await expect(identityManager.addLedgerWallet('Bad', '0x123', LEDGER_PATH))
+      .rejects.toThrow('Invalid Ledger account address');
+    // Mixed-case address with a broken EIP-55 checksum must be rejected too
+    await expect(identityManager.addLedgerWallet('Bad', LEDGER_ADDRESS.replace('9', 'a'), LEDGER_PATH))
+      .rejects.toThrow('Invalid Ledger account address');
+    await expect(identityManager.addLedgerWallet('Bad', '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', ''))
+      .rejects.toThrow('Missing derivation path');
+  });
+
+  test('getDerivedWallets returns the stored device address without derivation', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    const wallets = await identityManager.getDerivedWallets();
+
+    expect(wallets).toEqual([
+      expect.objectContaining({ index: 0, type: 'mnemonic' }),
+      expect.objectContaining({ index: 1, type: 'ledger', address: LEDGER_ADDRESS, path: LEDGER_PATH }),
+    ]);
+  });
+
+  test('getWalletRecord normalizes type and exposes the ledger path', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    expect(identityManager.getWalletRecord(0)).toMatchObject({ type: 'mnemonic' });
+    expect(identityManager.getWalletRecord(1)).toMatchObject({
+      type: 'ledger',
+      address: LEDGER_ADDRESS,
+      path: LEDGER_PATH,
+    });
+    expect(identityManager.getWalletRecord(99)).toBeNull();
+  });
+
+  test('getUserWalletKey refuses to derive for a ledger account', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    await expect(identityManager.getUserWalletKey(1))
+      .rejects.toThrow('Hardware wallet accounts have no derivable private key');
+  });
+
+  test('getActiveWalletAddress returns the device address for an active ledger account', async () => {
+    seedMainWallet();
+    const wallet = await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+    await identityManager.setActiveWalletIndex(wallet.index);
+
+    await expect(identityManager.getActiveWalletAddress()).resolves.toBe(LEDGER_ADDRESS);
+  });
+});
+
 /**
  * Regression guard for issue #90: Bee's restart after (re)injection is owned by
  * injectBeeIdentity via the lifecycle hook (stop → wipe → start), so Bee must

@@ -281,9 +281,12 @@ async function getUserWalletKey(walletIndex) {
     throw new Error('Wallet index must be a non-negative integer');
   }
 
-  const wallets = await getDerivedWallets();
-  if (!wallets.some((wallet) => wallet.index === walletIndex)) {
+  const record = getWalletRecord(walletIndex);
+  if (!record) {
     throw new Error(`Wallet with index ${walletIndex} does not exist`);
+  }
+  if (record.type !== WALLET_TYPES.MNEMONIC) {
+    throw new Error('Hardware wallet accounts have no derivable private key');
   }
 
   const identity = await loadIdentityModule();
@@ -784,8 +787,65 @@ async function exportMnemonic() {
 // ============================================
 
 /**
+ * Wallet account types. Entries in vault-meta's `derivedWallets[]` without
+ * a `type` field predate hardware-wallet support and are mnemonic-derived.
+ */
+const WALLET_TYPES = {
+  MNEMONIC: 'mnemonic',
+  LEDGER: 'ledger',
+};
+
+/**
+ * The wallet list stored in vault-meta, with the implicit pre-multi-wallet
+ * default (just the main wallet) when `derivedWallets` was never written.
+ *
+ * @param {Object} meta - Parsed vault-meta
+ * @returns {Array<Object>} Raw derivedWallets entries
+ */
+function getWalletList(meta) {
+  return (
+    meta.derivedWallets || [
+      { index: 0, name: 'Main Wallet', address: meta.addresses?.userWallet || null },
+    ]
+  );
+}
+
+/**
+ * Look up a single wallet account record by index, normalized: `type`
+ * always present, address falling back to the stored main-wallet address
+ * for index 0. Returns null when the index is unknown.
+ *
+ * Used by the signer factory and the vault-access guard to decide which
+ * signing backend an index resolves to — must stay synchronous and cheap.
+ *
+ * @param {number} walletIndex
+ * @param {Object} [meta] - Already-loaded vault-meta, to skip the disk read
+ * @returns {{index: number, name: string, address: string|null, type: string, path?: string}|null}
+ */
+function getWalletRecord(walletIndex, meta = getVaultMeta()) {
+  if (!meta) {
+    return null;
+  }
+  const record = getWalletList(meta).find((wallet) => wallet.index === walletIndex);
+  if (!record) {
+    return null;
+  }
+  let address = record.address || null;
+  if (!address && record.index === 0) {
+    address = meta.addresses?.userWallet || null;
+  }
+  return {
+    index: record.index,
+    name: record.name,
+    address,
+    type: record.type || WALLET_TYPES.MNEMONIC,
+    ...(record.path ? { path: record.path } : {}),
+  };
+}
+
+/**
  * Get list of derived user wallets
- * @returns {Array<{index: number, name: string, address: string}>}
+ * @returns {Array<{index: number, name: string, address: string, type: string}>}
  */
 async function getDerivedWallets() {
   const identity = await loadIdentityModule();
@@ -813,7 +873,7 @@ async function getDerivedWallets() {
       activeWalletIndex: 0,
     });
 
-    return wallets;
+    return wallets.map((wallet) => ({ ...wallet, type: WALLET_TYPES.MNEMONIC }));
   }
 
   // If vault is unlocked, derive addresses; otherwise use stored addresses
@@ -821,9 +881,14 @@ async function getDerivedWallets() {
   const wallets = [];
 
   for (const wallet of meta.derivedWallets) {
+    const type = wallet.type || WALLET_TYPES.MNEMONIC;
     let address = null;
 
-    if (mnemonic) {
+    if (type === WALLET_TYPES.LEDGER) {
+      // Hardware accounts: the address was read from the device when the
+      // account was added; there is nothing to derive locally.
+      address = wallet.address || null;
+    } else if (mnemonic) {
       // Derive address from mnemonic
       const derived = identity.deriveUserWallet(mnemonic, wallet.index);
       address = derived.address;
@@ -840,10 +905,67 @@ async function getDerivedWallets() {
       index: wallet.index,
       name: wallet.name,
       address,
+      type,
+      ...(wallet.path ? { path: wallet.path } : {}),
     });
   }
 
   return wallets;
+}
+
+/**
+ * Add a Ledger hardware-wallet account to the wallet list.
+ *
+ * The address comes from the device during account discovery and is
+ * persisted — it can never be re-derived locally. Does not require the
+ * vault to be unlocked (no mnemonic involved), only that a vault exists
+ * so there is a wallet list to add to.
+ *
+ * @param {string} name - Display name ('' → auto "Ledger N")
+ * @param {string} address - Checksummed address read from the device
+ * @param {string} path - Derivation path in device format (e.g. "44'/60'/0'/0/0")
+ * @returns {Promise<{index: number, name: string, address: string, type: string, path: string}>}
+ */
+async function addLedgerWallet(name, address, path) {
+  const { isAddress } = require('ethers');
+  if (typeof address !== 'string' || !isAddress(address)) {
+    throw new Error('Invalid Ledger account address');
+  }
+  if (typeof path !== 'string' || !path) {
+    throw new Error('Missing derivation path for Ledger account');
+  }
+
+  const meta = getVaultMeta();
+  if (!meta) {
+    throw new Error('No vault found');
+  }
+
+  const wallets = getWalletList(meta);
+
+  const duplicate = wallets.find(
+    (wallet) => wallet.address && wallet.address.toLowerCase() === address.toLowerCase()
+  );
+  if (duplicate) {
+    throw new Error(`This account is already in your wallet list as "${duplicate.name}"`);
+  }
+
+  const newIndex = wallets.reduce((max, w) => Math.max(max, w.index), -1) + 1;
+  const ledgerCount = wallets.filter((w) => w.type === WALLET_TYPES.LEDGER).length;
+  const newWallet = {
+    index: newIndex,
+    name: (name || '').trim() || `Ledger ${ledgerCount + 1}`,
+    address,
+    type: WALLET_TYPES.LEDGER,
+    path,
+  };
+  wallets.push(newWallet);
+
+  saveVaultMeta({
+    ...meta,
+    derivedWallets: wallets,
+  });
+
+  return { ...newWallet };
 }
 
 /**
@@ -866,7 +988,7 @@ async function setActiveWalletIndex(index) {
   }
 
   // Verify wallet exists
-  const wallets = meta.derivedWallets || [{ index: 0, name: 'Main Wallet' }];
+  const wallets = getWalletList(meta);
   const walletExists = wallets.some((w) => w.index === index);
 
   if (!walletExists) {
@@ -898,7 +1020,7 @@ async function createDerivedWallet(name) {
   }
 
   // Get current wallets
-  const wallets = meta.derivedWallets || [{ index: 0, name: 'Main Wallet' }];
+  const wallets = getWalletList(meta);
 
   // Find next available index (use account index, starting from max + 1)
   const maxIndex = wallets.reduce((max, w) => Math.max(max, w.index), -1);
@@ -939,7 +1061,7 @@ async function renameDerivedWallet(index, newName) {
     throw new Error('No vault found');
   }
 
-  const wallets = meta.derivedWallets || [{ index: 0, name: 'Main Wallet' }];
+  const wallets = getWalletList(meta);
   const walletIndex = wallets.findIndex((w) => w.index === index);
 
   if (walletIndex === -1) {
@@ -981,7 +1103,7 @@ async function deleteDerivedWallet(index) {
     throw new Error('No vault found');
   }
 
-  const wallets = meta.derivedWallets || [{ index: 0, name: 'Main Wallet' }];
+  const wallets = getWalletList(meta);
   const walletIndex = wallets.findIndex((w) => w.index === index);
 
   if (walletIndex === -1) {
@@ -1025,6 +1147,14 @@ async function getActiveWalletAddress() {
   }
 
   const activeIndex = meta.activeWalletIndex ?? 0;
+
+  // Hardware accounts always use the stored device address — there is
+  // no local derivation, unlocked vault or not.
+  const record = getWalletRecord(activeIndex, meta);
+  if (record && record.type !== WALLET_TYPES.MNEMONIC) {
+    return record.address;
+  }
+
   const mnemonic = identity.getMnemonic();
 
   if (mnemonic) {
@@ -1033,11 +1163,7 @@ async function getActiveWalletAddress() {
   }
 
   // Vault locked - can only return main wallet address from stored meta
-  if (activeIndex === 0) {
-    return meta.addresses?.userWallet || null;
-  }
-
-  return null;
+  return activeIndex === 0 ? (record?.address ?? null) : null;
 }
 
 /**
@@ -1190,6 +1316,13 @@ function registerIdentityIpc() {
       if (!password) {
         return { success: false, error: 'Password is required to export private key' };
       }
+      const record = getWalletRecord(accountIndex);
+      if (record && record.type !== WALLET_TYPES.MNEMONIC) {
+        return {
+          success: false,
+          error: 'Hardware wallet accounts have no exportable private key — the key never leaves the device',
+        };
+      }
       const identity = await loadIdentityModule();
       const dataDir = getIdentityDataDir();
       await identity.verifyPassword(dataDir, password);
@@ -1274,6 +1407,16 @@ function registerIdentityIpc() {
     }
   });
 
+  // Add a Ledger hardware-wallet account (address read from the device)
+  ipcMain.handle('wallet:add-ledger-wallet', async (_event, name, address, path) => {
+    try {
+      const wallet = await addLedgerWallet(name, address, path);
+      return { success: true, wallet };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Rename wallet
   ipcMain.handle('wallet:rename-wallet', async (_event, index, newName) => {
     try {
@@ -1329,10 +1472,13 @@ module.exports = {
   getUserWalletKey,
 
   // Multi-wallet operations
+  WALLET_TYPES,
+  getWalletRecord,
   getDerivedWallets,
   getActiveWalletIndex,
   setActiveWalletIndex,
   createDerivedWallet,
+  addLedgerWallet,
   renameDerivedWallet,
   deleteDerivedWallet,
   getActiveWalletAddress,

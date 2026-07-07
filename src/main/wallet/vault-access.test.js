@@ -3,9 +3,12 @@ const mockIdentity = {
   exportPrivateKey: jest.fn(),
 };
 const mockResetVaultAutoLockTimer = jest.fn();
+const mockGetWalletRecord = jest.fn();
 
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
+  getWalletRecord: (...args) => mockGetWalletRecord(...args),
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger' },
 }));
 jest.mock('../vault-timer', () => ({
   resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
@@ -22,6 +25,7 @@ beforeEach(() => {
   // test's tampering to leak into the next.
   mockIdentity.isUnlocked.mockReset().mockReturnValue(true);
   mockIdentity.exportPrivateKey.mockReset().mockReturnValue(TEST_KEY);
+  mockGetWalletRecord.mockReset().mockReturnValue(null);
   mockResetVaultAutoLockTimer.mockClear();
 });
 
@@ -66,6 +70,15 @@ describe('withVaultPrivateKey', () => {
   test('forwards the wallet index to exportPrivateKey', async () => {
     await withVaultPrivateKey(3, () => undefined);
     expect(mockIdentity.exportPrivateKey).toHaveBeenCalledWith(3);
+  });
+
+  test('refuses to derive a vault key for a hardware-wallet index', async () => {
+    // The chokepoint guard: even a caller that bypasses the signer
+    // factory must never get a mnemonic key at a ledger account's index.
+    mockGetWalletRecord.mockReturnValue({ index: 3, type: 'ledger', address: '0xstax' });
+    await expect(withVaultPrivateKey(3, () => 'unreachable'))
+      .rejects.toThrow('Hardware wallet accounts have no vault key');
+    expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
   });
 
   test.each([
