@@ -56,6 +56,9 @@ const {
 const PREFERRED_SEEDS = [
   'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776',
   'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776',
+  // iris/rosa have been observed resetting handshakes network-wide
+  // (July 2026); seed.radicle.xyz has been consistently reliable.
+  'z6MksmpU5b1dS7oaqF2bHXhQi1DWy2hB7Mh9CuN7y1DN6QSz@seed.radicle.xyz:8776',
 ];
 const LEGACY_SEED_REPLACEMENTS = new Map([
   ['iris.radicle.xyz', 'iris.radicle.network'],
