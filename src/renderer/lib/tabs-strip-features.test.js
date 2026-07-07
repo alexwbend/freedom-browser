@@ -653,3 +653,104 @@ describe('MRU Ctrl+Tab cycling', () => {
     expect(mod.getTabs()).toHaveLength(1);
   });
 });
+
+describe('context-menu completeness: close left, copy URL, reopen closed', () => {
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    jest.restoreAllMocks();
+  });
+
+  test('Close Tabs to the Left mirrors close-right semantics incl. pinned protection', async () => {
+    const { mod, elements } = await loadTabsModule();
+    await mod.initTabs();
+
+    const tabA = mod.getActiveTab();
+    const tabB = mod.createTab('https://b.example/');
+    const tabC = mod.createTab('https://c.example/');
+
+    // Pin A — it must survive a close-left sweep.
+    const tabAEl = findTabElement(elements.tabBar, tabA.id);
+    openContextMenu(tabAEl);
+    elements.tabContextMenu.dispatch('click', { target: elements.actions.pin });
+    expect(mod.getTabs().find((t) => t.id === tabA.id).pinned).toBe(true);
+
+    // From C, close everything to the left: only B closes.
+    const tabCEl = findTabElement(elements.tabBar, tabC.id);
+    openContextMenu(tabCEl);
+    expect(elements.actions['close-left'].disabled).toBe(false);
+    elements.tabContextMenu.dispatch('click', { target: elements.actions['close-left'] });
+
+    expect(mod.getTabs().map((t) => t.id)).toEqual([tabA.id, tabC.id]);
+    void tabB;
+  });
+
+  test('Close Tabs to the Left is disabled when nothing unpinned is to the left', async () => {
+    const { mod, elements } = await loadTabsModule();
+    await mod.initTabs();
+
+    const tabA = mod.getActiveTab();
+    mod.createTab('https://b.example/');
+
+    // Leftmost tab: nothing to its left.
+    openContextMenu(findTabElement(elements.tabBar, tabA.id));
+    expect(elements.actions['close-left'].disabled).toBe(true);
+  });
+
+  test('Copy URL puts the tab URL on the clipboard (placeholders use the persisted URL)', async () => {
+    const { mod, elements, electronAPI } = await loadTabsModule();
+    await mod.initTabs();
+
+    const tab = mod.createTab('https://copy-me.example/page');
+    openContextMenu(findTabElement(elements.tabBar, tab.id));
+    expect(elements.actions['copy-url'].disabled).toBe(false);
+    elements.tabContextMenu.dispatch('click', { target: elements.actions['copy-url'] });
+    expect(electronAPI.copyText).toHaveBeenCalledWith('https://copy-me.example/page');
+
+    // Placeholder tab (no webview): the persisted URL is copied as-is.
+    const placeholder = mod.createPlaceholderTab({
+      url: 'https://restored.example/deep/link',
+      title: 'Restored',
+    });
+    openContextMenu(findTabElement(elements.tabBar, placeholder.id));
+    elements.tabContextMenu.dispatch('click', { target: elements.actions['copy-url'] });
+    expect(electronAPI.copyText).toHaveBeenLastCalledWith('https://restored.example/deep/link');
+  });
+
+  test('Copy URL normalizes resolved internal pages to their freedom:// form', async () => {
+    const { mod, elements, electronAPI } = await loadTabsModule();
+    await mod.initTabs();
+
+    const tab = mod.createTab('https://placeholder.example/');
+    // Simulate a loaded internal page: tab.url holds the resolved file:// URL
+    // (the harness page-urls mock maps /pages/history.html -> 'history').
+    tab.url = 'file:///app/pages/history.html';
+
+    openContextMenu(findTabElement(elements.tabBar, tab.id));
+    elements.tabContextMenu.dispatch('click', { target: elements.actions['copy-url'] });
+    expect(electronAPI.copyText).toHaveBeenLastCalledWith('freedom://history');
+  });
+
+  test('Reopen Closed Tab surfaces the closedTabsStack and disables when empty', async () => {
+    const { mod, elements } = await loadTabsModule();
+    await mod.initTabs();
+
+    const keeper = mod.getActiveTab();
+
+    // Nothing closed yet: item disabled.
+    openContextMenu(findTabElement(elements.tabBar, keeper.id));
+    expect(elements.actions['reopen-closed'].disabled).toBe(true);
+
+    // Close a real page; reopening from the menu restores it.
+    const doomed = mod.createTab('https://doomed.example/');
+    mod.closeTab(doomed.id);
+    expect(mod.getTabs().map((t) => t.id)).toEqual([keeper.id]);
+
+    openContextMenu(findTabElement(elements.tabBar, keeper.id));
+    expect(elements.actions['reopen-closed'].disabled).toBe(false);
+    elements.tabContextMenu.dispatch('click', { target: elements.actions['reopen-closed'] });
+
+    expect(mod.getTabs()).toHaveLength(2);
+    expect(mod.getActiveTab().url).toBe('https://doomed.example/');
+  });
+});

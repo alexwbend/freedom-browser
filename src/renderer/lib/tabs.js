@@ -1333,6 +1333,31 @@ const closeTabsToRight = (tabId) => {
   pushDebug(`Closed ${tabsToClose.length} tabs to the right`);
 };
 
+// Close all tabs to the left of the specified one (mirror of
+// closeTabsToRight, including the pinned-tab protection).
+const closeTabsToLeft = (tabId) => {
+  const tabIndex = tabState.tabs.findIndex((t) => t.id === tabId);
+  if (tabIndex === -1) return;
+
+  const tabsToClose = tabState.tabs.slice(0, tabIndex).filter((t) => !t.pinned);
+  for (const tab of tabsToClose) {
+    closeTab(tab.id);
+  }
+  pushDebug(`Closed ${tabsToClose.length} tabs to the left`);
+};
+
+// The URL "Copy URL" puts on the clipboard for a tab. Internal pages
+// normalize to their friendly freedom://<name> form — the resolved
+// file://…/pages/… URL is install-location-specific and useless to share
+// (same normalization the session snapshot applies). Placeholder tabs work
+// out of the box: their persisted URL lives on tab.url.
+const getShareableUrlForTab = (tab) => {
+  const url = tab?.url || '';
+  if (!url || url === 'about:blank') return '';
+  const internalName = url.startsWith('freedom://') ? null : getInternalPageName(url);
+  return internalName ? `freedom://${internalName}` : url;
+};
+
 // Reopen the last closed tab
 export const reopenLastClosedTab = () => {
   const entry = closedTabsStack.pop();
@@ -1550,6 +1575,25 @@ const showContextMenu = (x, y, tabId) => {
   const closeOthersBtn = tabContextMenu.querySelector('[data-action="close-others"]');
   if (closeOthersBtn) {
     closeOthersBtn.disabled = otherTabs.length === 0;
+  }
+
+  // Disable "Close Tabs to the Left" if there are no tabs to the left (excluding pinned)
+  const tabsToLeft = tabState.tabs.slice(0, tabIndex).filter((t) => !t.pinned);
+  const closeLeftBtn = tabContextMenu.querySelector('[data-action="close-left"]');
+  if (closeLeftBtn) {
+    closeLeftBtn.disabled = tabsToLeft.length === 0;
+  }
+
+  // Disable "Copy URL" when the tab has nothing shareable yet
+  const copyUrlBtn = tabContextMenu.querySelector('[data-action="copy-url"]');
+  if (copyUrlBtn) {
+    copyUrlBtn.disabled = !getShareableUrlForTab(tab);
+  }
+
+  // Disable "Reopen Closed Tab" when the closed-tabs stack is empty
+  const reopenBtn = tabContextMenu.querySelector('[data-action="reopen-closed"]');
+  if (reopenBtn) {
+    reopenBtn.disabled = closedTabsStack.length === 0;
   }
 
   // Position menu
@@ -1824,11 +1868,25 @@ export const initTabs = async () => {
         case 'close-right':
           closeTabsToRight(contextMenuTabId);
           break;
+        case 'close-left':
+          closeTabsToLeft(contextMenuTabId);
+          break;
         case 'pin':
           togglePinTab(contextMenuTabId);
           break;
         case 'mute':
           toggleMuteTab(contextMenuTabId);
+          break;
+        case 'copy-url': {
+          const tab = tabState.tabs.find((t) => t.id === contextMenuTabId);
+          const url = getShareableUrlForTab(tab);
+          if (url) {
+            electronAPI?.copyText?.(url);
+          }
+          break;
+        }
+        case 'reopen-closed':
+          reopenLastClosedTab();
           break;
       }
       hideTabContextMenu();

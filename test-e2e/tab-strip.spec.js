@@ -101,3 +101,81 @@ test('Escape closes tab search without switching tabs', async ({ window }) => {
   await expect(window.locator('[data-test="tab-search"]')).toBeHidden();
   await expect(tabs.nth(1)).toHaveClass(/active/);
 });
+
+test('Mute Tab context-menu item toggles the muted indicator', async ({ window }) => {
+  const tab = window.locator('[data-test="tab"]').first();
+  const audioBtn = tab.locator('[data-test="tab-audio"]');
+
+  // No audio state initially: indicator hidden.
+  await expect(audioBtn).toBeHidden();
+
+  await tab.click({ button: 'right' });
+  const muteItem = window.locator('#tab-context-menu [data-action="mute"]');
+  await expect(muteItem).toHaveText('Mute Tab');
+  await muteItem.click();
+
+  // Muted: indicator shows the muted speaker even without audio playing.
+  await expect(tab).toHaveAttribute('data-audio-state', 'muted');
+  await expect(audioBtn).toBeVisible();
+
+  // Clicking the indicator unmutes (and hides it again — nothing audible).
+  await audioBtn.click();
+  await expect(audioBtn).toBeHidden();
+
+  await tab.click({ button: 'right' });
+  await expect(muteItem).toHaveText('Mute Tab');
+  await window.keyboard.press('Escape');
+});
+
+test('Close Tabs to the Left protects pinned tabs', async ({ window }) => {
+  const tabs = window.locator('[data-test="tab"]');
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await expect(tabs).toHaveCount(3);
+
+  // Pin the leftmost tab.
+  await tabs.first().click({ button: 'right' });
+  await window.locator('#tab-context-menu [data-action="pin"]').click();
+  await expect(tabs.first()).toHaveClass(/pinned/);
+
+  // Close-left from the rightmost tab: only the middle tab goes.
+  await tabs.nth(2).click({ button: 'right' });
+  await window.locator('#tab-context-menu [data-action="close-left"]').click();
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.first()).toHaveClass(/pinned/);
+});
+
+test('Copy URL puts the tab address on the clipboard', async ({ window, electronApp }) => {
+  const input = window.locator('[data-test="address-input"]');
+  await input.click();
+  await input.fill('https://example.com');
+  await input.press('Enter');
+  await expect(input).toHaveValue(/^https:\/\/example\.com\/?$/);
+
+  const tab = window.locator('[data-test="tab"]').first();
+  await tab.click({ button: 'right' });
+  await window.locator('#tab-context-menu [data-action="copy-url"]').click();
+
+  await expect
+    .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()))
+    .toMatch(/^https:\/\/example\.com\/?$/);
+});
+
+test('Reopen Closed Tab context-menu item restores the last closed tab', async ({ window }) => {
+  const tabs = window.locator('[data-test="tab"]');
+  const input = window.locator('[data-test="address-input"]');
+
+  // Second tab on an internal page with a distinct title, then close it.
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await input.click();
+  await input.fill('freedom://history');
+  await input.press('Enter');
+  await expect(tabs.nth(1)).toContainText('History');
+  await tabs.nth(1).locator('[data-test="tab-close"]').click();
+  await expect(tabs).toHaveCount(1);
+
+  await tabs.first().click({ button: 'right' });
+  await window.locator('#tab-context-menu [data-action="reopen-closed"]').click();
+  await expect(tabs).toHaveCount(2);
+  await expect(tabs.nth(1)).toContainText('History');
+});
