@@ -25,6 +25,8 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const args = process.argv.slice(2);
 
@@ -97,5 +99,67 @@ const cmd = useDotenv
   ? `dotenv -- electron-builder ${builderArgs.join(' ')}`
   : `electron-builder ${builderArgs.join(' ')}`;
 
+// 5. Protect the host-built better-sqlite3 binary during cross-platform builds.
+// electron-builder rebuilds native deps in node_modules for the TARGET platform,
+// which replaces the host binary (e.g. with a Windows DLL after `--win`) and
+// silently breaks history/favicons in local dev until a manual rebuild.
+const BS3_BINARY = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  'better-sqlite3',
+  'build',
+  'Release',
+  'better_sqlite3.node'
+);
+
+function isHostNativeBinary(buffer) {
+  if (!buffer || buffer.length < 4) return false;
+  const magic = buffer.readUInt32LE(0);
+  if (process.platform === 'darwin') {
+    // Thin Mach-O 64-bit or universal (fat) binary
+    return magic === 0xfeedfacf || buffer.readUInt32BE(0) === 0xcafebabe;
+  }
+  if (process.platform === 'linux') {
+    return buffer.toString('latin1', 0, 4) === '\x7fELF';
+  }
+  return buffer.toString('latin1', 0, 2) === 'MZ'; // Windows PE
+}
+
+const hostPlatform = { darwin: 'mac', win32: 'win', linux: 'linux' }[process.platform];
+const crossBuild = platform !== hostPlatform || archs.some((a) => a !== process.arch);
+
+let bs3Snapshot = null;
+if (crossBuild && fs.existsSync(BS3_BINARY)) {
+  const current = fs.readFileSync(BS3_BINARY);
+  if (isHostNativeBinary(current)) {
+    bs3Snapshot = current;
+  }
+}
+
+function restoreHostNativeDeps() {
+  if (!crossBuild) return;
+  const afterBuild = fs.existsSync(BS3_BINARY) ? fs.readFileSync(BS3_BINARY) : null;
+  if (isHostNativeBinary(afterBuild)) return;
+  if (bs3Snapshot) {
+    fs.writeFileSync(BS3_BINARY, bs3Snapshot);
+    console.log('\n→ Restored host better-sqlite3 binary (was replaced by cross-build)\n');
+    return;
+  }
+  console.log('\n→ Rebuilding better-sqlite3 for the host platform (no snapshot to restore)\n');
+  try {
+    execSync('npx electron-rebuild -f -w better-sqlite3', { stdio: 'inherit' });
+  } catch {
+    console.error(
+      'Warning: could not restore host better-sqlite3 binary. ' +
+        'Run `npx electron-rebuild -f -w better-sqlite3` before using local dev.'
+    );
+  }
+}
+
 console.log(`\n→ Running: ${cmd}\n`);
-execSync(cmd, { stdio: 'inherit', env });
+try {
+  execSync(cmd, { stdio: 'inherit', env });
+} finally {
+  restoreHostNativeDeps();
+}
