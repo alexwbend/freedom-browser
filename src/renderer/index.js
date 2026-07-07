@@ -62,6 +62,7 @@ import {
 import { pushDebug } from './lib/debug.js';
 import { initOnboarding } from './lib/onboarding.js';
 import { initSidebar } from './lib/sidebar.js';
+import { initRadicleConsent } from './lib/radicle-consent.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 import { attachSubmenuHover } from './lib/submenu-hover.js';
 import { bindHoverTooltip } from './lib/hover-tooltip.js';
@@ -739,6 +740,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initOnboarding(); // Identity onboarding wizard
   initSidebar(); // Identity & wallet sidebar
   initWalletUi(); // Wallet & identity display in sidebar
+  initRadicleConsent(); // Radicle provider consent subscreen (sidebar)
   loadBookmarks();
   initExternalNodeCandidatesModal();
   initPlatformUI();
