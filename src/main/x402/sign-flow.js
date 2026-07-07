@@ -18,7 +18,7 @@
 
 const { webContents } = require('electron');
 const log = require('../logger');
-const { createVaultBackedX402Client } = require('./client');
+const { createX402Client } = require('./client');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { normalizeOrigin } = require('../../shared/origin-utils');
 const {
@@ -90,7 +90,7 @@ async function signAndQueueRetry(webContentsId, opts = {}) {
   catch { throw new Error('Refusing to pay: unparseable URL'); }
   if (!origin) throw new Error('Refusing to pay: unnormalisable origin');
 
-  const client = await createVaultBackedX402Client(getActiveWalletIndex());
+  const client = await createX402Client(getActiveWalletIndex());
   // Pre-filter `accepts[]` down to the chosen entry so the SDK's default
   // first-of-filtered selector signs the right one. Avoids registering a
   // custom paymentRequirementsSelector for what is effectively a one-

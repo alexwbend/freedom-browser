@@ -23,6 +23,8 @@ jest.mock('../payment-history', () => ({
 
 const { signAndRecord } = require('./tx-recorder');
 
+const fakeSigner = { getAddress: async () => '0xfrom' };
+
 describe('tx-recorder', () => {
   beforeEach(() => {
     mockSignAndSendTransaction.mockReset().mockResolvedValue({
@@ -44,7 +46,7 @@ describe('tx-recorder', () => {
       to: '0xtoken',
       value: '0',
       chainId: 8453,
-    }, '0xprivate', {
+    }, fakeSigner, {
       kind: 'dapp-send',
       origin: 'https://app.example',
       asset: '0xtoken',
@@ -74,7 +76,7 @@ describe('tx-recorder', () => {
       to: '0xrecipient',
       value: '0x2a',
       chainId: 1,
-    }, '0xprivate', {
+    }, fakeSigner, {
       kind: 'wallet-send',
     });
 

@@ -1,0 +1,123 @@
+const { Wallet, Transaction, verifyMessage, verifyTypedData, getBytes } = require('ethers');
+
+// Anvil/Hardhat-default test key — well-known, never funded on mainnet.
+const TEST_PRIVATE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+const testWallet = new Wallet(TEST_PRIVATE_KEY);
+
+const mockIdentity = {
+  isUnlocked: jest.fn(),
+  exportPrivateKey: jest.fn(),
+};
+const mockResetVaultAutoLockTimer = jest.fn();
+
+jest.mock('../identity-manager', () => ({
+  loadIdentityModule: jest.fn(async () => mockIdentity),
+}));
+jest.mock('../vault-timer', () => ({
+  resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
+}));
+
+const { getSigner } = require('./signers');
+
+beforeEach(() => {
+  mockIdentity.isUnlocked.mockReset().mockReturnValue(true);
+  mockIdentity.exportPrivateKey.mockReset().mockReturnValue(TEST_PRIVATE_KEY);
+  mockResetVaultAutoLockTimer.mockClear();
+});
+
+describe('getSigner (vault-backed)', () => {
+  test('rejects an invalid wallet index up front', () => {
+    expect(() => getSigner(-1)).toThrow('Invalid wallet index');
+    expect(() => getSigner('0')).toThrow('Invalid wallet index');
+  });
+
+  test('getAddress resolves the address for the wallet index', async () => {
+    const signer = getSigner(0);
+    await expect(signer.getAddress()).resolves.toBe(testWallet.address);
+    expect(mockIdentity.exportPrivateKey).toHaveBeenCalledWith(0);
+  });
+
+  test('signMessage matches ethers Wallet.signMessage for plain text', async () => {
+    const signer = getSigner(0);
+    const signature = await signer.signMessage('hello freedom');
+    expect(signature).toBe(await testWallet.signMessage('hello freedom'));
+    expect(verifyMessage('hello freedom', signature)).toBe(testWallet.address);
+  });
+
+  test.each([
+    ['hex-encoded text', '0x48656c6c6f'],
+    ['binary data that is not valid UTF-8', '0xfffefd00010203deadbeef'],
+    ['a 32-byte hash', '0x' + 'ab'.repeat(32)],
+  ])('signMessage treats 0x-hex input as raw bytes: %s', async (_label, hexMessage) => {
+    const signer = getSigner(0);
+    const signature = await signer.signMessage(hexMessage);
+    expect(signature).toBe(await testWallet.signMessage(getBytes(hexMessage)));
+    expect(verifyMessage(getBytes(hexMessage), signature)).toBe(testWallet.address);
+  });
+
+  test('signTypedData accepts a full EIP-712 payload including EIP712Domain in types', async () => {
+    const signer = getSigner(0);
+    const domain = { name: 'Test', version: '1', chainId: 1 };
+    const types = {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+      ],
+      Mail: [
+        { name: 'contents', type: 'string' },
+      ],
+    };
+    const message = { contents: 'gm' };
+
+    const signature = await signer.signTypedData({ domain, types, primaryType: 'Mail', message });
+    expect(verifyTypedData(domain, { Mail: types.Mail }, message, signature)).toBe(testWallet.address);
+
+    // dApps also send the payload as a JSON string (eth_signTypedData_v4)
+    const fromJson = await signer.signTypedData(JSON.stringify({ domain, types, primaryType: 'Mail', message }));
+    expect(fromJson).toBe(signature);
+  });
+
+  test('getAddress memoizes: repeated calls borrow the vault key once', async () => {
+    const signer = getSigner(0);
+    await signer.getAddress();
+    await signer.getAddress();
+    expect(mockIdentity.exportPrivateKey).toHaveBeenCalledTimes(1);
+  });
+
+  test('signTransaction returns a serialized signed tx recoverable to the wallet', async () => {
+    const signer = getSigner(0);
+    const signedTx = await signer.signTransaction({
+      to: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+      value: '1000',
+      gasLimit: '21000',
+      maxFeePerGas: '2000000000',
+      maxPriorityFeePerGas: '1000000000',
+      nonce: 7,
+      chainId: 8453,
+      type: 2,
+    });
+
+    const parsed = Transaction.from(signedTx);
+    expect(parsed.from).toBe(testWallet.address);
+    expect(parsed.nonce).toBe(7);
+    expect(parsed.chainId).toBe(8453n);
+    expect(parsed.to).toBe('0x209693Bc6afc0C5328bA36FaF03C514EF312287C');
+  });
+
+  test('every method rejects when the vault is locked', async () => {
+    mockIdentity.isUnlocked.mockReturnValue(false);
+    const signer = getSigner(0);
+    await expect(signer.getAddress()).rejects.toThrow(/locked/i);
+    await expect(signer.signMessage('x')).rejects.toThrow(/locked/i);
+    await expect(signer.signTypedData({ domain: {}, types: {}, message: {} })).rejects.toThrow(/locked/i);
+    await expect(signer.signTransaction({ chainId: 1 })).rejects.toThrow(/locked/i);
+    expect(mockResetVaultAutoLockTimer).not.toHaveBeenCalled();
+  });
+
+  test('successful signing resets the vault auto-lock timer', async () => {
+    const signer = getSigner(0);
+    await signer.signMessage('keep the vault alive');
+    expect(mockResetVaultAutoLockTimer).toHaveBeenCalledTimes(1);
+  });
+});
