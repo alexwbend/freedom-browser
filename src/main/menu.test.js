@@ -155,6 +155,21 @@ describe('menu', () => {
     }
   });
 
+  test('File menu offers Downloads with the Chromium-standard accelerator', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const { capturedTemplate } = loadMenuModule(platform);
+      const file = findTopLabel(capturedTemplate, 'File');
+      const downloads = file?.submenu?.find((item) => item.id === 'downloads');
+
+      expect(downloads).toEqual(
+        expect.objectContaining({
+          label: 'Downloads',
+          accelerator: 'CmdOrCtrl+Shift+J',
+        })
+      );
+    }
+  });
+
   test('Profiles menu sits between History and the Window menu on macOS', () => {
     const { capturedTemplate } = loadMenuModule('darwin');
     const labels = capturedTemplate.map((item) => item.label ?? item.role);

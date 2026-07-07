@@ -205,6 +205,20 @@ function buildFileSubmenu(isMac) {
     },
     { type: 'separator' },
     {
+      id: 'downloads',
+      label: 'Downloads',
+      accelerator: 'CmdOrCtrl+Shift+J',
+      click: () => {
+        const win = getTargetWindow();
+        if (win) {
+          // Singleton internal page: the renderer focuses an existing
+          // freedom://downloads tab instead of opening a duplicate.
+          win.webContents.send('tab:new-with-url', 'freedom://downloads');
+        }
+      },
+    },
+    { type: 'separator' },
+    {
       label: 'New Window',
       accelerator: 'CmdOrCtrl+N',
       click: () => {

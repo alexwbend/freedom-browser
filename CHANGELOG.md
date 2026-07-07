@@ -4,6 +4,13 @@ All notable changes to Freedom will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Download manager covering every download source, including `bzz://` and `ipfs://` content:
+  - Shelf card with live progress and cancel; Open / Show in Folder on completion
+  - `freedom://downloads` page (Cmd/Ctrl+Shift+J) with search, pause/resume, and Clear All
+  - "Ask where to save each file" toggle under Settings > Downloads
+
 ### Changed
 
 - Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control

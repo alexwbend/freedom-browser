@@ -36,6 +36,9 @@ const DEFAULT_SETTINGS = {
   startRadicleAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
+  // When true, every download opens a native save dialog. Off by default:
+  // files land in the OS Downloads folder without a prompt.
+  askWhereToSave: false,
   // When true, navigating to an Ethereum name that resolved with trust.level =
   // 'unverified' is gated behind an interstitial with a single-use
   // "Continue once" option. ENS network config (resolution strategy, RPC
