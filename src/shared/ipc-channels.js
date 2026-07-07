@@ -210,6 +210,24 @@ module.exports = {
   // the time it fires, so receivers just re-query.
   PAYMENTS_TX_RECORDED: 'payments:tx-recorded',
 
+  // Site Permissions (web permission prompts: camera, mic, notifications, …)
+  // Prompt round-trip: main asks the requesting window's renderer to show
+  // the anchored prompt (main→renderer), the renderer answers with the
+  // user's decision (renderer→main).
+  PERMISSIONS_PROMPT_REQUEST: 'permissions:prompt-request',
+  PERMISSIONS_PROMPT_RESPONSE: 'permissions:prompt-response',
+  // macOS only: the user allowed a site's camera/mic but the OS-level
+  // privacy setting blocks Freedom itself (main→renderer notice).
+  PERMISSIONS_OS_DENIED: 'permissions:os-denied',
+  PERMISSIONS_GET_ALL: 'permissions:get-all',
+  PERMISSIONS_GET_FOR_ORIGIN: 'permissions:get-for-origin',
+  PERMISSIONS_REVOKE: 'permissions:revoke',
+  PERMISSIONS_REVOKE_ORIGIN: 'permissions:revoke-origin',
+  PERMISSIONS_REVOKE_ALL: 'permissions:revoke-all',
+  // Main→renderer broadcast after any decision is recorded or revoked, so
+  // the address-bar indicator and the settings page can re-query.
+  PERMISSIONS_CHANGED: 'permissions:changed',
+
   // dApp Permissions
   DAPP_GET_PERMISSION: 'dapp:get-permission',
   DAPP_GRANT_PERMISSION: 'dapp:grant-permission',

@@ -4,6 +4,14 @@ All notable changes to Freedom will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Per-site permission prompts for camera, microphone, notifications, clipboard reading, location, and MIDI, replacing the previous silent denial:
+  - Prompt under the address bar with Allow / Block and "Remember for this site"
+  - Remembered decisions per profile under Settings > Site Permissions, with per-site and remove-all revocation
+  - Indicator icon in the address bar with quick revoke on sites holding granted permissions
+  - Location prompts note that positioning may be unreliable
+
 ### Changed
 
 - Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
