@@ -368,3 +368,124 @@ describe('tab audio indicator + mute', () => {
     expect(placeholder.webview.setAudioMuted).toHaveBeenCalledWith(true);
   });
 });
+
+describe('open new tabs next to the active tab', () => {
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    jest.restoreAllMocks();
+  });
+
+  describe('computeNewTabInsertIndex (pure)', () => {
+    let computeNewTabInsertIndex;
+    beforeAll(async () => {
+      ({
+        mod: { computeNewTabInsertIndex },
+      } = await loadTabsModule());
+    });
+
+    const tab = (id, extra = {}) => ({ id, ...extra });
+
+    test('appends at the end when the setting is off', () => {
+      const tabs = [tab(1), tab(2), tab(3)];
+      expect(computeNewTabInsertIndex(tabs, 1, false)).toBe(3);
+    });
+
+    test('appends at the end when the active tab is unknown', () => {
+      const tabs = [tab(1), tab(2)];
+      expect(computeNewTabInsertIndex(tabs, 99, true)).toBe(2);
+      expect(computeNewTabInsertIndex(tabs, null, true)).toBe(2);
+    });
+
+    test('inserts right of the active tab', () => {
+      const tabs = [tab(1), tab(2), tab(3)];
+      expect(computeNewTabInsertIndex(tabs, 1, true)).toBe(1);
+      expect(computeNewTabInsertIndex(tabs, 2, true)).toBe(2);
+      expect(computeNewTabInsertIndex(tabs, 3, true)).toBe(3);
+    });
+
+    test('groups after the active tab existing children', () => {
+      const tabs = [tab(1), tab(10, { openerTabId: 1 }), tab(11, { openerTabId: 1 }), tab(2)];
+      expect(computeNewTabInsertIndex(tabs, 1, true)).toBe(3);
+      // Children of a different opener are not skipped.
+      expect(computeNewTabInsertIndex(tabs, 2, true)).toBe(4);
+    });
+
+    test('never splits the pinned block', () => {
+      const tabs = [tab(1, { pinned: true }), tab(2, { pinned: true }), tab(3)];
+      expect(computeNewTabInsertIndex(tabs, 1, true)).toBe(2);
+    });
+  });
+
+  test('new tabs open right of the active tab by default', async () => {
+    const { mod } = await loadTabsModule();
+    await mod.initTabs();
+
+    const tabA = mod.getActiveTab();
+    const tabB = mod.createTab('https://b.example/');
+    // Switch back to A and open another tab: it must land between A and B.
+    mod.switchTab(tabA.id);
+    const tabC = mod.createTab('https://c.example/');
+
+    expect(mod.getTabs().map((t) => t.id)).toEqual([tabA.id, tabC.id, tabB.id]);
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+  });
+
+  test('link-opened child tabs group after their opener in open order', async () => {
+    const { mod } = await loadTabsModule();
+    await mod.initTabs();
+
+    const opener = mod.getActiveTab();
+    const trailing = mod.createTab('https://trailing.example/');
+    mod.switchTab(opener.id);
+
+    const child1 = mod.openInNewTabWithTarget('https://child-1.example/', null);
+    mod.switchTab(opener.id);
+    const child2 = mod.openInNewTabWithTarget('https://child-2.example/', null);
+
+    expect(mod.getTabs().map((t) => t.id)).toEqual([opener.id, child1.id, child2.id, trailing.id]);
+  });
+
+  test('setting off restores append-at-end (settings:updated round trip)', async () => {
+    const { mod, windowHandlers } = await loadTabsModule();
+    await mod.initTabs();
+
+    windowHandlers['settings:updated']({ detail: { openNewTabNextToActive: false } });
+
+    const tabA = mod.getActiveTab();
+    const tabB = mod.createTab('https://b.example/');
+    mod.switchTab(tabA.id);
+    const tabC = mod.createTab('https://c.example/');
+
+    expect(mod.getTabs().map((t) => t.id)).toEqual([tabA.id, tabB.id, tabC.id]);
+  });
+
+  test('honors the persisted setting at init', async () => {
+    const { mod } = await loadTabsModule({ settings: { openNewTabNextToActive: false } });
+    await mod.initTabs();
+
+    const tabA = mod.getActiveTab();
+    const tabB = mod.createTab('https://b.example/');
+    mod.switchTab(tabA.id);
+    const tabC = mod.createTab('https://c.example/');
+
+    expect(mod.getTabs().map((t) => t.id)).toEqual([tabA.id, tabB.id, tabC.id]);
+  });
+
+  test('placeholder restore order is untouched; a new tab lands next to the materialized active tab', async () => {
+    const { mod } = await loadTabsModule();
+    await mod.initTabs();
+
+    // Restored session: three placeholders appended in persisted order.
+    const p1 = mod.createPlaceholderTab({ url: 'https://one.example/', title: 'One' });
+    const p2 = mod.createPlaceholderTab({ url: 'https://two.example/', title: 'Two' });
+    const p3 = mod.createPlaceholderTab({ url: 'https://three.example/', title: 'Three' });
+    const home = mod.getTabs()[0];
+    expect(mod.getTabs().map((t) => t.id)).toEqual([home.id, p1.id, p2.id, p3.id]);
+
+    // Activate the middle placeholder (materializes) and open a new tab.
+    mod.switchTab(p2.id);
+    const fresh = mod.createTab('https://fresh.example/');
+    expect(mod.getTabs().map((t) => t.id)).toEqual([home.id, p1.id, p2.id, fresh.id, p3.id]);
+  });
+});

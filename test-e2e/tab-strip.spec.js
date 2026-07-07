@@ -39,6 +39,23 @@ test('tab search opens, filters, and activates a tab', async ({ window }) => {
   await expect(tabs.first()).toHaveClass(/active/);
 });
 
+test('new tabs open next to the active tab by default', async ({ window }) => {
+  const tabs = window.locator('[data-test="tab"]');
+  await expect(tabs).toHaveCount(1);
+
+  // Tab 2 opens right of tab 1 and becomes active.
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await expect(tabs).toHaveCount(2);
+
+  // Switch back to tab 1; the next new tab must slot between 1 and 2.
+  await tabs.first().click();
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await expect(tabs).toHaveCount(3);
+
+  const ids = await tabs.evaluateAll((els) => els.map((el) => el.dataset.tabId));
+  expect(ids).toEqual(['1', '3', '2']);
+});
+
 test('Escape closes tab search without switching tabs', async ({ window }) => {
   const tabs = window.locator('[data-test="tab"]');
   await window.locator('[data-test="new-tab-btn"]').click();

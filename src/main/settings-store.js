@@ -55,6 +55,11 @@ const DEFAULT_SETTINGS = {
   // starts with a single home tab. Continue is the daily-driver default
   // and reaches existing users through the defaults merge.
   onStartup: 'continue',
+  // When true (default), user-opened tabs and target=_blank child tabs are
+  // inserted right of the active tab (children group after their opener)
+  // instead of appended at the end of the strip. Modern-browser default;
+  // the toggle lives in Settings > Behavior.
+  openNewTabNextToActive: true,
   // Linux only: render the tab strip as the window titlebar (frameless window).
   // Off by default so Linux users get the native OS frame; opt in via Settings.
   tabsInTitlebar: false,

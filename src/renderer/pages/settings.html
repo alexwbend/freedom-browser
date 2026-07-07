@@ -836,6 +836,21 @@
                 </select>
               </div>
             </div>
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Open new tabs next to the active tab</p>
+                <p class="row-help">
+                  New tabs open to the right of the current tab instead of at the end of the tab
+                  strip. Tabs opened from links stay grouped after the tab that opened them.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="open-new-tab-next-to-active" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1072,6 +1087,7 @@
         themeMode: $('theme-mode'),
         tabsInTitlebar: $('tabs-in-titlebar'),
         onStartup: $('on-startup'),
+        openNewTabNextToActive: $('open-new-tab-next-to-active'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
         blockUnverifiedEns: $('block-unverified-ens'),
@@ -1465,6 +1481,7 @@
         theme: fields.themeMode.value || 'system',
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         onStartup: fields.onStartup.value || 'continue',
+        openNewTabNextToActive: fields.openNewTabNextToActive.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
@@ -1480,6 +1497,7 @@
         fields.themeMode.value = settings.theme || 'system';
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.onStartup.value = settings.onStartup === 'homepage' ? 'homepage' : 'continue';
+        fields.openNewTabNextToActive.checked = settings.openNewTabNextToActive !== false;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
@@ -1583,6 +1601,7 @@
 
       fields.themeMode.addEventListener('change', save);
       fields.onStartup.addEventListener('change', save);
+      fields.openNewTabNextToActive.addEventListener('change', save);
       fields.tabsInTitlebar.addEventListener('change', () => {
         save();
         $('tabs-titlebar-restart').hidden = false;

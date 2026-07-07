@@ -1075,8 +1075,49 @@ const resolveWebviewSrcForUrl = (url) => {
   };
 };
 
-// Create a new tab
-export const createTab = (url = null) => {
+// Behavior setting (Settings > Behavior, default ON — must match
+// DEFAULT_SETTINGS in src/main/settings-store.js): insert new tabs right of
+// the active tab instead of appending at the end of the strip. Loaded at
+// init and kept fresh via the settings:updated broadcast.
+let openNewTabNextToActive = true;
+
+/**
+ * Where a newly created tab should be inserted.
+ *
+ * With the next-to-active behavior disabled (or no resolvable active tab),
+ * tabs append at the end — the pre-setting behavior. Enabled, the new tab
+ * goes right of the active tab, with two adjustments:
+ *  - consecutive child tabs of the active tab (same `openerTabId`) stay
+ *    grouped: the next child lands after its youngest sibling, so links
+ *    opened from one page keep their opening order;
+ *  - the pinned block is never split: insertion skips past pinned tabs
+ *    (relevant when the active tab is pinned).
+ *
+ * Pure — exported for unit tests.
+ *
+ * @param {Array} tabs - current tab list
+ * @param {number|null} activeTabId
+ * @param {boolean} nextToActive - the setting value
+ * @returns {number} index to splice the new tab into
+ */
+export const computeNewTabInsertIndex = (tabs, activeTabId, nextToActive) => {
+  if (!nextToActive) return tabs.length;
+  const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
+  if (activeIndex === -1) return tabs.length;
+  let index = activeIndex + 1;
+  while (index < tabs.length && tabs[index].openerTabId === activeTabId) {
+    index++;
+  }
+  while (index < tabs.length && tabs[index].pinned) {
+    index++;
+  }
+  return index;
+};
+
+// Create a new tab. `options.openerTabId` marks the tab as a child of the
+// tab it was opened from (target=_blank / dweb link opens) so consecutive
+// children group after their opener — see computeNewTabInsertIndex.
+export const createTab = (url = null, options = {}) => {
   const tabId = tabState.nextTabId++;
   const { webviewUrl, isDirect } = resolveWebviewSrcForUrl(url);
   const webview = createWebview(tabId, webviewUrl);
@@ -1091,8 +1132,16 @@ export const createTab = (url = null) => {
     webview,
     navigationState: createNavigationState(),
   };
+  if (options.openerTabId !== null && options.openerTabId !== undefined) {
+    tab.openerTabId = options.openerTabId;
+  }
 
-  tabState.tabs.push(tab);
+  const insertIndex = computeNewTabInsertIndex(
+    tabState.tabs,
+    tabState.activeTabId,
+    openNewTabNextToActive
+  );
+  tabState.tabs.splice(insertIndex, 0, tab);
   webviewContainer?.appendChild(webview);
 
   // Switch to the new tab
@@ -1547,7 +1596,11 @@ export const openInNewTabWithTarget = (url, targetName) => {
   // Critically, this also makes `tab.url` reflect the actual target,
   // so the `tab-switched` handler can derive a meaningful address bar
   // value immediately instead of leaving it empty until ENS resolves.
-  const newTab = createTab(url);
+  //
+  // The active tab at this point is the opener (link clicks and
+  // setWindowOpenHandler-routed window.opens both originate from the
+  // foreground page), so record it for child-tab grouping.
+  const newTab = createTab(url, { openerTabId: tabState.activeTabId });
 
   if (targetName && newTab) {
     namedTargets.set(targetName, newTab.id);
@@ -1605,6 +1658,13 @@ export const openOrFocusInternalPage = (pageName, subPath = null) => {
   return createTab(fullUrl);
 };
 
+// Apply the tab-behavior settings this module reacts to. Called with the
+// full settings object at init and on every settings:updated broadcast.
+const applyTabBehaviorSettings = (settings) => {
+  if (!settings || typeof settings !== 'object') return;
+  openNewTabNextToActive = settings.openNewTabNextToActive !== false;
+};
+
 // Initialize tabs module
 export const initTabs = async () => {
   // Initialize DOM elements
@@ -1612,6 +1672,17 @@ export const initTabs = async () => {
   newTabBtn = document.getElementById('new-tab-btn');
   webviewContainer = document.getElementById('webview-container');
   tabContextMenu = document.getElementById('tab-context-menu');
+
+  // Tab-behavior settings (insertion position). Failures keep the
+  // in-code defaults, which mirror DEFAULT_SETTINGS.
+  try {
+    applyTabBehaviorSettings(await electronAPI?.getSettings?.());
+  } catch {
+    // Defaults stay in effect.
+  }
+  window.addEventListener('settings:updated', (event) => {
+    applyTabBehaviorSettings(event.detail);
+  });
 
   // Context menu event handlers
   if (tabContextMenu) {
