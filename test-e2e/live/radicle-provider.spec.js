@@ -165,5 +165,20 @@ test.describe('radicle provider e2e', () => {
       'new issue should render after creation',
       RENDER_TIMEOUT_MS
     );
+
+    // (7) Identity page: the issue author links to their profile, which
+    // aggregates delegate roles and authored COBs across known repos.
+    await evalInActiveWebview(
+      window,
+      `[...document.querySelectorAll('a[href*="/users/did:key:"]')][0]?.click(), true`
+    );
+    await waitForWebview(
+      window,
+      `document.body.textContent.includes('radicle-e2e') &&
+       document.body.textContent.includes('Maintainer of') &&
+       document.body.textContent.includes('e2e-sample') &&
+       document.body.textContent.includes('Issue from e2e')`,
+      'profile should show alias, maintainer role, and authored issue'
+    );
   });
 });
