@@ -175,6 +175,20 @@ describe('menu', () => {
     expect(findTopLabel(capturedTemplate, 'Edit')).toBeFalsy();
   });
 
+  test('Edit menu carries Find in Page with CmdOrCtrl+F on every platform', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const { capturedTemplate } = loadMenuModule(platform);
+      const edit = capturedTemplate.find(
+        (item) => item.label === 'Edit' || item.role === 'editMenu'
+      );
+      const find = edit?.submenu?.find((item) => item.id === 'find-in-page');
+
+      expect(find).toBeTruthy();
+      expect(find.accelerator).toBe('CmdOrCtrl+F');
+      expect(typeof find.click).toBe('function');
+    }
+  });
+
   test('macOS places editMenu immediately after File', () => {
     const { capturedTemplate } = loadMenuModule('darwin');
     const labels = capturedTemplate.map((item) => item.label ?? item.role);
