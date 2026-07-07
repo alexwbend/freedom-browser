@@ -61,6 +61,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  // Session restore (src/main/session-store.js). `updateSessionState` is the
+  // renderer's debounced tab-strip snapshot; `getSessionToRestore` fetches
+  // the persisted snapshot for this window's restore slot (or null).
+  updateSessionState: (snapshot) => ipcRenderer.send('session:update', snapshot),
+  getSessionToRestore: (slot) => ipcRenderer.invoke('session:get-restore', slot),
   getBookmarks: () => ipcRenderer.invoke('bookmarks:get'),
   addBookmark: (bookmark) => ipcRenderer.invoke('bookmarks:add', bookmark),
   updateBookmark: (originalTarget, bookmark) =>

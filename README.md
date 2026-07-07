@@ -270,6 +270,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Tab Management**: Close tabs with `Cmd+W` or middle-click.
 - **Drag & Drop Reordering**: Rearrange tabs by dragging.
 - **Per-Tab State**: Each tab maintains its own navigation history, address bar state, and bzz/ipfs base.
+- **Session Restore**: Open tabs (order, pinned state, active tab) come back on the next launch — including after a crash. Restored tabs load lazily: only the active tab loads at launch; the rest load when first activated. Per-tab back/forward history is not restored (current URL only).
 - **Link Handling**: Links that open new windows are captured and opened in new tabs instead.
 
 ### Navigation Controls
@@ -350,6 +351,7 @@ Access built-in browser pages using the `freedom://` protocol:
 ### Settings & UI
 
 - **Theme**: Light, Dark, or System (follows OS preference).
+- **On Startup**: Settings > Behavior > On startup — "Continue where you left off" (default) restores the previous session's tabs; "Start with home page" opens a single home tab.
 - **Node Auto-start**: Toggle whether Swarm and IPFS nodes start automatically at launch (enabled by default).
 - **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).

@@ -44,6 +44,10 @@ module.exports = {
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_UPDATED: 'settings:updated',
 
+  // Session restore (per-profile session.json, see src/main/session-store.js)
+  SESSION_UPDATE: 'session:update',
+  SESSION_GET_RESTORE: 'session:get-restore',
+
   // Bzz routing (Swarm)
   BZZ_SET_BASE: 'bzz:set-base',
   BZZ_CLEAR_BASE: 'bzz:clear-base',

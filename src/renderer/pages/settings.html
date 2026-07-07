@@ -622,6 +622,29 @@
             </svg>
             Appearance
           </button>
+          <button type="button" class="nav-item" data-target="behavior">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+            Behavior
+          </button>
           <button type="button" class="nav-item" data-target="profile">
             <svg
               width="16"
@@ -790,6 +813,27 @@
                   <input type="checkbox" id="tabs-in-titlebar" />
                   <span class="slider"></span>
                 </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Behavior -->
+        <section class="section" id="behavior">
+          <h2 class="section-title">Behavior</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">On startup</p>
+                <p class="row-help">
+                  Continue restores the tabs you had open when Freedom last closed.
+                </p>
+              </div>
+              <div class="row-control">
+                <select id="on-startup">
+                  <option value="continue">Continue where you left off</option>
+                  <option value="homepage">Start with home page</option>
+                </select>
               </div>
             </div>
           </div>
@@ -1027,6 +1071,7 @@
       const fields = {
         themeMode: $('theme-mode'),
         tabsInTitlebar: $('tabs-in-titlebar'),
+        onStartup: $('on-startup'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
         blockUnverifiedEns: $('block-unverified-ens'),
@@ -1419,6 +1464,7 @@
       const currentFormState = () => ({
         theme: fields.themeMode.value || 'system',
         tabsInTitlebar: fields.tabsInTitlebar.checked,
+        onStartup: fields.onStartup.value || 'continue',
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
@@ -1433,6 +1479,7 @@
         if (!settings) return;
         fields.themeMode.value = settings.theme || 'system';
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
+        fields.onStartup.value = settings.onStartup === 'homepage' ? 'homepage' : 'continue';
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
@@ -1535,6 +1582,7 @@
       };
 
       fields.themeMode.addEventListener('change', save);
+      fields.onStartup.addEventListener('change', save);
       fields.tabsInTitlebar.addEventListener('change', () => {
         save();
         $('tabs-titlebar-restart').hidden = false;

@@ -4,6 +4,12 @@ All notable changes to Freedom will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Session restore: open tabs return on the next launch — after a quit or a crash — keeping tab order, pinned state, and the active tab
+  - Only the active tab loads at launch; the rest load when first clicked
+  - Settings > Behavior > On startup switches between "Continue where you left off" (default) and "Start with home page"
+
 ### Changed
 
 - Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control

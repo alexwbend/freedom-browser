@@ -154,6 +154,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
 ]);
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
+const { registerSessionIpc, getRestorableWindowCount } = require('./session-store');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const { registerFaviconsIpc } = require('./favicons');
@@ -254,6 +255,7 @@ async function bootstrap() {
     onNewWindow: createMainWindow,
   });
   registerSettingsIpc();
+  registerSessionIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
   registerFaviconsIpc();
@@ -349,7 +351,14 @@ async function bootstrap() {
   const coldStartUrl = process.argv.includes('--open-settings')
     ? PROFILE_SETTINGS_DEEPLINK
     : null;
-  const mainWindow = createMainWindow(coldStartUrl);
+  // Slot 0 restores the previous session's first window into the window we
+  // create anyway (session:get-restore returns null when there is nothing to
+  // restore or the startup setting is "home page"); any further persisted
+  // windows are recreated one per slot.
+  const mainWindow = createMainWindow(coldStartUrl, { sessionRestoreSlot: 0 });
+  for (let slot = 1; slot < getRestorableWindowCount(); slot += 1) {
+    createMainWindow(null, { sessionRestoreSlot: slot });
+  }
 
   if (!TEST_MODE) {
     await promptForDefaultExternalCandidates(activeProfile, {

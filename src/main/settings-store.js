@@ -50,6 +50,11 @@ const DEFAULT_SETTINGS = {
   showIpfsProgressStatus: false,
   sidebarOpen: false,
   sidebarWidth: 320,
+  // What a launch shows: 'continue' restores the previous session's tabs
+  // from the per-profile session.json (see session-store.js); 'homepage'
+  // starts with a single home tab. Continue is the daily-driver default
+  // and reaches existing users through the defaults merge.
+  onStartup: 'continue',
   // Linux only: render the tab strip as the window titlebar (frameless window).
   // Off by default so Linux users get the native OS frame; opt in via Settings.
   tabsInTitlebar: false,

@@ -3,6 +3,7 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { loadSettings } = require('../settings-store');
+const { handleSessionWindowClosed } = require('../session-store');
 
 let currentWindowTitle = 'Freedom';
 
@@ -25,7 +26,7 @@ function getIconPath() {
   return iconPath;
 }
 
-function createMainWindow(initialUrl = null) {
+function createMainWindow(initialUrl = null, options = {}) {
   const isMac = process.platform === 'darwin';
   const isLinux = process.platform === 'linux';
   // Linux only: tab strip doubles as the titlebar when the user opts in.
@@ -65,10 +66,20 @@ function createMainWindow(initialUrl = null) {
     },
   });
 
-  // Load index.html with optional initial URL as query parameter
+  // Load index.html with optional initial URL and session-restore slot as
+  // query parameters. The slot (assigned by bootstrap, see index.js) tells
+  // the renderer which persisted window of session.json to restore; windows
+  // opened later (Cmd+N etc.) carry no slot and start fresh.
   const indexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
+  const query = {};
   if (initialUrl) {
-    window.loadFile(indexPath, { query: { initialUrl } });
+    query.initialUrl = initialUrl;
+  }
+  if (Number.isInteger(options.sessionRestoreSlot)) {
+    query.restoreSlot = String(options.sessionRestoreSlot);
+  }
+  if (Object.keys(query).length > 0) {
+    window.loadFile(indexPath, { query });
   } else {
     window.loadFile(indexPath);
   }
@@ -96,8 +107,11 @@ function createMainWindow(initialUrl = null) {
     window.setTitle(currentWindowTitle);
   });
 
+  // Captured now: webContents is already destroyed when 'closed' fires.
+  const sessionWindowId = window.webContents.id;
   window.on('closed', () => {
     mainWindows.delete(window);
+    handleSessionWindowClosed(sessionWindowId);
   });
 
 

@@ -13,6 +13,11 @@ import {
   showLinkStatus,
   setLinkStatusSide,
 } from './link-status.js';
+import {
+  initSessionPersistence,
+  persistSessionSoon,
+  getSessionToRestore,
+} from './session-restore.js';
 
 const electronAPI = window.electronAPI;
 
@@ -445,6 +450,9 @@ const createWebview = (tabId, initialUrl) => {
           tab.favicon = null;
           renderTabs();
         }
+        // Session capture for URL commits that don't re-render the strip
+        // (renderTabs is the other capture hook).
+        persistSessionSoon();
       }
       if (tabId === tabState.activeTabId && onWebviewEvent) {
         onWebviewEvent('did-navigate', { tabId, event });
@@ -832,6 +840,12 @@ const updateTabElement = (tabEl, tab, isActive, isBeforeActive) => {
 
 // Render the tab bar incrementally
 const renderTabs = () => {
+  // Doubles as the session-capture hook: every tab-strip mutation
+  // (open/close/reorder/pin/activate/title/favicon/load state) re-renders,
+  // so scheduling the debounced session snapshot here keeps the capture
+  // surface to two call sites (see also the did-navigate handler, which
+  // can commit a URL change without re-rendering).
+  persistSessionSoon();
   if (!tabBar) return;
 
   const activeIndex = tabState.tabs.findIndex((t) => t.id === tabState.activeTabId);
@@ -908,24 +922,34 @@ const resolveInternalPageUrl = (url) => {
   return target.subPath ? `${pageUrl}#${target.subPath}` : pageUrl;
 };
 
+// Resolve the initial <webview> src for a target URL.
+// Direct loads: empty/null (use homeUrl), http(s), about:blank, and
+// the app's own `homeUrl` (production: file:///…/pages/home.html).
+// Anything else parks on about:blank while `onLoadTarget` resolves
+// it — this keeps dweb URLs working (their resolution pipeline takes
+// ~50 ms) without producing the GUEST_VIEW_MANAGER_CALL log noise
+// that pointing the webview at homeUrl first did, and prevents
+// hostile schemes from ever becoming a direct webview navigation.
+// Trusted internal freedom:// pages resolve to their real file://…/pages URL up
+// front and load directly — no about:blank parking step (which otherwise leaves
+// a blank entry in the back history; see resolveInternalPageUrl). tab.url keeps
+// the friendly freedom:// form so the address bar and singleton-tab reuse still
+// match on it while the page loads.
+// Shared by createTab and materializePlaceholderTab so restored tabs load
+// through exactly the same allowlist as freshly opened ones.
+const resolveWebviewSrcForUrl = (url) => {
+  const resolvedInternalUrl = resolveInternalPageUrl(url);
+  const isDirect = resolvedInternalUrl != null || isDirectLoadUrl(url);
+  return {
+    webviewUrl: resolvedInternalUrl || (isDirect ? url || homeUrl : 'about:blank'),
+    isDirect,
+  };
+};
+
 // Create a new tab
 export const createTab = (url = null) => {
   const tabId = tabState.nextTabId++;
-  // Direct loads: empty/null (use homeUrl), http(s), about:blank, and
-  // the app's own `homeUrl` (production: file:///…/pages/home.html).
-  // Anything else parks on about:blank while `onLoadTarget` resolves
-  // it — this keeps dweb URLs working (their resolution pipeline takes
-  // ~50 ms) without producing the GUEST_VIEW_MANAGER_CALL log noise
-  // that pointing the webview at homeUrl first did, and prevents
-  // hostile schemes from ever becoming a direct webview navigation.
-  // Trusted internal freedom:// pages resolve to their real file://…/pages URL up
-  // front and load directly — no about:blank parking step (which otherwise leaves
-  // a blank entry in the back history; see resolveInternalPageUrl). tab.url keeps
-  // the friendly freedom:// form so the address bar and singleton-tab reuse still
-  // match on it while the page loads.
-  const resolvedInternalUrl = resolveInternalPageUrl(url);
-  const isDirect = resolvedInternalUrl != null || isDirectLoadUrl(url);
-  const webviewUrl = resolvedInternalUrl || (isDirect ? url || homeUrl : 'about:blank');
+  const { webviewUrl, isDirect } = resolveWebviewSrcForUrl(url);
   const webview = createWebview(tabId, webviewUrl);
 
   const tab = {
@@ -958,6 +982,56 @@ export const createTab = (url = null) => {
 
   pushDebug(`Created tab ${tabId}`);
   return tab;
+};
+
+// --- Placeholder tabs (lazy session restore / future tab hibernation) ------
+//
+// A placeholder tab is a tab-strip entry with NO <webview> yet:
+// `tab.isPlaceholder === true`, `tab.webview === null`. It renders its
+// persisted title/favicon like any other tab, and only materializes (creates
+// and loads its webview) on first activation via switchTab. Session restore
+// creates one placeholder per persisted tab so a 20-tab session doesn't load
+// 20 pages at launch; the same mechanism is the foundation for hibernating
+// idle tabs later (drop the webview, set isPlaceholder back to true).
+
+// Create a placeholder tab from a persisted session entry
+// ({url, title, pinned, faviconUrl}). Does not activate it.
+export const createPlaceholderTab = ({ url, title = '', pinned = false, faviconUrl = null }) => {
+  if (!url) return null;
+  const tabId = tabState.nextTabId++;
+  const tab = {
+    id: tabId,
+    url,
+    title: title || 'New Tab',
+    isLoading: false,
+    pinned: pinned === true,
+    favicon: faviconUrl || null,
+    webview: null,
+    isPlaceholder: true,
+    navigationState: createNavigationState(),
+  };
+  tabState.tabs.push(tab);
+  renderTabs();
+  pushTabMenuState();
+  pushDebug(`Created placeholder tab ${tabId}: ${url}`);
+  return tab;
+};
+
+// Give a placeholder tab its real webview and start loading `tab.url`.
+// Mirrors createTab's load path (same direct-load allowlist, same
+// about:blank + loadTarget resolution for dweb schemes).
+const materializePlaceholderTab = (tab) => {
+  if (!tab || !tab.isPlaceholder || tab.webview) return;
+  const { webviewUrl, isDirect } = resolveWebviewSrcForUrl(tab.url);
+  tab.webview = createWebview(tab.id, webviewUrl);
+  tab.isPlaceholder = false;
+  webviewContainer?.appendChild(tab.webview);
+  if (!isDirect) {
+    setTimeout(() => {
+      if (onLoadTarget) onLoadTarget(tab.url);
+    }, 50);
+  }
+  pushDebug(`Materialized placeholder tab ${tab.id}: ${tab.url}`);
 };
 
 // Remove webview event listeners to prevent memory leaks
@@ -1204,6 +1278,12 @@ export const hideTabContextMenu = () => {
 export const switchTab = (tabId, options = {}) => {
   const tab = tabState.tabs.find((t) => t.id === tabId);
   if (!tab) return;
+
+  // Restored placeholder tabs get their webview on first activation
+  // (lazy session restore — see the placeholder section above).
+  if (tab.isPlaceholder) {
+    materializePlaceholderTab(tab);
+  }
 
   // Reset the link-hover preview before swapping active tabs:
   // - immediate clear so the previous tab's URL never trails into the new tab
@@ -1673,9 +1753,41 @@ export const initTabs = async () => {
     }
   });
 
-  // Create initial tab - check for initialUrl query parameter (from "open in new window")
+  // Wire up session persistence: session-restore.js serializes and ships
+  // debounced snapshots to the main process (single writer of session.json).
+  initSessionPersistence(() => ({
+    tabs: tabState.tabs,
+    activeTabId: tabState.activeTabId,
+  }));
+
+  // Create initial tab(s). Precedence: an initialUrl query parameter (from
+  // "open in new window") loads alongside any restored session; a persisted
+  // session restores as lazy placeholder tabs; otherwise a fresh home tab.
   const urlParams = new URLSearchParams(window.location.search);
   const initialUrl = urlParams.get('initialUrl');
+  // Restore the persisted session (if this window was launched with a
+  // restore slot) as placeholder tabs. Only the active tab materializes —
+  // and only when no initialUrl is about to open its own active tab.
+  const sessionPayload = await getSessionToRestore(urlParams);
+  let restoredTabs = false;
+  if (sessionPayload) {
+    const created = [];
+    for (const entry of sessionPayload.tabs) {
+      const tab = createPlaceholderTab(entry);
+      if (tab) created.push(tab);
+    }
+    if (created.length > 0) {
+      restoredTabs = true;
+      if (!initialUrl) {
+        const rawIndex = sessionPayload.activeTabIndex;
+        const activeIndex = Number.isInteger(rawIndex)
+          ? Math.min(Math.max(rawIndex, 0), created.length - 1)
+          : 0;
+        switchTab(created[activeIndex].id);
+      }
+      pushDebug(`Restored ${created.length} tab(s) from previous session`);
+    }
+  }
   if (initialUrl) {
     // Create tab with about:blank to avoid home page flash, then navigate to target
     const tab = createTab('about:blank');
@@ -1688,7 +1800,7 @@ export const initTabs = async () => {
       // Use loadTarget for proper URL resolution (handles dweb URLs, ENS, etc.)
       setTimeout(() => onLoadTarget(initialUrl), 50);
     }
-  } else {
+  } else if (!restoredTabs) {
     createTab(homeUrl);
   }
 };
