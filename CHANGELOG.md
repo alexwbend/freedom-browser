@@ -2,6 +2,13 @@
 
 All notable changes to Freedom will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+
+- Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
+- The Swarm node's API now comes up instantly on start, so the node menu shows peers counting up live instead of sitting at 0 during startup
+
 ## [0.8.0] - 2026-07-02
 
 ### Added
