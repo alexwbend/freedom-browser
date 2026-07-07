@@ -1276,6 +1276,60 @@
                   </button>
                   <div class="node-card-content hidden" id="radicle-card-content">
                     <div class="node-info-group">
+                      <span class="node-info-label">Alias</span>
+                      <div class="node-info-row" id="radicle-alias-display-row">
+                        <code class="node-info-value mono" id="sidebar-radicle-alias"></code>
+                        <button
+                          type="button"
+                          class="node-copy-btn"
+                          id="radicle-alias-edit-btn"
+                          title="Edit alias"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div class="node-info-row hidden" id="radicle-alias-edit-row">
+                        <input
+                          type="text"
+                          class="node-info-value mono"
+                          id="radicle-alias-input"
+                          maxlength="32"
+                          spellcheck="false"
+                          style="
+                            background: transparent;
+                            border: 1px solid var(--border-color, #3a3a3c);
+                            border-radius: 4px;
+                            padding: 2px 6px;
+                            color: inherit;
+                            width: 100%;
+                          "
+                        />
+                        <button
+                          type="button"
+                          class="node-copy-btn"
+                          id="radicle-alias-save-btn"
+                          title="Save alias"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                          >
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        </button>
+                      </div>
+                      <div class="node-info-label hidden" id="radicle-alias-status"></div>
+                    </div>
+                    <div class="node-info-group">
                       <span class="node-info-label">DID</span>
                       <div class="node-info-row">
                         <code class="node-info-value mono" id="sidebar-radicle-id"></code>

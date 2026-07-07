@@ -305,6 +305,8 @@ contextBridge.exposeInMainWorld('ipfs', {
 });
 
 contextBridge.exposeInMainWorld('radicle', {
+  getAlias: () => ipcRenderer.invoke('radicle:get-alias'),
+  setAlias: (alias) => ipcRenderer.invoke('radicle:set-alias', alias),
   start: () => ipcRenderer.invoke('radicle:start'),
   stop: () => ipcRenderer.invoke('radicle:stop'),
   getStatus: () => ipcRenderer.invoke('radicle:getStatus'),

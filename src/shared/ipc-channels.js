@@ -266,4 +266,8 @@ module.exports = {
 
   // Radicle Provider (main-process authority)
   RADICLE_PROVIDER_EXECUTE: 'radicle:provider-execute',
+
+  // Radicle node alias (chrome UI: sidebar Nodes tab)
+  RADICLE_GET_ALIAS: 'radicle:get-alias',
+  RADICLE_SET_ALIAS: 'radicle:set-alias',
 };

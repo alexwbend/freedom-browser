@@ -32,6 +32,8 @@ const {
   unseedRepository,
   syncRepository,
   validateAndNormalizeRid,
+  getNodeAlias,
+  setNodeAlias,
   STATUS,
 } = require('../radicle-manager');
 const cob = require('./cob-service');
@@ -111,11 +113,14 @@ async function handleGetNodeStatus(origin) {
     const conn = await getConnections();
     if (conn.success) result.peers = conn.count;
   }
-  // NID is identifying — only disclose once the signing grant exists.
-  if (permissions.hasSigningGrant(origin) && status === STATUS.RUNNING) {
+  // The alias is public data (gossiped network-wide with the node
+  // announcement), so a connected origin may see it. The NID stays behind
+  // the signing grant — it pins the user to a specific node identity.
+  if (status === STATUS.RUNNING) {
     try {
       const identity = await cob.getIdentity();
-      result.nid = identity.nid;
+      result.alias = identity.alias;
+      if (permissions.hasSigningGrant(origin)) result.nid = identity.nid;
     } catch (err) {
       log.warn(`[radicle-provider] getNodeStatus identity lookup failed: ${err.message}`);
     }
@@ -288,6 +293,17 @@ async function executeRadicleMethod(method, params = {}, origin) {
 }
 
 function registerRadicleProviderIpc() {
+  // Chrome-facing alias management (sidebar Nodes tab). Registered here —
+  // not in radicle-manager — because the alias write must also invalidate
+  // cob-service's memoized identity, and cob-service depends on the
+  // manager (registering there would create a require cycle).
+  ipcMain.handle(IPC.RADICLE_GET_ALIAS, () => getNodeAlias());
+  ipcMain.handle(IPC.RADICLE_SET_ALIAS, async (_event, alias) => {
+    const result = await setNodeAlias(alias);
+    if (result.success) cob.clearIdentityCache();
+    return result;
+  });
+
   ipcMain.handle(IPC.RADICLE_PROVIDER_EXECUTE, async (_event, { method, params, origin } = {}) => {
     try {
       const result = await executeRadicleMethod(method, params, origin);

@@ -103,8 +103,8 @@ test.describe('radicle provider e2e', () => {
     await approve.click();
     await waitForWebview(
       window,
-      `document.querySelector('header')?.textContent.includes('node connected')`,
-      'canopy should show the connected state'
+      `document.querySelector('header')?.textContent.includes('connected as radicle-e2e')`,
+      'canopy should show the connected state with the node alias'
     );
 
     // (4) Issues: existing fixture issue is listed (read path for COBs).

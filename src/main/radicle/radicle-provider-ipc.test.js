@@ -292,13 +292,15 @@ describe('signing tier', () => {
     expect(cob.commentPatch).toHaveBeenCalled();
   });
 
-  test('getNodeStatus includes nid only with signing grant', async () => {
+  test('getNodeStatus: alias at connection tier, nid only with signing grant', async () => {
     const withGrant = await executeRadicleMethod('radicle_getNodeStatus', {}, ORIGIN);
     expect(withGrant.nid).toBe('z6MkTest');
+    expect(withGrant.alias).toBe('me');
     expect(withGrant.peers).toBe(3);
 
     permissions.hasSigningGrant.mockReturnValue(false);
     const withoutGrant = await executeRadicleMethod('radicle_getNodeStatus', {}, ORIGIN);
     expect(withoutGrant.nid).toBeUndefined();
+    expect(withoutGrant.alias).toBe('me');
   });
 });

@@ -1415,6 +1415,74 @@ function runRad(args, { timeout = 30000 } = {}) {
   });
 }
 
+/**
+ * The node's current alias, read from the active RAD_HOME's config.
+ * @returns {string|null}
+ */
+function getNodeAlias() {
+  try {
+    const configPath = path.join(getActiveRadHome(), 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config?.node?.alias ?? null;
+  } catch (err) {
+    log.warn(`[Radicle] Could not read node alias: ${err.message}`);
+    return null;
+  }
+}
+
+// Mirrors radicle's own alias rules (heartwood: ≤32 bytes, no whitespace
+// or control characters, non-empty). `rad config set` is deprecated, so
+// the config is edited directly and validated here.
+function isValidAlias(alias) {
+  return (
+    typeof alias === 'string' &&
+    alias.length > 0 &&
+    Buffer.byteLength(alias, 'utf8') <= 32 &&
+    // eslint-disable-next-line no-control-regex
+    !/[\s\u0000-\u001f\u007f]/.test(alias)
+  );
+}
+
+/**
+ * Set the node alias. The alias is gossiped in the node's announcement, so
+ * a running managed node is restarted to re-announce under the new name.
+ * @param {string} alias
+ * @returns {Promise<{success: boolean, alias?: string, restarted?: boolean, error?: object}>}
+ */
+async function setNodeAlias(alias) {
+  if (!isValidAlias(alias)) {
+    return failure(
+      'INVALID_ALIAS',
+      'Alias must be 1–32 bytes with no whitespace or control characters'
+    );
+  }
+
+  const configPath = path.join(getActiveRadHome(), 'config.json');
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.node = config.node || {};
+    config.node.alias = alias;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  } catch (err) {
+    log.error(`[Radicle] Failed to write alias: ${err.message}`);
+    return failure('ALIAS_WRITE_FAILED', err.message);
+  }
+  log.info(`[Radicle] Node alias set to: ${alias}`);
+
+  // Only a node we manage can be bounced; external/system nodes pick the
+  // new alias up on their own next restart.
+  let restarted = false;
+  if (currentState === STATUS.RUNNING && radicleNodeProcess) {
+    log.info('[Radicle] Restarting node to announce new alias');
+    stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await startRadicle();
+    restarted = true;
+  }
+
+  return success({ alias, restarted });
+}
+
 function registerRadicleIpc() {
   log.info('[Radicle] Registering IPC handlers');
   const radicleDisabledResponse = {

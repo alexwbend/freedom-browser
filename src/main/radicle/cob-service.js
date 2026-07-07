@@ -209,6 +209,10 @@ async function commentPatch({ rid, patchId, body, revisionId } = {}) {
  * @returns {Promise<{did, nid, alias}>}
  */
 let identityCache = null; // { radHome, identity }
+/** Invalidate the memoized identity (e.g. after an alias change). */
+function clearIdentityCache() {
+  identityCache = null;
+}
 async function getIdentity() {
   const radHome = getActiveRadHome();
   if (identityCache?.radHome === radHome) return identityCache.identity;
@@ -232,6 +236,7 @@ module.exports = {
   editIssueState,
   commentPatch,
   getIdentity,
+  clearIdentityCache,
   CobValidationError,
   LIMITS,
 };
