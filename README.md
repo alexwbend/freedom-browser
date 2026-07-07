@@ -266,8 +266,11 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 ### Tabbed Browsing
 
-- **Multiple Tabs**: Open multiple pages simultaneously with `Cmd+T`.
-- **Tab Management**: Close tabs with `Cmd+W` or middle-click.
+- **Multiple Tabs**: Open multiple pages simultaneously with `Cmd+T`. New tabs open next to the active tab by default (tabs opened from links stay grouped after their opener); switch to append-at-end in Settings > Behavior.
+- **Tab Management**: Close tabs with `Cmd+W` or middle-click. The tab context menu also offers close others / to the right / to the left (pinned tabs are never swept), pin, mute, copy URL, and reopen closed tab.
+- **Audio Indicators & Mute**: Tabs playing sound show a speaker icon; click it (or use "Mute Tab" in the context menu) to mute or unmute the tab. Mute survives navigation within the tab.
+- **Tab Search**: `Cmd+Shift+A` / `Ctrl+Shift+A` opens a popover listing the current window's tabs with fuzzy filtering on title and URL — arrow keys + Enter to switch.
+- **MRU Tab Cycling**: Optional (Settings > Behavior): Ctrl+Tab cycles tabs in most-recently-used order with an Alt-Tab-style switcher while Ctrl is held.
 - **Drag & Drop Reordering**: Rearrange tabs by dragging.
 - **Per-Tab State**: Each tab maintains its own navigation history, address bar state, and bzz/ipfs base.
 - **Session Restore**: Open tabs (order, pinned state, active tab) come back on the next launch — including after a crash. Restored tabs load lazily: only the active tab loads at launch; the rest load when first activated. Per-tab back/forward history is not restored (current URL only).
@@ -284,7 +287,8 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Cmd+T` / `Ctrl+T`: New tab
   - `Cmd+W` / `Ctrl+W` / `Ctrl+F4`: Close tab
   - `Cmd+Shift+T` / `Ctrl+Shift+T`: Reopen last closed tab
-  - `Ctrl+PgDn` / `Ctrl+Tab`: Next tab
+  - `Cmd+Shift+A` / `Ctrl+Shift+A`: Search tabs
+  - `Ctrl+PgDn` / `Ctrl+Tab`: Next tab (`Ctrl+Tab` cycles most-recently-used tabs instead when enabled in Settings > Behavior)
   - `Ctrl+PgUp` / `Ctrl+Shift+Tab`: Previous tab
   - `Ctrl+Shift+PgDn`: Move tab right
   - `Ctrl+Shift+PgUp`: Move tab left

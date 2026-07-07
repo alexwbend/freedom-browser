@@ -9,8 +9,15 @@ All notable changes to Freedom will be documented in this file.
 - Session restore: open tabs return on the next launch — after a quit or a crash — keeping tab order, pinned state, and the active tab
   - Only the active tab loads at launch; the rest load when first clicked
   - Settings > Behavior > On startup switches between "Continue where you left off" (default) and "Start with home page"
+- Tab strip upgrades:
+  - Audio indicator on tabs playing sound; click it or use "Mute Tab" in the tab context menu to mute/unmute (mute survives navigation)
+  - Tab search popover (`Cmd/Ctrl+Shift+A`, also View > Search Tabs): fuzzy filter on title/URL across the current window's tabs, Enter to switch
+  - Optional most-recently-used Ctrl+Tab cycling with a held-Ctrl switcher overlay (Settings > Behavior, off by default)
+  - Tab context menu: "Close Tabs to the Left" (pinned tabs protected, like close-to-the-right), "Copy URL", and "Reopen Closed Tab"
 
 ### Changed
+
+- New tabs open next to the active tab instead of at the end of the strip; tabs opened from links group after their opener (Settings > Behavior to restore append-at-end)
 
 - Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
 - The Swarm node's API now comes up instantly on start, so the node menu shows peers counting up live instead of sitting at 0 during startup
