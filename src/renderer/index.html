@@ -2658,6 +2658,20 @@
       <button class="context-menu-item" data-action="mute">Mute Tab</button>
     </div>
 
+    <!-- Tab Search Popover (Cmd/Ctrl+Shift+A) -->
+    <div id="tab-search" class="tab-search hidden" data-test="tab-search">
+      <input
+        id="tab-search-input"
+        class="tab-search-input"
+        type="text"
+        placeholder="Search tabs by title or address"
+        spellcheck="false"
+        autocomplete="off"
+        data-test="tab-search-input"
+      />
+      <div id="tab-search-list" class="tab-search-list" data-test="tab-search-list"></div>
+    </div>
+
     <!-- Page Context Menu -->
     <div id="page-context-menu" class="context-menu hidden">
       <!-- Page actions (shown when clicking on page background) -->

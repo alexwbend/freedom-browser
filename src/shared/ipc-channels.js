@@ -127,6 +127,7 @@ module.exports = {
   TAB_MOVE_LEFT: 'tab:move-left',
   TAB_MOVE_RIGHT: 'tab:move-right',
   TAB_REOPEN_CLOSED: 'tab:reopen-closed',
+  TAB_SEARCH: 'tab:search',
 
   // Bookmarks bar
   BOOKMARKS_TOGGLE_BAR: 'bookmarks:toggle-bar',

@@ -36,6 +36,7 @@ import {
   createTab,
   openOrFocusInternalPage,
 } from './lib/tabs.js';
+import { initTabSearch, hideTabSearch } from './lib/tab-search.js';
 import {
   initNavigation,
   loadTarget,
@@ -630,6 +631,7 @@ const closeAllMenus = () => {
   hideBookmarkContextMenu();
   hidePageContextMenu();
   hideChromeInputContextMenu();
+  hideTabSearch();
 };
 
 // Close everything including autocomplete (used by backdrop)
@@ -733,6 +735,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initNavigation(); // Sets up event handler with tabs module
   initLinkStatus();
   initTabs(); // Creates first tab and starts loading home page
+  initTabSearch({ onOpening: onAnyMenuOpening }); // Cmd/Ctrl+Shift+A tab search popover
   initAutocomplete(); // Address bar autocomplete
   initPageContextMenu(); // Page context menu for webviews
   initChromeInputContextMenu({ onOpening: onAnyMenuOpening }); // Address bar edit menu

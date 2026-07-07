@@ -295,6 +295,17 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       },
     },
     {
+      id: 'search-tabs',
+      label: 'Search Tabs...',
+      accelerator: 'CmdOrCtrl+Shift+A',
+      click: () => {
+        const win = getTargetWindow();
+        if (win) {
+          win.webContents.send('tab:search');
+        }
+      },
+    },
+    {
       id: 'move-tab-right',
       label: 'Move Tab Right',
       accelerator: 'Ctrl+Shift+PageDown',
@@ -509,6 +520,7 @@ ipcMain.on('menu:update-tab-state', (_event, state) => {
   setEnabled('reload', hasTabs);
   setEnabled('next-tab', hasMultipleTabs);
   setEnabled('prev-tab', hasMultipleTabs);
+  setEnabled('search-tabs', hasTabs);
   setEnabled('move-tab-right', hasMultipleTabs && activeIndex < tabCount - 1);
   setEnabled('move-tab-left', hasMultipleTabs && activeIndex > 0);
   setEnabled('reopen-closed-tab', hasClosedTabs);
