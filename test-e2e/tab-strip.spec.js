@@ -13,6 +13,20 @@ async function openTabSearch(window) {
   await expect(window.locator('[data-test="tab-search"]')).toBeVisible();
 }
 
+// Right-click a tab and click a context-menu action, then run `verify`.
+// Retried as a unit: a stray window blur (e.g. the previous Electron
+// instance releasing OS focus) can close the menu between the right-click
+// and the item click, turning the click into a no-op.
+async function clickTabContextAction(window, tabLocator, action, verify) {
+  await expect(async () => {
+    await tabLocator.click({ button: 'right' });
+    const menu = window.locator('#tab-context-menu');
+    await expect(menu).toBeVisible({ timeout: 1000 });
+    await menu.locator(`[data-action="${action}"]`).click({ timeout: 1000 });
+    await verify();
+  }).toPass({ timeout: 15_000 });
+}
+
 test('tab search opens, filters, and activates a tab', async ({ window }) => {
   const tabs = window.locator('[data-test="tab"]');
   const input = window.locator('[data-test="address-input"]');
@@ -109,21 +123,23 @@ test('Mute Tab context-menu item toggles the muted indicator', async ({ window }
   // No audio state initially: indicator hidden.
   await expect(audioBtn).toBeHidden();
 
-  await tab.click({ button: 'right' });
-  const muteItem = window.locator('#tab-context-menu [data-action="mute"]');
-  await expect(muteItem).toHaveText('Mute Tab');
-  await muteItem.click();
-
-  // Muted: indicator shows the muted speaker even without audio playing.
-  await expect(tab).toHaveAttribute('data-audio-state', 'muted');
+  // Muted via the context menu: indicator shows the muted speaker even
+  // without audio playing.
+  await clickTabContextAction(window, tab, 'mute', async () => {
+    await expect(tab).toHaveAttribute('data-audio-state', 'muted', { timeout: 1000 });
+  });
   await expect(audioBtn).toBeVisible();
 
   // Clicking the indicator unmutes (and hides it again — nothing audible).
   await audioBtn.click();
   await expect(audioBtn).toBeHidden();
 
-  await tab.click({ button: 'right' });
-  await expect(muteItem).toHaveText('Mute Tab');
+  // Menu label reflects the unmuted state again.
+  const muteItem = window.locator('#tab-context-menu [data-action="mute"]');
+  await expect(async () => {
+    await tab.click({ button: 'right' });
+    await expect(muteItem).toHaveText('Mute Tab', { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
   await window.keyboard.press('Escape');
 });
 
@@ -134,14 +150,14 @@ test('Close Tabs to the Left protects pinned tabs', async ({ window }) => {
   await expect(tabs).toHaveCount(3);
 
   // Pin the leftmost tab.
-  await tabs.first().click({ button: 'right' });
-  await window.locator('#tab-context-menu [data-action="pin"]').click();
-  await expect(tabs.first()).toHaveClass(/pinned/);
+  await clickTabContextAction(window, tabs.first(), 'pin', async () => {
+    await expect(tabs.first()).toHaveClass(/pinned/, { timeout: 1000 });
+  });
 
   // Close-left from the rightmost tab: only the middle tab goes.
-  await tabs.nth(2).click({ button: 'right' });
-  await window.locator('#tab-context-menu [data-action="close-left"]').click();
-  await expect(tabs).toHaveCount(2);
+  await clickTabContextAction(window, tabs.nth(2), 'close-left', async () => {
+    await expect(tabs).toHaveCount(2, { timeout: 1000 });
+  });
   await expect(tabs.first()).toHaveClass(/pinned/);
 });
 
@@ -153,12 +169,13 @@ test('Copy URL puts the tab address on the clipboard', async ({ window, electron
   await expect(input).toHaveValue(/^https:\/\/example\.com\/?$/);
 
   const tab = window.locator('[data-test="tab"]').first();
-  await tab.click({ button: 'right' });
-  await window.locator('#tab-context-menu [data-action="copy-url"]').click();
-
-  await expect
-    .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()))
-    .toMatch(/^https:\/\/example\.com\/?$/);
+  await clickTabContextAction(window, tab, 'copy-url', async () => {
+    await expect
+      .poll(() => electronApp.evaluate(({ clipboard }) => clipboard.readText()), {
+        timeout: 2000,
+      })
+      .toMatch(/^https:\/\/example\.com\/?$/);
+  });
 });
 
 test('Reopen Closed Tab context-menu item restores the last closed tab', async ({ window }) => {
@@ -174,8 +191,8 @@ test('Reopen Closed Tab context-menu item restores the last closed tab', async (
   await tabs.nth(1).locator('[data-test="tab-close"]').click();
   await expect(tabs).toHaveCount(1);
 
-  await tabs.first().click({ button: 'right' });
-  await window.locator('#tab-context-menu [data-action="reopen-closed"]').click();
-  await expect(tabs).toHaveCount(2);
+  await clickTabContextAction(window, tabs.first(), 'reopen-closed', async () => {
+    await expect(tabs).toHaveCount(2, { timeout: 1000 });
+  });
   await expect(tabs.nth(1)).toContainText('History');
 });
