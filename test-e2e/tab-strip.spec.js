@@ -56,6 +56,40 @@ test('new tabs open next to the active tab by default', async ({ window }) => {
   expect(ids).toEqual(['1', '3', '2']);
 });
 
+test.describe('MRU Ctrl+Tab cycling (setting on)', () => {
+  test.use({ seedSettings: { mruTabSwitching: true } });
+
+  test('held Ctrl shows the switcher; releasing commits the MRU tab', async ({ window }) => {
+    const tabs = window.locator('[data-test="tab"]');
+
+    // Three tabs; activation order 1 -> 2 -> 3 -> 1 gives MRU [1, 3, 2].
+    await window.locator('[data-test="new-tab-btn"]').click();
+    await window.locator('[data-test="new-tab-btn"]').click();
+    await expect(tabs).toHaveCount(3);
+    await tabs.first().click();
+    await expect(tabs.first()).toHaveClass(/active/);
+
+    // Focus chrome so the renderer keydown handler sees the keys.
+    await window.locator('[data-test="address-input"]').click();
+
+    await window.keyboard.down('Control');
+    await window.keyboard.press('Tab');
+    const switcher = window.locator('[data-test="tab-mru-switcher"]');
+    await expect(switcher).toBeVisible();
+    // Selection previews the most recently used other tab (tab 3); the
+    // active tab hasn't changed yet.
+    await expect(window.locator('[data-test="tab-mru-item"].selected')).toHaveAttribute(
+      'data-tab-id',
+      '3'
+    );
+    await expect(tabs.first()).toHaveClass(/active/);
+
+    await window.keyboard.up('Control');
+    await expect(switcher).toBeHidden();
+    await expect(window.locator('[data-test="tab"][data-tab-id="3"]')).toHaveClass(/active/);
+  });
+});
+
 test('Escape closes tab search without switching tabs', async ({ window }) => {
   const tabs = window.locator('[data-test="tab"]');
   await window.locator('[data-test="new-tab-btn"]').click();

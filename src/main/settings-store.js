@@ -60,6 +60,10 @@ const DEFAULT_SETTINGS = {
   // instead of appended at the end of the strip. Modern-browser default;
   // the toggle lives in Settings > Behavior.
   openNewTabNextToActive: true,
+  // When true, Ctrl+Tab cycles tabs in most-recently-used order with a
+  // held-Ctrl switcher overlay (Alt-Tab style) instead of strip order.
+  // Off by default to preserve the existing sequential behavior.
+  mruTabSwitching: false,
   // Linux only: render the tab strip as the window titlebar (frameless window).
   // Off by default so Linux users get the native OS frame; opt in via Settings.
   tabsInTitlebar: false,

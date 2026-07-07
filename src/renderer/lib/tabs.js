@@ -18,6 +18,7 @@ import {
   persistSessionSoon,
   getSessionToRestore,
 } from './session-restore.js';
+import { touchMru, removeFromMru, cycleIndex } from './tab-mru.js';
 
 const electronAPI = window.electronAPI;
 
@@ -94,6 +95,8 @@ let tabBar = null;
 let newTabBtn = null;
 let webviewContainer = null;
 let tabContextMenu = null;
+let mruSwitcherEl = null;
+let mruListEl = null;
 
 // Context menu state
 let contextMenuTabId = null;
@@ -1287,8 +1290,9 @@ export const closeTab = (tabId) => {
     }
   }
 
-  // Remove from array
+  // Remove from array and from the MRU order
   tabState.tabs.splice(tabIndex, 1);
+  mruOrder = removeFromMru(mruOrder, tabId);
 
   // If this was the active tab, switch to another
   if (tabState.activeTabId === tabId) {
@@ -1379,6 +1383,115 @@ export const switchToPrevTab = () => {
   const currentIndex = tabState.tabs.findIndex((t) => t.id === tabState.activeTabId);
   const prevIndex = (currentIndex - 1 + tabState.tabs.length) % tabState.tabs.length;
   switchTab(tabState.tabs[prevIndex].id);
+};
+
+// --- MRU Ctrl+Tab cycling (setting, default off) ----------------------------
+//
+// When enabled (Settings > Behavior), Ctrl+Tab cycles tabs in most-recently-
+// used order with a small centered switcher overlay while Ctrl stays held
+// (Alt-Tab style); releasing Ctrl commits the selection, Escape cancels.
+// When disabled, Ctrl+Tab keeps the sequential strip-order behavior.
+// Ctrl+PageDown/PageUp and Cmd+Shift+]/[ stay sequential either way.
+
+let mruTabSwitching = false;
+
+// Tab ids, most recently activated first. Maintained on every activation
+// (switchTab), pruned on close. Restored placeholder tabs join the order
+// the first time they're activated; until then they trail in strip order.
+let mruOrder = [];
+
+// Held-Ctrl switcher state. `switcherEntries` is a snapshot of the tab list
+// taken when the switcher opens so cycling is stable even if titles/favicons
+// update mid-hold.
+let mruSwitcherOpen = false;
+let mruSwitcherEntries = [];
+let mruSwitcherIndex = 0;
+
+// Plain globe for switcher rows (GLOBE_ICON_SVG carries tab-strip icon
+// classes with absolute positioning that don't apply here).
+const SWITCHER_GLOBE_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+
+// Current tabs in MRU order: known-recent ids first, then any tabs never
+// activated this session (e.g. still-placeholder restored tabs) in strip
+// order. Placeholders participate normally — committing to one activates
+// (and thus materializes) it.
+const mruOrderedTabs = () => {
+  const remaining = new Map(tabState.tabs.map((t) => [t.id, t]));
+  const ordered = [];
+  for (const id of mruOrder) {
+    const tab = remaining.get(id);
+    if (tab) {
+      ordered.push(tab);
+      remaining.delete(id);
+    }
+  }
+  for (const tab of tabState.tabs) {
+    if (remaining.has(tab.id)) ordered.push(tab);
+  }
+  return ordered;
+};
+
+const renderMruSwitcher = () => {
+  if (!mruListEl) return;
+  mruListEl.innerHTML = '';
+  mruSwitcherEntries.forEach((tab, index) => {
+    const row = document.createElement('div');
+    row.className = 'tab-mru-item';
+    row.dataset.test = 'tab-mru-item';
+    row.dataset.tabId = String(tab.id);
+    row.classList.toggle('selected', index === mruSwitcherIndex);
+
+    const icon = document.createElement('span');
+    icon.className = 'tab-mru-item-icon';
+    if (tab.favicon) {
+      const img = document.createElement('img');
+      img.src = tab.favicon;
+      img.alt = '';
+      icon.appendChild(img);
+    } else {
+      icon.innerHTML = SWITCHER_GLOBE_SVG;
+    }
+    row.appendChild(icon);
+
+    const title = document.createElement('span');
+    title.className = 'tab-mru-item-title';
+    title.textContent = tab.title || 'New Tab';
+    row.appendChild(title);
+
+    mruListEl.appendChild(row);
+  });
+};
+
+// Advance the switcher (opening it on the first Ctrl+Tab of a hold).
+// direction: +1 for Ctrl+Tab, -1 for Ctrl+Shift+Tab.
+const cycleMruSwitcher = (direction) => {
+  if (tabState.tabs.length < 2) return;
+  if (!mruSwitcherOpen) {
+    mruSwitcherEntries = mruOrderedTabs();
+    mruSwitcherIndex = 0; // the active tab leads its own MRU order
+    mruSwitcherOpen = true;
+    mruSwitcherEl?.classList.remove('hidden');
+  }
+  mruSwitcherIndex = cycleIndex(mruSwitcherEntries.length, mruSwitcherIndex, direction);
+  renderMruSwitcher();
+};
+
+const closeMruSwitcher = () => {
+  if (!mruSwitcherOpen) return;
+  mruSwitcherOpen = false;
+  mruSwitcherEntries = [];
+  mruSwitcherIndex = 0;
+  mruSwitcherEl?.classList.add('hidden');
+};
+
+// Releasing Ctrl (or losing window focus mid-hold) commits the selection.
+const commitMruSwitcher = () => {
+  if (!mruSwitcherOpen) return;
+  const selected = mruSwitcherEntries[mruSwitcherIndex];
+  closeMruSwitcher();
+  if (selected && selected.id !== tabState.activeTabId) {
+    switchTab(selected.id);
+  }
 };
 
 // Toggle pin state for a tab
@@ -1476,6 +1589,10 @@ export const switchTab = (tabId, options = {}) => {
   if (tab.isPlaceholder) {
     materializePlaceholderTab(tab);
   }
+
+  // Every activation refreshes the most-recently-used order (used by the
+  // MRU Ctrl+Tab switcher; cheap enough to maintain unconditionally).
+  mruOrder = touchMru(mruOrder, tabId);
 
   // Reset the link-hover preview before swapping active tabs:
   // - immediate clear so the previous tab's URL never trails into the new tab
@@ -1663,6 +1780,11 @@ export const openOrFocusInternalPage = (pageName, subPath = null) => {
 const applyTabBehaviorSettings = (settings) => {
   if (!settings || typeof settings !== 'object') return;
   openNewTabNextToActive = settings.openNewTabNextToActive !== false;
+  mruTabSwitching = settings.mruTabSwitching === true;
+  // Turning the feature off mid-hold shouldn't leave a stale overlay.
+  if (!mruTabSwitching) {
+    closeMruSwitcher();
+  }
 };
 
 // Initialize tabs module
@@ -1672,9 +1794,11 @@ export const initTabs = async () => {
   newTabBtn = document.getElementById('new-tab-btn');
   webviewContainer = document.getElementById('webview-container');
   tabContextMenu = document.getElementById('tab-context-menu');
+  mruSwitcherEl = document.getElementById('tab-mru-switcher');
+  mruListEl = document.getElementById('tab-mru-list');
 
-  // Tab-behavior settings (insertion position). Failures keep the
-  // in-code defaults, which mirror DEFAULT_SETTINGS.
+  // Tab-behavior settings (insertion position, MRU cycling). Failures keep
+  // the in-code defaults, which mirror DEFAULT_SETTINGS.
   try {
     applyTabBehaviorSettings(await electronAPI?.getSettings?.());
   } catch {
@@ -1724,7 +1848,12 @@ export const initTabs = async () => {
       hideTabContextMenu();
     }
   });
-  window.addEventListener('blur', hideTabContextMenu);
+  window.addEventListener('blur', () => {
+    hideTabContextMenu();
+    // Focus loss mid-Ctrl-hold: the keyup will never arrive, so commit the
+    // MRU selection now rather than leaving a stale overlay behind.
+    commitMruSwitcher();
+  });
 
   // Hide context menu when webview gets focus
   const webviewElement = document.getElementById('bzz-webview');
@@ -1913,25 +2042,41 @@ export const initTabs = async () => {
         addressInput.select();
       }
     }
-    // Ctrl+Tab / Ctrl+PageDown - Next tab (all platforms)
-    // Cmd+Shift+] - Next tab (macOS alternative)
+    // Ctrl+Tab / Ctrl+Shift+Tab - Next / previous tab (all platforms).
+    // With MRU cycling enabled (Settings > Behavior) these instead drive
+    // the held-Ctrl most-recently-used switcher; releasing Ctrl commits
+    // (see the keyup handler below), Escape cancels.
+    if (event.ctrlKey && event.key === 'Tab') {
+      event.preventDefault();
+      if (mruTabSwitching) {
+        cycleMruSwitcher(event.shiftKey ? -1 : 1);
+      } else if (event.shiftKey) {
+        switchToPrevTab();
+      } else {
+        switchToNextTab();
+      }
+    }
+    // Ctrl+PageDown - Next tab; Cmd+Shift+] - Next tab (macOS alternative).
+    // Always sequential, regardless of the MRU setting.
     if (
-      (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) ||
       (event.ctrlKey && event.key === 'PageDown' && !event.shiftKey) ||
       (event.metaKey && event.shiftKey && event.key === ']')
     ) {
       event.preventDefault();
       switchToNextTab();
     }
-    // Ctrl+Shift+Tab / Ctrl+PageUp - Previous tab (all platforms)
-    // Cmd+Shift+[ - Previous tab (macOS alternative)
+    // Ctrl+PageUp - Previous tab; Cmd+Shift+[ - Previous tab (macOS
+    // alternative). Always sequential, regardless of the MRU setting.
     if (
-      (event.ctrlKey && event.key === 'Tab' && event.shiftKey) ||
       (event.ctrlKey && event.key === 'PageUp' && !event.shiftKey) ||
       (event.metaKey && event.shiftKey && event.key === '[')
     ) {
       event.preventDefault();
       switchToPrevTab();
+    }
+    // Escape cancels an in-progress MRU switch without committing.
+    if (event.key === 'Escape') {
+      closeMruSwitcher();
     }
     // Ctrl+Shift+PageDown - Move tab right
     if (event.ctrlKey && event.shiftKey && event.key === 'PageDown') {
@@ -1967,6 +2112,13 @@ export const initTabs = async () => {
     if (event.key === 'F12') {
       event.preventDefault();
       toggleDevTools();
+    }
+  });
+
+  // Releasing Ctrl commits an in-progress MRU switch (no-op otherwise).
+  window.addEventListener('keyup', (event) => {
+    if (event.key === 'Control') {
+      commitMruSwitcher();
     }
   });
 

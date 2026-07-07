@@ -489,3 +489,167 @@ describe('open new tabs next to the active tab', () => {
     expect(mod.getTabs().map((t) => t.id)).toEqual([home.id, p1.id, p2.id, fresh.id, p3.id]);
   });
 });
+
+describe('MRU Ctrl+Tab cycling', () => {
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    jest.restoreAllMocks();
+  });
+
+  const ctrlTab = (windowHandlers, { shift = false } = {}) => {
+    windowHandlers.keydown({
+      ctrlKey: true,
+      metaKey: false,
+      shiftKey: shift,
+      key: 'Tab',
+      preventDefault: jest.fn(),
+    });
+  };
+
+  const releaseCtrl = (windowHandlers) => {
+    windowHandlers.keyup({ key: 'Control' });
+  };
+
+  const selectedRow = (mruList) =>
+    mruList.children.find((row) => row.classList.contains('selected')) || null;
+
+  // Three tabs, most recently used order [C, B, A] (A = initial home tab).
+  const setupThreeTabs = async (settings = { mruTabSwitching: true }) => {
+    const harness = await loadTabsModule({ settings });
+    await harness.mod.initTabs();
+    const tabA = harness.mod.getActiveTab();
+    const tabB = harness.mod.createTab('https://b.example/');
+    const tabC = harness.mod.createTab('https://c.example/');
+    return { ...harness, tabA, tabB, tabC };
+  };
+
+  test('disabled: Ctrl+Tab stays sequential and shows no switcher', async () => {
+    const { mod, elements, windowHandlers, tabA, tabB, tabC } = await setupThreeTabs({
+      mruTabSwitching: false,
+    });
+
+    // Strip order [A, B, C] (each new tab was active when the next opened),
+    // active C. Sequential next wraps to A.
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+    ctrlTab(windowHandlers);
+    expect(mod.getActiveTab().id).toBe(tabA.id);
+    expect(elements.mruSwitcher.classList.contains('hidden')).toBe(true);
+
+    ctrlTab(windowHandlers, { shift: true });
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+    void tabB;
+  });
+
+  test('enabled: Ctrl+Tab opens the switcher on the previous tab; releasing Ctrl commits', async () => {
+    const { mod, elements, windowHandlers, tabB, tabC } = await setupThreeTabs();
+
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+    ctrlTab(windowHandlers);
+    // Overlay is visible, tab not switched yet (held-Ctrl preview).
+    expect(elements.mruSwitcher.classList.contains('hidden')).toBe(false);
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+    // Selection sits on the most recently used other tab: B.
+    expect(selectedRow(elements.mruList)?.dataset.tabId).toBe(String(tabB.id));
+
+    releaseCtrl(windowHandlers);
+    expect(elements.mruSwitcher.classList.contains('hidden')).toBe(true);
+    expect(mod.getActiveTab().id).toBe(tabB.id);
+  });
+
+  test('repeated Ctrl+Tab while held cycles further; Shift cycles backwards', async () => {
+    const { mod, elements, windowHandlers, tabA, tabC } = await setupThreeTabs();
+
+    ctrlTab(windowHandlers);
+    ctrlTab(windowHandlers);
+    // MRU order [C, B, A] -> two steps from C lands on A.
+    expect(selectedRow(elements.mruList)?.dataset.tabId).toBe(String(tabA.id));
+
+    // One step back returns to B, another back to C (wrap behavior).
+    ctrlTab(windowHandlers, { shift: true });
+    ctrlTab(windowHandlers, { shift: true });
+    expect(selectedRow(elements.mruList)?.dataset.tabId).toBe(String(tabC.id));
+
+    releaseCtrl(windowHandlers);
+    // Committing the current tab is a no-op switch.
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+  });
+
+  test('Escape cancels the switch without committing', async () => {
+    const { mod, elements, windowHandlers, tabC } = await setupThreeTabs();
+
+    ctrlTab(windowHandlers);
+    windowHandlers.keydown({ key: 'Escape', ctrlKey: true, preventDefault: jest.fn() });
+    expect(elements.mruSwitcher.classList.contains('hidden')).toBe(true);
+
+    // The later Ctrl release must not commit anything.
+    releaseCtrl(windowHandlers);
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+  });
+
+  test('window blur mid-hold commits the selection', async () => {
+    const { mod, windowHandlers, tabB } = await setupThreeTabs();
+
+    ctrlTab(windowHandlers);
+    windowHandlers.blur();
+    expect(mod.getActiveTab().id).toBe(tabB.id);
+  });
+
+  test('MRU order updates on activation and prunes closed tabs', async () => {
+    const { mod, elements, windowHandlers, tabA, tabB, tabC } = await setupThreeTabs();
+
+    // Re-activate A: MRU becomes [A, C, B].
+    mod.switchTab(tabA.id);
+    ctrlTab(windowHandlers);
+    expect(selectedRow(elements.mruList)?.dataset.tabId).toBe(String(tabC.id));
+    releaseCtrl(windowHandlers);
+    expect(mod.getActiveTab().id).toBe(tabC.id);
+
+    // Close B; MRU [C, A] — switcher must not offer the closed tab.
+    mod.closeTab(tabB.id);
+    ctrlTab(windowHandlers);
+    const ids = elements.mruList.children.map((row) => row.dataset.tabId);
+    expect(ids).toEqual([String(tabC.id), String(tabA.id)]);
+    releaseCtrl(windowHandlers);
+    expect(mod.getActiveTab().id).toBe(tabA.id);
+  });
+
+  test('never-activated placeholders participate and materialize on commit', async () => {
+    const { mod, elements, windowHandlers } = await setupThreeTabs();
+
+    const placeholder = mod.createPlaceholderTab({
+      url: 'https://restored.example/',
+      title: 'Restored',
+    });
+    expect(placeholder.webview).toBe(null);
+
+    // Placeholder was never activated, so it trails the MRU list (last row).
+    ctrlTab(windowHandlers);
+    const rows = elements.mruList.children;
+    expect(rows[rows.length - 1].dataset.tabId).toBe(String(placeholder.id));
+
+    // Cycle onto it (3 known tabs first, so 3 steps total from index 0).
+    ctrlTab(windowHandlers);
+    ctrlTab(windowHandlers);
+    expect(selectedRow(elements.mruList)?.dataset.tabId).toBe(String(placeholder.id));
+
+    releaseCtrl(windowHandlers);
+    expect(mod.getActiveTab().id).toBe(placeholder.id);
+    expect(placeholder.webview).toBeTruthy();
+    expect(placeholder.isPlaceholder).toBe(false);
+  });
+
+  test('single tab: Ctrl+Tab is a no-op (no overlay)', async () => {
+    const { mod, elements, windowHandlers } = await loadTabsModule({
+      settings: { mruTabSwitching: true },
+    }).then(async (harness) => {
+      await harness.mod.initTabs();
+      return harness;
+    });
+
+    ctrlTab(windowHandlers);
+    expect(elements.mruSwitcher.classList.contains('hidden')).toBe(true);
+    releaseCtrl(windowHandlers);
+    expect(mod.getTabs()).toHaveLength(1);
+  });
+});

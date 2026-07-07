@@ -851,6 +851,21 @@
                 </label>
               </div>
             </div>
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Cycle tabs by recent use</p>
+                <p class="row-help">
+                  Ctrl+Tab switches tabs in most-recently-used order, showing a switcher while
+                  Ctrl is held. When off, Ctrl+Tab moves through tabs in strip order.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="mru-tab-switching" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1088,6 +1103,7 @@
         tabsInTitlebar: $('tabs-in-titlebar'),
         onStartup: $('on-startup'),
         openNewTabNextToActive: $('open-new-tab-next-to-active'),
+        mruTabSwitching: $('mru-tab-switching'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
         blockUnverifiedEns: $('block-unverified-ens'),
@@ -1482,6 +1498,7 @@
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         onStartup: fields.onStartup.value || 'continue',
         openNewTabNextToActive: fields.openNewTabNextToActive.checked,
+        mruTabSwitching: fields.mruTabSwitching.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
@@ -1498,6 +1515,7 @@
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.onStartup.value = settings.onStartup === 'homepage' ? 'homepage' : 'continue';
         fields.openNewTabNextToActive.checked = settings.openNewTabNextToActive !== false;
+        fields.mruTabSwitching.checked = settings.mruTabSwitching === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
@@ -1602,6 +1620,7 @@
       fields.themeMode.addEventListener('change', save);
       fields.onStartup.addEventListener('change', save);
       fields.openNewTabNextToActive.addEventListener('change', save);
+      fields.mruTabSwitching.addEventListener('change', save);
       fields.tabsInTitlebar.addEventListener('change', () => {
         save();
         $('tabs-titlebar-restart').hidden = false;
