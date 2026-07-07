@@ -244,11 +244,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('tab:reopen-closed', handler);
     return () => ipcRenderer.removeListener('tab:reopen-closed', handler);
   },
-  onOpenFindBar: (callback) => {
-    const handler = () => callback();
-    ipcRenderer.on('find:open', handler);
-    return () => ipcRenderer.removeListener('find:open', handler);
-  },
   updateTabMenuState: (state) => ipcRenderer.send('menu:update-tab-state', state),
   setBookmarkBarToggleEnabled: (enabled) =>
     ipcRenderer.send('menu:set-bookmark-bar-toggle-enabled', enabled),
