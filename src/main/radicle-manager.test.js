@@ -100,11 +100,12 @@ function createSocketClass(portResolver) {
     destroy() {}
 
     connect(port, host) {
-      const result = typeof portResolver === 'function'
-        ? portResolver(port, host)
-        : queue && queue.length > 0
-          ? queue.shift()
-          : false;
+      const result =
+        typeof portResolver === 'function'
+          ? portResolver(port, host)
+          : queue && queue.length > 0
+            ? queue.shift()
+            : false;
 
       process.nextTick(() => {
         if (result === true) {
@@ -205,10 +206,12 @@ function createWindowMock() {
 
 function loadRadicleManagerModule(options = {}) {
   const ipcMain = options.ipcMain || createIpcMainMock();
-  const app = options.app || createAppMock({
-    isPackaged: options.isPackaged ?? false,
-    userDataDir: options.userDataDir || DEFAULT_USER_DATA_DIR,
-  });
+  const app =
+    options.app ||
+    createAppMock({
+      isPackaged: options.isPackaged ?? false,
+      userDataDir: options.userDataDir || DEFAULT_USER_DATA_DIR,
+    });
   const windows = options.windows || [];
   const BrowserWindow = {
     getAllWindows: jest.fn(() => windows),
@@ -225,7 +228,8 @@ function loadRadicleManagerModule(options = {}) {
   const clearService = jest.fn();
   const updateActiveProfileNodeConfig = options.updateActiveProfileNodeConfig || jest.fn();
   const execFileSync = options.execFileSync || jest.fn();
-  const execFileAsync = options.execFileAsync || jest.fn().mockResolvedValue({ stdout: '', stderr: '' });
+  const execFileAsync =
+    options.execFileAsync || jest.fn().mockResolvedValue({ stdout: '', stderr: '' });
   const spawnedProcesses = [];
   const spawn = jest.fn((binary, args = [], spawnOptions = {}) => {
     const proc = (options.createProcess || createProcessMock)(binary, options.processOptions || {});
@@ -240,7 +244,12 @@ function loadRadicleManagerModule(options = {}) {
         return options.existsSync(target);
       }
 
-      const systemSocketPath = path.join(options.homeDir || DEFAULT_HOME_DIR, '.radicle', 'node', 'control.sock');
+      const systemSocketPath = path.join(
+        options.homeDir || DEFAULT_HOME_DIR,
+        '.radicle',
+        'node',
+        'control.sock'
+      );
       if (target === systemSocketPath) {
         return options.systemSocketExists === true;
       }
@@ -257,20 +266,20 @@ function loadRadicleManagerModule(options = {}) {
         return options.keysDirExists !== false;
       }
 
-      if (
-        target.endsWith(`${path.sep}rad`) || target.endsWith(`${path.sep}rad.exe`)
-      ) {
+      if (target.endsWith(`${path.sep}rad`) || target.endsWith(`${path.sep}rad.exe`)) {
         return options.radBinaryExists !== false;
       }
 
       if (
-        target.endsWith(`${path.sep}radicle-node`) || target.endsWith(`${path.sep}radicle-node.exe`)
+        target.endsWith(`${path.sep}radicle-node`) ||
+        target.endsWith(`${path.sep}radicle-node.exe`)
       ) {
         return options.nodeBinaryExists !== false;
       }
 
       if (
-        target.endsWith(`${path.sep}radicle-httpd`) || target.endsWith(`${path.sep}radicle-httpd.exe`)
+        target.endsWith(`${path.sep}radicle-httpd`) ||
+        target.endsWith(`${path.sep}radicle-httpd.exe`)
       ) {
         return options.httpdBinaryExists !== false;
       }
@@ -395,7 +404,9 @@ describe('radicle-manager', () => {
       path.join(PROJECT_ROOT, 'radicle-bin', `${platform}-${process.arch}`, binaryName)
     );
     expect(ctx.mod.getRadicleDataPath()).toBe(PROFILE_RADICLE_DATA_DIR);
-    expect(ctx.fsMock.mkdirSync).toHaveBeenCalledWith(PROFILE_RADICLE_DATA_DIR, { recursive: true });
+    expect(ctx.fsMock.mkdirSync).toHaveBeenCalledWith(PROFILE_RADICLE_DATA_DIR, {
+      recursive: true,
+    });
     expect(ctx.mod.getActiveRadHome()).toBe(PROFILE_RADICLE_DATA_DIR);
   });
 
@@ -406,16 +417,19 @@ describe('radicle-manager', () => {
 
     ctx.mod.registerRadicleIpc();
 
-    expect([...ctx.ipcMain.handlers.keys()].sort()).toEqual([
-      IPC.RADICLE_START,
-      IPC.RADICLE_STOP,
-      IPC.RADICLE_GET_STATUS,
-      IPC.RADICLE_CHECK_BINARY,
-      IPC.RADICLE_SEED,
-      IPC.RADICLE_GET_CONNECTIONS,
-      IPC.RADICLE_GET_REPO_PAYLOAD,
-      IPC.RADICLE_SYNC_REPO,
-    ].sort());
+    expect([...ctx.ipcMain.handlers.keys()].sort()).toEqual(
+      [
+        IPC.RADICLE_START,
+        IPC.RADICLE_STOP,
+        IPC.RADICLE_GET_STATUS,
+        IPC.RADICLE_CHECK_BINARY,
+        IPC.RADICLE_SEED,
+        IPC.RADICLE_GET_CONNECTIONS,
+        IPC.RADICLE_GET_REPO_PAYLOAD,
+        IPC.RADICLE_SYNC_REPO,
+        IPC.RADICLE_GET_SEED_STATUS,
+      ].sort()
+    );
 
     await expect(ctx.ipcMain.invoke(IPC.RADICLE_START)).resolves.toEqual({
       status: 'stopped',
@@ -425,7 +439,9 @@ describe('radicle-manager', () => {
       status: 'stopped',
       error: 'Radicle integration is disabled. Enable it in Settings > Experimental',
     });
-    await expect(ctx.ipcMain.invoke(IPC.RADICLE_SEED, 'z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')).resolves.toEqual(
+    await expect(
+      ctx.ipcMain.invoke(IPC.RADICLE_SEED, 'z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')
+    ).resolves.toEqual(
       failure(
         'RADICLE_DISABLED',
         'Radicle integration is disabled. Enable it in Settings > Experimental'
@@ -460,7 +476,9 @@ describe('radicle-manager', () => {
 
     ctx.mod.registerRadicleIpc();
 
-    await expect(ctx.ipcMain.invoke(IPC.RADICLE_CHECK_BINARY)).resolves.toEqual({ available: false });
+    await expect(ctx.ipcMain.invoke(IPC.RADICLE_CHECK_BINARY)).resolves.toEqual({
+      available: false,
+    });
     await expect(ctx.ipcMain.invoke(IPC.RADICLE_SEED, '')).resolves.toEqual(
       failure('INVALID_RID', 'Missing Radicle Repository ID', { field: 'rid' })
     );
@@ -536,15 +554,38 @@ describe('radicle-manager', () => {
       error: null,
     });
 
+    // Seeding writes the policy and reports the background fetch status.
     await expect(
       ctx.ipcMain.invoke(IPC.RADICLE_SEED, 'z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')
-    ).resolves.toEqual(success());
+    ).resolves.toEqual(
+      success({
+        status: expect.objectContaining({
+          rid: 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE',
+          state: 'fetching',
+          inStorage: false,
+        }),
+      })
+    );
+    require('./radicle/seed-status').cancelFetch('rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE');
     await expect(
       ctx.ipcMain.invoke(IPC.RADICLE_GET_REPO_PAYLOAD, 'rad://z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')
     ).resolves.toEqual(success({ payload: { name: 'project' } }));
+    // sync is non-blocking now: it (re)starts the tracked fetch.
     await expect(
       ctx.ipcMain.invoke(IPC.RADICLE_SYNC_REPO, 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')
-    ).resolves.toEqual(success({ output: 'synced\n' }));
+    ).resolves.toEqual(
+      success({
+        status: expect.objectContaining({ rid: 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE' }),
+      })
+    );
+    await expect(
+      ctx.ipcMain.invoke(IPC.RADICLE_GET_SEED_STATUS, 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE')
+    ).resolves.toEqual(
+      success({
+        status: expect.objectContaining({ rid: 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE' }),
+      })
+    );
+    require('./radicle/seed-status').cancelFetch('rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE');
     await expect(ctx.ipcMain.invoke(IPC.RADICLE_GET_CONNECTIONS)).resolves.toEqual(
       success({ count: 2 })
     );
@@ -657,16 +698,20 @@ describe('radicle-manager', () => {
     );
     expect(ctx.fsMock.writeFileSync).toHaveBeenCalledWith(
       path.join(PROFILE_RADICLE_DATA_DIR, 'config.json'),
-      JSON.stringify({
-        preferredSeeds: [
-          'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776',
-          'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776',
-        ],
-        node: {
-          alias: 'FreedomBrowser',
-          listen: ['0.0.0.0:8776'],
+      JSON.stringify(
+        {
+          preferredSeeds: [
+            'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776',
+            'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776',
+          ],
+          node: {
+            alias: 'FreedomBrowser',
+            listen: ['0.0.0.0:8776'],
+          },
         },
-      }, null, 2)
+        null,
+        2
+      )
     );
     expect(ctx.spawnedProcesses).toHaveLength(2);
     expect(ctx.spawnedProcesses[0].binary).toContain('radicle-node');
@@ -725,9 +770,9 @@ describe('radicle-manager', () => {
     await ctx.mod.startRadicle();
     await flushMicrotasks();
 
-    const configWrite = ctx.fsMock.writeFileSync.mock.calls.find(([target]) => (
-      target === path.join(PROFILE_RADICLE_DATA_DIR, 'config.json')
-    ));
+    const configWrite = ctx.fsMock.writeFileSync.mock.calls.find(
+      ([target]) => target === path.join(PROFILE_RADICLE_DATA_DIR, 'config.json')
+    );
     const nextConfig = JSON.parse(configWrite[1]);
 
     expect(nextConfig.preferredSeeds).toEqual([
@@ -926,10 +971,7 @@ describe('radicle-manager', () => {
       gateway: 'http://127.0.0.1:28780',
       mode: 'external',
     });
-    expect(ctx.setStatusMessage).toHaveBeenCalledWith(
-      'radicle',
-      'External node: 127.0.0.1:28780'
-    );
+    expect(ctx.setStatusMessage).toHaveBeenCalledWith('radicle', 'External node: 127.0.0.1:28780');
 
     await ctx.mod.stopRadicle();
 
@@ -1021,6 +1063,8 @@ describe('radicle-manager', () => {
 
     expect(ctx.spawn).not.toHaveBeenCalled();
     expect(ctx.setStatusMessage).toHaveBeenCalledWith('radicle', 'Node failed to start');
-    expect(ctx.log.error).toHaveBeenCalledWith('[Radicle] rad binary not found for identity creation');
+    expect(ctx.log.error).toHaveBeenCalledWith(
+      '[Radicle] rad binary not found for identity creation'
+    );
   });
 });

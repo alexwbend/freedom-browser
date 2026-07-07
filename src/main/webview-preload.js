@@ -395,6 +395,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   syncRadicleRepo: guardInternal('syncRadicleRepo', (rid) =>
     ipcRenderer.invoke('radicle:syncRepo', rid)
   ),
+  getRadicleSeedStatus: guardInternal('getRadicleSeedStatus', (rid) =>
+    ipcRenderer.invoke('radicle:getSeedStatus', rid)
+  ),
 
   // Clipboard
   copyText: guardInternal('copyText', (text) => ipcRenderer.invoke('clipboard:copy-text', text)),
@@ -782,9 +785,9 @@ try {
           return new Promise((resolve, reject) => {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_RADICLE_REQUEST', id, method, params: params || {} }, '*');
-            // Seeding fetches a repo from the network — allow it time.
-            const longRunning = method === 'radicle_seed' || method === 'radicle_sync';
-            const timeout = longRunning ? 300000 : 60000;
+            // All methods return promptly — seed/sync hand the network
+            // fetch to a background tracker (poll radicle_getSeedStatus).
+            const timeout = 60000;
             setTimeout(() => {
               if (pendingRequests.has(id)) {
                 pendingRequests.delete(id);
@@ -803,6 +806,7 @@ try {
         seed(params) { return this.request({ method: 'radicle_seed', params: params }); },
         unseed(params) { return this.request({ method: 'radicle_unseed', params: params }); },
         sync(params) { return this.request({ method: 'radicle_sync', params: params }); },
+        getSeedStatus(params) { return this.request({ method: 'radicle_getSeedStatus', params: params }); },
         getIdentity() { return this.request({ method: 'radicle_getIdentity' }); },
         createIssue(params) { return this.request({ method: 'radicle_createIssue', params: params }); },
         commentIssue(params) { return this.request({ method: 'radicle_commentIssue', params: params }); },

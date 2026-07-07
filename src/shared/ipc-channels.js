@@ -32,6 +32,7 @@ module.exports = {
   RADICLE_GET_CONNECTIONS: 'radicle:getConnections',
   RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
+  RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
 
   // ENS resolution
   ENS_RESOLVE: 'ens:resolve',

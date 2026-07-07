@@ -14,10 +14,16 @@
  * Tiers (see docs/radicle-provider-api.md):
  *  - none:       radicle_getCapabilities
  *  - connection: radicle_getNodeStatus, radicle_listSeededRepos,
- *                radicle_seed, radicle_unseed, radicle_sync
+ *                radicle_seed, radicle_unseed, radicle_sync,
+ *                radicle_getSeedStatus
  *  - signing:    radicle_getIdentity, radicle_createIssue,
  *                radicle_commentIssue, radicle_editIssueState,
  *                radicle_commentPatch
+ *
+ * Seeding is honest about replication: radicle_seed writes the policy and
+ * kicks off a background fetch, returning immediately with an initial
+ * status. Progress is polled via radicle_getSeedStatus; radicle_sync
+ * restarts the fetch (the retry path). See seed-status.js.
  */
 
 const { ipcMain } = require('electron');
@@ -30,7 +36,8 @@ const {
   getConnections,
   seedRepository,
   unseedRepository,
-  syncRepository,
+  getSeedFetchStatus,
+  refetchRepository,
   validateAndNormalizeRid,
   getNodeAlias,
   setNodeAlias,
@@ -65,6 +72,7 @@ const METHOD_TIERS = {
   radicle_seed: 'connection',
   radicle_unseed: 'connection',
   radicle_sync: 'connection',
+  radicle_getSeedStatus: 'connection',
   radicle_getIdentity: 'signing',
   radicle_createIssue: 'signing',
   radicle_commentIssue: 'signing',
@@ -168,7 +176,7 @@ async function handleSeed(origin, params) {
       reason: 'seed_failed',
     });
   }
-  return { rid, seeded: true };
+  return { rid, seeded: true, status: result.status };
 }
 
 async function handleUnseed(origin, params) {
@@ -184,13 +192,26 @@ async function handleUnseed(origin, params) {
 
 async function handleSync(origin, params) {
   const rid = requireRidParam(params);
-  const result = await syncRepository(rid);
+  // Non-blocking: (re)start the background fetch and report where it
+  // stands. The dApp polls radicle_getSeedStatus for the outcome.
+  const result = refetchRepository(rid);
   if (!result.success) {
     throw providerError(ERRORS.INTERNAL, result.error?.message || 'sync failed', {
       reason: 'sync_failed',
     });
   }
-  return { rid, fetched: true };
+  return { rid, status: result.status };
+}
+
+async function handleGetSeedStatus(origin, params) {
+  const rid = requireRidParam(params);
+  const result = getSeedFetchStatus(rid);
+  if (!result.success) {
+    throw providerError(ERRORS.INTERNAL, result.error?.message || 'status unavailable', {
+      reason: 'status_failed',
+    });
+  }
+  return result.status; // includes rid
 }
 
 /** Translate cob-service errors into provider errors. */
@@ -276,6 +297,8 @@ async function executeRadicleMethod(method, params = {}, origin) {
       return handleUnseed(origin, params);
     case 'radicle_sync':
       return handleSync(origin, params);
+    case 'radicle_getSeedStatus':
+      return handleGetSeedStatus(origin, params);
     case 'radicle_getIdentity':
       return handleCobWrite(() => cob.getIdentity(), params);
     case 'radicle_createIssue':

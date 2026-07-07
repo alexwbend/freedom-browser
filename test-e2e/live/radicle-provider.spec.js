@@ -180,5 +180,37 @@ test.describe('radicle provider e2e', () => {
        document.body.textContent.includes('Issue from e2e')`,
       'profile should show alias, maintainer role, and authored issue'
     );
+
+    // (8) Seed-to-browse honesty: a repo that exists nowhere reachable
+    // (the fixture node is fully isolated). Seeding must NOT pretend
+    // success — the page reports the failed fetch and offers a retry.
+    // radicle-desktop's real RID: structurally valid, guaranteed absent.
+    const unknownRid = 'rad:z4D5UCArafTzTQpDZNQRuqswh3ury';
+    await navigate(window, `${canopyUrl}/#/${unknownRid}`);
+    await waitForWebview(
+      window,
+      `document.body.textContent.includes('Repository not on your node yet')`,
+      'unknown repo should show the seed CTA, not a raw node error'
+    );
+    await evalInActiveWebview(
+      window,
+      `[...document.querySelectorAll('button')].find((b) => b.textContent.includes('Seed this repository'))?.click(), true`
+    );
+    // Seed consent (node tier, per-repo prompt).
+    await expect(approve).toBeVisible({ timeout: 10_000 });
+    await approve.click();
+    // Isolated node → zero candidate seeds → honest failure with retry.
+    await waitForWebview(
+      window,
+      `document.body.textContent.includes("Your node couldn't fetch this repository") &&
+       [...document.querySelectorAll('button')].some((b) => b.textContent.includes('Try again'))`,
+      'failed fetch should surface honestly with a retry',
+      60_000
+    );
+    await waitForWebview(
+      window,
+      `document.body.textContent.includes('No seeds for it are currently reachable')`,
+      'zero reachable seeds should be called out specifically'
+    );
   });
 });

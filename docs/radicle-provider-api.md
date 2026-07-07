@@ -120,14 +120,43 @@ user, not data the origin could compute itself.
 
 ### `radicle_seed { rid }` / `radicle_unseed { rid }` (node tier, per-repo prompt)
 
-Update the node's seeding policy and (for `seed`) fetch the repo from the
-network. Resolves `{ rid, seeded: boolean, fetched?: boolean }`. This is
-the gateway action for browsing repos the node doesn't have yet.
+`seed` writes the seeding policy and starts a **background** network
+fetch, resolving immediately with `{ rid, seeded: true, status }` where
+`status` is the same shape `radicle_getSeedStatus` returns. Policy and
+replication are deliberately separate: the fetch can take seconds, fail
+per-seed, or never complete, so its outcome is polled, not awaited. This
+is the gateway action for browsing repos the node doesn't have yet.
+`unseed` removes the policy (and cancels any fetch in flight), resolving
+`{ rid, seeded: false }`.
+
+### `radicle_getSeedStatus { rid }` (connection tier)
+
+Honest replication status for a repo; cheap and safe to poll (~2s).
+Resolves:
+
+```
+{
+  rid,
+  state: 'fetched' | 'fetching' | 'failed' | 'idle',
+  inStorage: boolean,       // ground truth: repo is served locally
+  seedersKnown: number|null, // network seeders discovered for the fetch
+  attemptCount: number,
+  recentAttempts: [{ nid, ok, error?, at }],  // last 5 per-seed results
+  lastError: string|null,
+  startedAt: number|null,
+  finishedAt: number|null
+}
+```
+
+`idle` means nothing is known this session (not tracked, not stored).
+A `failed` repo may still flip to `fetched` later — the node keeps
+retrying in the background on refs announcements.
 
 ### `radicle_sync { rid }` (node tier)
 
-Fetch + announce the given seeded repo. Resolves
-`{ rid, fetched: boolean }`.
+(Re)start the background fetch for an already-seeded repo — the retry
+path after `state: 'failed'`, without a second consent prompt. Resolves
+immediately with `{ rid, status }`; poll `radicle_getSeedStatus`.
 
 ### `radicle_getIdentity` → `{ did, nid, alias }` (signing tier)
 

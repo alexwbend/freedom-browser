@@ -18,12 +18,25 @@ jest.mock('../service-registry', () => ({
   getRadicleApiUrl: jest.fn(() => 'http://127.0.0.1:8780'),
 }));
 
+const mockSeedFetchStatus = {
+  rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+  state: 'fetching',
+  inStorage: false,
+  seedersKnown: 7,
+  attemptCount: 0,
+  recentAttempts: [],
+  lastError: null,
+  startedAt: 1,
+  finishedAt: null,
+};
+
 jest.mock('../radicle-manager', () => ({
   getCurrentStatus: jest.fn(() => ({ status: 'running', error: null })),
   getConnections: jest.fn(async () => ({ success: true, count: 3 })),
-  seedRepository: jest.fn(async () => ({ success: true })),
+  seedRepository: jest.fn(async () => ({ success: true, status: mockSeedFetchStatus })),
   unseedRepository: jest.fn(async () => ({ success: true })),
-  syncRepository: jest.fn(async () => ({ success: true })),
+  refetchRepository: jest.fn(() => ({ success: true, status: mockSeedFetchStatus })),
+  getSeedFetchStatus: jest.fn(() => ({ success: true, status: mockSeedFetchStatus })),
   validateAndNormalizeRid: jest.fn((rid) => {
     const m = /^(?:rad:)?(z[1-9A-HJ-NP-Za-km-z]{20,60})$/.exec(rid ?? '');
     return m ? `rad:${m[1]}` : null;
@@ -181,10 +194,25 @@ describe('node actions', () => {
     expect(manager.seedRepository).not.toHaveBeenCalled();
   });
 
-  test('radicle_seed happy path', async () => {
+  test('radicle_seed happy path returns initial fetch status', async () => {
     const result = await executeRadicleMethod('radicle_seed', { rid: RID }, ORIGIN);
-    expect(result).toEqual({ rid: RID, seeded: true });
+    expect(result).toEqual({ rid: RID, seeded: true, status: mockSeedFetchStatus });
     expect(manager.seedRepository).toHaveBeenCalledWith(RID);
+  });
+
+  test('radicle_getSeedStatus returns tracker status', async () => {
+    const result = await executeRadicleMethod('radicle_getSeedStatus', { rid: RID }, ORIGIN);
+    expect(result).toEqual(mockSeedFetchStatus);
+    expect(manager.getSeedFetchStatus).toHaveBeenCalledWith(RID);
+  });
+
+  test('radicle_getSeedStatus validates rid', async () => {
+    await expectProviderError(
+      executeRadicleMethod('radicle_getSeedStatus', { rid: 'nope' }, ORIGIN),
+      -32602,
+      'invalid_rid'
+    );
+    expect(manager.getSeedFetchStatus).not.toHaveBeenCalled();
   });
 
   test('radicle_seed maps backend failure to -32603', async () => {
@@ -205,10 +233,12 @@ describe('node actions', () => {
       rid: RID,
       seeded: false,
     });
+    // sync is the non-blocking retry path: restart fetch, report status
     await expect(executeRadicleMethod('radicle_sync', { rid: RID }, ORIGIN)).resolves.toEqual({
       rid: RID,
-      fetched: true,
+      status: mockSeedFetchStatus,
     });
+    expect(manager.refetchRepository).toHaveBeenCalledWith(RID);
   });
 
   test('radicle_listSeededRepos maps httpd payloads', async () => {

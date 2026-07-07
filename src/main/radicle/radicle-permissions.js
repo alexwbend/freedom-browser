@@ -111,7 +111,12 @@ function updateLastUsed(origin) {
   const key = normalizeOrigin(origin);
 
   if (permissions[key]) {
-    permissions[key].lastUsed = Date.now();
+    const now = Date.now();
+    // lastUsed is a coarse "when was this dApp active" signal — skip the
+    // disk write while it's fresh, so cheap polling methods (seed status)
+    // don't rewrite the JSON every couple of seconds.
+    if (now - (permissions[key].lastUsed || 0) < 60000) return true;
+    permissions[key].lastUsed = now;
     permissionsCache = permissions;
     savePermissions();
     return true;

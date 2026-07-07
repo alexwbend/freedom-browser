@@ -14,6 +14,7 @@ const IPC = require('../shared/ipc-channels');
 const { success, failure, validateNonEmptyString } = require('./ipc-contract');
 const { loadSettings } = require('./settings-store');
 const { getRadicleDataDir } = require('./profile-paths');
+const seedStatus = require('./radicle/seed-status');
 const {
   getActiveProfile,
   getReservedProfilePorts,
@@ -242,10 +243,14 @@ function normalizeSeedAddress(seed) {
 }
 
 function normalizePreferredSeeds(seeds) {
-  const normalizedSeeds = Array.isArray(seeds)
-    ? seeds.map(normalizeSeedAddress).filter(Boolean)
-    : [];
-  return [...new Set([...normalizedSeeds, ...PREFERRED_SEEDS])];
+  // An explicitly-set list is respected as-is (an empty array is a
+  // deliberate isolation choice — e2e fixtures, air-gapped setups);
+  // legacy hostnames are still migrated. Defaults apply only when the
+  // config has no preferredSeeds key at all.
+  if (Array.isArray(seeds)) {
+    return [...new Set(seeds.map(normalizeSeedAddress).filter(Boolean))];
+  }
+  return [...PREFERRED_SEEDS];
 }
 
 /**
@@ -917,10 +922,12 @@ async function startRadicle() {
 
     radicleNodeProcess.stdout.on('data', (data) => {
       log.info(`[Radicle-node stdout]: ${data}`);
+      seedStatus.noteNodeOutput(String(data));
     });
 
     radicleNodeProcess.stderr.on('data', (data) => {
       log.error(`[Radicle-node stderr]: ${data}`);
+      seedStatus.noteNodeOutput(String(data));
     });
 
     radicleNodeProcess.on('close', (code) => {
@@ -1213,34 +1220,56 @@ async function seedRepository(rid) {
     return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
   }
 
-  const radBinPath = getRadicleBinaryPath('rad');
-  const dataDir = getActiveRadHome();
-
   log.info(`[Radicle] Seeding repository: ${fullRid}`);
 
+  // Two-phase: `rad seed` alone reports success once the *policy* is
+  // written — its network fetch is best-effort and its exit code does not
+  // reflect fetch outcome. Write the policy synchronously, then hand the
+  // fetch to the seed-status tracker, which retries, parses results, and
+  // exposes honest progress via getSeedFetchStatus().
   try {
-    // Use async execFile to avoid blocking the main process
-    await execFileAsync(radBinPath, ['seed', fullRid], {
-      env: {
-        ...process.env,
-        RAD_HOME: dataDir,
-        RAD_PASSPHRASE: '',
-      },
-      timeout: 120000, // 120 second timeout for large repos
-    });
-    log.info(`[Radicle] Repository seeded: ${fullRid}`);
-    return success();
+    await runRad(['seed', fullRid, '--no-fetch']);
   } catch (err) {
-    log.error(`[Radicle] Seed failed for ${fullRid}:`, err.message);
-    // Try to extract meaningful error from stderr
-    const stderrStr = err.stderr?.toString() || '';
-    const errorMsg = stderrStr.includes('not found')
-      ? 'Repository not found on the network'
-      : stderrStr.includes('already tracking')
-        ? 'Repository is already seeded'
-        : err.message;
-    return failure('SEED_FAILED', errorMsg, { rid: fullRid });
+    log.error(`[Radicle] Seed policy failed for ${fullRid}:`, err.message);
+    return failure('SEED_FAILED', err.stderr?.toString() || err.message, { rid: fullRid });
   }
+
+  log.info(`[Radicle] Seeding policy set, fetch started: ${fullRid}`);
+  return startTrackedFetch(fullRid);
+}
+
+/** Start (or reuse) the tracked background fetch and report its status. */
+function startTrackedFetch(fullRid) {
+  const dataDir = getActiveRadHome();
+  seedStatus.startFetch(fullRid, { radBin: getRadicleBinaryPath('rad'), radHome: dataDir });
+  return success({ status: seedStatus.getStatus(fullRid, dataDir) });
+}
+
+/**
+ * Honest replication status for a repository (policy is not enough —
+ * see seedRepository). Safe to poll.
+ */
+function getSeedFetchStatus(rid) {
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) {
+    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+  return success({ status: seedStatus.getStatus(fullRid, getActiveRadHome()) });
+}
+
+/**
+ * Re-run the network fetch for an already-seeded repository (the retry
+ * path after a failed fetch). Non-blocking; poll getSeedFetchStatus.
+ */
+function refetchRepository(rid) {
+  if (currentState !== STATUS.RUNNING) {
+    return failure('RADICLE_NOT_RUNNING', 'Radicle node is not running');
+  }
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) {
+    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+  return startTrackedFetch(fullRid);
 }
 
 /**
@@ -1276,44 +1305,6 @@ async function getRepoPayload(rid) {
   } catch (err) {
     log.error(`[Radicle] Failed to get payload for ${fullRid}:`, err.message);
     return failure('GET_PAYLOAD_FAILED', err.message, { rid: fullRid });
-  }
-}
-
-/**
- * Sync a repository from the network
- * @param {string} rid - Repository ID (with or without rad: prefix)
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function syncRepository(rid) {
-  if (currentState !== STATUS.RUNNING) {
-    return failure('RADICLE_NOT_RUNNING', 'Radicle node is not running');
-  }
-
-  const fullRid = validateAndNormalizeRid(rid);
-  if (!fullRid) {
-    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
-  }
-
-  const radBinPath = getRadicleBinaryPath('rad');
-  const dataDir = getActiveRadHome();
-
-  log.info(`[Radicle] Syncing repository: ${fullRid}`);
-
-  try {
-    const { stdout, stderr } = await execFileAsync(radBinPath, ['sync', fullRid], {
-      env: {
-        ...process.env,
-        RAD_HOME: dataDir,
-        RAD_PASSPHRASE: '',
-      },
-      timeout: 60000, // 60 second timeout
-    });
-    log.info(`[Radicle] Repository synced: ${fullRid}`);
-    return success({ output: stdout || stderr });
-  } catch (err) {
-    log.error(`[Radicle] Sync failed for ${fullRid}:`, err.message);
-    const stderrStr = err.stderr?.toString() || '';
-    return failure('SYNC_FAILED', stderrStr || err.message, { rid: fullRid });
   }
 }
 
@@ -1391,6 +1382,7 @@ async function unseedRepository(rid) {
   }
 
   log.info(`[Radicle] Unseeding repository: ${fullRid}`);
+  seedStatus.cancelFetch(fullRid);
   try {
     await runRad(['unseed', fullRid]);
     return success();
@@ -1570,6 +1562,8 @@ function registerRadicleIpc() {
     return await getRepoPayload(normalizedRid);
   });
 
+  // Non-blocking: (re)starts the tracked background fetch. Poll
+  // RADICLE_GET_SEED_STATUS for the outcome.
   ipcMain.handle(IPC.RADICLE_SYNC_REPO, async (_event, rid) => {
     if (!isRadicleIntegrationEnabled()) {
       return failure(
@@ -1585,7 +1579,20 @@ function registerRadicleIpc() {
       return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
     }
     log.info('[Radicle] IPC: syncRepo requested for', rid);
-    return await syncRepository(normalizedRid);
+    return refetchRepository(normalizedRid);
+  });
+
+  ipcMain.handle(IPC.RADICLE_GET_SEED_STATUS, (_event, rid) => {
+    if (!isRadicleIntegrationEnabled()) {
+      return failure(
+        'RADICLE_DISABLED',
+        'Radicle integration is disabled. Enable it in Settings > Experimental'
+      );
+    }
+    if (!validateNonEmptyString(rid)) {
+      return failure('INVALID_RID', 'Missing Radicle Repository ID', { field: 'rid' });
+    }
+    return getSeedFetchStatus(rid);
   });
 }
 
@@ -1603,8 +1610,11 @@ module.exports = {
   getConnections,
   seedRepository,
   unseedRepository,
-  syncRepository,
+  getSeedFetchStatus,
+  refetchRepository,
   validateAndNormalizeRid,
+  getNodeAlias,
+  setNodeAlias,
   runRad,
   STATUS,
 };
