@@ -250,10 +250,19 @@ function normalizePreferredSeeds(seeds) {
   // deliberate isolation choice — e2e fixtures, air-gapped setups);
   // legacy hostnames are still migrated. Defaults apply only when the
   // config has no preferredSeeds key at all.
-  if (Array.isArray(seeds)) {
-    return [...new Set(seeds.map(normalizeSeedAddress).filter(Boolean))];
-  }
-  return [...PREFERRED_SEEDS];
+  if (!Array.isArray(seeds)) return [...PREFERRED_SEEDS];
+
+  const normalized = [...new Set(seeds.map(normalizeSeedAddress).filter(Boolean))];
+
+  // Migration: configs written before seed.radicle.xyz joined the
+  // defaults contain exactly the old default pair (the merge code wrote
+  // it into every profile) — that's provably not a user choice, so
+  // upgrade it. Any other list is user intent and stays untouched.
+  const oldDefaults = PREFERRED_SEEDS.slice(0, 2);
+  const isOldDefaultSet =
+    normalized.length === oldDefaults.length &&
+    oldDefaults.every((seed) => normalized.includes(seed));
+  return isOldDefaultSet ? [...PREFERRED_SEEDS] : normalized;
 }
 
 /**

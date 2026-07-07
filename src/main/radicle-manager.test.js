@@ -738,6 +738,50 @@ describe('radicle-manager', () => {
     expect(ctx.clearService).toHaveBeenCalledWith('radicle');
   });
 
+  test('upgrades the old two-seed default set to the current defaults', async () => {
+    const ctx = loadRadicleManagerModule({
+      activeProfile: {
+        metadata: {
+          nodes: {
+            radicle: { mode: 'managed', httpPort: 18780, p2pPort: 18776 },
+          },
+        },
+      },
+      configExists: true,
+      // Exactly what the pre-seed.radicle.xyz merge code wrote into every
+      // profile (legacy hostnames on top) — provably not a user choice.
+      configContents: JSON.stringify({
+        preferredSeeds: [
+          'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.xyz:8776',
+          'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.xyz:8776',
+        ],
+        node: { alias: 'CustomAlias', listen: [] },
+      }),
+      portResolver: (port) => port === 18780 || port === 18776,
+      httpResponse: (url) =>
+        url === 'http://127.0.0.1:18781/'
+          ? { statusCode: 200, body: {} }
+          : { statusCode: 404, body: '' },
+    });
+
+    await ctx.mod.startRadicle();
+    await flushMicrotasks();
+
+    const configWrite = ctx.fsMock.writeFileSync.mock.calls.find(
+      ([target]) => target === path.join(PROFILE_RADICLE_DATA_DIR, 'config.json')
+    );
+    const nextConfig = JSON.parse(configWrite[1]);
+    expect(nextConfig.preferredSeeds).toEqual([
+      'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776',
+      'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776',
+      'z6MksmpU5b1dS7oaqF2bHXhQi1DWy2hB7Mh9CuN7y1DN6QSz@seed.radicle.xyz:8776',
+    ]);
+
+    const stopPromise = ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await stopPromise;
+  });
+
   test('migrates legacy Radicle seed hostnames in existing config', async () => {
     const ctx = loadRadicleManagerModule({
       activeProfile: {
