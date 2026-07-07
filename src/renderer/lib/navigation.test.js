@@ -650,6 +650,56 @@ describe('navigation', () => {
     expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith('Webview ready.');
   });
 
+  describe('address bar search fallback', () => {
+    test('loads the default provider results page for non-URL input', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('best pizza near me');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://www.google.com/search?q=best%20pizza%20near%20me'
+      );
+    });
+
+    test('respects the configured search provider', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+      ctx.state.searchProvider = 'duckduckgo';
+
+      ctx.mod.loadTarget('weather');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://duckduckgo.com/?q=weather'
+      );
+    });
+
+    test('still ignores empty input', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('   ');
+
+      expect(ctx.activeRef.tab.webview.loadURL).not.toHaveBeenCalled();
+      expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith(
+        'Ignoring empty input or invalid URL.'
+      );
+    });
+
+    test('does not turn protocol input into a search', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('ipfs://bafybeigdyrzt');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith('ipfs://bafybeigdyrzt');
+    });
+  });
+
   describe('bzz navigation probe', () => {
     const VALID_HASH = 'a'.repeat(64);
 

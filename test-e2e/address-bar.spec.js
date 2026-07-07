@@ -6,6 +6,33 @@
 
 const { test, expect, SAMPLE_BZZ_HASH } = require('./fixtures');
 
+// Prove a navigation actually went through the harness stub
+// (`makeHttpStubHandler` in src/main/test-harness.js) rather than out to the
+// public internet. The stub embeds the request URL in a
+// <p data-test="harness-http-stub-url"> element, so the presence of that text
+// inside the active webview is unambiguous evidence the request was
+// intercepted at the protocol-handler layer and served in-process. Without
+// this assertion a spec would still pass even if the harness regressed back
+// to letting Chromium reach the network.
+const expectHarnessStubServed = (window, expectedUrl) =>
+  expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const wv = document.querySelector('webview:not(.hidden)');
+          if (!wv || typeof wv.executeJavaScript !== 'function') return null;
+          try {
+            return await wv.executeJavaScript(
+              'document.querySelector(\'[data-test="harness-http-stub-url"]\')?.textContent || null'
+            );
+          } catch {
+            return null;
+          }
+        }),
+      { message: 'Waiting for harness http(s) stub to be served', timeout: 5_000 }
+    )
+    .toBe(expectedUrl);
+
 test('typing a 64-char hex hash normalises to bzz:// in the address bar', async ({
   window,
   harness,
@@ -49,31 +76,18 @@ test('typing a bare HTTPS domain auto-prefixes the scheme and stays inside the h
   await input.press('Enter');
 
   await expect(input).toHaveValue('https://example.com');
+  await expectHarnessStubServed(window, 'https://example.com/');
+});
 
-  // Prove the navigation actually went through the harness stub
-  // (`makeHttpStubHandler` in src/main/test-harness.js) rather than
-  // out to the public internet. The stub embeds the request URL in a
-  // <p data-test="harness-http-stub-url"> element, so the presence of
-  // that text inside the active webview is unambiguous evidence the
-  // request was intercepted at the protocol-handler layer and served
-  // in-process. Without this assertion the spec would still pass even
-  // if the harness regressed back to letting Chromium reach the
-  // network.
-  await expect
-    .poll(
-      () =>
-        window.evaluate(async () => {
-          const wv = document.querySelector('webview:not(.hidden)');
-          if (!wv || typeof wv.executeJavaScript !== 'function') return null;
-          try {
-            return await wv.executeJavaScript(
-              'document.querySelector(\'[data-test="harness-http-stub-url"]\')?.textContent || null'
-            );
-          } catch {
-            return null;
-          }
-        }),
-      { message: 'Waiting for harness http(s) stub to be served', timeout: 5_000 }
-    )
-    .toBe('https://example.com/');
+test('typing a non-URL query searches with the default provider', async ({ window }) => {
+  const input = window.locator('[data-test="address-input"]');
+  await input.click();
+  await input.fill('best pizza near me');
+  await input.press('Enter');
+
+  await expect(input).toHaveValue('https://www.google.com/search?q=best%20pizza%20near%20me');
+  await expectHarnessStubServed(
+    window,
+    'https://www.google.com/search?q=best%20pizza%20near%20me'
+  );
 });

@@ -45,6 +45,7 @@ describe('settings-store', () => {
         startRadicleAtLaunch: false,
         autoUpdate: true,
         showBookmarkBar: false,
+        searchProvider: 'google',
         sidebarOpen: false,
         sidebarWidth: 320,
         blockUnverifiedEns: true,
@@ -144,6 +145,15 @@ describe('settings-store', () => {
       })
     );
     expect(nativeTheme.themeSource).toBe('light');
+  });
+
+  test('saveSettings persists the search provider and it survives a reload', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(mod.saveSettings({ searchProvider: 'duckduckgo' })).toBe(true);
+
+    const { mod: reloaded } = loadSettingsStore({ userDataDir });
+    expect(reloaded.loadSettings().searchProvider).toBe('duckduckgo');
   });
 
   test('saveSettings broadcasts settings:updated to all webContents', () => {

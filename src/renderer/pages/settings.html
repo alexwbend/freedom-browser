@@ -622,6 +622,22 @@
             </svg>
             Appearance
           </button>
+          <button type="button" class="nav-item" data-target="search">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Search
+          </button>
           <button type="button" class="nav-item" data-target="profile">
             <svg
               width="16"
@@ -790,6 +806,32 @@
                   <input type="checkbox" id="tabs-in-titlebar" />
                   <span class="slider"></span>
                 </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Search -->
+        <section class="section" id="search">
+          <h2 class="section-title">Search</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Search engine</p>
+                <p class="row-help">
+                  Used when the address bar input is not a URL, hash, or name.
+                </p>
+              </div>
+              <div class="row-control">
+                <!-- Values mirror SEARCH_PROVIDERS in renderer/lib/search-utils.js -->
+                <select id="search-provider">
+                  <option value="google">Google</option>
+                  <option value="duckduckgo">DuckDuckGo</option>
+                  <option value="bing">Bing</option>
+                  <option value="brave">Brave Search</option>
+                  <option value="ecosia">Ecosia</option>
+                  <option value="startpage">Startpage</option>
+                </select>
               </div>
             </div>
           </div>
@@ -1026,6 +1068,7 @@
 
       const fields = {
         themeMode: $('theme-mode'),
+        searchProvider: $('search-provider'),
         tabsInTitlebar: $('tabs-in-titlebar'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
@@ -1418,6 +1461,7 @@
 
       const currentFormState = () => ({
         theme: fields.themeMode.value || 'system',
+        searchProvider: fields.searchProvider.value || 'google',
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
@@ -1432,6 +1476,7 @@
       const applyFormState = (settings) => {
         if (!settings) return;
         fields.themeMode.value = settings.theme || 'system';
+        fields.searchProvider.value = settings.searchProvider || 'google';
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
@@ -1535,6 +1580,7 @@
       };
 
       fields.themeMode.addEventListener('change', save);
+      fields.searchProvider.addEventListener('change', save);
       fields.tabsInTitlebar.addEventListener('change', () => {
         save();
         $('tabs-titlebar-restart').hidden = false;

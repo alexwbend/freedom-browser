@@ -36,6 +36,10 @@ const DEFAULT_SETTINGS = {
   startRadicleAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
+  // Address-bar search provider id used when typed input is not a URL, hash,
+  // or name. Valid ids live in the renderer's search-utils.js SEARCH_PROVIDERS
+  // map; unknown ids fall back to Google there.
+  searchProvider: 'google',
   // When true, navigating to an Ethereum name that resolved with trust.level =
   // 'unverified' is gated behind an interstitial with a single-use
   // "Continue once" option. ENS network config (resolution strategy, RPC
