@@ -21,7 +21,15 @@
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
-import { escapeHtml, formatRawTokenBalance, truncateAddress, toAtomicUnits, X402_WINDOW_OPTIONS } from './wallet-utils.js';
+import {
+  escapeHtml,
+  formatRawTokenBalance,
+  truncateAddress,
+  toAtomicUnits,
+  X402_WINDOW_OPTIONS,
+  isLedgerAccount,
+  signingButtonLabel,
+} from './wallet-utils.js';
 import { getPermissionKey } from '../origin-utils.js';
 import { refreshBalances } from './balance-display.js';
 import { showX402Permissions } from './permission-manage.js';
@@ -65,6 +73,7 @@ let unlockError;
 let errorEl;
 let grantRow;
 let grantToggle;
+let ledgerNoteEl;
 let grantCapInput;
 let grantCapSymbol;
 let grantWindowSelect;
@@ -111,6 +120,7 @@ export function initDappX402() {
   errorEl = document.getElementById('x402-approval-error');
   grantRow = document.getElementById('x402-approval-grant-row');
   grantToggle = document.getElementById('x402-approval-grant-toggle');
+  ledgerNoteEl = document.getElementById('x402-approval-ledger-note');
   grantCapInput = document.getElementById('x402-approval-grant-cap-input');
   grantCapSymbol = document.getElementById('x402-approval-grant-cap-symbol');
   grantWindowSelect = document.getElementById('x402-approval-grant-window-select');
@@ -353,6 +363,10 @@ async function showApproval({ webContentsId, detectionId, url, resourceType }) {
 function renderCard() {
   const accepts = pending.accepts || [];
   const fundableCount = accepts.filter((e) => e.fundable).length;
+
+  // Auto-pay can skip this dialog but never the physical confirmation —
+  // say so when the paying account is a hardware wallet.
+  ledgerNoteEl?.classList.toggle('hidden', !isLedgerAccount(walletState.activeWalletIndex));
 
   let origin;
   try { origin = new URL(pending.url).origin; } catch { origin = pending.url; }
@@ -645,15 +659,17 @@ function buildGrantPayloadFromInputs() {
 
 async function checkUnlockState() {
   try {
-    const status = await window.identity.getStatus();
-
-    if (status.isUnlocked) {
-      // Drop locked-mode collapse + re-derive Pay-button state from
-      // fundability + asset-recognised. The locked branch below
-      // force-disables Pay, so when the user unlocks this is what
-      // restores the correct disabled state — without it the Pay
-      // button stays stuck until a chooser interaction re-triggers
-      // renderCard.
+    // Ledger accounts sign payment authorizations on the device — no
+    // vault key, no unlock gate (short-circuit skips the status IPC).
+    // Either way: drop locked-mode collapse + re-derive Pay-button
+    // state from fundability + asset-recognised. The locked branch
+    // below force-disables Pay, so this is what restores the correct
+    // disabled state — without it the Pay button stays stuck until a
+    // chooser interaction re-triggers renderCard.
+    if (
+      isLedgerAccount(walletState.activeWalletIndex) ||
+      (await window.identity.getStatus()).isUnlocked
+    ) {
       screen?.classList.remove('is-locked');
       unlockBlock?.classList.add('hidden');
       if (pending) renderCard();
@@ -737,7 +753,7 @@ async function approve() {
   pending.signing = true;
   approveBtn.disabled = true;
   rejectBtn.disabled = true;
-  approveBtn.textContent = 'Signing…';
+  approveBtn.textContent = signingButtonLabel(walletState.activeWalletIndex);
   hideError();
 
   const grant = buildGrantPayloadFromInputs();

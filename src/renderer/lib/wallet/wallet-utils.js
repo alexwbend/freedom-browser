@@ -25,7 +25,7 @@ export function isLedgerAccount(walletIndex) {
 
 /** Pending label for approve buttons while a signature is in flight. */
 export function signingButtonLabel(walletIndex) {
-  return isLedgerAccount(walletIndex) ? 'Confirm on your Ledger…' : 'Signing...';
+  return isLedgerAccount(walletIndex) ? 'Confirm on your Ledger…' : 'Signing…';
 }
 
 /**

@@ -2796,6 +2796,12 @@
   font-weight: 500;
 }
 
+.x402-grant-ledger-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .x402-grant-fields {
   display: flex;
   flex-direction: column;
