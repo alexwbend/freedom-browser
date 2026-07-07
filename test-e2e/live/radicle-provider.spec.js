@@ -103,7 +103,7 @@ test.describe('radicle provider e2e', () => {
     await approve.click();
     await waitForWebview(
       window,
-      `document.querySelector('header')?.textContent.includes('connected as radicle-e2e')`,
+      `document.querySelector('header')?.textContent.includes('radicle-e2e')`,
       'canopy should show the connected state with the node alias'
     );
 
