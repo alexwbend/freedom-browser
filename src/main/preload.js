@@ -415,6 +415,26 @@ contextBridge.exposeInMainWorld('ledger', {
   addAccount: (name, address, path) => ipcRenderer.invoke('wallet:add-ledger-wallet', name, address, path),
 });
 
+// Remote (phone) signing: main publishes signing jobs here; the renderer
+// session broker (lib/wallet/remote-session.js) shows the QR, tunnels the
+// request to the phone over openlv, and responds with the result.
+contextBridge.exposeInMainWorld('remoteSigner', {
+  // Main asks the renderer to run a signing job. Returns a disposer.
+  onRequest: (callback) => {
+    const handler = (_event, job) => callback(job);
+    ipcRenderer.on('remote-signer:request', handler);
+    return () => ipcRenderer.removeListener('remote-signer:request', handler);
+  },
+  // Main gave up on a job (timeout) — close its QR dialog. Returns a disposer.
+  onAbort: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('remote-signer:abort', handler);
+    return () => ipcRenderer.removeListener('remote-signer:abort', handler);
+  },
+  // Job outcome: { jobId, result } or { jobId, error: {code, message} }.
+  respond: (payload) => ipcRenderer.send('remote-signer:response', payload),
+});
+
 contextBridge.exposeInMainWorld('swarmNode', {
   getStamps: () => ipcRenderer.invoke('swarm:get-stamps'),
   getStorageCost: (sizeGB, durationDays) => ipcRenderer.invoke('swarm:get-storage-cost', sizeGB, durationDays),

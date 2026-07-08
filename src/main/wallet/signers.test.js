@@ -18,17 +18,28 @@ const mockLedgerBackend = {
   signTypedData: jest.fn(),
 };
 const mockCreateLedgerBackend = jest.fn(() => mockLedgerBackend);
+const mockRemoteBackend = {
+  getAddress: jest.fn(),
+  signTransaction: jest.fn(),
+  signMessage: jest.fn(),
+  signTypedData: jest.fn(),
+  sendTransaction: jest.fn(),
+};
+const mockCreateRemoteBackend = jest.fn(() => mockRemoteBackend);
 
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
   getWalletRecord: (...args) => mockGetWalletRecord(...args),
-  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger' },
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote' },
 }));
 jest.mock('../vault-timer', () => ({
   resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
 }));
 jest.mock('./ledger/signer', () => ({
   createLedgerBackend: (...args) => mockCreateLedgerBackend(...args),
+}));
+jest.mock('./remote/signer', () => ({
+  createRemoteBackend: (...args) => mockCreateRemoteBackend(...args),
 }));
 
 const { getSigner } = require('./signers');
@@ -181,5 +192,48 @@ describe('getSigner (ledger-backed dispatch)', () => {
     // JSON-string typed data reaches the backend parsed
     await signer.signTypedData('{"domain":{},"types":{},"message":{}}');
     expect(mockLedgerBackend.signTypedData).toHaveBeenCalledWith({ domain: {}, types: {}, message: {} });
+  });
+
+  test('vault and ledger signers do not advertise the sendTransaction capability', () => {
+    expect(getSigner(2).sendTransaction).toBeUndefined();
+    mockGetWalletRecord.mockReturnValue({ index: 0, name: 'Main Wallet', type: 'mnemonic' });
+    expect(getSigner(0).sendTransaction).toBeUndefined();
+  });
+});
+
+describe('getSigner (remote-backed dispatch)', () => {
+  const REMOTE_RECORD = {
+    index: 4,
+    name: 'My Phone',
+    address: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+    type: 'remote',
+  };
+
+  beforeEach(() => {
+    mockGetWalletRecord.mockReturnValue(REMOTE_RECORD);
+    mockRemoteBackend.getAddress.mockReset().mockResolvedValue(REMOTE_RECORD.address);
+    mockRemoteBackend.signMessage.mockReset().mockResolvedValue('0xsig');
+    mockRemoteBackend.sendTransaction.mockReset().mockResolvedValue('0xhash');
+    mockCreateRemoteBackend.mockClear();
+  });
+
+  test('routes to the remote backend built from the wallet record, never the vault', async () => {
+    const signer = getSigner(4);
+    await expect(signer.getAddress()).resolves.toBe(REMOTE_RECORD.address);
+    expect(mockCreateRemoteBackend).toHaveBeenCalledWith(REMOTE_RECORD);
+    expect(mockIdentity.isUnlocked).not.toHaveBeenCalled();
+    expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
+  });
+
+  test('advertises the backend sendTransaction capability', async () => {
+    const signer = getSigner(4);
+    await expect(signer.sendTransaction({ to: '0x1', chainId: 100 })).resolves.toBe('0xhash');
+    expect(mockRemoteBackend.sendTransaction).toHaveBeenCalledWith({ to: '0x1', chainId: 100 });
+  });
+
+  test('factory-level normalization applies to remote backends too', async () => {
+    const signer = getSigner(4);
+    await signer.signMessage('0x48656c6c6f');
+    expect(mockRemoteBackend.signMessage).toHaveBeenCalledWith(Buffer.from('Hello', 'utf8'));
   });
 });

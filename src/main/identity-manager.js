@@ -793,6 +793,7 @@ async function exportMnemonic() {
 const WALLET_TYPES = {
   MNEMONIC: 'mnemonic',
   LEDGER: 'ledger',
+  REMOTE: 'remote', // phone / other device signing over openlv
 };
 
 /**

@@ -27,6 +27,7 @@ import { initReceive, closeReceive } from './wallet/receive.js';
 import { initWalletSettings, closeWalletSettings } from './wallet/wallet-settings.js';
 import { initCreateWallet, openCreateWallet, closeCreateWallet } from './wallet/create-wallet.js';
 import { initConnectLedger, openConnectLedger, closeConnectLedger } from './wallet/connect-ledger.js';
+import { initRemoteSession } from './wallet/remote-session.js';
 import { initPublishSetup, openPublishSetup, closePublishSetup } from './wallet/publish-setup.js';
 import { initStampManager, closeStampManager } from './wallet/stamp-manager.js';
 import { initChequebookDeposit, closeChequebookDeposit } from './wallet/chequebook-deposit.js';
@@ -92,6 +93,7 @@ export function initWalletUi() {
   initWalletSettings(switchTab);
   initCreateWallet();
   initConnectLedger();
+  initRemoteSession();
   initPublishSetup();
   initStampManager();
   initChequebookDeposit();
