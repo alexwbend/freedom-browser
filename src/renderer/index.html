@@ -155,6 +155,24 @@
             <polyline points="9 22 9 12 15 12 15 22" />
           </svg>
         </button>
+        <!-- Shown only in private windows (index.js removes [hidden]) -->
+        <span id="private-badge" class="private-badge" data-test="private-badge" hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="15" r="3.5" />
+            <circle cx="17" cy="15" r="3.5" />
+            <path d="M10.5 15h3" />
+            <path d="M3 11l1.8-5.4A2 2 0 0 1 6.7 4h10.6a2 2 0 0 1 1.9 1.6L21 11" />
+          </svg>
+          Private
+        </span>
       </div>
       <form id="nav-form" autocomplete="off">
         <div class="address-bar-container">

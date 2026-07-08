@@ -5,6 +5,7 @@ import { hideBookmarkContextMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl, getInternalPageName, internalPages } from './page-urls.js';
+import { getPrivatePartition, isPrivateWindow } from './private-mode.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
 import { closeFindBar, notifyFindBarNavigated } from './find-bar.js';
@@ -279,9 +280,30 @@ export const updateActiveTabTitle = (title) => {
   }
 };
 
+// The friendly URL of the private start page; private windows open new
+// tabs here instead of the home page.
+const PRIVATE_START_URL = 'freedom://private';
+
+// URL every fresh tab in this window starts on.
+const defaultNewTabUrl = () => (isPrivateWindow() ? PRIVATE_START_URL : homeUrl);
+
+// True for both forms the private start page appears as in tab.url —
+// the friendly freedom:// form while resolving and the resolved
+// file://…/pages/private.html form once loaded.
+const isPrivateStartUrl = (url) =>
+  url === PRIVATE_START_URL || (typeof url === 'string' && url.endsWith('/pages/private.html'));
+
 // Create a webview element
 const createWebview = (tabId, initialUrl) => {
   const webview = document.createElement('webview');
+  // PRIVATE MODE GUARD (partition): in a private window every webview runs
+  // on the window's unique non-persisted `private-<uuid>` session. The
+  // partition attribute only takes effect before the first navigation, so
+  // it is stamped here — before `src` is assigned — and never mutated.
+  const privatePartition = getPrivatePartition();
+  if (privatePartition) {
+    webview.setAttribute('partition', privatePartition);
+  }
   webview.setAttribute('allowpopups', '');
   webview.setAttribute('allowfullscreen', '');
   webview.setAttribute(
@@ -930,14 +952,17 @@ export const createTab = (url = null) => {
   // a blank entry in the back history; see resolveInternalPageUrl). tab.url keeps
   // the friendly freedom:// form so the address bar and singleton-tab reuse still
   // match on it while the page loads.
-  const resolvedInternalUrl = resolveInternalPageUrl(url);
+  // Empty/null falls back to this window's default new-tab page — the
+  // private start page in private windows, the home page otherwise.
+  const fallbackUrl = defaultNewTabUrl();
+  const resolvedInternalUrl = resolveInternalPageUrl(url || fallbackUrl);
   const isDirect = resolvedInternalUrl != null || isDirectLoadUrl(url);
-  const webviewUrl = resolvedInternalUrl || (isDirect ? url || homeUrl : 'about:blank');
+  const webviewUrl = resolvedInternalUrl || (isDirect ? url || fallbackUrl : 'about:blank');
   const webview = createWebview(tabId, webviewUrl);
 
   const tab = {
     id: tabId,
-    url: url || homeUrl,
+    url: url || fallbackUrl,
     title: 'New Tab',
     isLoading: false,
     webview,
@@ -987,9 +1012,12 @@ export const closeTab = (tabId) => {
 
   const tab = tabState.tabs[tabIndex];
 
-  // Save to closed tabs stack for reopening later (skip blank/empty tabs)
+  // Save to closed tabs stack for reopening later (skip blank/empty tabs
+  // and the private start page). The stack itself is per-window renderer
+  // state, so a private window's closed tabs die with the window and can
+  // never be resurrected from a normal window's Cmd/Ctrl+Shift+T.
   const tabUrl = tab.url || tab.navigationState?.currentPageUrl;
-  if (tabUrl && tabUrl !== 'about:blank' && tabUrl !== homeUrl) {
+  if (tabUrl && tabUrl !== 'about:blank' && tabUrl !== homeUrl && !isPrivateStartUrl(tabUrl)) {
     closedTabsStack.push({ url: tabUrl, title: tab.title });
     if (closedTabsStack.length > MAX_CLOSED_TABS) {
       closedTabsStack.shift();
@@ -1459,12 +1487,12 @@ export const initTabs = async () => {
 
   // New tab button
   newTabBtn?.addEventListener('click', () => {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   });
 
   // Menu IPC handlers
   electronAPI?.onNewTab?.(() => {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   });
 
   electronAPI?.onCloseTab?.(() => {
@@ -1600,7 +1628,13 @@ export const initTabs = async () => {
     // Cmd+T - New tab (exclude Shift to avoid conflict with Cmd+Shift+T)
     if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 't') {
       event.preventDefault();
-      createTab(homeUrl);
+      createTab(defaultNewTabUrl());
+    }
+    // Cmd/Ctrl+Shift+N - New private window (fallback for when the menu
+    // accelerator doesn't handle it)
+    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'n') {
+      event.preventDefault();
+      electronAPI?.newPrivateWindow?.();
     }
     // Cmd+W - Close tab (skip pinned tabs)
     if (event.metaKey && event.key.toLowerCase() === 'w') {
@@ -1702,6 +1736,6 @@ export const initTabs = async () => {
       setTimeout(() => onLoadTarget(initialUrl), 50);
     }
   } else {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   }
 };
