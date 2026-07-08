@@ -227,6 +227,7 @@ describe('preload', () => {
       [exposures.electronAPI, 'onMoveTabLeft', 'tab:move-left', [], []],
       [exposures.electronAPI, 'onMoveTabRight', 'tab:move-right', [], []],
       [exposures.electronAPI, 'onReopenClosedTab', 'tab:reopen-closed', [], []],
+      [exposures.electronAPI, 'onOpenFindBar', IPC.FIND_IN_PAGE_OPEN, [], []],
       [exposures.electronAPI, 'onToggleBookmarkBar', IPC.BOOKMARKS_TOGGLE_BAR, [], []],
       [exposures.electronAPI, 'onUpdateNotification', 'show-update-notification', [{ version: '1.2.3' }], [{ version: '1.2.3' }]],
       [exposures.githubBridge, 'onProgress', IPC.GITHUB_BRIDGE_PROGRESS, [{ step: 'cloning' }], [{ step: 'cloning' }]],
