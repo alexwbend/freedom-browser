@@ -94,6 +94,24 @@ module.exports = {
   HISTORY_REMOVE: 'history:remove',
   HISTORY_CLEAR: 'history:clear',
 
+  // Downloads
+  DOWNLOADS_GET: 'downloads:get',
+  DOWNLOADS_PAUSE: 'downloads:pause',
+  DOWNLOADS_RESUME: 'downloads:resume',
+  DOWNLOADS_CANCEL: 'downloads:cancel',
+  DOWNLOADS_OPEN_FILE: 'downloads:open-file',
+  DOWNLOADS_SHOW_IN_FOLDER: 'downloads:show-in-folder',
+  DOWNLOADS_REMOVE: 'downloads:remove',
+  DOWNLOADS_CLEAR: 'downloads:clear',
+  // Main→renderer, sent to the download's owning window only — drives the
+  // shelf card in that window's chrome (a download started in window A must
+  // not pop a card in window B).
+  DOWNLOADS_UPDATED: 'downloads:updated',
+  // Main→renderer broadcast to all webContents on every item mutation.
+  // The freedom://downloads page subscribes; the row is already written
+  // by the time it fires, so receivers just re-query.
+  DOWNLOADS_CHANGED: 'downloads:changed',
+
   // Internal
   GET_WEBVIEW_PRELOAD_PATH: 'internal:get-webview-preload-path',
   GET_INTERNAL_PAGES: 'internal:get-pages',

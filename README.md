@@ -291,6 +291,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Cmd+Shift+R` / `Ctrl+Shift+R`: Hard reload (bypass cache)
   - `Cmd+F` / `Ctrl+F`: Find in page (`Enter` next match, `Shift+Enter` previous, `Esc` close)
   - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
+  - `Cmd+Shift+J` / `Ctrl+Shift+J`: Downloads
   - `F11`: Toggle fullscreen
   - `F12` / `Cmd+Alt+I` / `Ctrl+Shift+I`: Developer Tools
   - `Cmd+=` / `Ctrl+=`: Zoom in
@@ -310,6 +311,13 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Recording**: Pages are recorded as you browse.
 - **History Page**: View and search your browsing history at `freedom://history`.
+
+### Downloads
+
+- **Download Manager**: Every download — http(s), `bzz://`, `ipfs://`/`ipns://`, and data URIs — is tracked with progress, pause/resume, and cancel.
+- **Shelf**: A compact card in the bottom corner shows progress and offers Cancel; on completion it offers Open and Show in Folder, then dismisses itself. Files are never opened automatically.
+- **Downloads Page**: View and search download history at `freedom://downloads` (`Cmd+Shift+J` / `Ctrl+Shift+J`), with per-item open / show-in-folder / remove and Clear All.
+- **Save Location**: Files land in the OS Downloads folder by default; enable "Ask where to save each file" under Settings > Downloads for a save dialog per download.
 
 ### Context Menus
 
@@ -343,6 +351,7 @@ Access built-in browser pages using the `freedom://` protocol:
 | Page                      | Description                  |
 | ------------------------- | ---------------------------- |
 | `freedom://home`          | Welcome/home page            |
+| `freedom://downloads`     | Download manager             |
 | `freedom://history`       | Browsing history             |
 | `freedom://links`         | Link behavior test page      |
 | `freedom://protocol-test` | Protocol and media test page |

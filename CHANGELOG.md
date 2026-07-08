@@ -7,6 +7,10 @@ All notable changes to Freedom will be documented in this file.
 ### Added
 
 - Find in page (`Cmd+F` / `Ctrl+F`, also under Edit in the menu): overlay bar over the page with a live match counter, `Enter` / `Shift+Enter` to cycle matches, `Esc` to close
+- Download manager covering every download source, including `bzz://` and `ipfs://` content:
+  - Shelf card with live progress and cancel; Open / Show in Folder on completion
+  - `freedom://downloads` page (Cmd/Ctrl+Shift+J) with search, pause/resume, and Clear All
+  - "Ask where to save each file" toggle under Settings > Downloads
 
 ### Changed
 
