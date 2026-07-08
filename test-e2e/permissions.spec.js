@@ -56,6 +56,20 @@ async function navigateToFixture(window, harness) {
 const clickAsk = (window) =>
   evalInWebview(window, "document.getElementById('ask').click(); true");
 
+// Answer the prompt via a DOM click event instead of a synthesized mouse
+// click. Right after the guest <webview> attaches (which is exactly when a
+// page requests a permission), Chromium's browser-side input routing can
+// still send pointer events at the prompt's coordinates into the guest
+// surface instead of the chrome renderer, silently swallowing the click
+// even though DOM hit-testing resolves the button. These specs verify the
+// decision matrix, not compositor input routing, so deliver the click as
+// a DOM event directly.
+async function answerPrompt(window, action) {
+  const button = window.locator(`[data-test="permission-${action}"]`);
+  await expect(button).toBeVisible();
+  await button.dispatchEvent('click');
+}
+
 test('notification request → prompt → Allow with remember persists across reload', async ({
   window,
   harness,
@@ -74,7 +88,7 @@ test('notification request → prompt → Allow with remember persists across re
   );
   await expect(window.locator('[data-test="permission-remember"]')).toBeChecked();
 
-  await window.locator('[data-test="permission-allow"]').click();
+  await answerPrompt(window, 'allow');
   await expect(prompt).toBeHidden();
   await expect.poll(() => readOut(window), { timeout: 5_000 }).toBe('granted');
 
@@ -109,7 +123,7 @@ test('Block with remember denies silently on the next request', async ({ window,
   await clickAsk(window);
   await expect(prompt).toBeVisible();
 
-  await window.locator('[data-test="permission-block"]').click();
+  await answerPrompt(window, 'block');
   await expect(prompt).toBeHidden();
   await expect.poll(() => readOut(window), { timeout: 5_000 }).toBe('denied');
 
@@ -126,7 +140,7 @@ test('Settings > Site Permissions lists remembered decisions and revoke-all clea
 }) => {
   await navigateToFixture(window, harness);
   await clickAsk(window);
-  await window.locator('[data-test="permission-allow"]').click();
+  await answerPrompt(window, 'allow');
   await expect.poll(() => readOut(window), { timeout: 5_000 }).toBe('granted');
 
   // Land on the Site Permissions section of freedom://settings.

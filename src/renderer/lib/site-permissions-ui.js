@@ -172,8 +172,9 @@ const respondToActivePrompt = (decision) => {
 
 // Dismiss = deny once, nothing recorded (Esc, click-away, tab switch,
 // navigation). Safe to call when no prompt is showing.
-const dismissActivePrompt = () => {
+const dismissActivePrompt = (reason = 'unknown') => {
   if (!activePrompt) return;
+  pushDebug(`[permissions] prompt dismissed (${reason})`);
   respondToActivePrompt('dismiss');
 };
 
@@ -324,7 +325,7 @@ export const initSitePermissionsUi = () => {
   // Click-away / Esc dismissal, mirroring the trust popover's handlers.
   document.addEventListener('click', (e) => {
     if (activePrompt && !promptEl.hidden && !promptEl.contains(e.target)) {
-      dismissActivePrompt();
+      dismissActivePrompt('click-away');
     }
     if (popoverEl && !popoverEl.hidden) {
       if (!popoverEl.contains(e.target) && !(indicatorBtn && indicatorBtn.contains(e.target))) {
@@ -335,24 +336,29 @@ export const initSitePermissionsUi = () => {
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    dismissActivePrompt();
+    dismissActivePrompt('escape');
     if (popoverEl && !popoverEl.hidden) setPopoverOpen(false);
   });
 
-  // Clicks inside the <webview> don't bubble here (out-of-process frame);
-  // window blur fires when focus moves into page content.
+  // Focus loss only closes the indicator popover — never the prompt.
+  // The guest <webview> takes focus asynchronously while its page
+  // activates, and pages typically request permissions right after
+  // load, so dismissing on blur deny-onces the prompt the page just
+  // triggered via the blur from its own load stealing focus. Keeping
+  // the prompt pending across focus changes matches Chrome and
+  // Firefox; it still dismisses on click-away in the chrome, Esc,
+  // navigation, and tab switch, and grants nothing by itself.
   window.addEventListener('blur', () => {
-    dismissActivePrompt();
     setPopoverOpen(false);
   });
 
   // Navigating away or switching tabs invalidates the prompt's context.
   document.addEventListener('navigation-completed', () => {
-    dismissActivePrompt();
+    dismissActivePrompt('navigation');
     refreshIndicator();
   });
   document.addEventListener('active-tab-changed', () => {
-    dismissActivePrompt();
+    dismissActivePrompt('tab-changed');
     setPopoverOpen(false);
     refreshIndicator();
   });
