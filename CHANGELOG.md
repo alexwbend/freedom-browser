@@ -11,6 +11,11 @@ All notable changes to Freedom will be documented in this file.
   - Shelf card with live progress and cancel; Open / Show in Folder on completion
   - `freedom://downloads` page (Cmd/Ctrl+Shift+J) with search, pause/resume, and Clear All
   - "Ask where to save each file" toggle under Settings > Downloads
+- Per-site permission prompts for camera, microphone, notifications, clipboard reading, location, and MIDI, replacing the previous silent denial:
+  - Prompt under the address bar with Allow / Block and "Remember for this site"
+  - Remembered decisions per profile under Settings > Site Permissions, with per-site and remove-all revocation
+  - Indicator icon in the address bar with quick revoke on sites holding granted permissions
+  - Location prompts note that positioning may be unreliable
 
 ### Changed
 

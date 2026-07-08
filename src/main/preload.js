@@ -476,6 +476,33 @@ contextBridge.exposeInMainWorld('rpcManager', {
   getEffectiveUrls: (chainId) => ipcRenderer.invoke('rpc:get-effective-urls', chainId),
 });
 
+// Site permissions (web permission prompts). The chrome renderer shows
+// the anchored prompt + the address-bar indicator; both live here.
+contextBridge.exposeInMainWorld('sitePermissions', {
+  // Main asks this window to show a prompt ({id, origin, permission, keys}).
+  onPromptRequest: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:prompt-request', handler);
+    return () => ipcRenderer.removeListener('permissions:prompt-request', handler);
+  },
+  // Answer a prompt: {id, decision: 'allow'|'deny'|'dismiss', remember}.
+  respondToPrompt: (response) => ipcRenderer.invoke('permissions:prompt-response', response),
+  // macOS blocked camera/mic for Freedom itself after a site-level allow.
+  onOsDenied: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:os-denied', handler);
+    return () => ipcRenderer.removeListener('permissions:os-denied', handler);
+  },
+  onChanged: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:changed', handler);
+    return () => ipcRenderer.removeListener('permissions:changed', handler);
+  },
+  getForOrigin: (origin) => ipcRenderer.invoke('permissions:get-for-origin', origin),
+  revoke: (origin, permission) => ipcRenderer.invoke('permissions:revoke', origin, permission),
+  revokeOrigin: (origin) => ipcRenderer.invoke('permissions:revoke-origin', origin),
+});
+
 contextBridge.exposeInMainWorld('dappPermissions', {
   getPermission: (origin) => ipcRenderer.invoke('dapp:get-permission', origin),
   grantPermission: (origin, walletIndex, chainId) => ipcRenderer.invoke('dapp:grant-permission', origin, walletIndex, chainId),

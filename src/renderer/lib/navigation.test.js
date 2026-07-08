@@ -366,6 +366,9 @@ const loadNavigationModule = async (options = {}) => {
     return null;
   });
   document.activeElement = null;
+  // navigation.js broadcasts CustomEvents ('navigation-completed',
+  // 'active-tab-changed') for the dApp banner + permission indicator.
+  document.dispatchEvent = jest.fn();
 
   const windowHandlers = {};
   global.window = {
