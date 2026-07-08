@@ -1,6 +1,7 @@
 const log = require('./logger');
 const { BrowserWindow, Menu, app, dialog, ipcMain } = require('electron');
 const { isMainBrowserWindow, getMainWindows, createMainWindow } = require('./windows/mainWindow');
+const { createPrivateWindow } = require('./private/private-windows');
 const {
   checkForUpdates,
   getInstallRelaunchMode,
@@ -224,6 +225,15 @@ function buildFileSubmenu(isMac) {
       click: () => {
         log.info('[menu] New Window clicked');
         createMainWindow();
+      },
+    },
+    {
+      id: 'new-private-window',
+      label: 'New Private Window',
+      accelerator: 'CmdOrCtrl+Shift+N',
+      click: () => {
+        log.info('[menu] New Private Window clicked');
+        createPrivateWindow();
       },
     },
     { type: 'separator' },

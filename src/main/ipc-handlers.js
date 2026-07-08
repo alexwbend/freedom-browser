@@ -29,6 +29,7 @@ const {
   validateProfileDeletionForActiveApp,
 } = require('./profile-resolver');
 const { openOrFocusProfile } = require('./profile-launcher');
+const { isPrivateWebContents } = require('./private/private-windows');
 const { readProfileFocusAck, requestProfileQuitAsync } = require('./profile-focus-handoff');
 const { isProfileLocked } = require('./profile-lock');
 
@@ -795,6 +796,19 @@ function registerBaseIpcHandlers(callbacks = {}) {
       // Pass URL directly to createMainWindow to avoid home page flash
       callbacks.onNewWindow(url);
     }
+  });
+
+  ipcMain.on(IPC.WINDOW_NEW_PRIVATE, () => {
+    if (callbacks.onNewPrivateWindow) {
+      callbacks.onNewPrivateWindow();
+    }
+  });
+
+  // Sync: a webview preload asks (before any page script runs) whether it
+  // lives inside a private window, to gate wallet provider injection.
+  // PRIVATE MODE GUARD (providers): consumer is src/main/webview-preload.js.
+  ipcMain.on(IPC.PRIVATE_IS_PRIVATE, (event) => {
+    event.returnValue = isPrivateWebContents(event.sender);
   });
 
   ipcMain.on(IPC.APP_SHOW_ABOUT, () => {

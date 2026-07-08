@@ -170,6 +170,24 @@ describe('menu', () => {
     }
   });
 
+  test('File menu offers New Private Window right after New Window', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const { capturedTemplate } = loadMenuModule(platform);
+      const file = findTopLabel(capturedTemplate, 'File');
+      const labels = file.submenu.map((item) => item.label);
+
+      const privateItem = file.submenu.find((item) => item.id === 'new-private-window');
+      expect(privateItem).toEqual(
+        expect.objectContaining({
+          label: 'New Private Window',
+          accelerator: 'CmdOrCtrl+Shift+N',
+        })
+      );
+      expect(typeof privateItem.click).toBe('function');
+      expect(labels.indexOf('New Private Window')).toBe(labels.indexOf('New Window') + 1);
+    }
+  });
+
   test('Profiles menu sits between History and the Window menu on macOS', () => {
     const { capturedTemplate } = loadMenuModule('darwin');
     const labels = capturedTemplate.map((item) => item.label ?? item.role);

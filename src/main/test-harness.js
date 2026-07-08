@@ -475,4 +475,10 @@ function installTestHarness({ defaultSession }) {
 module.exports = {
   isTestMode,
   installTestHarness,
+  // Exposed so private-window sessions (created after startup) get the same
+  // fixture-driven protocol stubs as the default session in test mode. The
+  // fixture maps are shared module state, so per-session registration is all
+  // that's needed. No-op guard lives in the caller (only invoked when
+  // isTestMode()).
+  registerStubProtocols,
 };
