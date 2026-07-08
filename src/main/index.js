@@ -181,7 +181,10 @@ const {
   registerDownloadsIpc,
   attachDownloadsManager,
 } = require('./downloads/downloads-manager');
-const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
+const {
+  closeDb: closeDownloadsDb,
+  removeDownloadsForPartition,
+} = require('./downloads/downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
 const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
@@ -215,6 +218,7 @@ const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
 const {
   installPermissionHandlers,
   registerPermissionsIpc,
+  clearPrivateDecisions: clearPrivatePermissionDecisions,
 } = require('./permissions/permissions-manager');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
@@ -239,10 +243,15 @@ const {
   getMainWindows,
 } = require('./windows/mainWindow');
 focusCurrentProfileWindow = focusOrCreateMainWindow;
+const {
+  createPrivateWindow,
+  setPrivateSessionConfigurator,
+  registerPrivateCleanup,
+} = require('./private/private-windows');
 const { initUpdater } = require('./updater');
 const { setupApplicationMenu, updateTabMenuItems } = require('./menu');
 const { registerWebContentsHandlers } = require('./webcontents-setup');
-const { installTestHarness } = require('./test-harness');
+const { installTestHarness, registerStubProtocols } = require('./test-harness');
 
 app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
 log.info('[profile] Active profile:', {
@@ -272,6 +281,7 @@ async function bootstrap() {
   registerBaseIpcHandlers({
     onSetTitle: setWindowTitle,
     onNewWindow: createMainWindow,
+    onNewPrivateWindow: createPrivateWindow,
   });
   registerSettingsIpc();
   registerAdblockIpc();
@@ -347,6 +357,38 @@ async function bootstrap() {
   // protocol handlers, whose responses route through Chromium's download
   // manager like any http(s) response.
   attachDownloadsManager(defaultSession);
+  // Private windows: each gets a unique non-persisted `private-<uuid>`
+  // partition whose session is configured here, before the window's first
+  // webview loads — same protocol handlers (or their test-mode stubs),
+  // request rewriter and downloads hook (rows flagged private) as the
+  // default session, and permission prompts whose decisions stay
+  // session-only. One deliberate exception:
+  // PRIVATE MODE GUARD (x402): payment interception is NOT attached to
+  // private sessions. The wallet providers are unavailable in private
+  // windows, so no payment could ever be signed; excluding the x402
+  // handlers keeps 402 responses flowing to the page untouched.
+  setPrivateSessionConfigurator((privateSession, { partition }) => {
+    if (TEST_MODE) {
+      registerStubProtocols(privateSession);
+    } else {
+      registerBzzProtocol(privateSession);
+      registerIpfsProtocol(privateSession);
+      registerIpnsProtocol(privateSession);
+      registerRadProtocol(privateSession);
+    }
+    attachWebRequestDispatcher(privateSession, {
+      exclude: (name) => name.startsWith('x402-'),
+    });
+    attachDownloadsManager(privateSession, { privatePartition: partition });
+    installPermissionHandlers(privateSession, { privatePartition: partition });
+  });
+  // On private-window close: drop the window's download-history rows
+  // (files stay on disk, Chromium semantics) and its session-only
+  // permission decisions. The session's storage is cleared by the
+  // private-windows module itself.
+  registerPrivateCleanup((partition) => removeDownloadsForPartition(partition));
+  registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
+
   registerWebContentsHandlers();
   setupApplicationMenu();
 

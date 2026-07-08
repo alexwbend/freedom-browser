@@ -56,6 +56,11 @@ import {
   buildInternalPageUrl,
 } from './page-urls.js';
 import { isTezosDomainHost } from './origin-utils.js';
+import {
+  shouldRecordHistory,
+  shouldCacheFavicons,
+  shouldLearnAutocomplete,
+} from './private-mode.js';
 import { parseEthereumUri } from './ethereum-uri.js';
 import { openSendFlow } from './wallet-ui.js';
 import { walletState } from './wallet/wallet-state.js';
@@ -2166,9 +2171,13 @@ export const initNavigation = () => {
 
           // Update favicon for current tab (always, not just when recording history)
           // Skip internal pages and view-source pages (view-source should use default globe icon)
+          // PRIVATE MODE GUARD (favicons): private windows never fetch-and-
+          // cache favicons — shouldCacheFavicons() gates the whole pipeline
+          // (the cached-icon read below it is allowed and stays).
           if (
             activeTab &&
             displayUrl &&
+            shouldCacheFavicons() &&
             !displayUrl.startsWith('freedom://') &&
             !displayUrl.startsWith('view-source:')
           ) {
@@ -2191,7 +2200,13 @@ export const initNavigation = () => {
           }
 
           // Record history (only once per URL)
-          if (isHistoryRecordable(displayUrl, internalUrl) && displayUrl !== lastRecordedUrl) {
+          // PRIVATE MODE GUARD (history): navigations in private windows
+          // are never recorded (main-process twin: src/main/history.js).
+          if (
+            shouldRecordHistory() &&
+            isHistoryRecordable(displayUrl, internalUrl) &&
+            displayUrl !== lastRecordedUrl
+          ) {
             const title = activeTab?.title || '';
             const protocol = detectProtocol(displayUrl);
 
@@ -2203,8 +2218,13 @@ export const initNavigation = () => {
               })
               .then(() => {
                 pushDebug(`[History] Recorded: ${displayUrl}`);
-                // Notify autocomplete to refresh cache
-                onHistoryRecorded?.();
+                // PRIVATE MODE GUARD (autocomplete): the suggestion cache
+                // only learns from non-private navigation. Unreachable in
+                // private windows (no history write) — kept explicit so the
+                // learning path is guarded even if the write path changes.
+                if (shouldLearnAutocomplete()) {
+                  onHistoryRecorded?.();
+                }
               })
               .catch((err) => {
                 console.error('[History] Failed to record:', err);
