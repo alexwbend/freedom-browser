@@ -433,6 +433,8 @@ contextBridge.exposeInMainWorld('remoteSigner', {
   },
   // Job outcome: { jobId, result } or { jobId, error: {code, message} }.
   respond: (payload) => ipcRenderer.send('remote-signer:response', payload),
+  // Persist a phone account discovered via eth_requestAccounts.
+  addAccount: (name, address) => ipcRenderer.invoke('wallet:add-remote-wallet', name, address),
 });
 
 contextBridge.exposeInMainWorld('swarmNode', {

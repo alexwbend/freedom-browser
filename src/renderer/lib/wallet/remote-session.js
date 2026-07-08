@@ -50,7 +50,7 @@ export function createRemoteSessionBroker({
   signaling = DEFAULT_SIGNALING,
   bridgeOrigin = BRIDGE_ORIGIN,
 } = {}) {
-  /** jobId → { session, settled } */
+  /** jobId → { session, settled, respond } */
   const jobs = new Map();
   const listeners = new Set();
   const disposers = [];
@@ -65,13 +65,13 @@ export function createRemoteSessionBroker({
     }
   }
 
-  /** Settle a job exactly once: respond to main (unless silent) and tear down. */
+  /** Settle a job exactly once: deliver the outcome (unless silent) and tear down. */
   function settle(jobId, payload) {
     const job = jobs.get(jobId);
     if (!job || job.settled) return false;
     job.settled = true;
     if (payload) {
-      remoteSigner.respond({ jobId, ...payload });
+      job.respond(payload);
     }
     teardown(jobId);
     return true;
@@ -92,10 +92,14 @@ export function createRemoteSessionBroker({
   // get a proper JSON-RPC error instead of a hang.
   const onIncomingMessage = async () => ({ error: { code: -32601, message: 'Method not found' } });
 
-  async function runJob(job) {
-    const { jobId, method, params } = job;
+  /**
+   * Host a session for one request and deliver the outcome via `respond`
+   * — main's IPC reply for signing jobs, a local promise for the
+   * connect-phone flow.
+   */
+  async function runJob({ jobId, method, params }, respond) {
     if (jobs.has(jobId)) return;
-    const entry = { session: null, settled: false };
+    const entry = { session: null, settled: false, respond };
     jobs.set(jobId, entry);
 
     try {
@@ -154,7 +158,11 @@ export function createRemoteSessionBroker({
   return {
     /** Start listening for signing jobs from main. */
     start() {
-      disposers.push(remoteSigner.onRequest((job) => runJob(job)));
+      disposers.push(
+        remoteSigner.onRequest((job) =>
+          runJob(job, (payload) => remoteSigner.respond({ jobId: job.jobId, ...payload })),
+        ),
+      );
       disposers.push(
         remoteSigner.onAbort(({ jobId }) => {
           // Main already failed the job (timeout) — settle silently.
@@ -175,6 +183,33 @@ export function createRemoteSessionBroker({
       if (settle(jobId, { error: { code: 'REMOTE_USER_CANCELLED' } })) {
         emit({ jobId, phase: 'cancelled' });
       }
+    },
+
+    /**
+     * Connect-phone flow (no main involvement): host a session whose only
+     * request is eth_requestAccounts, so the user can pick an account to
+     * add. Follow progress via onJobEvent with the returned jobId; abort
+     * with cancelJob.
+     *
+     * @returns {{jobId: string, accounts: Promise<string[]>}}
+     */
+    connectPhone() {
+      const jobId = `connect-${crypto.randomUUID()}`;
+      const accounts = new Promise((resolve, reject) => {
+        runJob({ jobId, method: 'eth_requestAccounts', params: [] }, ({ result, error }) => {
+          if (error || !Array.isArray(result) || result.length === 0) {
+            const err = new Error(error?.message || 'Your phone reported no accounts');
+            err.code = error?.code || 'REMOTE_BAD_RESPONSE';
+            reject(err);
+          } else {
+            resolve(result);
+          }
+        });
+      });
+      // The screen owns the rejection UX; avoid unhandled-rejection noise
+      // when it cancels before subscribing.
+      accounts.catch(() => {});
+      return { jobId, accounts };
     },
 
     /** Subscribe to job lifecycle events; returns a disposer. */

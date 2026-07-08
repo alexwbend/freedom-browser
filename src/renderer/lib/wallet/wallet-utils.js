@@ -51,6 +51,21 @@ export function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/** Show a message in an inline error box (the `.hidden`-toggled pattern). */
+export function showInlineError(el, message) {
+  if (el) {
+    el.textContent = message;
+    el.classList.remove('hidden');
+  }
+}
+
+export function hideInlineError(el) {
+  if (el) {
+    el.classList.add('hidden');
+    el.textContent = '';
+  }
+}
+
 export function timeAgo(date) {
   const seconds = Math.floor((new Date() - date) / 1000);
 

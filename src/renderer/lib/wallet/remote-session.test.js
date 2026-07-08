@@ -216,6 +216,57 @@ describe('remote-session broker', () => {
     });
   });
 
+  test('connectPhone discovers accounts over eth_requestAccounts', async () => {
+    const harness = createHarness();
+    const broker = await startBroker(harness);
+    const events = [];
+    broker.onJobEvent((e) => events.push(e));
+
+    const { jobId, accounts } = broker.connectPhone();
+    expect(jobId).toMatch(/^connect-/);
+    await tick();
+
+    const qrEvent = events.find((e) => e.phase === 'qr');
+    expect(qrEvent.jobId).toBe(jobId);
+    expect(qrEvent.bridgeUrl).toMatch(/^https:\/\/bridge\.test\/#openlv:\/\//);
+
+    harness.session.link.resolve();
+    await tick();
+    expect(harness.session.send).toHaveBeenCalledWith({ method: 'eth_requestAccounts', params: [] });
+
+    harness.session.response.resolve({ result: ['0xAbC0000000000000000000000000000000000001'] });
+    await expect(accounts).resolves.toEqual(['0xAbC0000000000000000000000000000000000001']);
+    // Local flow: nothing goes to main.
+    expect(harness.remoteSigner.respond).not.toHaveBeenCalled();
+    expect(harness.session.close).toHaveBeenCalled();
+  });
+
+  test('connectPhone rejects when the phone shares no accounts', async () => {
+    const harness = createHarness();
+    const broker = await startBroker(harness);
+
+    const { accounts } = broker.connectPhone();
+    await tick();
+    harness.session.link.resolve();
+    await tick();
+    harness.session.response.resolve({ result: [] });
+
+    await expect(accounts).rejects.toMatchObject({ code: 'REMOTE_BAD_RESPONSE' });
+  });
+
+  test('cancelJob aborts a connectPhone discovery', async () => {
+    const harness = createHarness();
+    const broker = await startBroker(harness);
+
+    const { jobId, accounts } = broker.connectPhone();
+    await tick();
+    broker.cancelJob(jobId);
+
+    await expect(accounts).rejects.toMatchObject({ code: 'REMOTE_USER_CANCELLED' });
+    expect(harness.session.close).toHaveBeenCalled();
+    expect(harness.remoteSigner.respond).not.toHaveBeenCalled();
+  });
+
   test('stop() unsubscribes and closes live sessions', async () => {
     const harness = createHarness();
     const broker = await startBroker(harness);
