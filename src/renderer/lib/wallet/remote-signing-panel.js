@@ -80,11 +80,15 @@ function showPanel(event) {
     requestLabel.textContent = REQUEST_LABELS[event.method] || 'Signature request';
   }
   setStatus('Waiting for your phone…');
+  // Machine-readable copy of what the QR encodes (E2E tests scan this
+  // instead of the pixels; a human can copy it via devtools too).
+  if (panel) panel.dataset.bridgeUrl = event.bridgeUrl;
   panel?.classList.remove('hidden');
 }
 
 function hidePanel() {
   activeJobId = null;
+  if (panel) delete panel.dataset.bridgeUrl;
   renderSeq++; // in-flight QR renders must not repopulate a hidden panel
   if (qrImage) qrImage.src = '';
   panel?.classList.add('hidden');

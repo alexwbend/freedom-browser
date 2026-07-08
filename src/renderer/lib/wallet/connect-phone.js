@@ -136,6 +136,7 @@ function startDiscovery() {
   retryBtn?.classList.add('hidden');
   statusSpinner?.classList.remove('hidden');
   if (qrImage) qrImage.src = '';
+  if (screen) delete screen.dataset.bridgeUrl; // no stale session URL between attempts
   setStatus('Preparing connection…');
 
   const broker = getRemoteSessionBroker();
@@ -149,6 +150,8 @@ function startDiscovery() {
   disposeJobEvents = broker.onJobEvent((event) => {
     if (event.jobId !== currentJobId) return;
     if (event.phase === 'qr') {
+      // Machine-readable copy of what the QR encodes (for E2E tests).
+      if (screen) screen.dataset.bridgeUrl = event.bridgeUrl;
       renderQr(event.bridgeUrl);
     } else if (PHASE_STATUS_TEXT[event.phase]) {
       setStatus(PHASE_STATUS_TEXT[event.phase]);

@@ -15,47 +15,19 @@
  * where both peers are real Chromium contexts.
  */
 
-const http = require('http');
-
 const { Wallet, verifyMessage, verifyTypedData, getBytes } = require('ethers');
 
 const { createSession, connectSession } = require('@openlv/session');
 const { encodeConnectionURL } = require('@openlv/core');
 const { mqtt } = require('@openlv/signaling/mqtt');
 
+const { startLocalMqttBroker } = require('../../../../../test/helpers/local-mqtt-broker');
+
 jest.setTimeout(30000);
 
 // Anvil/Hardhat-default test key — well-known, never funded on mainnet.
 const TEST_PRIVATE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
 const phoneWallet = new Wallet(TEST_PRIVATE_KEY);
-
-// ---------------------------------------------------------------------------
-// Local MQTT-over-WebSocket broker (what `s=` points at)
-// ---------------------------------------------------------------------------
-
-async function startLocalBroker() {
-  const aedes = require('aedes')();
-  const { WebSocketServer, createWebSocketStream } = require('ws');
-
-  const server = http.createServer();
-  const wss = new WebSocketServer({ server });
-  wss.on('connection', (socket) => {
-    aedes.handle(createWebSocketStream(socket));
-  });
-
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-
-  return {
-    aedes,
-    url: `ws://127.0.0.1:${port}/mqtt`,
-    close: async () => {
-      await new Promise((resolve) => aedes.close(resolve));
-      wss.close();
-      await new Promise((resolve) => server.close(resolve));
-    },
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Relay transport: session envelopes ride the encrypted signaling channel
@@ -155,7 +127,7 @@ describe('openlv protocol round-trip (real stack, local broker)', () => {
     // The @openlv packages log every protocol step unconditionally.
     jest.spyOn(console, 'log').mockImplementation(() => {});
 
-    broker = await startLocalBroker();
+    broker = await startLocalMqttBroker();
     relayedFrames = [];
     broker.aedes.on('publish', (packet) => {
       // Ignore aedes' internal $SYS topics.

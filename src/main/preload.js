@@ -14,6 +14,9 @@ const defaultAntApi = process.env.ANT_API || process.env.BEE_API || null;
 
 contextBridge.exposeInMainWorld('nodeConfig', {
   antApi: defaultAntApi,
+  // Override the openlv signaling relay (remote/phone signing). E2E
+  // tests point this at an in-test local MQTT broker for determinism.
+  openlvSignaling: process.env.FREEDOM_OPENLV_SIGNALING || null,
 });
 
 contextBridge.exposeInMainWorld('internalPages', internalPages);

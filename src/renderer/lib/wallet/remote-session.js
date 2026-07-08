@@ -60,7 +60,9 @@ function unwrapResponse(payload) {
 export function createRemoteSessionBroker({
   openlv = null,
   remoteSigner = window.remoteSigner,
-  signaling = DEFAULT_SIGNALING,
+  signaling = globalThis.window?.nodeConfig?.openlvSignaling
+    ? { p: 'mqtt', s: globalThis.window.nodeConfig.openlvSignaling }
+    : DEFAULT_SIGNALING,
   bridgeOrigin = BRIDGE_ORIGIN,
 } = {}) {
   /** jobId → { session, settled, respond } */

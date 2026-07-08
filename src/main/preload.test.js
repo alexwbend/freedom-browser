@@ -111,6 +111,7 @@ describe('preload', () => {
     expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.GET_INTERNAL_PAGES);
     expect(exposures.nodeConfig).toEqual({
       antApi: 'http://127.0.0.1:1700',
+      openlvSignaling: null,
     });
     expect(exposures.internalPages).toBe(internalPages);
 
@@ -294,6 +295,7 @@ describe('preload', () => {
 
     expect(exposures.nodeConfig).toEqual({
       antApi: null,
+      openlvSignaling: null,
     });
   });
 });
