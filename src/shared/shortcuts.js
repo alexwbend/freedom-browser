@@ -384,6 +384,211 @@ function getAliasAccelerators(entryOrId, platform) {
     .map((alias) => alias.accelerator);
 }
 
+// ── Overrides / validation / conflicts ──────────────────────────────────
+
+// Bindings that may never be reassigned to a shortcut: quit, the standard
+// edit-role clipboard set (they come from Electron menu roles, not this
+// registry), and the F12 DevTools contract.
+const RESERVED_ACCELERATORS = [
+  'CmdOrCtrl+Q',
+  'CmdOrCtrl+C',
+  'CmdOrCtrl+V',
+  'CmdOrCtrl+X',
+  'CmdOrCtrl+A',
+  'CmdOrCtrl+Z',
+  'CmdOrCtrl+Shift+Z',
+  'F12',
+];
+
+/**
+ * Canonical string form of an accelerator on `platform`, for storage and
+ * equality comparison: modifiers in fixed order (Ctrl, Alt, Shift, then
+ * Cmd/Super), single-character keys uppercased. Returns null when the
+ * accelerator does not parse.
+ */
+function normalizeAccelerator(accelerator, platform) {
+  const parsed = parseAccelerator(accelerator, platform);
+  if (!parsed) return null;
+  const parts = [];
+  if (parsed.ctrl) parts.push('Ctrl');
+  if (parsed.alt) parts.push('Alt');
+  if (parsed.shift) parts.push('Shift');
+  if (parsed.meta) parts.push(platform === 'darwin' ? 'Cmd' : 'Super');
+  parts.push(parsed.key.length === 1 ? parsed.key.toUpperCase() : parsed.key);
+  return parts.join('+');
+}
+
+function isReservedAccelerator(accelerator, platform) {
+  const normalized = normalizeAccelerator(accelerator, platform);
+  if (!normalized) return false;
+  return RESERVED_ACCELERATORS.some(
+    (reserved) => normalizeAccelerator(reserved, platform) === normalized
+  );
+}
+
+const isModifierEventKey = (key) =>
+  ['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'].includes(String(key));
+
+/**
+ * Build a normalized accelerator from a keydown event (Settings recording
+ * mode). Prefers the physical key code so the stored binding is stable
+ * across keyboard layouts. Returns null while only modifiers are held.
+ */
+function acceleratorFromEvent(event, platform) {
+  if (!event || isModifierEventKey(event.key)) return null;
+
+  // Prefer the code-derived base key (layout-stable), fall back to key.
+  const candidates = eventKeyCandidates(event);
+  let key = null;
+  const code = event.code;
+  if (typeof code === 'string') {
+    if (CODE_BASE_KEYS[code]) key = CODE_BASE_KEYS[code];
+    else if (/^Key[A-Z]$/.test(code)) key = code.slice(3).toLowerCase();
+    else if (/^Digit\d$/.test(code)) key = code.slice(5);
+  }
+  if (!key) key = candidates.values().next().value || null;
+  if (!key) return null;
+
+  const parts = [];
+  if (event.ctrlKey) parts.push('Ctrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey) parts.push('Shift');
+  if (event.metaKey) parts.push(platform === 'darwin' ? 'Cmd' : 'Super');
+  parts.push(key.length === 1 ? key.toUpperCase() : key);
+  return parts.join('+');
+}
+
+/**
+ * Whether `accelerator` is assignable to `entry` on `platform`.
+ * Returns { ok: true } or { ok: false, reason }, with reason one of
+ * 'unknown-shortcut', 'not-editable', 'invalid', 'reserved',
+ * 'needs-modifier'. Conflicts with other shortcuts are a separate check
+ * (findConflict) so the UI can offer a swap.
+ */
+function validateBinding(entryOrId, accelerator, platform) {
+  const entry = typeof entryOrId === 'string' ? getShortcutById(entryOrId) : entryOrId;
+  if (!entry) return { ok: false, reason: 'unknown-shortcut' };
+  if (entry.editable === false) return { ok: false, reason: 'not-editable' };
+
+  const parsed = parseAccelerator(accelerator, platform);
+  if (!parsed) return { ok: false, reason: 'invalid' };
+  if (isReservedAccelerator(accelerator, platform)) return { ok: false, reason: 'reserved' };
+
+  // Menu-context shortcuts must carry a real modifier: a bare (or
+  // shift-only) character would fire while typing in any text field.
+  const hasRealModifier = parsed.ctrl || parsed.alt || parsed.meta;
+  const isBareCharacter = parsed.key.length === 1;
+  if (entry.context !== 'renderer' && isBareCharacter && !hasRealModifier) {
+    return { ok: false, reason: 'needs-modifier' };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * Effective primary accelerator: user override ?? registry default.
+ */
+function getEffectiveAccelerator(entryOrId, overrides, platform) {
+  const entry = typeof entryOrId === 'string' ? getShortcutById(entryOrId) : entryOrId;
+  if (!entry) return null;
+  const override = overrides ? overrides[entry.id] : undefined;
+  if (typeof override === 'string' && parseAccelerator(override, platform)) return override;
+  return getDefaultAccelerator(entry, platform);
+}
+
+/**
+ * First shortcut whose effective binding collides with `accelerator`,
+ * excluding `entryOrId` itself. Returns null or
+ * { id, description, fixed } — `fixed: true` means the collision is with
+ * a fixed alias (or a non-editable entry) and cannot be swapped away.
+ */
+function findConflict(entryOrId, accelerator, overrides, platform) {
+  const self = typeof entryOrId === 'string' ? entryOrId : entryOrId?.id;
+  const normalized = normalizeAccelerator(accelerator, platform);
+  if (!normalized) return null;
+
+  for (const entry of SHORTCUTS) {
+    if (entry.id === self) continue;
+    const effective = getEffectiveAccelerator(entry, overrides, platform);
+    if (effective && normalizeAccelerator(effective, platform) === normalized) {
+      return { id: entry.id, description: entry.description, fixed: entry.editable === false };
+    }
+    for (const alias of getAliasAccelerators(entry, platform)) {
+      if (normalizeAccelerator(alias, platform) === normalized) {
+        return { id: entry.id, description: entry.description, fixed: true };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Defensive cleanup for a stored/incoming overrides map: drops unknown or
+ * non-editable ids, non-string and unparsable values, reserved combos, and
+ * no-op overrides equal to the default. Values are normalized. Never
+ * throws — malformed input yields {}.
+ */
+function sanitizeOverrides(raw, platform) {
+  const clean = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return clean;
+  for (const [id, value] of Object.entries(raw)) {
+    const entry = getShortcutById(id);
+    if (!entry || entry.editable === false) continue;
+    if (typeof value !== 'string') continue;
+    const normalized = normalizeAccelerator(value, platform);
+    if (!normalized) continue;
+    if (isReservedAccelerator(normalized, platform)) continue;
+    if (normalized === normalizeAccelerator(getDefaultAccelerator(entry, platform), platform)) {
+      continue;
+    }
+    clean[id] = normalized;
+  }
+  return clean;
+}
+
+// ── Display formatting ──────────────────────────────────────────────────
+
+const MAC_MODIFIER_GLYPHS = { ctrl: '⌃', alt: '⌥', shift: '⇧', meta: '⌘' };
+const MAC_KEY_GLYPHS = {
+  Left: '←',
+  Right: '→',
+  Up: '↑',
+  Down: '↓',
+  Enter: '↩',
+  Backspace: '⌫',
+  Delete: '⌦',
+  Escape: '⎋',
+  Tab: '⇥',
+  Plus: '+',
+};
+
+/**
+ * Human-readable binding: mac-style glyph run ('⌘⇧K') on darwin,
+ * 'Ctrl+Shift+K' elsewhere. Returns '' for unparsable input.
+ */
+function formatAccelerator(accelerator, platform) {
+  const parsed = parseAccelerator(accelerator, platform);
+  if (!parsed) return '';
+  const key = parsed.key.length === 1 ? parsed.key.toUpperCase() : parsed.key;
+
+  if (platform === 'darwin') {
+    let out = '';
+    if (parsed.ctrl) out += MAC_MODIFIER_GLYPHS.ctrl;
+    if (parsed.alt) out += MAC_MODIFIER_GLYPHS.alt;
+    if (parsed.shift) out += MAC_MODIFIER_GLYPHS.shift;
+    if (parsed.meta) out += MAC_MODIFIER_GLYPHS.meta;
+    return out + (MAC_KEY_GLYPHS[key] || key);
+  }
+
+  const parts = [];
+  if (parsed.ctrl) parts.push('Ctrl');
+  if (parsed.alt) parts.push('Alt');
+  if (parsed.shift) parts.push('Shift');
+  if (parsed.meta) parts.push('Super');
+  parts.push(key === 'Plus' ? '+' : key);
+  return parts.join('+');
+}
+
 module.exports = {
   SHORTCUTS,
   canonicalKey,
@@ -393,4 +598,12 @@ module.exports = {
   getShortcutById,
   getDefaultAccelerator,
   getAliasAccelerators,
+  normalizeAccelerator,
+  isReservedAccelerator,
+  acceleratorFromEvent,
+  validateBinding,
+  getEffectiveAccelerator,
+  findConflict,
+  sanitizeOverrides,
+  formatAccelerator,
 };

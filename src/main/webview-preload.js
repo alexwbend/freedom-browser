@@ -291,6 +291,25 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   ),
   relaunchApp: guardInternal('relaunchApp', () => ipcRenderer.send('app:relaunch')),
 
+  // Keyboard shortcuts (Settings > Shortcuts). Reads are internal-page
+  // wide; anything that changes bindings is settings-only, matching the
+  // profile-write guards. previewShortcutBinding is a pure computation
+  // (validation + conflict lookup for a captured keydown) but only the
+  // settings page has any business calling it.
+  getShortcuts: guardInternal('getShortcuts', () => ipcRenderer.invoke('shortcuts:get-state')),
+  previewShortcutBinding: guardSettingsPage('previewShortcutBinding', (payload) =>
+    ipcRenderer.invoke('shortcuts:preview-binding', payload)
+  ),
+  setShortcutOverride: guardSettingsPage('setShortcutOverride', (payload) =>
+    ipcRenderer.invoke('shortcuts:set-override', payload)
+  ),
+  resetShortcut: guardSettingsPage('resetShortcut', (id) =>
+    ipcRenderer.invoke('shortcuts:reset', { id })
+  ),
+  resetAllShortcuts: guardSettingsPage('resetAllShortcuts', () =>
+    ipcRenderer.invoke('shortcuts:reset', {})
+  ),
+
   // Platform / environment info needed by settings page
   getPlatform: guardInternal('getPlatform', () => ipcRenderer.invoke('window:get-platform')),
   getActiveProfile: guardInternal('getActiveProfile', () =>

@@ -10,14 +10,35 @@ const {
 const { getActiveProfile, listProfilesForActiveApp } = require('./profile-resolver');
 const { openOrFocusProfile } = require('./profile-launcher');
 const IPC = require('../shared/ipc-channels');
-const { getDefaultAccelerator, getAliasAccelerators } = require('../shared/shortcuts');
+const { getEffectiveAccelerator, getAliasAccelerators } = require('../shared/shortcuts');
+const { loadSettings, onSettingsChanged } = require('./settings-store');
 
 // Every menu accelerator comes from the shared shortcut registry
 // (src/shared/shortcuts.js) — menu.test.js rejects accelerator literals in
-// this file so new shortcuts land in the registry first.
-const acc = (id, platform = process.platform) => getDefaultAccelerator(id, platform);
+// this file so new shortcuts land in the registry first. `acc` resolves the
+// per-profile override (Settings > Shortcuts) over the registry default;
+// aliases are fixed and never remapped.
+const currentOverrides = () => {
+  try {
+    return loadSettings()?.shortcutOverrides || {};
+  } catch {
+    return {};
+  }
+};
+const acc = (id, platform = process.platform) =>
+  getEffectiveAccelerator(id, currentOverrides(), platform);
 const aliasAcc = (id, index, platform = process.platform) =>
   getAliasAccelerators(id, platform)[index];
+
+// Rebuild the application menu when the user remaps shortcuts so the new
+// accelerators take effect without a restart.
+onSettingsChanged((merged, previous) => {
+  const before = JSON.stringify(previous?.shortcutOverrides || {});
+  const after = JSON.stringify(merged?.shortcutOverrides || {});
+  if (before !== after) {
+    setupApplicationMenu();
+  }
+});
 
 // Helper to get the best target window for tab operations
 // Only returns main browser windows we created (not DevTools or other system windows)

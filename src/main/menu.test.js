@@ -10,6 +10,12 @@ function loadMenuModule(platform, options = {}) {
   };
   const openOrFocusProfile = options.openOrFocusProfile || jest.fn();
 
+  // In-memory settings so menu accelerators resolve overrides without
+  // touching a real settings.json; settingsListeners captures the menu's
+  // rebuild-on-remap subscription.
+  const settings = { shortcutOverrides: options.shortcutOverrides || {} };
+  const settingsListeners = [];
+
   const { mod, dialog } = loadMainModule(require.resolve('./menu'), {
     electronOverrides: {
       Menu: {
@@ -43,19 +49,45 @@ function loadMenuModule(platform, options = {}) {
       [require.resolve('./profile-launcher')]: () => ({
         openOrFocusProfile,
       }),
+      [require.resolve('./settings-store')]: () => ({
+        loadSettings: () => settings,
+        onSettingsChanged: (listener) => {
+          settingsListeners.push(listener);
+          return () => {};
+        },
+      }),
     },
   });
 
   const originalPlatform = process.platform;
   Object.defineProperty(process, 'platform', { value: platform });
 
+  // Keep the mocked platform active for the returned emitter too — the
+  // rebuild path resolves accelerators against process.platform.
+  const restorePlatform = () =>
+    Object.defineProperty(process, 'platform', { value: originalPlatform });
+
+  const emitSettingsChanged = (merged, previous) => {
+    settings.shortcutOverrides = merged.shortcutOverrides || {};
+    for (const listener of settingsListeners) listener(merged, previous);
+  };
+
   try {
     mod.setupApplicationMenu();
   } finally {
-    Object.defineProperty(process, 'platform', { value: originalPlatform });
+    if (!options.keepPlatform) restorePlatform();
   }
 
-  return { capturedTemplate, mod, dialog, openOrFocusProfile };
+  return {
+    get capturedTemplate() {
+      return capturedTemplate;
+    },
+    mod,
+    dialog,
+    openOrFocusProfile,
+    emitSettingsChanged,
+    restorePlatform,
+  };
 }
 
 function findTopLabel(template, label) {
@@ -259,6 +291,42 @@ describe('menu ↔ shortcut registry', () => {
       for (const accelerator of used) {
         expect(registryAccelerators).toContain(accelerator);
       }
+    }
+  });
+
+  test('user overrides replace default accelerators in the built menu', () => {
+    const ctx = loadMenuModule('linux', {
+      shortcutOverrides: { 'tab.new': 'Ctrl+Shift+U' },
+    });
+
+    const file = ctx.capturedTemplate.find((item) => item.label === 'File');
+    const newTab = file.submenu.find((item) => item.id === 'new-tab');
+    expect(newTab.accelerator).toBe('Ctrl+Shift+U');
+
+    // Untouched shortcuts keep their registry defaults.
+    const closeTab = file.submenu.find((item) => item.id === 'close-tab');
+    expect(closeTab.accelerator).toBe('CmdOrCtrl+W');
+  });
+
+  test('the menu rebuilds when shortcut overrides change and not otherwise', () => {
+    const ctx = loadMenuModule('linux', { keepPlatform: true });
+    try {
+      const before = ctx.capturedTemplate;
+
+      // Unrelated settings change → no rebuild.
+      ctx.emitSettingsChanged({ theme: 'dark', shortcutOverrides: {} }, { shortcutOverrides: {} });
+      expect(ctx.capturedTemplate).toBe(before);
+
+      // Shortcut remap → rebuild with the new accelerator.
+      ctx.emitSettingsChanged(
+        { shortcutOverrides: { 'tab.new': 'Ctrl+Shift+U' } },
+        { shortcutOverrides: {} }
+      );
+      expect(ctx.capturedTemplate).not.toBe(before);
+      const file = ctx.capturedTemplate.find((item) => item.label === 'File');
+      expect(file.submenu.find((item) => item.id === 'new-tab').accelerator).toBe('Ctrl+Shift+U');
+    } finally {
+      ctx.restorePlatform();
     }
   });
 
