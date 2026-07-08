@@ -6,6 +6,11 @@ All notable changes to Freedom will be documented in this file.
 
 ### Added
 
+- Private windows (`Cmd+Shift+N` / `Ctrl+Shift+N`, File > New Private Window): ephemeral browsing on a per-window in-memory session with dark, badged chrome
+  - No history, favicon-cache, or autocomplete writes; cookies and site data evaporate on close
+  - Downloads are allowed but flagged and drop out of the downloads list when the window closes (files stay on disk); permission prompts work but decisions are session-only
+  - Wallet and `window.ethereum` / `window.swarm` providers are unavailable in private windows (EIP-6963 silent); x402 payment interception is off
+  - Honest private start page: what's protected (local traces) and what isn't (network observers, sites you log into, your IP)
 - Find in page (`Cmd+F` / `Ctrl+F`, also under Edit in the menu): overlay bar over the page with a live match counter, `Enter` / `Shift+Enter` to cycle matches, `Esc` to close
 - Download manager covering every download source, including `bzz://` and `ipfs://` content:
   - Shelf card with live progress and cancel; Open / Show in Folder on completion
