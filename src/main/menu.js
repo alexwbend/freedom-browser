@@ -10,6 +10,14 @@ const {
 const { getActiveProfile, listProfilesForActiveApp } = require('./profile-resolver');
 const { openOrFocusProfile } = require('./profile-launcher');
 const IPC = require('../shared/ipc-channels');
+const { getDefaultAccelerator, getAliasAccelerators } = require('../shared/shortcuts');
+
+// Every menu accelerator comes from the shared shortcut registry
+// (src/shared/shortcuts.js) — menu.test.js rejects accelerator literals in
+// this file so new shortcuts land in the registry first.
+const acc = (id, platform = process.platform) => getDefaultAccelerator(id, platform);
+const aliasAcc = (id, index, platform = process.platform) =>
+  getAliasAccelerators(id, platform)[index];
 
 // Helper to get the best target window for tab operations
 // Only returns main browser windows we created (not DevTools or other system windows)
@@ -153,7 +161,7 @@ function buildFileSubmenu(isMac) {
     {
       id: 'new-tab',
       label: 'New Tab',
-      accelerator: 'CmdOrCtrl+T',
+      accelerator: acc('tab.new'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -164,7 +172,7 @@ function buildFileSubmenu(isMac) {
     {
       id: 'close-tab',
       label: 'Close Tab',
-      accelerator: 'CmdOrCtrl+W',
+      accelerator: acc('tab.close'),
       click: () => {
         const mainWindows = getMainWindows();
         const focusedMainWindow = mainWindows.find((win) => win.isFocused());
@@ -181,7 +189,8 @@ function buildFileSubmenu(isMac) {
   if (!isMac) {
     submenu.push({
       label: 'Close Tab',
-      accelerator: 'Ctrl+F4',
+      // Fixed Ctrl+F4 alias from the registry (win/linux only).
+      accelerator: aliasAcc('tab.close', 0),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -195,7 +204,7 @@ function buildFileSubmenu(isMac) {
     {
       id: 'reopen-closed-tab',
       label: 'Reopen Closed Tab',
-      accelerator: 'CmdOrCtrl+Shift+T',
+      accelerator: acc('tab.reopenClosed'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -207,7 +216,7 @@ function buildFileSubmenu(isMac) {
     {
       id: 'downloads',
       label: 'Downloads',
-      accelerator: 'CmdOrCtrl+Shift+J',
+      accelerator: acc('downloads.show'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -220,7 +229,7 @@ function buildFileSubmenu(isMac) {
     { type: 'separator' },
     {
       label: 'New Window',
-      accelerator: 'CmdOrCtrl+N',
+      accelerator: acc('window.new'),
       click: () => {
         log.info('[menu] New Window clicked');
         createMainWindow();
@@ -242,7 +251,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'reload',
       label: 'Reload This Page',
-      accelerator: 'CmdOrCtrl+R',
+      accelerator: acc('page.reload'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -252,7 +261,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     },
     {
       label: 'Force Reload This Page',
-      accelerator: 'CmdOrCtrl+Shift+R',
+      accelerator: acc('page.hardReload'),
       visible: false,
       click: () => {
         const win = getTargetWindow();
@@ -264,7 +273,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     { type: 'separator' },
     {
       label: 'Focus Address Bar',
-      accelerator: 'CmdOrCtrl+L',
+      accelerator: acc('view.focusAddressBar'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -277,7 +286,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'fullscreen',
       label: fullScreen ? 'Exit Full Screen' : 'Enter Full Screen',
-      accelerator: 'F11',
+      accelerator: acc('view.fullscreen'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -289,7 +298,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'next-tab',
       label: 'Next Tab',
-      accelerator: 'Ctrl+PageDown',
+      accelerator: acc('tab.next'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -300,7 +309,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'prev-tab',
       label: 'Previous Tab',
-      accelerator: 'Ctrl+PageUp',
+      accelerator: acc('tab.previous'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -311,7 +320,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'move-tab-right',
       label: 'Move Tab Right',
-      accelerator: 'Ctrl+Shift+PageDown',
+      accelerator: acc('tab.moveRight'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -322,7 +331,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'move-tab-left',
       label: 'Move Tab Left',
-      accelerator: 'Ctrl+Shift+PageUp',
+      accelerator: acc('tab.moveLeft'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -336,7 +345,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       label: 'Always Show Bookmarks Bar',
       type: 'checkbox',
       checked: false,
-      accelerator: 'CmdOrCtrl+Shift+B',
+      accelerator: acc('view.toggleBookmarksBar'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -348,7 +357,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     {
       id: 'toggle-devtools',
       label: 'Developer Tools',
-      accelerator: 'CmdOrCtrl+Alt+I',
+      accelerator: acc('devtools.toggle'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -362,7 +371,7 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
     submenu.push({
       id: 'toggle-app-devtools',
       label: 'App Developer Tools',
-      accelerator: 'CmdOrCtrl+Shift+Alt+I',
+      accelerator: acc('devtools.toggleApp'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -375,11 +384,11 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
   return submenu;
 }
 
-function buildHistorySubmenu(isMac) {
+function buildHistorySubmenu() {
   return [
     {
       label: 'Show All History',
-      accelerator: isMac ? 'Cmd+Y' : 'Ctrl+H',
+      accelerator: acc('history.showAll'),
       click: () => {
         const win = getTargetWindow();
         if (win) {
@@ -397,7 +406,7 @@ function buildFindMenuItem() {
   return {
     id: 'find-in-page',
     label: 'Find in Page...',
-    accelerator: 'CmdOrCtrl+F',
+    accelerator: acc('page.findInPage'),
     click: () => {
       const win = getTargetWindow();
       if (win) {
@@ -467,7 +476,7 @@ function buildSharedMenuEntries(ctx) {
         showAppDevtools: !isPackaged,
       }),
     },
-    { label: 'History', submenu: buildHistorySubmenu(isMac) },
+    { label: 'History', submenu: buildHistorySubmenu() },
     { label: 'Profiles', submenu: buildProfilesSubmenu() },
   ];
 }

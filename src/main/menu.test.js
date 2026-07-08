@@ -1,4 +1,6 @@
+const fs = require('fs');
 const { loadMainModule } = require('../../test/helpers/main-process-test-utils');
+const { SHORTCUTS, getDefaultAccelerator, getAliasAccelerators } = require('../shared/shortcuts');
 
 function loadMenuModule(platform, options = {}) {
   let capturedTemplate = null;
@@ -214,5 +216,62 @@ describe('menu', () => {
     expect(fileIndex).toBeGreaterThanOrEqual(0);
     expect(editIndex).toBe(fileIndex + 1);
     expect(viewIndex).toBeGreaterThan(editIndex);
+  });
+});
+
+describe('menu ↔ shortcut registry', () => {
+  // Collect every explicit accelerator in a built menu template.
+  function collectAccelerators(items, found = []) {
+    for (const item of items || []) {
+      if (item.accelerator !== undefined) {
+        found.push(item.accelerator);
+      }
+      if (Array.isArray(item.submenu)) {
+        collectAccelerators(item.submenu, found);
+      }
+    }
+    return found;
+  }
+
+  test('menu.js carries no accelerator literals — everything resolves through the registry', () => {
+    const source = fs.readFileSync(require.resolve('./menu'), 'utf-8');
+    // Any accelerator assigned from a string (or template/ternary) literal
+    // means a shortcut bypassed src/shared/shortcuts.js. Add the shortcut
+    // to the registry and use acc()/aliasAcc() instead.
+    const literalAccelerator = /accelerator:\s*(['"`]|isMac)/;
+    expect(source).not.toMatch(literalAccelerator);
+    expect(source).toMatch(/require\('\.\.\/shared\/shortcuts'\)/);
+  });
+
+  test('every template accelerator is a registry default or fixed alias', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const registryAccelerators = new Set();
+      for (const entry of SHORTCUTS) {
+        registryAccelerators.add(getDefaultAccelerator(entry, platform));
+        for (const alias of getAliasAccelerators(entry, platform)) {
+          registryAccelerators.add(alias);
+        }
+      }
+
+      const { capturedTemplate } = loadMenuModule(platform);
+      const used = collectAccelerators(capturedTemplate);
+      expect(used.length).toBeGreaterThan(0);
+      for (const accelerator of used) {
+        expect(registryAccelerators).toContain(accelerator);
+      }
+    }
+  });
+
+  test('menu-context registry entries all surface in the menu template', () => {
+    // Renderer-only shortcuts (context: 'renderer') have no menu item; every
+    // other entry's default accelerator must appear in the built template on
+    // a platform where the entry applies.
+    const { capturedTemplate } = loadMenuModule('linux');
+    const used = new Set(collectAccelerators(capturedTemplate));
+
+    for (const entry of SHORTCUTS) {
+      if (entry.context === 'renderer') continue;
+      expect(used).toContain(getDefaultAccelerator(entry, 'linux'));
+    }
   });
 });

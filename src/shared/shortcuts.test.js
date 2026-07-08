@@ -1,0 +1,201 @@
+const {
+  SHORTCUTS,
+  parseAccelerator,
+  eventMatchesAccelerator,
+  getShortcutById,
+  getDefaultAccelerator,
+  getAliasAccelerators,
+} = require('./shortcuts');
+
+const PLATFORMS = ['darwin', 'win32', 'linux'];
+
+const keyEvent = (overrides = {}) => ({
+  key: 'a',
+  code: 'KeyA',
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  metaKey: false,
+  ...overrides,
+});
+
+describe('shortcut registry', () => {
+  test('ids are unique and entries carry the required fields', () => {
+    const ids = SHORTCUTS.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+
+    for (const entry of SHORTCUTS) {
+      expect(typeof entry.id).toBe('string');
+      expect(entry.description.length).toBeGreaterThan(0);
+      expect(['menu', 'renderer', 'both']).toContain(entry.context);
+      expect(typeof entry.category).toBe('string');
+      expect(typeof entry.editable).toBe('boolean');
+    }
+  });
+
+  test('every default accelerator parses on every platform', () => {
+    for (const entry of SHORTCUTS) {
+      for (const platform of PLATFORMS) {
+        const accelerator = getDefaultAccelerator(entry, platform);
+        expect(accelerator).toBeTruthy();
+        expect(parseAccelerator(accelerator, platform)).not.toBeNull();
+      }
+    }
+  });
+
+  test('every alias accelerator parses on its platforms', () => {
+    for (const entry of SHORTCUTS) {
+      for (const platform of PLATFORMS) {
+        for (const alias of getAliasAccelerators(entry, platform)) {
+          expect(parseAccelerator(alias, platform)).not.toBeNull();
+        }
+      }
+    }
+  });
+
+  test('getShortcutById resolves known ids and rejects unknown ones', () => {
+    expect(getShortcutById('tab.new')?.description).toBe('New Tab');
+    expect(getShortcutById('nope')).toBeNull();
+  });
+
+  test('platform-map defaults resolve per platform with `other` fallback', () => {
+    expect(getDefaultAccelerator('history.showAll', 'darwin')).toBe('Cmd+Y');
+    expect(getDefaultAccelerator('history.showAll', 'win32')).toBe('Ctrl+H');
+    expect(getDefaultAccelerator('history.showAll', 'linux')).toBe('Ctrl+H');
+  });
+
+  test('aliases filter by platform', () => {
+    expect(getAliasAccelerators('tab.close', 'win32')).toEqual(['Ctrl+F4']);
+    expect(getAliasAccelerators('tab.close', 'linux')).toEqual(['Ctrl+F4']);
+    expect(getAliasAccelerators('tab.close', 'darwin')).toEqual([]);
+    expect(getAliasAccelerators('tab.next', 'darwin')).toEqual(['Ctrl+Tab', 'Cmd+Shift+]']);
+    expect(getAliasAccelerators('tab.next', 'linux')).toEqual(['Ctrl+Tab']);
+  });
+});
+
+describe('parseAccelerator', () => {
+  test('resolves CmdOrCtrl to meta on macOS and ctrl elsewhere', () => {
+    expect(parseAccelerator('CmdOrCtrl+T', 'darwin')).toEqual({
+      key: 't',
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: true,
+    });
+    expect(parseAccelerator('CmdOrCtrl+T', 'linux')).toEqual({
+      key: 't',
+      ctrl: true,
+      alt: false,
+      shift: false,
+      meta: false,
+    });
+    expect(parseAccelerator('CommandOrControl+T', 'win32').ctrl).toBe(true);
+  });
+
+  test('parses multi-modifier combos and named keys', () => {
+    expect(parseAccelerator('Ctrl+Shift+PageDown', 'linux')).toEqual({
+      key: 'PageDown',
+      ctrl: true,
+      alt: false,
+      shift: true,
+      meta: false,
+    });
+    expect(parseAccelerator('Cmd+Alt+I', 'darwin')).toEqual({
+      key: 'i',
+      ctrl: false,
+      alt: true,
+      shift: false,
+      meta: true,
+    });
+    expect(parseAccelerator('F11', 'win32')).toEqual({
+      key: 'F11',
+      ctrl: false,
+      alt: false,
+      shift: false,
+      meta: false,
+    });
+  });
+
+  test('rejects malformed accelerators', () => {
+    expect(parseAccelerator('', 'linux')).toBeNull();
+    expect(parseAccelerator('Ctrl+', 'linux')).toBeNull();
+    expect(parseAccelerator('Ctrl+K+J', 'linux')).toBeNull();
+    expect(parseAccelerator('Ctrl+Shift', 'linux')).toBeNull();
+    expect(parseAccelerator(null, 'linux')).toBeNull();
+  });
+});
+
+describe('eventMatchesAccelerator', () => {
+  test('maps CmdOrCtrl per platform', () => {
+    const cmdT = keyEvent({ key: 't', code: 'KeyT', metaKey: true });
+    const ctrlT = keyEvent({ key: 't', code: 'KeyT', ctrlKey: true });
+
+    expect(eventMatchesAccelerator(cmdT, 'CmdOrCtrl+T', 'darwin')).toBe(true);
+    expect(eventMatchesAccelerator(ctrlT, 'CmdOrCtrl+T', 'darwin')).toBe(false);
+    expect(eventMatchesAccelerator(ctrlT, 'CmdOrCtrl+T', 'linux')).toBe(true);
+    expect(eventMatchesAccelerator(cmdT, 'CmdOrCtrl+T', 'win32')).toBe(false);
+  });
+
+  test('is strict about extra modifiers (Cmd+Shift+W is not Cmd+W)', () => {
+    const cmdShiftW = keyEvent({ key: 'W', code: 'KeyW', metaKey: true, shiftKey: true });
+    expect(eventMatchesAccelerator(cmdShiftW, 'CmdOrCtrl+W', 'darwin')).toBe(false);
+    expect(eventMatchesAccelerator(cmdShiftW, 'CmdOrCtrl+Shift+W', 'darwin')).toBe(true);
+
+    const ctrlAltT = keyEvent({ key: 't', code: 'KeyT', ctrlKey: true, altKey: true });
+    expect(eventMatchesAccelerator(ctrlAltT, 'CmdOrCtrl+T', 'linux')).toBe(false);
+  });
+
+  test('matches letters case-insensitively (Shift produces uppercase keys)', () => {
+    const upper = keyEvent({ key: 'T', code: 'KeyT', ctrlKey: true, shiftKey: true });
+    expect(eventMatchesAccelerator(upper, 'Ctrl+Shift+T', 'linux')).toBe(true);
+  });
+
+  test('matches named keys and function keys', () => {
+    expect(
+      eventMatchesAccelerator(
+        keyEvent({ key: 'Tab', code: 'Tab', ctrlKey: true }),
+        'Ctrl+Tab',
+        'linux'
+      )
+    ).toBe(true);
+    expect(eventMatchesAccelerator(keyEvent({ key: 'F11', code: 'F11' }), 'F11', 'win32')).toBe(
+      true
+    );
+    expect(
+      eventMatchesAccelerator(
+        keyEvent({ key: 'PageDown', code: 'PageDown', ctrlKey: true, shiftKey: true }),
+        'Ctrl+Shift+PageDown',
+        'darwin'
+      )
+    ).toBe(true);
+  });
+
+  test('matches shifted punctuation via the physical key code', () => {
+    // On layouts where Shift+] produces '}', the physical code still says
+    // BracketRight — Cmd+Shift+] must match either representation.
+    const shifted = keyEvent({
+      key: '}',
+      code: 'BracketRight',
+      metaKey: true,
+      shiftKey: true,
+    });
+    const unshifted = keyEvent({
+      key: ']',
+      code: 'BracketRight',
+      metaKey: true,
+      shiftKey: true,
+    });
+    expect(eventMatchesAccelerator(shifted, 'Cmd+Shift+]', 'darwin')).toBe(true);
+    expect(eventMatchesAccelerator(unshifted, 'Cmd+Shift+]', 'darwin')).toBe(true);
+  });
+
+  test('a bare modifier keydown matches nothing', () => {
+    const bareShift = keyEvent({ key: 'Shift', code: 'ShiftLeft', shiftKey: true });
+    expect(eventMatchesAccelerator(bareShift, 'Shift+T', 'linux')).toBe(false);
+  });
+
+  test('handles missing code gracefully (synthetic events)', () => {
+    const noCode = { key: 'f', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false };
+    expect(eventMatchesAccelerator(noCode, 'CmdOrCtrl+F', 'darwin')).toBe(true);
+  });
+});

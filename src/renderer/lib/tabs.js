@@ -9,6 +9,7 @@ import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
 import { setupRadicleProvider } from './radicle-provider.js';
 import { closeFindBar, notifyFindBarNavigated } from './find-bar.js';
+import { matchesShortcut } from './shortcuts.js';
 import {
   clearLinkStatus,
   clearHoverStatus,
@@ -1745,15 +1746,18 @@ export const initTabs = async () => {
     reopenLastClosedTab();
   });
 
-  // Keyboard shortcuts (fallback for when menu doesn't handle it)
+  // Keyboard shortcuts (fallback for when menu doesn't handle it).
+  // Every binding resolves through the shared shortcut registry — including
+  // fixed aliases (Ctrl+Tab, Ctrl+F4, F12, …) and any user remaps, which
+  // apply live via settings:updated.
   window.addEventListener('keydown', (event) => {
-    // Cmd+T - New tab (exclude Shift to avoid conflict with Cmd+Shift+T)
-    if (event.metaKey && !event.shiftKey && event.key.toLowerCase() === 't') {
+    // New tab
+    if (matchesShortcut(event, 'tab.new')) {
       event.preventDefault();
       createTab(homeUrl);
     }
-    // Cmd+W - Close tab (skip pinned tabs)
-    if (event.metaKey && event.key.toLowerCase() === 'w') {
+    // Close tab (skip pinned tabs)
+    if (matchesShortcut(event, 'tab.close')) {
       event.preventDefault();
       if (tabState.activeTabId) {
         const activeTab = tabState.tabs.find((t) => t.id === tabState.activeTabId);
@@ -1762,16 +1766,13 @@ export const initTabs = async () => {
         }
       }
     }
-    // Cmd+Option+I (Mac) or Ctrl+Shift+I (Win/Linux) - Toggle DevTools
-    if (
-      (event.metaKey && event.altKey && event.key.toLowerCase() === 'i') ||
-      (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'i')
-    ) {
+    // Toggle DevTools (Cmd/Ctrl+Alt+I, Ctrl+Shift+I, F12)
+    if (matchesShortcut(event, 'devtools.toggle')) {
       event.preventDefault();
       toggleDevTools();
     }
-    // Cmd+L (Mac) or Ctrl+L (Win/Linux) - Focus address bar
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
+    // Focus address bar
+    if (matchesShortcut(event, 'view.focusAddressBar')) {
       event.preventDefault();
       const addressInput = document.getElementById('address-input');
       if (addressInput) {
@@ -1779,60 +1780,35 @@ export const initTabs = async () => {
         addressInput.select();
       }
     }
-    // Ctrl+Tab / Ctrl+PageDown - Next tab (all platforms)
-    // Cmd+Shift+] - Next tab (macOS alternative)
-    if (
-      (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) ||
-      (event.ctrlKey && event.key === 'PageDown' && !event.shiftKey) ||
-      (event.metaKey && event.shiftKey && event.key === ']')
-    ) {
+    // Next tab (Ctrl+PageDown; aliases Ctrl+Tab, Cmd+Shift+])
+    if (matchesShortcut(event, 'tab.next')) {
       event.preventDefault();
       switchToNextTab();
     }
-    // Ctrl+Shift+Tab / Ctrl+PageUp - Previous tab (all platforms)
-    // Cmd+Shift+[ - Previous tab (macOS alternative)
-    if (
-      (event.ctrlKey && event.key === 'Tab' && event.shiftKey) ||
-      (event.ctrlKey && event.key === 'PageUp' && !event.shiftKey) ||
-      (event.metaKey && event.shiftKey && event.key === '[')
-    ) {
+    // Previous tab (Ctrl+PageUp; aliases Ctrl+Shift+Tab, Cmd+Shift+[)
+    if (matchesShortcut(event, 'tab.previous')) {
       event.preventDefault();
       switchToPrevTab();
     }
-    // Ctrl+Shift+PageDown - Move tab right
-    if (event.ctrlKey && event.shiftKey && event.key === 'PageDown') {
+    // Move tab right
+    if (matchesShortcut(event, 'tab.moveRight')) {
       event.preventDefault();
       moveTab('right');
     }
-    // Ctrl+Shift+PageUp - Move tab left
-    if (event.ctrlKey && event.shiftKey && event.key === 'PageUp') {
+    // Move tab left
+    if (matchesShortcut(event, 'tab.moveLeft')) {
       event.preventDefault();
       moveTab('left');
     }
-    // Ctrl+F4 - Close tab (Windows/Linux)
-    if (event.ctrlKey && event.key === 'F4') {
-      event.preventDefault();
-      if (tabState.activeTabId) {
-        const activeTab = tabState.tabs.find((t) => t.id === tabState.activeTabId);
-        if (activeTab && !activeTab.pinned) {
-          closeTab(tabState.activeTabId);
-        }
-      }
-    }
-    // Cmd+Shift+T / Ctrl+Shift+T - Reopen closed tab
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 't') {
+    // Reopen closed tab
+    if (matchesShortcut(event, 'tab.reopenClosed')) {
       event.preventDefault();
       reopenLastClosedTab();
     }
-    // F11 - Toggle fullscreen
-    if (event.key === 'F11') {
+    // Toggle fullscreen
+    if (matchesShortcut(event, 'view.fullscreen')) {
       event.preventDefault();
       electronAPI?.toggleFullscreen?.();
-    }
-    // F12 - Toggle DevTools
-    if (event.key === 'F12') {
-      event.preventDefault();
-      toggleDevTools();
     }
   });
 
