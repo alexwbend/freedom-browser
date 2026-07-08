@@ -289,6 +289,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Home**: Return to the welcome page.
 - **Keyboard Shortcuts** (defaults; remap them under Settings > Shortcuts — click a binding, press the new combination, changes apply immediately; `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
   - `Cmd+N` / `Ctrl+N`: New window
+  - `Cmd+Shift+N` / `Ctrl+Shift+N`: New private window
   - `Cmd+T` / `Ctrl+T`: New tab
   - `Cmd+W` / `Ctrl+W` / `Ctrl+F4`: Close tab
   - `Cmd+Shift+T` / `Ctrl+Shift+T`: Reopen last closed tab
@@ -320,6 +321,15 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Recording**: Pages are recorded as you browse.
 - **History Page**: View and search your browsing history at `freedom://history`.
+
+### Private Windows
+
+- **Open**: `Cmd+Shift+N` / `Ctrl+Shift+N` or File > New Private Window. Private windows have a dark, badged chrome so they're recognisable at a glance.
+- **Ephemeral by construction**: Every private window runs its webviews on a unique in-memory session (`private-<uuid>` partition, never written to disk). Cookies, logins, caches, and site data evaporate when the window closes.
+- **No local traces**: Nothing browsed in a private window is written to history, the favicon cache, or address-bar autocomplete. Downloads still work, but their entries disappear from the downloads list when the window closes (saved files stay on disk). Site-permission decisions made in a private window last only as long as the window — never remembered, even if you tick "remember".
+- **Wallet disabled**: Your identity and wallet are persistent by design, so they are unavailable in private windows — pages see no `window.ethereum` / `window.swarm` / `window.radicle` (nothing announces via EIP-6963), and x402 pay-per-request interception is off. Use a normal window for anything wallet-related.
+- **Decentralized protocols still work**: `bzz://`, `ipfs://`, `ipns://`, and ENS names resolve and load through the shared local nodes. Publishing (which records publish history) is unavailable from private windows.
+- **What private windows do NOT protect**: This is local privacy, not anonymity. Websites you sign in to still know it's you; your network operator can still see your traffic; Swarm/IPFS/Radicle peers still see your nodes' requests; and your IP address remains visible to every site and peer. The private new-tab page spells this out.
 
 ### Downloads
 
