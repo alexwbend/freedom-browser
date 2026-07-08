@@ -381,3 +381,124 @@ describe('downloads-manager', () => {
     expect(item.savePath).toBe(path.join(downloadsDir, 'dup (1).txt'));
   });
 });
+
+// PRIVATE MODE GUARD coverage: the will-download hook must cover private
+// partitions' sessions too, flag their rows, and never let private rows
+// survive a restart.
+describe('downloads-manager private sessions', () => {
+  let userDataDir;
+  let downloadsDir;
+  let ipcMain;
+  let ownerWindow;
+  let mod;
+  let store;
+
+  const load = () => {
+    ipcMain = createIpcMainMock();
+    ownerWindow = {
+      isDestroyed: () => false,
+      webContents: { send: jest.fn() },
+    };
+    ({ mod } = loadMainModule(require.resolve('./downloads-manager'), {
+      userDataDir,
+      appPaths: { userData: userDataDir, downloads: downloadsDir },
+      ipcMain,
+      electronOverrides: {
+        shell: { openPath: jest.fn(async () => ''), showItemInFolder: jest.fn() },
+        BrowserWindow: {
+          getAllWindows: jest.fn(() => [ownerWindow]),
+          fromWebContents: jest.fn(() => ownerWindow),
+        },
+        webContents: { getAllWebContents: jest.fn(() => []) },
+      },
+      extraMocks: {
+        'better-sqlite3': () => FakeBetterSqlite3DownloadsDatabase,
+      },
+    }));
+    // Same jest module registry → the exact store instance the manager uses.
+    store = require('./downloads-store');
+  };
+
+  beforeEach(() => {
+    userDataDir = createTempUserDataDir();
+    downloadsDir = path.join(userDataDir, 'downloads');
+    load();
+  });
+
+  afterEach(() => {
+    store.closeDb();
+    removeTempUserDataDir(userDataDir);
+  });
+
+  test('will-download on a private session records a private-flagged row', async () => {
+    const defaultSession = new EventEmitter();
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(defaultSession);
+    mod.attachDownloadsManager(privateSession, { privatePartition: 'private-e2e' });
+    mod.registerDownloadsIpc();
+
+    const privateItem = new FakeDownloadItem({
+      url: 'https://example.com/secret.bin',
+      filename: 'secret.bin',
+    });
+    privateSession.emit('will-download', {}, privateItem, { hostWebContents: { id: 7 } });
+
+    const normalItem = new FakeDownloadItem({
+      url: 'https://example.com/public.bin',
+      filename: 'public.bin',
+    });
+    defaultSession.emit('will-download', {}, normalItem, { hostWebContents: { id: 7 } });
+
+    const rows = await ipcMain.invoke(IPC.DOWNLOADS_GET, {});
+    const privateRow = rows.find((r) => r.filename === 'secret.bin');
+    const normalRow = rows.find((r) => r.filename === 'public.bin');
+    expect(privateRow).toEqual(
+      expect.objectContaining({ is_private: 1, session_partition: 'private-e2e' })
+    );
+    expect(normalRow).toEqual(
+      expect.objectContaining({ is_private: 0, session_partition: null })
+    );
+
+    // Shelf payload for the owning window also carries the flag.
+    const shelfPayloads = ownerWindow.webContents.send.mock.calls
+      .filter(([channel]) => channel === IPC.DOWNLOADS_UPDATED)
+      .map(([, payload]) => payload);
+    expect(shelfPayloads.some((p) => p.is_private === 1)).toBe(true);
+  });
+
+  test('closing the private window purges its rows; files stay untouched', () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: 'private-gone' });
+
+    const item = new FakeDownloadItem({
+      url: 'https://example.com/a.bin',
+      filename: 'a.bin',
+    });
+    privateSession.emit('will-download', {}, item, { hostWebContents: { id: 7 } });
+    item.emit('done', {}, 'completed');
+
+    expect(store.getDownloadCount()).toBe(1);
+    // This is the cleanup hook src/main/index.js registers for window close.
+    expect(store.removeDownloadsForPartition('private-gone')).toBe(1);
+    expect(store.getDownloadCount()).toBe(0);
+  });
+
+  test('registerDownloadsIpc sweeps stale private rows from a previous run', () => {
+    store.insertDownload({
+      url: 'https://example.com/stale.bin',
+      filename: 'stale.bin',
+      isPrivate: true,
+      partition: 'private-crashed',
+    });
+    store.insertDownload({
+      url: 'https://example.com/keep.bin',
+      filename: 'keep.bin',
+    });
+
+    mod.registerDownloadsIpc();
+
+    const rows = store.getAllDownloads();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].filename).toBe('keep.bin');
+  });
+});

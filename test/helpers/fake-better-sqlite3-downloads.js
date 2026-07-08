@@ -16,8 +16,8 @@ const matchesLike = (value, pattern) =>
 
 const INSERT_NORM = norm(`INSERT INTO downloads (
   url, filename, save_path, mime_type, total_bytes, received_bytes,
-  state, start_time, end_time
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  state, start_time, end_time, is_private, session_partition
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
 const UPDATE_NORM = norm(`UPDATE downloads SET
   received_bytes = COALESCE(?, received_bytes),
@@ -39,6 +39,8 @@ const SWEEP_NORM = norm(
   `UPDATE downloads SET state = 'interrupted', end_time = ? WHERE state = 'in_progress'`
 );
 const COUNT_NORM = norm(`SELECT COUNT(*) as count FROM downloads`);
+const REMOVE_FOR_PARTITION_NORM = norm(`DELETE FROM downloads WHERE session_partition = ?`);
+const REMOVE_ALL_PRIVATE_NORM = norm(`DELETE FROM downloads WHERE is_private = 1`);
 
 class FakeBetterSqlite3DownloadsDatabase {
   constructor(filePath) {
@@ -81,7 +83,9 @@ class FakeBetterSqlite3DownloadsDatabase {
           receivedBytes,
           state,
           startTime,
-          endTime
+          endTime,
+          isPrivate,
+          sessionPartition
         ) => {
           const row = {
             id: this.nextId++,
@@ -94,6 +98,8 @@ class FakeBetterSqlite3DownloadsDatabase {
             state,
             start_time: startTime,
             end_time: endTime,
+            is_private: isPrivate,
+            session_partition: sessionPartition,
           };
           this.rows.push(row);
           return { changes: 1, lastInsertRowid: row.id };
@@ -170,6 +176,26 @@ class FakeBetterSqlite3DownloadsDatabase {
             }
           }
           return { changes };
+        },
+      };
+    }
+
+    if (normalized === REMOVE_FOR_PARTITION_NORM) {
+      return {
+        run: (partition) => {
+          const before = this.rows.length;
+          this.rows = this.rows.filter((r) => r.session_partition !== partition);
+          return { changes: before - this.rows.length };
+        },
+      };
+    }
+
+    if (normalized === REMOVE_ALL_PRIVATE_NORM) {
+      return {
+        run: () => {
+          const before = this.rows.length;
+          this.rows = this.rows.filter((r) => r.is_private !== 1);
+          return { changes: before - this.rows.length };
         },
       };
     }

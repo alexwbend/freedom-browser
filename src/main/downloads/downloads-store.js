@@ -86,8 +86,20 @@ function migrateDatabase() {
     db.pragma('user_version = 1');
   }
 
+  if (version < 2) {
+    log.info('[Downloads] Running migration to version 2 (private-window columns)');
+    // Private-window downloads: rows are flagged and carry their window's
+    // ephemeral partition so they can be purged when the window closes.
+    // (`session_partition`, not `partition` — PARTITION is an SQL keyword.)
+    db.exec(`
+      ALTER TABLE downloads ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE downloads ADD COLUMN session_partition TEXT;
+    `);
+    db.pragma('user_version = 2');
+  }
+
   // Future migrations go here:
-  // if (version < 2) { ... db.pragma('user_version = 2'); }
+  // if (version < 3) { ... db.pragma('user_version = 3'); }
 }
 
 // Prepared statements (lazily initialized)
@@ -102,8 +114,8 @@ function getStatements() {
     insert: database.prepare(`
       INSERT INTO downloads (
         url, filename, save_path, mime_type, total_bytes, received_bytes,
-        state, start_time, end_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        state, start_time, end_time, is_private, session_partition
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     update: database.prepare(`
       UPDATE downloads SET
@@ -135,6 +147,12 @@ function getStatements() {
     sweepStale: database.prepare(`
       UPDATE downloads SET state = 'interrupted', end_time = ? WHERE state = 'in_progress'
     `),
+    removeForPartition: database.prepare(`
+      DELETE FROM downloads WHERE session_partition = ?
+    `),
+    removeAllPrivate: database.prepare(`
+      DELETE FROM downloads WHERE is_private = 1
+    `),
     count: database.prepare(`
       SELECT COUNT(*) as count FROM downloads
     `),
@@ -149,8 +167,9 @@ function getStatements() {
  * @returns {object} The inserted row shape (with id)
  */
 function insertDownload(entry) {
-  const { url, filename, savePath, mimeType, totalBytes, startTime } = entry;
+  const { url, filename, savePath, mimeType, totalBytes, startTime, isPrivate, partition } = entry;
   const start = startTime || Date.now();
+  const privateFlag = isPrivate ? 1 : 0;
 
   const stmt = getStatements().insert;
   const result = stmt.run(
@@ -162,10 +181,12 @@ function insertDownload(entry) {
     0,
     STATES.IN_PROGRESS,
     start,
-    null
+    null,
+    privateFlag,
+    partition || null
   );
 
-  log.info('[Downloads] Recorded download start:', filename);
+  log.info('[Downloads] Recorded download start:', filename, privateFlag ? '(private)' : '');
 
   return {
     id: result.lastInsertRowid,
@@ -178,6 +199,8 @@ function insertDownload(entry) {
     state: STATES.IN_PROGRESS,
     start_time: start,
     end_time: null,
+    is_private: privateFlag,
+    session_partition: partition || null,
   };
 }
 
@@ -255,6 +278,39 @@ function clearDownloads() {
 }
 
 /**
+ * PRIVATE MODE GUARD (downloads history): remove every download-history row
+ * recorded by the private window on `partition`. Called when that window
+ * closes. Never touches files on disk — Chromium semantics: the download
+ * stays, the history entry evaporates with the window.
+ * @param {string} partition - The window's `private-<uuid>` partition
+ * @returns {number} Number of rows removed
+ */
+function removeDownloadsForPartition(partition) {
+  if (!partition) return 0;
+  const stmt = getStatements().removeForPartition;
+  const result = stmt.run(partition);
+  if (result.changes > 0) {
+    log.info('[Downloads] Purged', result.changes, 'private download entries for closed window');
+  }
+  return result.changes;
+}
+
+/**
+ * PRIVATE MODE GUARD (downloads history): startup sweep. Private rows must
+ * never survive a restart (a crash can skip the on-close purge); drop any
+ * that did. Files on disk are untouched.
+ * @returns {number} Number of rows removed
+ */
+function removeAllPrivateDownloads() {
+  const stmt = getStatements().removeAllPrivate;
+  const result = stmt.run();
+  if (result.changes > 0) {
+    log.info('[Downloads] Purged', result.changes, 'stale private download entries at startup');
+  }
+  return result.changes;
+}
+
+/**
  * Sweep rows left 'in_progress' by a previous run (crash / force quit) to
  * 'interrupted'. Call once at startup, before any UI reads the table.
  * @returns {number} Number of rows swept
@@ -289,6 +345,8 @@ module.exports = {
   getDownloadById,
   removeDownload,
   clearDownloads,
+  removeDownloadsForPartition,
+  removeAllPrivateDownloads,
   markStaleInProgressAsInterrupted,
   getDownloadCount,
 };

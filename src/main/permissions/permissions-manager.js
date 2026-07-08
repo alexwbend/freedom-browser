@@ -46,6 +46,15 @@ const MEDIA_TYPE_KEYS = {
 // Map<origin, Map<storageKey, 'allow'|'deny'>>. Never persisted.
 const sessionDecisions = new Map();
 
+// PRIVATE MODE GUARD (permissions): decisions made in private windows are
+// scoped to that window's ephemeral partition and NEVER persisted — even
+// when the user ticks "remember". Map<partition, Map<origin, Map<key,
+// decision>>>, dropped via clearPrivateDecisions() when the window closes.
+// Reads still consult the persistent store first (a profile-level
+// allow/deny applies inside private windows, mirroring Chromium's
+// incognito content-settings inheritance), but nothing flows back.
+const privateDecisions = new Map();
+
 // Per-window prompt queues: Map<hostWebContentsId, {host, active, queue: []}>
 const hostQueues = new Map();
 
@@ -122,6 +131,29 @@ function setSessionDecision(origin, key, decision) {
   sessionDecisions.get(origin).set(key, decision);
 }
 
+function getPrivateDecision(partition, origin, key) {
+  return privateDecisions.get(partition)?.get(origin)?.get(key) || null;
+}
+
+function setPrivateDecision(partition, origin, key, decision) {
+  if (!privateDecisions.has(partition)) {
+    privateDecisions.set(partition, new Map());
+  }
+  const origins = privateDecisions.get(partition);
+  if (!origins.has(origin)) {
+    origins.set(origin, new Map());
+  }
+  origins.get(origin).set(key, decision);
+}
+
+/**
+ * Drop every decision made inside the private window on `partition`.
+ * Called from the private-window close cleanup (src/main/index.js).
+ */
+function clearPrivateDecisions(partition) {
+  return privateDecisions.delete(partition);
+}
+
 function clearSessionDecision(origin, key) {
   const map = sessionDecisions.get(origin);
   if (!map) return;
@@ -134,10 +166,16 @@ function clearSessionDecision(origin, key) {
 }
 
 /**
- * Effective decision for origin+key: persistent store first, then
- * session-only. Returns 'allow' | 'deny' | null.
+ * Effective decision for origin+key: persistent store first, then the
+ * run-scoped decisions. Private windows read their own partition-scoped
+ * decisions instead of the normal-window session decisions (a "this
+ * session" answer in a normal window must not leak into private, and
+ * vice versa). Returns 'allow' | 'deny' | null.
  */
-function getEffectiveDecision(origin, key) {
+function getEffectiveDecision(origin, key, privatePartition = null) {
+  if (privatePartition) {
+    return store.getDecision(origin, key) || getPrivateDecision(privatePartition, origin, key);
+  }
   return store.getDecision(origin, key) || getSessionDecision(origin, key);
 }
 
@@ -260,9 +298,9 @@ function sendNextPrompt(state) {
  * Queue a prompt on the requesting window. Coalesces with an existing
  * pending prompt for the same origin + key set.
  */
-function enqueuePrompt({ host, origin, permission, keys, callback }) {
+function enqueuePrompt({ host, origin, permission, keys, callback, privatePartition = null }) {
   const state = getHostQueue(host);
-  const signature = `${origin} ${[...keys].sort().join(',')}`;
+  const signature = `${privatePartition || ''} ${origin} ${[...keys].sort().join(',')}`;
 
   const existing = [state.active, ...state.queue].find(
     (entry) => entry && entry.signature === signature
@@ -279,6 +317,7 @@ function enqueuePrompt({ host, origin, permission, keys, callback }) {
     permission,
     keys,
     signature,
+    privatePartition,
     callbacks: [callback],
   };
   pendingById.set(entry.id, entry);
@@ -306,7 +345,11 @@ function resolvePrompt({ id, decision, remember }) {
 
   if (decision === 'allow' || decision === 'deny') {
     for (const key of entry.keys) {
-      if (remember) {
+      if (entry.privatePartition) {
+        // PRIVATE MODE GUARD (permissions): never persisted, "remember"
+        // included — the decision lives exactly as long as the window.
+        setPrivateDecision(entry.privatePartition, entry.origin, key, decision);
+      } else if (remember) {
         store.setDecision(entry.origin, key, decision);
         // A stale session answer must not shadow future revokes.
         clearSessionDecision(entry.origin, key);
@@ -317,7 +360,11 @@ function resolvePrompt({ id, decision, remember }) {
     broadcastChanged();
     log.info(
       `[permissions] ${decision} ${entry.keys.join('+')} for ${entry.origin}` +
-        (remember ? ' (remembered)' : ' (this session)')
+        (entry.privatePartition
+          ? ' (private window)'
+          : remember
+            ? ' (remembered)'
+            : ' (this session)')
     );
   } else {
     log.info(`[permissions] dismissed ${entry.keys.join('+')} prompt for ${entry.origin}`);
@@ -343,7 +390,7 @@ function resolvePrompt({ id, decision, remember }) {
  * Install the request + check handlers on a session (the default
  * session — webviews carry no `partition` attribute, so they share it).
  */
-function installPermissionHandlers(targetSession) {
+function installPermissionHandlers(targetSession, { privatePartition = null } = {}) {
   if (!targetSession || typeof targetSession.setPermissionRequestHandler !== 'function') {
     return;
   }
@@ -366,7 +413,7 @@ function installPermissionHandlers(targetSession) {
       return;
     }
 
-    const decisions = keys.map((key) => getEffectiveDecision(origin, key));
+    const decisions = keys.map((key) => getEffectiveDecision(origin, key, privatePartition));
 
     if (decisions.some((d) => d === 'deny')) {
       callback(false);
@@ -385,7 +432,7 @@ function installPermissionHandlers(targetSession) {
       return;
     }
 
-    enqueuePrompt({ host, origin, permission, keys, callback });
+    enqueuePrompt({ host, origin, permission, keys, callback, privatePartition });
   });
 
   targetSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
@@ -410,7 +457,7 @@ function installPermissionHandlers(targetSession) {
     const origin = originForRequest(webContents, details, requestingOrigin);
     if (!origin) return false;
 
-    return keys.every((key) => getEffectiveDecision(origin, key) === 'allow');
+    return keys.every((key) => getEffectiveDecision(origin, key, privatePartition) === 'allow');
   });
 }
 
@@ -502,6 +549,7 @@ function registerPermissionsIpc() {
 // Test-only: reset all in-memory state (queues, session decisions).
 function _resetState() {
   sessionDecisions.clear();
+  privateDecisions.clear();
   hostQueues.clear();
   pendingById.clear();
   nextPromptId = 1;
@@ -512,6 +560,7 @@ module.exports = {
   registerPermissionsIpc,
   permissionKeysForRequest,
   getDecisionsForOrigin,
+  clearPrivateDecisions,
   revokeDecision,
   revokeOrigin,
   revokeAll,

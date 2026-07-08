@@ -80,7 +80,7 @@ function uniqueSavePath(dir, filename) {
  * store rows (snake_case columns) so the downloads page renders both the
  * same way, plus live-only flags for pause/resume affordances.
  */
-function serializeDownload(id, item) {
+function serializeDownload(id, item, { isPrivate = false } = {}) {
   return {
     id,
     url: item.getURL(),
@@ -92,6 +92,7 @@ function serializeDownload(id, item) {
     state: store.STATES.IN_PROGRESS,
     is_paused: item.isPaused(),
     can_resume: item.canResume(),
+    is_private: isPrivate ? 1 : 0,
   };
 }
 
@@ -112,10 +113,11 @@ function sendToOwner(ownerWindow, payload) {
   broadcastToAllWebContents(IPC.DOWNLOADS_CHANGED, payload);
 }
 
-function handleWillDownload(_event, item, webContents) {
+function handleWillDownload(item, webContents, { privatePartition = null } = {}) {
   const filename = sanitizeFilename(item.getFilename());
   const settings = loadSettings();
   const downloadsDir = app.getPath('downloads');
+  const isPrivate = !!privatePartition;
 
   if (settings.askWhereToSave === true) {
     // No savePath set → Electron shows its native save dialog; we only seed
@@ -130,6 +132,9 @@ function handleWillDownload(_event, item, webContents) {
     item.setSavePath(uniqueSavePath(downloadsDir, filename));
   }
 
+  // PRIVATE MODE GUARD (downloads): downloads from private windows are
+  // allowed but flagged; their rows are purged when the window closes
+  // (see removeDownloadsForPartition in downloads-store.js).
   const row = store.insertDownload({
     url: item.getURL(),
     filename,
@@ -137,13 +142,15 @@ function handleWillDownload(_event, item, webContents) {
     mimeType: item.getMimeType() || null,
     totalBytes: item.getTotalBytes(),
     startTime: Date.now(),
+    isPrivate,
+    partition: privatePartition,
   });
   const id = row.id;
   activeItems.set(id, item);
 
   const ownerWindow = ownerWindowOf(webContents);
   log.info('[Downloads] Download started:', filename, `(id ${id})`);
-  sendToOwner(ownerWindow, serializeDownload(id, item));
+  sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }));
 
   let lastProgressAt = 0;
   item.on('updated', () => {
@@ -157,7 +164,7 @@ function handleWillDownload(_event, item, webContents) {
       // The save dialog resolves the path after insert; keep the row current.
       savePath: item.getSavePath() || null,
     });
-    sendToOwner(ownerWindow, serializeDownload(id, item));
+    sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }));
   });
 
   item.once('done', (_doneEvent, doneState) => {
@@ -182,7 +189,7 @@ function handleWillDownload(_event, item, webContents) {
 
     log.info('[Downloads] Download', doneState + ':', filename, `(id ${id})`);
     sendToOwner(ownerWindow, {
-      ...serializeDownload(id, item),
+      ...serializeDownload(id, item, { isPrivate }),
       state,
       is_paused: false,
       can_resume: false,
@@ -192,16 +199,25 @@ function handleWillDownload(_event, item, webContents) {
 
 /**
  * Hook `will-download` on the given session. Call once per session that
- * hosts downloadable content (today: the default session only).
+ * hosts downloadable content: the default session at startup, and every
+ * private window's `private-<uuid>` session when it is created (see
+ * src/main/index.js) — private partitions must be covered too, or their
+ * downloads would silently bypass the manager.
  * @param {Electron.Session} targetSession
+ * @param {{ privatePartition?: string|null }} [options] - set for private
+ *   sessions so their rows are flagged and purged on window close
  */
-function attachDownloadsManager(targetSession) {
+function attachDownloadsManager(targetSession, { privatePartition = null } = {}) {
   if (!targetSession || typeof targetSession.on !== 'function') {
     log.warn('[Downloads] session unavailable — skipping will-download hook');
     return;
   }
-  targetSession.on('will-download', handleWillDownload);
-  log.info('[Downloads] will-download hook attached');
+  targetSession.on('will-download', (_event, item, webContents) =>
+    handleWillDownload(item, webContents, { privatePartition })
+  );
+  log.info(
+    '[Downloads] will-download hook attached' + (privatePartition ? ' (private session)' : '')
+  );
 }
 
 /**
@@ -228,6 +244,9 @@ function withLiveFlags(rows) {
 function registerDownloadsIpc() {
   // Crash recovery: rows a previous run left in_progress are dead.
   store.markStaleInProgressAsInterrupted();
+  // PRIVATE MODE GUARD (downloads history): private rows never survive a
+  // restart — a crash can skip the on-close purge, so sweep here too.
+  store.removeAllPrivateDownloads();
 
   ipcMain.handle(IPC.DOWNLOADS_GET, (_event, options = {}) => {
     const { query, limit } = options;
