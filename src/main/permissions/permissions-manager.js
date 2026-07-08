@@ -262,7 +262,7 @@ function sendNextPrompt(state) {
  */
 function enqueuePrompt({ host, origin, permission, keys, callback }) {
   const state = getHostQueue(host);
-  const signature = `${origin} ${[...keys].sort().join(',')}`;
+  const signature = `${origin} ${[...keys].sort().join(',')}`;
 
   const existing = [state.active, ...state.queue].find(
     (entry) => entry && entry.signature === signature
