@@ -16,9 +16,9 @@
 import { walletState, registerScreenHider } from './wallet-state.js';
 import { loadDerivedWallets, activateAddedWallet } from './wallet-selector.js';
 import { refreshBalances } from './balance-display.js';
-import { showInlineError, hideInlineError } from './wallet-utils.js';
+import { showInlineError, hideInlineError, generateScannableQr } from './wallet-utils.js';
 import { renderDeviceAccountList, existingWalletAddresses } from './device-account-list.js';
-import { getRemoteSessionBroker } from './remote-session.js';
+import { getRemoteSessionBroker, PHASE_STATUS_TEXT } from './remote-session.js';
 
 // DOM references
 let screen;
@@ -45,14 +45,6 @@ let disposeJobEvents = null;
 let discoveredAccounts = [];
 let selectedAccount = null;
 let accountAdded = false;
-
-const STATUS_BY_PHASE = {
-  signaling: 'Waiting for your phone…',
-  ready: 'Waiting for your phone…',
-  linking: 'Phone found — connecting…',
-  connected: 'Connected — approve the request on your phone…',
-  'awaiting-approval': 'Connected — approve the request on your phone…',
-};
 
 export function initConnectPhone() {
   screen = document.getElementById('sidebar-connect-phone');
@@ -158,8 +150,8 @@ function startDiscovery() {
     if (event.jobId !== currentJobId) return;
     if (event.phase === 'qr') {
       renderQr(event.bridgeUrl);
-    } else if (STATUS_BY_PHASE[event.phase]) {
-      setStatus(STATUS_BY_PHASE[event.phase]);
+    } else if (PHASE_STATUS_TEXT[event.phase]) {
+      setStatus(PHASE_STATUS_TEXT[event.phase]);
     }
   });
 
@@ -179,14 +171,7 @@ function startDiscovery() {
 }
 
 async function renderQr(bridgeUrl) {
-  // Fixed black-on-white regardless of theme: phone cameras scan it.
-  const result = await window.wallet.generateQR(bridgeUrl, {
-    width: 200,
-    margin: 2,
-    dark: '#000000',
-    light: '#ffffff',
-    errorCorrectionLevel: 'M',
-  });
+  const result = await generateScannableQr(bridgeUrl);
   if (!result.success) {
     failDiscovery(result.error || 'Failed to render the QR code');
     return;

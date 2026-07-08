@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml, isLedgerAccount, bypassUnlockGateForHardware } from './wallet-utils.js';
+import { escapeHtml, accountType, bypassUnlockGateForDevice } from './wallet-utils.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
   getTrustStatusSentence,
@@ -320,16 +320,24 @@ function showSendPendingView() {
   sendSuccessView?.classList.add('hidden');
   sendErrorView?.classList.add('hidden');
 
-  // Hardware accounts wait on a physical confirmation, not the network.
-  const onLedger = isLedgerAccount(walletState.activeWalletIndex);
+  // Device accounts wait on a confirmation elsewhere, not the network.
+  const pendingCopy = {
+    ledger: {
+      title: 'Confirm on your Ledger',
+      text: 'Review the transaction on your Ledger and approve it there.',
+    },
+    remote: {
+      title: 'Confirm on your phone',
+      text: 'Scan the QR code with your phone and approve the transaction there.',
+    },
+  }[accountType(walletState.activeWalletIndex)] || {
+    title: 'Sending Transaction',
+    text: 'Please wait while your transaction is being processed...',
+  };
   const title = sendPendingView?.querySelector('.send-pending-title');
   const text = sendPendingView?.querySelector('.send-pending-text');
-  if (title) title.textContent = onLedger ? 'Confirm on your Ledger' : 'Sending Transaction';
-  if (text) {
-    text.textContent = onLedger
-      ? 'Review the transaction on your Ledger and approve it there.'
-      : 'Please wait while your transaction is being processed...';
-  }
+  if (title) title.textContent = pendingCopy.title;
+  if (text) text.textContent = pendingCopy.text;
 }
 
 function showSendSuccessView(explorerUrl) {
@@ -1064,7 +1072,7 @@ function buildRecipientVerifiedBadge(trust) {
 
 async function configureSendUnlockUI() {
   try {
-    if (bypassUnlockGateForHardware(walletState.activeWalletIndex, sendUnlockSection, sendConfirmBtn)) {
+    if (bypassUnlockGateForDevice(walletState.activeWalletIndex, sendUnlockSection, sendConfirmBtn)) {
       return;
     }
 

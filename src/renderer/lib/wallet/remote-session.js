@@ -28,6 +28,19 @@ const BRIDGE_ORIGIN = 'https://connect.freedom.baby';
 let vendorPromise = null;
 const loadVendorOpenlv = () => (vendorPromise ??= import('../../vendor/openlv.esm.js'));
 
+/**
+ * User-facing status line per job-event phase, shared by the QR UIs
+ * (connect-phone screen, remote-signing panel). Keys are the phases this
+ * module emits; phases without an entry keep the previous status.
+ */
+export const PHASE_STATUS_TEXT = {
+  signaling: 'Waiting for your phone…',
+  ready: 'Waiting for your phone…',
+  linking: 'Phone found — connecting…',
+  connected: 'Connected — confirm on your phone…',
+  'awaiting-approval': 'Connected — confirm on your phone…',
+};
+
 /** Wallet SDKs answer `{result}` / `{error:{code,message}}` envelopes; tolerate bare values. */
 function unwrapResponse(payload) {
   if (payload && typeof payload === 'object') {
@@ -79,8 +92,11 @@ export function createRemoteSessionBroker({
 
   function teardown(jobId) {
     const job = jobs.get(jobId);
+    if (!job) return;
     jobs.delete(jobId);
-    if (job?.session) {
+    job.settled = true; // an attempt still in createSession must go stale
+    job.abortAttempt?.(new Error('Session closed'));
+    if (job.session) {
       Promise.resolve(job.session.close()).catch((err) => {
         console.warn('[RemoteSession] session close failed:', err.message);
       });
@@ -95,12 +111,35 @@ export function createRemoteSessionBroker({
   /**
    * Host a session for one request and deliver the outcome via `respond`
    * — main's IPC reply for signing jobs, a local promise for the
-   * connect-phone flow.
+   * connect-phone flow. `kind` ('signing' | 'connect') rides on every
+   * emitted event so UI consumers can tell the flows apart.
    */
-  async function runJob({ jobId, method, params }, respond) {
+  async function runJob({ jobId, method, params }, kind, respond) {
     if (jobs.has(jobId)) return;
-    const entry = { session: null, settled: false, respond };
+    const entry = { jobId, method, params, kind, respond, session: null, settled: false, attempt: 0 };
     jobs.set(jobId, entry);
+    await runAttempt(entry);
+  }
+
+  /**
+   * One session attempt for a job. retryJob supersedes the running
+   * attempt with a fresh one (new QR); a superseded attempt must neither
+   * settle the job nor emit UI events, hence the staleness guard.
+   */
+  async function runAttempt(entry) {
+    const { jobId, method, params, kind } = entry;
+    const attempt = ++entry.attempt;
+    const stale = () => entry.settled || entry.attempt !== attempt;
+
+    // The SDK's send() only gives up on its own (long) response timeout;
+    // when this attempt is cancelled or superseded we bail out of the
+    // await immediately instead of parking the frame on a dead session.
+    let abortAttempt;
+    const aborted = new Promise((_, reject) => {
+      abortAttempt = reject;
+    });
+    aborted.catch(() => {}); // rejection is consumed via race, or not at all
+    entry.abortAttempt = abortAttempt;
 
     try {
       const sdk = openlv || (await loadVendorOpenlv());
@@ -110,8 +149,8 @@ export function createRemoteSessionBroker({
         [sdk.webrtc()],
         onIncomingMessage,
       );
-      if (entry.settled) {
-        // Cancelled/aborted while the session was being created.
+      if (stale()) {
+        // Cancelled/aborted/superseded while the session was being created.
         Promise.resolve(session.close()).catch(() => {});
         return;
       }
@@ -120,6 +159,7 @@ export function createRemoteSessionBroker({
       const uri = sdk.encodeConnectionURL(session.getHandshakeParameters());
       emit({
         jobId,
+        kind,
         phase: 'qr',
         method,
         uri,
@@ -127,30 +167,34 @@ export function createRemoteSessionBroker({
       });
 
       session.emitter.on('state_change', (state) => {
-        if (!entry.settled && state?.status) {
-          emit({ jobId, phase: state.status, method });
+        if (!stale() && state?.status) {
+          emit({ jobId, kind, phase: state.status, method });
         }
       });
 
       await session.connect();
       await session.waitForLink();
-      if (entry.settled) return;
+      if (stale()) return;
 
-      emit({ jobId, phase: 'awaiting-approval', method });
-      const { result, error } = unwrapResponse(await session.send({ method, params }));
+      emit({ jobId, kind, phase: 'awaiting-approval', method });
+      const { result, error } = unwrapResponse(
+        await Promise.race([session.send({ method, params }), aborted]),
+      );
+      if (stale()) return;
 
       if (error) {
-        emit({ jobId, phase: 'error', method, error });
+        emit({ jobId, kind, phase: 'error', method, error });
         // rpcCode: main maps EIP-1193 codes (4001 …) to REMOTE_* there,
         // where the error registry lives.
         settle(jobId, { error: { rpcCode: error.code, message: error.message } });
       } else {
-        emit({ jobId, phase: 'done', method });
+        emit({ jobId, kind, phase: 'done', method });
         settle(jobId, { result });
       }
     } catch (err) {
+      if (stale()) return; // failures of a torn-down session are noise
       console.error('[RemoteSession] job failed:', err);
-      emit({ jobId, phase: 'error', method, error: { message: err.message } });
+      emit({ jobId, kind, phase: 'error', method, error: { message: err.message } });
       settle(jobId, { error: { code: 'REMOTE_UNKNOWN', message: err.message } });
     }
   }
@@ -160,14 +204,15 @@ export function createRemoteSessionBroker({
     start() {
       disposers.push(
         remoteSigner.onRequest((job) =>
-          runJob(job, (payload) => remoteSigner.respond({ jobId: job.jobId, ...payload })),
+          runJob(job, 'signing', (payload) => remoteSigner.respond({ jobId: job.jobId, ...payload })),
         ),
       );
       disposers.push(
         remoteSigner.onAbort(({ jobId }) => {
           // Main already failed the job (timeout) — settle silently.
+          const kind = jobs.get(jobId)?.kind;
           if (settle(jobId)) {
-            emit({ jobId, phase: 'aborted' });
+            emit({ jobId, kind, phase: 'aborted' });
           }
         }),
       );
@@ -180,9 +225,27 @@ export function createRemoteSessionBroker({
 
     /** User closed the QR dialog — tell main and drop the session. */
     cancelJob(jobId) {
+      const kind = jobs.get(jobId)?.kind;
       if (settle(jobId, { error: { code: 'REMOTE_USER_CANCELLED' } })) {
-        emit({ jobId, phase: 'cancelled' });
+        emit({ jobId, kind, phase: 'cancelled' });
       }
+    },
+
+    /**
+     * Abandon the current session and mint a fresh QR for the same job
+     * (e.g. the phone failed to connect, or the QR sat unscanned too
+     * long for the user's comfort). No-op for settled/unknown jobs.
+     */
+    retryJob(jobId) {
+      const entry = jobs.get(jobId);
+      if (!entry || entry.settled) return;
+      const oldSession = entry.session;
+      entry.session = null;
+      entry.abortAttempt?.(new Error('Superseded by a new code'));
+      if (oldSession) {
+        Promise.resolve(oldSession.close()).catch(() => {});
+      }
+      runAttempt(entry);
     },
 
     /**
@@ -196,7 +259,7 @@ export function createRemoteSessionBroker({
     connectPhone() {
       const jobId = `connect-${crypto.randomUUID()}`;
       const accounts = new Promise((resolve, reject) => {
-        runJob({ jobId, method: 'eth_requestAccounts', params: [] }, ({ result, error }) => {
+        runJob({ jobId, method: 'eth_requestAccounts', params: [] }, 'connect', ({ result, error }) => {
           if (error || !Array.isArray(result) || result.length === 0) {
             const err = new Error(error?.message || 'Your phone reported no accounts');
             err.code = error?.code || 'REMOTE_BAD_RESPONSE';

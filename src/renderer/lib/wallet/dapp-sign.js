@@ -7,7 +7,7 @@
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel } from '../sidebar.js';
 import { executeSign } from '../dapp-provider.js';
-import { bypassUnlockGateForHardware, signingButtonLabel } from './wallet-utils.js';
+import { bypassUnlockGateForDevice, signingButtonLabel } from './wallet-utils.js';
 
 // DOM references
 let dappSignScreen;
@@ -205,7 +205,7 @@ function formatTypedDataForDisplay(typedData) {
 
 async function checkDappSignUnlockStatus() {
   try {
-    if (bypassUnlockGateForHardware(dappSignPending?.walletIndex, dappSignUnlock, dappSignApproveBtn)) {
+    if (bypassUnlockGateForDevice(dappSignPending?.walletIndex, dappSignUnlock, dappSignApproveBtn)) {
       return;
     }
 

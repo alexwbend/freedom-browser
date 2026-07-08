@@ -267,6 +267,55 @@ describe('remote-session broker', () => {
     expect(harness.remoteSigner.respond).not.toHaveBeenCalled();
   });
 
+  test('retryJob abandons the session and mints a fresh QR for the same job', async () => {
+    const harness = createHarness();
+    const broker = await startBroker(harness);
+    const events = [];
+    broker.onJobEvent((e) => events.push(e));
+
+    harness.handlers.request(JOB);
+    await tick();
+    const firstSession = harness.session;
+
+    // Swap in a second scripted session for the retry attempt.
+    const secondSession = createFakeSession();
+    harness.openlv.createSession.mockImplementation(async () => secondSession);
+
+    broker.retryJob('job-1');
+    await tick();
+
+    expect(firstSession.close).toHaveBeenCalled();
+    expect(events.filter((e) => e.phase === 'qr')).toHaveLength(2);
+
+    // The first attempt's late outcome must not settle the job…
+    firstSession.link.resolve();
+    firstSession.response.resolve({ result: '0xstale' });
+    await tick();
+    expect(harness.remoteSigner.respond).not.toHaveBeenCalled();
+
+    // …the second attempt's does.
+    secondSession.link.resolve();
+    await tick();
+    secondSession.response.resolve({ result: '0xfresh' });
+    await tick();
+    expect(harness.remoteSigner.respond).toHaveBeenCalledWith({ jobId: 'job-1', result: '0xfresh' });
+  });
+
+  test('retryJob is a no-op for settled or unknown jobs', async () => {
+    const harness = createHarness();
+    const broker = await startBroker(harness);
+
+    harness.handlers.request(JOB);
+    await tick();
+    broker.cancelJob('job-1');
+    harness.openlv.createSession.mockClear();
+
+    broker.retryJob('job-1');
+    broker.retryJob('nope');
+    await tick();
+    expect(harness.openlv.createSession).not.toHaveBeenCalled();
+  });
+
   test('stop() unsubscribes and closes live sessions', async () => {
     const harness = createHarness();
     const broker = await startBroker(harness);

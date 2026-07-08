@@ -6,7 +6,7 @@
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel } from '../sidebar.js';
-import { bypassUnlockGateForHardware, signingButtonLabel } from './wallet-utils.js';
+import { bypassUnlockGateForDevice, signingButtonLabel } from './wallet-utils.js';
 
 // DOM references
 let dappTxScreen;
@@ -225,7 +225,7 @@ async function populateDappTxDetails(txParams, chainId) {
 
 async function checkDappTxUnlockStatus() {
   try {
-    if (bypassUnlockGateForHardware(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)) {
+    if (bypassUnlockGateForDevice(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)) {
       return;
     }
 
