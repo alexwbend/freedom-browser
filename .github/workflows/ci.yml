@@ -156,6 +156,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Linux native USB build dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev
+
       - name: Install dependencies
         run: npm ci
 
@@ -222,6 +226,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Linux native USB build dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev
+
       - name: Install dependencies
         run: npm ci
 
@@ -272,6 +280,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Linux native USB build dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev
+
       - name: Install dependencies
         run: npm ci
 
@@ -319,6 +331,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Install Linux native USB build dependency
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libudev-dev
 
       - name: Install dependencies
         run: npm ci
