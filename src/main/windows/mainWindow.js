@@ -25,7 +25,14 @@ function getIconPath() {
   return iconPath;
 }
 
-function createMainWindow(initialUrl = null) {
+function createMainWindow(initialUrl = null, options = {}) {
+  // Private windows carry their non-persisted partition name; it reaches
+  // the renderer as a query parameter (same channel as initialUrl) so
+  // tabs.js can stamp it on every webview before first load.
+  const privatePartition =
+    typeof options.privatePartition === 'string' && options.privatePartition
+      ? options.privatePartition
+      : null;
   const isMac = process.platform === 'darwin';
   const isLinux = process.platform === 'linux';
   // Linux only: tab strip doubles as the titlebar when the user opts in.
@@ -65,10 +72,14 @@ function createMainWindow(initialUrl = null) {
     },
   });
 
-  // Load index.html with optional initial URL as query parameter
+  // Load index.html with optional initial URL / private partition as query
+  // parameters
   const indexPath = path.join(__dirname, '..', '..', 'renderer', 'index.html');
-  if (initialUrl) {
-    window.loadFile(indexPath, { query: { initialUrl } });
+  const query = {};
+  if (initialUrl) query.initialUrl = initialUrl;
+  if (privatePartition) query.privatePartition = privatePartition;
+  if (Object.keys(query).length > 0) {
+    window.loadFile(indexPath, { query });
   } else {
     window.loadFile(indexPath);
   }

@@ -33,6 +33,27 @@ const sanitizeUrlForLog = (rawUrl) => {
   }
 };
 
+// Resolve the BrowserWindow that hosts a webview's contents. Webviews carry
+// their chrome renderer as hostWebContents; routing through it (instead of
+// picking an arbitrary window) keeps tab-open requests in the window the
+// user clicked in — load-bearing for private windows, where a link opened
+// from a private page must never materialise as a tab in a normal window
+// (and vice versa).
+function ownerWindowOf(contents) {
+  try {
+    const host = contents.hostWebContents || contents;
+    const win = BrowserWindow.fromWebContents(host);
+    if (win && !win.isDestroyed()) return win;
+  } catch {
+    // contents may be tearing down
+  }
+  // Fallback: previous behaviour (any other window) so a race during window
+  // teardown degrades to the old routing instead of dropping the action.
+  return (
+    BrowserWindow.getAllWindows().find((win) => win.webContents.id !== contents.id) || null
+  );
+}
+
 function registerWebContentsHandlers() {
   app.on('web-contents-created', (_event, contents) => {
     contents.once('destroyed', () => {
@@ -69,10 +90,8 @@ function registerWebContentsHandlers() {
         log.info(
           `${tag} intercepted new window request: ${sanitizeUrlForLog(url)} (target: ${frameName || 'none'})`
         );
-        // Send message to the parent BrowserWindow to open URL in new tab
-        const parentWindow = BrowserWindow.getAllWindows().find((win) => {
-          return win.webContents.id !== contents.id;
-        });
+        // Send message to the owning BrowserWindow to open URL in new tab
+        const parentWindow = ownerWindowOf(contents);
         if (parentWindow) {
           // Pass targetName for named link targets (e.g. target="mywindow")
           // Skip special targets (_blank, _self, _parent, _top) - they should use default behavior
@@ -99,10 +118,8 @@ function registerWebContentsHandlers() {
         ) {
           log.info(`${tag} intercepted custom protocol navigation: ${sanitizeUrlForLog(url)}`);
           event.preventDefault();
-          // Send to parent window to handle via the browser's navigation system
-          const parentWindow = BrowserWindow.getAllWindows().find((win) => {
-            return win.webContents.id !== contents.id;
-          });
+          // Send to the owning window to handle via the browser's navigation system
+          const parentWindow = ownerWindowOf(contents);
           if (parentWindow) {
             parentWindow.webContents.send('navigate-to-url', url);
           }
