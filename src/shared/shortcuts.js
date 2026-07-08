@@ -202,8 +202,10 @@ const SHORTCUTS = [
     defaultAccelerator: 'CmdOrCtrl+Shift+Alt+I',
     context: 'menu',
     category: 'Developer',
-    // Dev-build-only menu entry; never shown as remappable.
+    // Dev-build-only menu entry; never shown as remappable and hidden
+    // from the Shortcuts settings page in packaged builds.
     editable: false,
+    devOnly: true,
   },
 ];
 

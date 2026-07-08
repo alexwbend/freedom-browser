@@ -6,6 +6,15 @@ All notable changes to Freedom will be documented in this file.
 
 ### Added
 
+- Remappable keyboard shortcuts under Settings > Shortcuts:
+  - Searchable list grouped by category; click a binding and press the new combination
+  - Conflict warning with a one-click swap when a combination is already taken
+  - Per-shortcut reset and a Restore defaults button; changes apply without a restart
+- Find in page (`Cmd+F` / `Ctrl+F`, also under Edit in the menu): overlay bar over the page with a live match counter, `Enter` / `Shift+Enter` to cycle matches, `Esc` to close
+- Download manager covering every download source, including `bzz://` and `ipfs://` content:
+  - Shelf card with live progress and cancel; Open / Show in Folder on completion
+  - `freedom://downloads` page (Cmd/Ctrl+Shift+J) with search, pause/resume, and Clear All
+  - "Ask where to save each file" toggle under Settings > Downloads
 - Per-site permission prompts for camera, microphone, notifications, clipboard reading, location, and MIDI, replacing the previous silent denial:
   - Prompt under the address bar with Allow / Block and "Remember for this site"
   - Remembered decisions per profile under Settings > Site Permissions, with per-site and remove-all revocation

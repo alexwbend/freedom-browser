@@ -10,7 +10,7 @@
  * keydown matcher live.
  */
 
-const { ipcMain } = require('electron');
+const { app, ipcMain } = require('electron');
 const IPC = require('../shared/ipc-channels');
 const {
   SHORTCUTS,
@@ -41,6 +41,9 @@ function getShortcutState(platform = process.platform) {
       context: entry.context,
       editable: entry.editable !== false,
       warnOnEdit: entry.warnOnEdit === true,
+      // Dev-only entries (App Developer Tools) have no menu item in
+      // packaged builds — don't list a shortcut that doesn't exist.
+      hidden: entry.devOnly === true && app.isPackaged === true,
       accelerator,
       formatted: formatAccelerator(accelerator, platform),
       defaultAccelerator,
