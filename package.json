@@ -62,6 +62,7 @@
     "dapp:reset": "node scripts/reset-dapp-permissions.js",
     "vendor:openlv": "node scripts/bundle-openlv.js",
     "bridge:serve": "node scripts/serve-bridge.js",
+    "openlv:ios-harness": "node scripts/openlv-ios-harness.js",
     "serve:updates": "node scripts/serve-updates.js",
     "start:test-updater": "ENABLE_DEV_UPDATER=true npm start",
     "postinstall": "electron-builder install-app-deps"

@@ -24,10 +24,7 @@ const { startLocalMqttBroker } = require(path.join(repoRoot, 'test', 'helpers', 
 
 const VAULT_PASSWORD = 'Freedom-E2E-Remote-Signing-2026!';
 
-// Chromium hides host ICE candidates behind mDNS names by default; two
-// local browser stacks on a CI runner cannot always resolve each other's
-// .local names, and there is no external STUN in this offline test.
-const WEBRTC_LOCAL_SWITCH = '--disable-features=WebRtcHideLocalIpsWithMdns';
+const { WEBRTC_LOCAL_SWITCH } = require('../test/helpers/webrtc');
 
 function startBridgeServer() {
   const server = createBridgeServer();
