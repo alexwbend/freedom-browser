@@ -107,6 +107,12 @@ function getSigner(walletIndex) {
   // Unknown indexes fall through to the vault backend, which fails with
   // its own vault-derivation errors — the pre-hardware-wallet behaviour.
   const record = getWalletRecord(walletIndex);
+  if (record && record.type === WALLET_TYPES.SAFE) {
+    // A Safe is a smart-contract account whose owners are other wallet
+    // records — it has no key of its own. Execution goes through the
+    // SafeExecutor (./safe/), which signs with the owners' signers.
+    throw new Error('Safe accounts cannot sign directly — execute through the Safe flow');
+  }
   let backend;
   if (record && record.type === WALLET_TYPES.LEDGER) {
     backend = createLedgerBackend(record);

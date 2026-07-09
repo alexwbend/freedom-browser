@@ -30,7 +30,7 @@ const mockCreateRemoteBackend = jest.fn(() => mockRemoteBackend);
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
   getWalletRecord: (...args) => mockGetWalletRecord(...args),
-  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote' },
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote', SAFE: 'safe' },
 }));
 jest.mock('../vault-timer', () => ({
   resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
@@ -198,6 +198,19 @@ describe('getSigner (ledger-backed dispatch)', () => {
     expect(getSigner(2).sendTransaction).toBeUndefined();
     mockGetWalletRecord.mockReturnValue({ index: 0, name: 'Main Wallet', type: 'mnemonic' });
     expect(getSigner(0).sendTransaction).toBeUndefined();
+  });
+});
+
+describe('getSigner (safe records)', () => {
+  test('throws: a Safe is an account, not a signer', () => {
+    mockGetWalletRecord.mockReturnValue({
+      index: 5,
+      name: 'Joint account',
+      address: '0x41aD4887971f90BB3fE4d83eCa65177281283261',
+      type: 'safe',
+    });
+    expect(() => getSigner(5)).toThrow(/Safe account.*cannot sign directly/i);
+    expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
   });
 });
 

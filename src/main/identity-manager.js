@@ -794,6 +794,7 @@ const WALLET_TYPES = {
   MNEMONIC: 'mnemonic',
   LEDGER: 'ledger',
   REMOTE: 'remote', // phone / other device signing over openlv
+  SAFE: 'safe', // Safe smart account owned by other wallet records
 };
 
 /** User-facing labels for device account types (auto-names, error text). */
