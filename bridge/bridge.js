@@ -54,6 +54,22 @@ function logRequest(method, outcome) {
   el('request-log').appendChild(item);
 }
 
+// Signing methods need the page to be a connected dapp first. Freedom's
+// signing jobs never send eth_requestAccounts themselves (the account
+// was captured in an earlier connect session), and strict wallets —
+// freedom mobile's own browser included — reject signing from an origin
+// that never connected. Lenient wallets treat the extra connect as a
+// no-op.
+const NEEDS_CONNECTION = new Set(['personal_sign', 'eth_signTypedData_v4', 'eth_sendTransaction']);
+let walletConnected = false;
+
+async function ensureConnected() {
+  if (walletConnected) return;
+  setStatus('Connect your wallet to continue…', null);
+  await window.ethereum.request({ method: 'eth_requestAccounts' });
+  walletConnected = true;
+}
+
 async function handleRequest(payload) {
   const { method, params } = payload || {};
   if (!ALLOWED_METHODS.has(method)) {
@@ -63,7 +79,13 @@ async function handleRequest(payload) {
 
   setStatus(`Confirm in your wallet: ${method}`, null);
   try {
+    if (NEEDS_CONNECTION.has(method)) {
+      await ensureConnected();
+    }
     const result = await window.ethereum.request({ method, params });
+    if (method === 'eth_requestAccounts') {
+      walletConnected = true;
+    }
     logRequest(method, 'approved');
     return { result };
   } catch (err) {
@@ -80,6 +102,13 @@ async function main() {
     fatal('This page needs a connection code — scan the QR code in Freedom browser again.');
     return;
   }
+
+  // freedom mobile claims the session natively (skipping this page and
+  // window.ethereum entirely). Custom scheme, so it works before the
+  // universal-link claim on this origin is deployed; on phones without
+  // the app the tap is a no-op.
+  el('open-in-freedom-link').href = `freedom://openlv#${encodeURIComponent(uri)}`;
+  el('open-in-freedom').classList.remove('hidden');
 
   if (!window.ethereum) {
     el('no-wallet').classList.remove('hidden');

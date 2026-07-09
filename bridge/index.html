@@ -106,6 +106,15 @@
         peer-to-peer and end-to-end encrypted.
       </p>
 
+      <!-- freedom mobile claims the session via its freedom:// scheme;
+           hidden when the fragment carries no session code. On phones
+           without the app the tap does nothing (custom schemes have no
+           fallback) — every other path stays available. -->
+      <div id="open-in-freedom" class="hidden">
+        <a id="open-in-freedom-link" href="#"><button type="button">Open in Freedom app</button></a>
+        <p class="note">Have the Freedom app on this phone? Approve there directly.</p>
+      </div>
+
       <div id="no-wallet" class="hidden">
         <p>
           No wallet found in this browser. Open this page inside your wallet
