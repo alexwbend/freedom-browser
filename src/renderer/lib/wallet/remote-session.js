@@ -18,10 +18,11 @@
 // handshake/negotiation frames — never wallet data in the clear.
 const DEFAULT_SIGNALING = { p: 'mqtt', s: 'wss://test.mosquitto.org:8081/mqtt' };
 
-// Where the dual-purpose QR sends phones without an openlv-native wallet.
-// The session secret rides in the URL *fragment*, which browsers never
-// send to the server. PLACEHOLDER until the bridge page ships (WP-R3.5).
-const BRIDGE_ORIGIN = 'https://connect.freedom.baby';
+// Where the dual-purpose QR sends phones without an openlv-native wallet
+// (the static page in bridge/ must be deployed at this origin). The
+// session secret rides in the URL *fragment*, which browsers never send
+// to the server. Interim test deployment; final hostname TBD.
+const BRIDGE_ORIGIN = 'https://freedom.florianglatz.eth.limo';
 
 // The openlv SDK (168 KiB vendor bundle) is only needed once a signing
 // job actually arrives — keep it off the renderer boot path.
