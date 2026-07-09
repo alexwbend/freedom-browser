@@ -25,6 +25,10 @@ const ALLOWED_METHODS = new Set([
   'personal_sign',
   'eth_signTypedData_v4',
   'eth_sendTransaction',
+  // Freedom switches the wallet onto the tx's chain before sending —
+  // in-app wallet sessions default to mainnet otherwise.
+  'wallet_switchEthereumChain',
+  'wallet_addEthereumChain',
 ]);
 
 const el = (id) => document.getElementById(id);

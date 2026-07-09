@@ -25,6 +25,24 @@ jest.mock('./bridge', () => ({
   requestRemoteSignature: (...args) => mockRequestRemoteSignature(...args),
 }));
 
+// Chain registry (pulls in electron via the network registry) and RPC
+// config — only consulted to build the EIP-3085 chain descriptor.
+jest.mock('../chains', () => ({
+  getChain: jest.fn((chainId) =>
+    chainId === 100
+      ? {
+          chainId: 100,
+          name: 'Gnosis Chain',
+          nativeCurrency: { name: 'xDAI', symbol: 'xDAI', decimals: 18 },
+          blockExplorer: 'https://gnosisscan.io',
+        }
+      : null),
+}));
+jest.mock('../rpc-manager', () => ({
+  // The localhost entry must never reach the phone.
+  getEffectiveRpcUrls: jest.fn(() => ['https://rpc.gnosischain.com', 'http://127.0.0.1:8545']),
+}));
+
 const { createRemoteBackend } = require('./signer');
 
 const backend = createRemoteBackend(RECORD);
@@ -149,7 +167,7 @@ describe('sendTransaction', () => {
   const HASH = '0x' + 'ab'.repeat(32);
 
   test('publishes eth_sendTransaction with hex quantities and returns the phone-reported hash', async () => {
-    mockRequestRemoteSignature.mockImplementation(async ({ method, params }) => {
+    mockRequestRemoteSignature.mockImplementation(async ({ method, params, chain }) => {
       expect(method).toBe('eth_sendTransaction');
       expect(params).toEqual([
         {
@@ -160,10 +178,27 @@ describe('sendTransaction', () => {
           data: '0xabcdef',
         },
       ]);
+      // EIP-3085 descriptor for the pre-flight chain switch: public
+      // https endpoints only — the localhost RPC must not leak.
+      expect(chain).toEqual({
+        chainId: '0x64',
+        chainName: 'Gnosis Chain',
+        nativeCurrency: { name: 'xDAI', symbol: 'xDAI', decimals: 18 },
+        blockExplorerUrls: ['https://gnosisscan.io'],
+        rpcUrls: ['https://rpc.gnosischain.com'],
+      });
       return HASH;
     });
 
     await expect(backend.sendTransaction(TX)).resolves.toBe(HASH);
+  });
+
+  test('unknown chains still ship a minimal descriptor (chainId only)', async () => {
+    mockRequestRemoteSignature.mockImplementation(async ({ chain }) => {
+      expect(chain).toEqual({ chainId: '0x539' });
+      return HASH;
+    });
+    await expect(backend.sendTransaction({ to: TX.to, chainId: 1337 })).resolves.toBe(HASH);
   });
 
   test('omits value/data defaults and rejects malformed hashes with REMOTE_BAD_RESPONSE', async () => {

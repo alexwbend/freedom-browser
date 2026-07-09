@@ -267,6 +267,124 @@ describe('remote-session broker', () => {
     expect(harness.remoteSigner.respond).not.toHaveBeenCalled();
   });
 
+  describe('chain switching (jobs carrying a chain descriptor)', () => {
+    const CHAIN = {
+      chainId: '0x64',
+      chainName: 'Gnosis Chain',
+      nativeCurrency: { name: 'xDAI', symbol: 'xDAI', decimals: 18 },
+      rpcUrls: ['https://rpc.gnosischain.com'],
+    };
+    const TX_JOB = {
+      jobId: 'job-tx',
+      walletIndex: 4,
+      address: '0xabc',
+      method: 'eth_sendTransaction',
+      params: [{ from: '0xabc', to: '0xdef', value: '0x1', chainId: '0x64' }],
+      chain: CHAIN,
+    };
+
+    /** Run TX_JOB against a scripted per-method send handler. */
+    async function runTxJob(harness, sendImpl) {
+      const calls = [];
+      harness.session.send.mockImplementation(async (message) => {
+        calls.push(message.method);
+        return sendImpl(message);
+      });
+      harness.handlers.request(TX_JOB);
+      await tick();
+      harness.session.link.resolve();
+      await tick();
+      return calls;
+    }
+
+    test('switches the wallet to the tx chain before sending', async () => {
+      const harness = createHarness();
+      await startBroker(harness);
+
+      const calls = await runTxJob(harness, ({ method }) => {
+        if (method === 'wallet_switchEthereumChain') return { result: null };
+        return { result: '0x' + 'ab'.repeat(32) };
+      });
+
+      expect(calls).toEqual(['wallet_switchEthereumChain', 'eth_sendTransaction']);
+      expect(harness.session.send).toHaveBeenCalledWith({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0x64' }],
+      });
+      expect(harness.remoteSigner.respond).toHaveBeenCalledWith({
+        jobId: 'job-tx',
+        result: '0x' + 'ab'.repeat(32),
+      });
+    });
+
+    test('unknown chain (4902): adds it via EIP-3085, switches again, then sends', async () => {
+      const harness = createHarness();
+      await startBroker(harness);
+
+      let switchCalls = 0;
+      const calls = await runTxJob(harness, ({ method, params }) => {
+        if (method === 'wallet_switchEthereumChain') {
+          switchCalls += 1;
+          return switchCalls === 1
+            ? { error: { code: 4902, message: 'Unrecognized chain ID' } }
+            : { result: null };
+        }
+        if (method === 'wallet_addEthereumChain') {
+          expect(params).toEqual([CHAIN]);
+          return { result: null };
+        }
+        return { result: '0x' + 'ab'.repeat(32) };
+      });
+
+      expect(calls).toEqual([
+        'wallet_switchEthereumChain',
+        'wallet_addEthereumChain',
+        'wallet_switchEthereumChain',
+        'eth_sendTransaction',
+      ]);
+      expect(harness.remoteSigner.respond).toHaveBeenCalledWith(
+        expect.objectContaining({ jobId: 'job-tx', result: expect.any(String) }),
+      );
+    });
+
+    test('declined network switch fails the job without sending the tx', async () => {
+      const harness = createHarness();
+      await startBroker(harness);
+
+      const calls = await runTxJob(harness, ({ method }) => {
+        if (method === 'wallet_switchEthereumChain') {
+          return { error: { code: 4001, message: 'User rejected the request.' } };
+        }
+        throw new Error('must not reach the tx');
+      });
+
+      expect(calls).toEqual(['wallet_switchEthereumChain']);
+      expect(harness.remoteSigner.respond).toHaveBeenCalledWith({
+        jobId: 'job-tx',
+        error: { rpcCode: 4001, message: 'User rejected the request.' },
+      });
+      expect(harness.session.close).toHaveBeenCalled();
+    });
+
+    test('4902 without RPC endpoints to offer surfaces the wallet error', async () => {
+      const harness = createHarness();
+      await startBroker(harness);
+
+      harness.session.send.mockImplementation(async () => ({
+        error: { code: 4902, message: 'Unrecognized chain ID' },
+      }));
+      harness.handlers.request({ ...TX_JOB, chain: { chainId: '0x64' } });
+      await tick();
+      harness.session.link.resolve();
+      await tick();
+
+      expect(harness.remoteSigner.respond).toHaveBeenCalledWith({
+        jobId: 'job-tx',
+        error: { rpcCode: 4902, message: 'Unrecognized chain ID' },
+      });
+    });
+  });
+
   test('retryJob abandons the session and mints a fresh QR for the same job', async () => {
     const harness = createHarness();
     const broker = await startBroker(harness);

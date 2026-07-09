@@ -39,6 +39,7 @@ export const PHASE_STATUS_TEXT = {
   ready: 'Waiting for your phone…',
   linking: 'Phone found — connecting…',
   connected: 'Connected — confirm on your phone…',
+  'switching-chain': 'Connected — approve the network switch on your phone…',
   'awaiting-approval': 'Connected — confirm on your phone…',
 };
 
@@ -112,14 +113,45 @@ export function createRemoteSessionBroker({
   const onIncomingMessage = async () => ({ error: { code: -32601, message: 'Method not found' } });
 
   /**
+   * Put the phone's wallet on the tx's chain before the real request:
+   * in-app wallet sessions default to Ethereum mainnet no matter what
+   * the user selected in the wallet. Unknown chain (4902) → offer to
+   * add it (EIP-3085) when we have public RPC endpoints to describe it
+   * with, then switch again.
+   *
+   * @returns {{error?: {code?: number, message?: string}}}
+   */
+  async function ensureChain(session, chain) {
+    const switchChain = async () =>
+      unwrapResponse(
+        await session.send({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: chain.chainId }],
+        }),
+      );
+
+    const first = await switchChain();
+    if (!first.error) return {};
+    if (first.error.code !== 4902 || !chain.rpcUrls) return { error: first.error };
+
+    const added = unwrapResponse(
+      await session.send({ method: 'wallet_addEthereumChain', params: [chain] }),
+    );
+    if (added.error) return { error: added.error };
+
+    // EIP-3085 wallets MAY switch on add; make it explicit either way.
+    return switchChain();
+  }
+
+  /**
    * Host a session for one request and deliver the outcome via `respond`
    * — main's IPC reply for signing jobs, a local promise for the
    * connect-phone flow. `kind` ('signing' | 'connect') rides on every
    * emitted event so UI consumers can tell the flows apart.
    */
-  async function runJob({ jobId, method, params }, kind, respond) {
+  async function runJob({ jobId, method, params, chain }, kind, respond) {
     if (jobs.has(jobId)) return;
-    const entry = { jobId, method, params, kind, respond, session: null, settled: false, attempt: 0 };
+    const entry = { jobId, method, params, chain, kind, respond, session: null, settled: false, attempt: 0 };
     jobs.set(jobId, entry);
     await runAttempt(entry);
   }
@@ -130,7 +162,7 @@ export function createRemoteSessionBroker({
    * settle the job nor emit UI events, hence the staleness guard.
    */
   async function runAttempt(entry) {
-    const { jobId, method, params, kind } = entry;
+    const { jobId, method, params, chain, kind } = entry;
     const attempt = ++entry.attempt;
     const stale = () => entry.settled || entry.attempt !== attempt;
 
@@ -178,6 +210,19 @@ export function createRemoteSessionBroker({
       await session.connect();
       await session.waitForLink();
       if (stale()) return;
+
+      if (chain) {
+        emit({ jobId, kind, phase: 'switching-chain', method });
+        const switched = await Promise.race([ensureChain(session, chain), aborted]);
+        if (stale()) return;
+        if (switched.error) {
+          emit({ jobId, kind, phase: 'error', method, error: switched.error });
+          settle(jobId, {
+            error: { rpcCode: switched.error.code, message: switched.error.message },
+          });
+          return;
+        }
+      }
 
       emit({ jobId, kind, phase: 'awaiting-approval', method });
       const { result, error } = unwrapResponse(

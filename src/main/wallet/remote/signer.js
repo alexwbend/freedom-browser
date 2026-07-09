@@ -28,12 +28,37 @@ const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 const SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 
 /**
+ * EIP-3085 chain descriptor for the tx's target chain. The phone's
+ * wallet session defaults to Ethereum mainnet regardless of what the
+ * user selected in the wallet, so the broker must actively switch it
+ * (wallet_switchEthereumChain) — and, when the wallet doesn't know the
+ * chain (4902), offer to add it, which needs this metadata. Only public
+ * https RPC endpoints go over: the user's own node config is unreachable
+ * from a phone and nobody else's business.
+ */
+function buildChainDescriptor(chainId) {
+  const { getChain } = require('../chains');
+  const { getEffectiveRpcUrls } = require('../rpc-manager');
+
+  const descriptor = { chainId: toQuantity(chainId) };
+  const chain = getChain(chainId);
+  if (!chain) return descriptor;
+
+  descriptor.chainName = chain.name;
+  descriptor.nativeCurrency = chain.nativeCurrency;
+  if (chain.blockExplorer) descriptor.blockExplorerUrls = [chain.blockExplorer];
+  const rpcUrls = (getEffectiveRpcUrls(chainId) || []).filter((url) => url.startsWith('https://'));
+  if (rpcUrls.length) descriptor.rpcUrls = rpcUrls;
+  return descriptor;
+}
+
+/**
  * @param {{index: number, address: string}} record - Remote wallet record from vault-meta
  * @returns {import('../signers').Signer & {sendTransaction: (tx: object) => Promise<string>}}
  */
 function createRemoteBackend(record) {
-  const request = (method, params) =>
-    requestRemoteSignature({ walletIndex: record.index, address: record.address, method, params });
+  const request = (method, params, chain) =>
+    requestRemoteSignature({ walletIndex: record.index, address: record.address, method, params, chain });
 
   /** Shape-check the phone's signature and require it to recover to the account. */
   function verifiedSignature(signature, recover) {
@@ -79,7 +104,9 @@ function createRemoteBackend(record) {
     /**
      * Ask the phone to sign AND broadcast. Only intent fields go over —
      * the phone re-estimates gas, picks the nonce, and shows its own fee
-     * UI, exactly as it would for one of its own dApps.
+     * UI, exactly as it would for one of its own dApps. The chain
+     * descriptor rides along so the broker can switch the phone's wallet
+     * to the tx's chain first.
      *
      * @param {{to: string, value?: string|bigint, data?: string, chainId: number}} tx
      * @returns {Promise<string>} Transaction hash reported by the phone.
@@ -93,7 +120,7 @@ function createRemoteBackend(record) {
       };
       if (tx.data) txParam.data = tx.data;
 
-      const hash = await request('eth_sendTransaction', [txParam]);
+      const hash = await request('eth_sendTransaction', [txParam], buildChainDescriptor(tx.chainId));
       if (typeof hash !== 'string' || !TX_HASH_RE.test(hash)) {
         throw createRemoteError(REMOTE_ERROR_CODES.BAD_RESPONSE);
       }

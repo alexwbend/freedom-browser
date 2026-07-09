@@ -27,6 +27,8 @@ async function openPhonePage(phoneBrowser) {
         return [phoneWallet.address];
       case 'eth_chainId':
         return '0x64';
+      case 'wallet_switchEthereumChain':
+        return null;
       case 'personal_sign':
         return phoneWallet.signMessage(getBytes(params[0]));
       case 'eth_signTypedData_v4': {
