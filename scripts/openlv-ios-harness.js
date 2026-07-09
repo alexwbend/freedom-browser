@@ -13,6 +13,8 @@
  * Control surface (http://127.0.0.1:8798):
  *   GET /uri    → {uri}   — openlv:// URI of the current host session
  *   GET /state  → {phase, uri, exchanges: [{method, response}], error}
+ *   GET /reset  → reloads the host page, starting a fresh session
+ *                 (each XCTest consumes one session; call this first)
  *
  * Once the wallet endpoint links up, the host sends the same sequence a
  * desktop signing job produces — eth_requestAccounts, the
@@ -84,7 +86,12 @@ try {
 
 async function main() {
   const broker = await startLocalMqttBroker();
-  const state = { phase: 'starting', uri: null, exchanges: [], error: null };
+  let state;
+  const resetState = () => {
+    state = { phase: 'starting', uri: null, exchanges: [], error: null };
+  };
+  resetState();
+  let page = null;
 
   const esmBundle = fs.readFileSync(path.join(__dirname, '..', 'bridge', 'openlv.esm.js'));
   const hostPage = buildHostPage(broker.url);
@@ -99,6 +106,14 @@ async function main() {
         return respond(200, 'application/json', JSON.stringify({ uri: state.uri }));
       case '/state':
         return respond(200, 'application/json', JSON.stringify(state));
+      case '/reset':
+        if (!page) return respond(503, 'text/plain', 'host page not up yet');
+        resetState();
+        page
+          .reload()
+          .then(() => respond(200, 'application/json', '{"ok":true}'))
+          .catch((err) => respond(500, 'text/plain', String(err)));
+        return undefined;
       case '/':
         return respond(200, 'text/html', hostPage);
       case '/openlv.esm.js':
@@ -112,7 +127,7 @@ async function main() {
   // Raw loopback ICE candidates instead of mDNS names, so the WebKit
   // peer can pair against them.
   const browser = await chromium.launch({ args: [WEBRTC_LOCAL_SWITCH] });
-  const page = await browser.newPage();
+  page = await browser.newPage();
   page.on('console', (message) => console.log('[host page]', message.text()));
   await page.exposeFunction('__report', (updateJson) => {
     const update = JSON.parse(updateJson);
