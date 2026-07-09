@@ -10,7 +10,6 @@ module.exports = [
       'coverage/**',
       'node_modules/**',
       'src/renderer/vendor/**',
-      'bridge/openlv.esm.js',
       'ant-bin/**',
       'ipfs-bin/**',
       'ant-data/**',
@@ -39,7 +38,7 @@ module.exports = [
     },
   },
   {
-    files: ['src/renderer/**/*.js', 'bridge/**/*.js'],
+    files: ['src/renderer/**/*.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',

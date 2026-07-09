@@ -1,7 +1,7 @@
 // End-to-end remote (phone) signing over the real openlv stack.
 //
 // Freedom (Electron) hosts the sessions and shows QR codes; the "phone"
-// is the in-repo bridge page (bridge/) loaded in a plain Chromium
+// is the bridge page (sibling freedom-bridge checkout) in a plain Chromium
 // context with a faked window.ethereum that signs with an ethers test
 // key. Signaling runs over an in-test local MQTT broker; transport is
 // real WebRTC between the two browser stacks. Covers, through the real

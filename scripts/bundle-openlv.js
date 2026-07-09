@@ -23,8 +23,11 @@
  * mobile's hidden-WKWebView engine: WKWebView refuses ES-module imports
  * from file:// pages (opaque origin + CORS), but classic scripts load
  * fine, and file:// stays a secure context so `crypto.subtle` works.
- * When the sibling swarm-mobile-ios checkout is present, its vendored
- * copy is refreshed automatically so the two repos can't drift.
+ *
+ * The bridge page (solardev-xyz/freedom-bridge) and freedom mobile
+ * (solardev-xyz/freedom-browser-ios) vendor their own copies; when
+ * their sibling checkouts are present they are refreshed automatically
+ * from this one build, so the repos can't drift.
  */
 
 const fs = require('fs');
@@ -52,24 +55,28 @@ const banner = (filename) => `/*!
 // The same surface serves both roles: freedom's renderer hosts sessions
 // (shows the QR); the bridge page joins them (client role — createSession
 // with the URI's `h` parameter takes that path). Built once, copied —
-// the two files can never drift.
-const ESM_OUTPUTS = [
-  path.join(__dirname, '..', 'src', 'renderer', 'vendor', 'openlv.esm.js'),
-  path.join(__dirname, '..', 'bridge', 'openlv.esm.js'),
+// the copies can never drift.
+const ESM_OUTPUT = path.join(__dirname, '..', 'src', 'renderer', 'vendor', 'openlv.esm.js');
+// Intermediate only — the iife flavor's sole home is the iOS repo.
+const IIFE_OUTPUT = path.join(require('os').tmpdir(), 'openlv.iife.js');
+
+// Sibling checkouts vendoring their own copies — synced when present
+// (dev machines), reported otherwise (CI).
+const SIBLING_COPIES = [
+  {
+    from: ESM_OUTPUT,
+    to: path.join(__dirname, '..', '..', 'freedom-bridge', 'openlv.esm.js'),
+  },
+  {
+    from: IIFE_OUTPUT,
+    to: path.join(
+      __dirname, '..', '..', 'nodes', 'swarm-mobile-ios',
+      'Freedom', 'Freedom', 'Wallet', 'OpenLV', 'openlv.iife.js',
+    ),
+  },
 ];
 
-const IIFE_OUTPUT = path.join(__dirname, '..', 'bridge', 'openlv.iife.js');
-
-// The iOS wallet endpoint vendors the iife flavor; sync the sibling
-// checkout when it exists (dev machines) and just report otherwise (CI).
-const IOS_IIFE_COPY = path.join(
-  __dirname, '..', '..', 'nodes', 'swarm-mobile-ios',
-  'Freedom', 'Freedom', 'Wallet', 'OpenLV', 'openlv.iife.js',
-);
-
 async function main() {
-  const [primary, ...copies] = ESM_OUTPUTS;
-
   const shared = {
     stdin: {
       contents: ENTRY,
@@ -86,13 +93,9 @@ async function main() {
   await esbuild.build({
     ...shared,
     format: 'esm',
-    outfile: primary,
+    outfile: ESM_OUTPUT,
     banner: { js: banner('openlv.esm.js') },
   });
-
-  for (const copy of copies) {
-    fs.copyFileSync(primary, copy);
-  }
 
   await esbuild.build({
     ...shared,
@@ -102,12 +105,14 @@ async function main() {
     banner: { js: banner('openlv.iife.js') },
   });
 
-  const outputs = [...ESM_OUTPUTS, IIFE_OUTPUT];
-  if (fs.existsSync(path.dirname(IOS_IIFE_COPY))) {
-    fs.copyFileSync(IIFE_OUTPUT, IOS_IIFE_COPY);
-    outputs.push(IOS_IIFE_COPY);
-  } else {
-    console.log(`iOS checkout not found — copy ${IIFE_OUTPUT} to swarm-mobile-ios by hand`);
+  const outputs = [ESM_OUTPUT];
+  for (const { from, to } of SIBLING_COPIES) {
+    if (fs.existsSync(path.dirname(to))) {
+      fs.copyFileSync(from, to);
+      outputs.push(to);
+    } else {
+      console.log(`sibling checkout not found — copy ${from} to ${to} by hand`);
+    }
   }
 
   for (const file of outputs) {

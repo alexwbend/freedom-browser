@@ -106,7 +106,9 @@ async function main() {
   resetState();
   let page = null;
 
-  const esmBundle = fs.readFileSync(path.join(__dirname, '..', 'bridge', 'openlv.esm.js'));
+  const esmBundle = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'vendor', 'openlv.esm.js')
+  );
   const hostPage = buildHostPage(broker.url);
 
   const server = http.createServer((req, res) => {

@@ -6,7 +6,8 @@
 //   - an in-test MQTT-over-WebSocket broker (the signaling relay; the
 //     app is pointed at it via FREEDOM_OPENLV_SIGNALING so no public
 //     relay is touched), and
-//   - a static server for the bridge page (bridge/), which plays the
+//   - a static server for the bridge page (sibling freedom-bridge
+//     checkout — see scripts/serve-bridge.js), which plays the
 //     "any phone wallet" role in a plain Chromium context.
 //
 // The phone's wallet is faked per page: window.ethereum forwards to a

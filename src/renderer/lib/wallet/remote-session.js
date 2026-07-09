@@ -19,7 +19,7 @@
 const DEFAULT_SIGNALING = { p: 'mqtt', s: 'wss://test.mosquitto.org:8081/mqtt' };
 
 // Where the dual-purpose QR sends phones without an openlv-native wallet
-// (the static page in bridge/ must be deployed at this origin). The
+// (solardev-xyz/freedom-bridge must be deployed at this origin). The
 // session secret rides in the URL *fragment*, which browsers never send
 // to the server. Interim test deployment; final hostname TBD.
 const BRIDGE_ORIGIN = 'https://freedom.florianglatz.eth.limo';

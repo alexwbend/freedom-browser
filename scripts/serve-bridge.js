@@ -1,6 +1,10 @@
 /**
- * Serve the wallet bridge page (bridge/) on a local port — for
- * development and the remote-signing E2E test. Static files only.
+ * Serve the wallet bridge page on a local port — for development and
+ * the remote-signing E2E test. Static files only.
+ *
+ * The page lives in its own repo (solardev-xyz/freedom-bridge, deployed
+ * independently to Swarm); this expects a sibling checkout, overridable
+ * via FREEDOM_BRIDGE_DIR.
  *
  *   node scripts/serve-bridge.js [port]   (default 8797)
  */
@@ -9,7 +13,15 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const BRIDGE_DIR = path.join(__dirname, '..', 'bridge');
+const BRIDGE_DIR =
+  process.env.FREEDOM_BRIDGE_DIR || path.join(__dirname, '..', '..', 'freedom-bridge');
+
+if (!fs.existsSync(path.join(BRIDGE_DIR, 'index.html'))) {
+  throw new Error(
+    `freedom-bridge checkout not found at ${BRIDGE_DIR} — clone ` +
+      'github.com/solardev-xyz/freedom-bridge next to this repo, or set FREEDOM_BRIDGE_DIR'
+  );
+}
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
