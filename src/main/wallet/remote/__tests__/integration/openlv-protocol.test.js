@@ -23,6 +23,11 @@ const { mqtt } = require('@openlv/signaling/mqtt');
 
 const { startLocalMqttBroker } = require('../../../../../../test/helpers/local-mqtt-broker');
 
+// The openlv mqtt layer uses the browser's WebSocket global, which Node
+// only ships from v22 — polyfill from `ws` (already a dependency) so
+// the suite runs on Node 20 (CI) too.
+globalThis.WebSocket ??= require('ws').WebSocket;
+
 jest.setTimeout(30000);
 
 // Anvil/Hardhat-default test key — well-known, never funded on mainnet.
