@@ -21,7 +21,7 @@ const { createSession, connectSession } = require('@openlv/session');
 const { encodeConnectionURL } = require('@openlv/core');
 const { mqtt } = require('@openlv/signaling/mqtt');
 
-const { startLocalMqttBroker } = require('../../../../../test/helpers/local-mqtt-broker');
+const { startLocalMqttBroker } = require('../../../../../../test/helpers/local-mqtt-broker');
 
 jest.setTimeout(30000);
 
