@@ -75,7 +75,20 @@ try {
   const accounts = await exchange('eth_requestAccounts', []);
   const account = accounts?.result?.[0];
   await exchange('wallet_switchEthereumChain', [{ chainId: '0x64' }]);
-  await exchange('personal_sign', [toHex(${JSON.stringify(MESSAGE)}), account]);
+
+  // ?mode=tx: the desktop signing-job shape for a transaction — the
+  // wallet endpoint picks nonce/gas, signs, and broadcasts itself
+  // (against a local anvil in the E2E). Default mode signs a message.
+  if (new URLSearchParams(location.search).get('mode') === 'tx') {
+    await exchange('eth_sendTransaction', [{
+      from: account,
+      to: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+      value: '0x2386f26fc10000',
+      chainId: '0x64',
+    }]);
+  } else {
+    await exchange('personal_sign', [toHex(${JSON.stringify(MESSAGE)}), account]);
+  }
 
   report({ phase: 'done' });
 } catch (err) {
@@ -101,19 +114,24 @@ async function main() {
       res.writeHead(status, { 'content-type': type });
       res.end(body);
     };
-    switch (req.url) {
+    const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+    switch (url.pathname) {
       case '/uri':
         return respond(200, 'application/json', JSON.stringify({ uri: state.uri }));
       case '/state':
         return respond(200, 'application/json', JSON.stringify(state));
-      case '/reset':
+      // /reset[?mode=tx] — fresh host session; mode picks the request
+      // sequence the host sends (default: personal_sign; tx: broadcast).
+      case '/reset': {
         if (!page) return respond(503, 'text/plain', 'host page not up yet');
+        const mode = url.searchParams.get('mode');
         resetState();
         page
-          .reload()
+          .goto(`http://127.0.0.1:${PORT}/${mode ? `?mode=${encodeURIComponent(mode)}` : ''}`)
           .then(() => respond(200, 'application/json', '{"ok":true}'))
           .catch((err) => respond(500, 'text/plain', String(err)));
         return undefined;
+      }
       case '/':
         return respond(200, 'text/html', hostPage);
       case '/openlv.esm.js':
