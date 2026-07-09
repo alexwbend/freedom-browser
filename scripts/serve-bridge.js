@@ -16,11 +16,9 @@ const path = require('path');
 const BRIDGE_DIR =
   process.env.FREEDOM_BRIDGE_DIR || path.join(__dirname, '..', '..', 'freedom-bridge');
 
-if (!fs.existsSync(path.join(BRIDGE_DIR, 'index.html'))) {
-  throw new Error(
-    `freedom-bridge checkout not found at ${BRIDGE_DIR} — clone ` +
-      'github.com/solardev-xyz/freedom-bridge next to this repo, or set FREEDOM_BRIDGE_DIR'
-  );
+/** False when the sibling checkout is missing — callers skip or error. */
+function bridgeAvailable() {
+  return fs.existsSync(path.join(BRIDGE_DIR, 'index.html'));
 }
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -28,6 +26,12 @@ const MIME = {
 };
 
 function createBridgeServer() {
+  if (!bridgeAvailable()) {
+    throw new Error(
+      `freedom-bridge checkout not found at ${BRIDGE_DIR} — clone ` +
+        'github.com/solardev-xyz/freedom-bridge next to this repo, or set FREEDOM_BRIDGE_DIR'
+    );
+  }
   return http.createServer((req, res) => {
     const urlPath = new URL(req.url, 'http://localhost').pathname;
     const rel = urlPath === '/' ? 'index.html' : urlPath.slice(1);
@@ -41,7 +45,7 @@ function createBridgeServer() {
   });
 }
 
-module.exports = { createBridgeServer };
+module.exports = { createBridgeServer, bridgeAvailable };
 
 if (require.main === module) {
   const port = Number(process.argv[2]) || 8797;

@@ -9,7 +9,15 @@
 // round-trip through the remote signer with on-return verification.
 
 const { Wallet, getBytes, verifyMessage } = require('ethers');
+const { bridgeAvailable } = require('../scripts/serve-bridge');
 const { test, expect } = require('./remote-signing-fixtures');
+
+// The "phone" side is the bridge page, which lives in its own repo —
+// skip (don't fail) for contributors without the sibling checkout.
+test.skip(
+  !bridgeAvailable(),
+  'freedom-bridge checkout not found — clone github.com/solardev-xyz/freedom-bridge next to this repo'
+);
 
 // Anvil/Hardhat-default test key — well-known, never funded on mainnet.
 const PHONE_KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
