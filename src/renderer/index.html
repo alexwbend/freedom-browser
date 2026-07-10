@@ -1915,6 +1915,16 @@
                   </div>
                 </div>
 
+                <!-- Multi-owner (Safe) caveat -->
+                <div class="dapp-sign-warning hidden" id="dapp-connect-safe-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span>Multi-owner account: works on Gnosis Chain and signs as a smart contract. Some apps can't verify contract signatures.</span>
+                </div>
+
                 <!-- Permissions info -->
                 <div class="dapp-connect-permissions">
                   <div class="dapp-connect-permissions-title">This will allow the site to:</div>
@@ -2067,6 +2077,16 @@
                     <line x1="12" y1="8" x2="12.01" y2="8"/>
                   </svg>
                   <span>Only sign messages from sites you trust. Signing can authorize actions on your behalf.</span>
+                </div>
+
+                <!-- Multi-owner (Safe) caveat -->
+                <div class="dapp-sign-warning hidden" id="dapp-sign-safe-note">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span>This multi-owner account signs as a smart contract. Some apps can't verify contract signatures — if the site rejects the signature, that's why.</span>
                 </div>
 
                 <!-- Unlock section -->

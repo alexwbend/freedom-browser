@@ -203,13 +203,20 @@ export function createRemoteSessionBroker({
     throw new Error('No signaling relay reachable — check your internet connection and try again');
   }
 
-  /** Typed-data signature over a SafeTx (an owner co-signing a Safe). */
-  function isSafeTxSignature(method, params) {
-    if (method !== 'eth_signTypedData_v4') return false;
+  /**
+   * Typed-data signature belonging to the user's own Safe (an owner
+   * co-signing) — 'safe' for a SafeTx, 'safe-message' for the EIP-1271
+   * SafeMessage wrap, null for ordinary dApp requests.
+   */
+  function safeSignatureContext(method, params) {
+    if (method !== 'eth_signTypedData_v4') return null;
     try {
-      return JSON.parse(params[1]).primaryType === 'SafeTx';
+      const { primaryType } = JSON.parse(params[1]);
+      if (primaryType === 'SafeTx') return 'safe';
+      if (primaryType === 'SafeMessage') return 'safe-message';
+      return null;
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -269,9 +276,9 @@ export function createRemoteSessionBroker({
         kind,
         phase: 'qr',
         method,
-        // A SafeTx signature is the user's own multi-owner transaction,
-        // not a dApp request — the panel words it accordingly.
-        context: isSafeTxSignature(method, params) ? 'safe' : 'dapp',
+        // A Safe signature is the user's own multi-owner account at
+        // work, not a dApp request — the panel words it accordingly.
+        context: safeSignatureContext(method, params) || 'dapp',
         uri,
         bridgeUrl: `${bridgeOrigin}/#${uri}`,
       });

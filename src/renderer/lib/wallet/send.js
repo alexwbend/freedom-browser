@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice } from './wallet-utils.js';
+import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice, renderSafeFeePayer, isSafeDeployed } from './wallet-utils.js';
 import { openSafeSigningBoard } from './safe-signing.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
@@ -241,18 +241,10 @@ function activeSafeWallet() {
 /** Whether the active account can send at all (Safes need activation). */
 function sendBlockedReason() {
   const safe = activeSafeWallet();
-  if (safe && !safe.deployed?.[100]) {
+  if (safe && !isSafeDeployed(safe)) {
     return 'Activate this account on Gnosis before sending';
   }
   return null;
-}
-
-/** Display name of the owner that pays a Safe's execution fee. */
-function safeExecutorName(safe) {
-  const executor = safe.owners
-    .map((index) => walletState.derivedWallets.find((w) => w.index === index))
-    .find((owner) => owner?.type === 'mnemonic');
-  return executor?.name || 'an owner account';
 }
 
 /**
@@ -1055,7 +1047,7 @@ function populateSendReview() {
   const safe = activeSafeWallet();
   if (safe) {
     // The executor EOA pays the execution fee, quoted after signing.
-    if (sendReviewFee) sendReviewFee.textContent = `Paid by ${safeExecutorName(safe)}`;
+    renderSafeFeePayer(sendReviewFee, safe.index);
     if (sendReviewTotal) sendReviewTotal.textContent = `${sendTxState.amount} ${token?.symbol || ''}`;
     return;
   }
@@ -1310,7 +1302,7 @@ async function handleSendConfirm() {
         throw new Error(created.error || 'Failed to create the transaction');
       }
       closeSend();
-      await openSafeSigningBoard(safe.index);
+      await openSafeSigningBoard(safe.index, created.state);
       return;
     }
 

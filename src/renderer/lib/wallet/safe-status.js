@@ -17,6 +17,7 @@ import {
   truncateAddress,
   formatRawTokenBalance,
   walletRecord,
+  isSafeDeployed,
   showInlineError,
 } from './wallet-utils.js';
 import { updateSendAvailability } from './send.js';
@@ -43,7 +44,7 @@ export async function refreshSafeStatusCard() {
 
   // Deployed safes need no activation card — and the record snapshot is
   // trustworthy once it says deployed (deployment is permanent).
-  if (wallet.deployed?.[100]) {
+  if (isSafeDeployed(wallet)) {
     card.classList.add('hidden');
     return;
   }

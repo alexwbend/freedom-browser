@@ -13,9 +13,17 @@
  * silently when the board opens (vault unlocked). The moment the
  * threshold is met the board executes automatically — the user already
  * approved the send on the review screen.
+ *
+ * The board serves two kinds of pending item behind one UX:
+ *  - 'send'    — a SafeTx (persisted main-side, finalized by on-chain
+ *                execution, leaveable/resumable);
+ *  - 'message' — a dApp EIP-1271 signing session (in-memory, finalized
+ *                by returning the combined signature to the waiting
+ *                dApp; closing the board cancels the request, because a
+ *                dApp promise can't be parked).
  */
 
-import { walletState, registerScreenHider } from './wallet-state.js';
+import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { escapeHtml, truncateAddress, formatRawTokenBalance, walletRecord, timeAgo } from './wallet-utils.js';
 import { refreshBalances } from './balance-display.js';
 import { showVaultUnlock } from './vault-unlock.js';
@@ -28,14 +36,31 @@ let content;
 
 // Board state
 let boardSafeIndex = null;
-let state = null; // SafeSendState from main
+let boardKind = 'send'; // 'send' | 'message'
+let messageResolver = null; // {resolve, reject} of the waiting dApp request
+let state = null; // SafeSendState / SafeMessageState from main
 let phase = 'board'; // 'board' | 'executing' | 'success' | 'superseded'
-let executed = null; // {hash, explorerUrl}
+let executed = null; // {hash, explorerUrl} (send mode)
 let executeError = null; // {message, needsFunds}
 let signingIndex = null; // owner row with a live ceremony
 let rowNotes = new Map(); // ownerIndex → {kind: 'error'|'info', text}
 let ledgerDetected = false;
 let ledgerPollTimer = null;
+
+// The IPC surface per board kind — everything else is shared.
+const KIND_API = {
+  send: {
+    state: (safeIndex) => window.wallet.safeState(safeIndex),
+    sign: (safeIndex, ownerIndex) => window.wallet.safeSign(safeIndex, ownerIndex),
+    cancel: (safeIndex) => window.wallet.safeCancelPending(safeIndex),
+  },
+  message: {
+    state: (safeIndex) => window.wallet.safeMessageState(safeIndex),
+    sign: (safeIndex, ownerIndex) => window.wallet.safeMessageSign(safeIndex, ownerIndex),
+    cancel: (safeIndex) => window.wallet.safeMessageCancel(safeIndex),
+  },
+};
+const api = () => KIND_API[boardKind];
 
 export function initSafeSigning() {
   screen = document.getElementById('sidebar-safe-signing');
@@ -47,8 +72,49 @@ export function initSafeSigning() {
   backBtn?.addEventListener('click', closeSafeSigning);
 }
 
-/** Open (or re-open) the board for a safe's pending transaction. */
-export async function openSafeSigningBoard(safeIndex) {
+/** Whether the board subscreen is currently up (any kind). */
+export function isSafeSigningBoardOpen() {
+  return Boolean(screen) && !screen.classList.contains('hidden');
+}
+
+/**
+ * The board is a single slot: opening it over a live message session
+ * would silently drop the waiting dApp promise — settle it first.
+ */
+function abandonMessageSession() {
+  if (boardKind !== 'message' || !messageResolver) return;
+  KIND_API.message.cancel(boardSafeIndex);
+  settleMessage('reject', { code: 4001, message: 'User rejected the request' });
+}
+
+/**
+ * Open (or re-open) the board for a safe's pending transaction.
+ * `initialState` seeds the board when the caller just created the
+ * pending item (its start call already swept the free signatures).
+ */
+export async function openSafeSigningBoard(safeIndex, initialState = null) {
+  abandonMessageSession();
+  boardKind = 'send';
+  await openBoard(safeIndex, initialState);
+}
+
+/**
+ * Open the board for a dApp SafeMessage session (already started
+ * main-side; pass its state as `initialState`). Resolves with the
+ * combined EIP-1271 signature when the threshold is met, rejects with
+ * an EIP-1193 user-rejection when the user closes or cancels the
+ * board — a waiting dApp can't be parked.
+ */
+export function openSafeMessageBoard(safeIndex, initialState = null) {
+  return new Promise((resolve, reject) => {
+    abandonMessageSession();
+    boardKind = 'message';
+    messageResolver = { resolve, reject };
+    openBoard(safeIndex, initialState);
+  });
+}
+
+async function openBoard(safeIndex, initialState) {
   boardSafeIndex = safeIndex;
   phase = 'board';
   executed = null;
@@ -56,10 +122,20 @@ export async function openSafeSigningBoard(safeIndex) {
   signingIndex = null;
   rowNotes = new Map();
 
+  // The board may be entered from another subscreen (dApp approval,
+  // pending list) — it replaces whatever was up.
+  hideAllSubscreens();
   walletState.identityView?.classList.add('hidden');
   screen?.classList.remove('hidden');
 
-  await refreshState();
+  if (initialState) {
+    // Fresh from the caller's start call — the opening refresh and
+    // free-signature sweep would be IPC no-ops.
+    state = initialState;
+    if (state.status === 'superseded') phase = 'superseded';
+  } else {
+    await refreshState();
+  }
   if (!state) {
     // nothing pending (e.g. discarded elsewhere) — nothing to show
     closeSafeSigning();
@@ -67,12 +143,18 @@ export async function openSafeSigningBoard(safeIndex) {
   }
   render();
   startLedgerDetection();
-  await progressAutomatics();
+  await (initialState ? maybeFinalize() : progressAutomatics());
 }
 
 export function closeSafeSigning() {
   if (!screen || screen.classList.contains('hidden')) return;
   if (signingIndex !== null || phase === 'executing') return; // busy — see render() note
+  if (boardKind === 'message' && messageResolver) {
+    // Closing a message board abandons the dApp's request: drop the
+    // session and answer the dApp with a rejection.
+    api().cancel(boardSafeIndex);
+    settleMessage('reject', { code: 4001, message: 'User rejected the request' });
+  }
   hideScreen();
   walletState.identityView?.classList.remove('hidden');
   window.dispatchEvent(new CustomEvent('wallet:safe-signing-closed'));
@@ -81,13 +163,21 @@ export function closeSafeSigning() {
   }
 }
 
+/** Answer the waiting dApp exactly once. */
+function settleMessage(outcome, value) {
+  if (!messageResolver) return;
+  const { resolve, reject } = messageResolver;
+  messageResolver = null;
+  (outcome === 'resolve' ? resolve : reject)(value);
+}
+
 function hideScreen() {
   stopLedgerDetection();
   screen?.classList.add('hidden');
 }
 
 async function refreshState() {
-  const result = await window.wallet.safeState(boardSafeIndex);
+  const result = await api().state(boardSafeIndex);
   state = result.success ? result.state : null;
   if (state?.status === 'superseded') phase = 'superseded';
 }
@@ -111,26 +201,27 @@ async function requestVaultUnlock() {
   return unlocked;
 }
 
-/** Silent free signatures (main owns the policy) + execute if ready. */
+/** Silent free signatures (main owns the policy) + finalize if ready. */
 async function progressAutomatics() {
   if (!state || phase !== 'board') return;
   if (state.collected < state.threshold) {
-    const result = await window.wallet.safeSign(boardSafeIndex); // free-signature sweep
+    const result = await api().sign(boardSafeIndex); // free-signature sweep
     if (result.success) {
       state = result.state;
       render();
     }
   }
-  await maybeExecute();
+  await maybeFinalize();
 }
 
 /**
- * The single decision site for execution: threshold met, board idle,
- * and no unresolved execution error (its banner owns the retry).
+ * The single decision site for finalization (executing a send /
+ * completing a message): threshold met, board idle, and no unresolved
+ * finalization error (its banner owns the retry).
  */
-async function maybeExecute() {
+async function maybeFinalize() {
   if (state && phase === 'board' && !executeError && state.collected >= state.threshold) {
-    await executeNow();
+    await (boardKind === 'message' ? completeNow() : executeNow());
   }
 }
 
@@ -142,13 +233,13 @@ async function signOwner(ownerIndex) {
   rowNotes.delete(ownerIndex);
   render();
 
-  const result = await window.wallet.safeSign(boardSafeIndex, ownerIndex);
+  const result = await api().sign(boardSafeIndex, ownerIndex);
   signingIndex = null;
 
   if (result.success) {
     state = result.state;
     render();
-    await maybeExecute();
+    await maybeFinalize();
     return;
   }
 
@@ -186,7 +277,26 @@ function describeRowFailure(result) {
   return { kind: 'error', text: result.error || 'Signing failed — try again' };
 }
 
-// --- executing -------------------------------------------------------------
+// --- finalizing ------------------------------------------------------------
+
+/**
+ * Message finalization: hand the combined signature to the waiting dApp
+ * and close the board — the dApp reacting IS the success feedback.
+ * Purely local (no broadcast), so failures are rare — but they get the
+ * same banner-with-retry treatment as execution failures.
+ */
+async function completeNow() {
+  const result = await window.wallet.safeMessageComplete(boardSafeIndex);
+  if (result.success) {
+    phase = 'success'; // past the busy guard in closeSafeSigning
+    settleMessage('resolve', result.signature);
+    closeSafeSigning();
+    return;
+  }
+  executeError = { message: result.error || 'Signing failed', needsFunds: false };
+  await refreshState();
+  render();
+}
 
 async function executeNow() {
   phase = 'executing';
@@ -198,6 +308,12 @@ async function executeNow() {
     state = result.state; // pre-clear snapshot — display survives for the summary
     executed = result.state.executed;
     phase = 'success';
+    // dApp-initiated sends await this to hand the tx hash back.
+    window.dispatchEvent(
+      new CustomEvent('wallet:safe-executed', {
+        detail: { safeIndex: boardSafeIndex, safeTxHash: state.safeTxHash, hash: executed.hash },
+      })
+    );
   } else if (result.success && result.state?.status === 'superseded') {
     state = result.state;
     phase = 'superseded';
@@ -226,15 +342,27 @@ async function executeNow() {
 
 async function handleDiscard() {
   if (signingIndex !== null || phase === 'executing') return;
-  const what = summaryLine();
-  if (!confirm(`Discard ${what}?\n\nThe collected signatures will be deleted — devices that already signed would need to sign again.`)) {
-    return;
-  }
-  const result = await window.wallet.safeCancelPending(boardSafeIndex);
-  if (result.success) {
+  if (boardKind === 'send') {
+    // Parked sends survive for days — discarding one deserves a pause.
+    const what = summaryLine();
+    if (!confirm(`Discard ${what}?\n\nThe collected signatures will be deleted — devices that already signed would need to sign again.`)) {
+      return;
+    }
+    const result = await window.wallet.safeCancelPending(boardSafeIndex);
+    if (!result.success) return;
+    window.dispatchEvent(
+      new CustomEvent('wallet:safe-discarded', {
+        detail: { safeIndex: boardSafeIndex, safeTxHash: state?.safeTxHash },
+      })
+    );
     state = null;
     closeSafeSigning();
+    return;
   }
+  // Message sessions die with their request anyway — no confirm; the
+  // close path cancels the session and rejects the dApp.
+  state = null;
+  closeSafeSigning();
 }
 
 // --- warm Ledger detection ---------------------------------------------------
@@ -280,6 +408,17 @@ function ownerName(index) {
 
 export function summaryLine(display = state?.display) {
   const d = display || {};
+  if (d.kind === 'message') {
+    const what = d.method === 'personal_sign' ? 'a message' : 'a signing request';
+    return `signing ${what} for ${d.site || 'a connected app'}`;
+  }
+  // dApp-initiated transactions name the requesting site.
+  const suffix = d.site ? ` — requested by ${d.site}` : '';
+  if (d.label) {
+    // Arbitrary calldata has no amount/recipient to format — the dApp
+    // flow pre-composes the line instead.
+    return d.label + suffix;
+  }
   // Entries persisted before presentation fields existed carry only the
   // atomic amount — format it instead of showing raw wei.
   const amount =
@@ -287,7 +426,7 @@ export function summaryLine(display = state?.display) {
     (d.amount ? formatRawTokenBalance(d.amount, d.decimals ?? 18) : '');
   const symbol = d.symbol || (d.asset ? '' : 'xDAI');
   const to = d.recipientName || truncateAddress(d.toAddress || '');
-  return `sending ${amount} ${symbol} to ${to}`.replace(/\s+/g, ' ').trim();
+  return `sending ${amount} ${symbol} to ${to}${suffix}`.replace(/\s+/g, ' ').trim();
 }
 
 function render() {
@@ -336,16 +475,23 @@ function render() {
       </div>
     ` : `
       ${executeError ? renderExecuteError() : ''}
-      <div class="safe-signing-note">
-        Network fee is paid by ${escapeHtml(executorName || 'an owner account')} when the
-        transaction executes${state.collected >= state.threshold ? '' : ' — it executes automatically after the last signature'}.
-      </div>
-      <div class="safe-signing-note">
-        You can leave this screen: the transaction keeps waiting and can be
-        continued from the account card anytime.
-      </div>
+      ${boardKind === 'message' ? `
+        <div class="safe-signing-note">
+          No transaction is sent — once enough owners have signed, the
+          combined signature goes back to the app.
+        </div>
+      ` : `
+        <div class="safe-signing-note">
+          Network fee is paid by ${escapeHtml(executorName || 'an owner account')} when the
+          transaction executes${state.collected >= state.threshold ? '' : ' — it executes automatically after the last signature'}.
+        </div>
+        <div class="safe-signing-note">
+          You can leave this screen: the transaction keeps waiting and can be
+          continued from the account card anytime.
+        </div>
+      `}
       <button type="button" class="safe-status-btn safe-signing-discard" id="safe-signing-discard"
-        ${signingIndex !== null ? 'disabled' : ''}>Discard transaction</button>
+        ${signingIndex !== null ? 'disabled' : ''}>${boardKind === 'message' ? 'Cancel request' : 'Discard transaction'}</button>
     `}
   `;
 
@@ -353,7 +499,9 @@ function render() {
     button.addEventListener('click', () => signOwner(Number(button.dataset.signOwner)));
   });
   document.getElementById('safe-signing-discard')?.addEventListener('click', handleDiscard);
-  document.getElementById('safe-signing-retry-execute')?.addEventListener('click', executeNow);
+  document
+    .getElementById('safe-signing-retry-execute')
+    ?.addEventListener('click', boardKind === 'message' ? completeNow : executeNow);
 }
 
 function renderRow(owner) {

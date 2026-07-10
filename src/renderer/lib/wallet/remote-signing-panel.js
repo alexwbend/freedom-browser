@@ -29,6 +29,8 @@ const REQUEST_LABELS = {
   personal_sign: 'A site asks you to sign a message.',
   eth_signTypedData_v4: 'A site asks you to sign structured data.',
   'safe:eth_signTypedData_v4': 'Sign on your phone to approve your multi-owner transaction.',
+  'safe-message:eth_signTypedData_v4':
+    'Sign on your phone to approve this request with your multi-owner account.',
   eth_sendTransaction: 'Approve and send the transaction from your phone.',
 };
 
@@ -79,7 +81,7 @@ function handleJobEvent(event) {
 function showPanel(event) {
   if (requestLabel) {
     requestLabel.textContent =
-      (event.context === 'safe' && REQUEST_LABELS[`safe:${event.method}`]) ||
+      REQUEST_LABELS[`${event.context}:${event.method}`] ||
       REQUEST_LABELS[event.method] ||
       'Signature request';
   }

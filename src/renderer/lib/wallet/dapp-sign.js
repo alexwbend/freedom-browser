@@ -7,7 +7,13 @@
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel } from '../sidebar.js';
 import { executeSign } from '../dapp-provider.js';
-import { bypassUnlockGateForDevice, signingButtonLabel } from './wallet-utils.js';
+import {
+  bypassUnlockGateForDevice,
+  bypassUnlockGateForSafe,
+  signingButtonLabel,
+  isSafeAccount,
+} from './wallet-utils.js';
+import { isSafeSigningBoardOpen } from './safe-signing.js';
 
 // DOM references
 let dappSignScreen;
@@ -119,6 +125,12 @@ export async function showDappSignApproval(webview, permissionKey, method, param
       displayTypedDataMessage(params);
     }
 
+    // Multi-owner accounts sign as a smart contract — be upfront that
+    // not every dApp can verify EIP-1271 signatures.
+    document
+      .getElementById('dapp-sign-safe-note')
+      ?.classList.toggle('hidden', !isSafeAccount(permission.walletIndex));
+
     checkDappSignUnlockStatus().then(() => {
       hideAllSubscreens();
       walletState.identityView?.classList.add('hidden');
@@ -205,7 +217,10 @@ function formatTypedDataForDisplay(typedData) {
 
 async function checkDappSignUnlockStatus() {
   try {
-    if (bypassUnlockGateForDevice(dappSignPending?.walletIndex, dappSignUnlock, dappSignApproveBtn)) {
+    if (
+      bypassUnlockGateForDevice(dappSignPending?.walletIndex, dappSignUnlock, dappSignApproveBtn) ||
+      bypassUnlockGateForSafe(dappSignPending?.walletIndex, dappSignUnlock, dappSignApproveBtn)
+    ) {
       return;
     }
 
@@ -304,7 +319,7 @@ async function approveDappSign() {
       dappSignApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
 
-    const signature = await executeSign(method, params, walletIndex);
+    const signature = await executeSign(method, params, walletIndex, permissionKey);
 
     if (dappSignAutoApproveCheckbox?.checked && permissionKey) {
       await window.dappPermissions.setSigningAutoApprove(permissionKey, true);
@@ -315,12 +330,22 @@ async function approveDappSign() {
     resolve(signature);
     closeDappSign();
   } catch (err) {
+    if (err?.code === 4001) {
+      // The user closed the Safe signing board — that IS the rejection.
+      rejectDappSign();
+      closeDappSign();
+      return;
+    }
     console.error('[WalletUI] dApp signing failed:', err);
     showDappSignError(err.message || 'Signing failed');
     if (dappSignApproveBtn) {
       dappSignApproveBtn.disabled = false;
       dappSignApproveBtn.textContent = 'Sign';
     }
+    // The signing board may have replaced this screen (a Safe signature
+    // that failed to complete) — bring the approval back.
+    walletState.identityView?.classList.add('hidden');
+    dappSignScreen?.classList.remove('hidden');
   }
 }
 
@@ -332,7 +357,11 @@ function rejectDappSign() {
 
 function closeDappSign() {
   dappSignScreen?.classList.add('hidden');
-  walletState.identityView?.classList.remove('hidden');
+  // A Safe flow may still be showing the signing board (in-flow, not a
+  // modal) — restoring the identity view under it would double-render.
+  if (!isSafeSigningBoardOpen()) {
+    walletState.identityView?.classList.remove('hidden');
+  }
   dappSignPending = null;
   hideDappSignError();
   if (dappSignPasswordInput) dappSignPasswordInput.value = '';

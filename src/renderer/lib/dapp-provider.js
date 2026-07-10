@@ -12,6 +12,8 @@
 
 import { showDappConnect, getSelectedChainId, setSelectedChainId, updateConnectionBanner, showDappTxApproval, showDappSignApproval, showVaultUnlock, updateSwarmConnectionBanner, updateX402ConnectionBanner } from './wallet-ui.js';
 import { buildDappTxContext, extractSelector } from './wallet/dapp-tx.js';
+import { isSafeAccount, GNOSIS_CHAIN_ID } from './wallet/wallet-utils.js';
+import { openSafeMessageBoard } from './wallet/safe-signing.js';
 import { getPermissionKey } from './origin-utils.js';
 
 // Feature flag state
@@ -195,8 +197,12 @@ async function handleProviderRequest(webview, request) {
 
       const chainId = permission.chainId || parseInt(await getCurrentChainId(), 16);
 
-      // Auto-approve only for contract calls with a matching rule (never plain ETH transfers)
-      if (selector && txParams?.to
+      assertSafeOnGnosis(permission, chainId, 'transact');
+
+      // Auto-approve only for contract calls with a matching rule (never
+      // plain ETH transfers, never Safes — their sends are a multi-step
+      // signature ceremony, not a background signature)
+      if (!isSafeAccount(permission.walletIndex) && selector && txParams?.to
         && await window.dappPermissions.isTransactionAutoApproved(permissionKey, txParams.to, selector, chainId)
       ) {
         const vaultStatus = await window.identity?.getStatus?.();
@@ -212,6 +218,9 @@ async function handleProviderRequest(webview, request) {
       if (!permission) {
         throw { ...ERRORS.UNAUTHORIZED, message: 'Not connected. Call eth_requestAccounts first.' };
       }
+
+      const chainId = permission.chainId || parseInt(await getCurrentChainId(), 16);
+      assertSafeOnGnosis(permission, chainId, 'sign');
 
       if (permission.autoApprove?.signing) {
         const vaultStatus = await window.identity?.getStatus?.();
@@ -240,6 +249,20 @@ async function handleProviderRequest(webview, request) {
       data: error.data,
     };
     sendProviderResponse(webview, id, null, err);
+  }
+}
+
+/**
+ * v1 Safes live on Gnosis only: a SafeTx for another chain could never
+ * execute, and an EIP-1271 signature only verifies where the contract
+ * lives — a clear refusal beats an answer the dApp can't use.
+ */
+function assertSafeOnGnosis(permission, chainId, verb) {
+  if (isSafeAccount(permission.walletIndex) && chainId !== GNOSIS_CHAIN_ID) {
+    throw {
+      ...ERRORS.INTERNAL_ERROR,
+      message: `This multi-owner account can only ${verb} on Gnosis Chain — switch the app to Gnosis first.`,
+    };
   }
 }
 
@@ -310,7 +333,7 @@ async function autoApproveTx(permission, txParams, chainId, permissionKey) {
  * Accepts the already-fetched permission object to avoid redundant IPC.
  */
 async function autoApproveSign(permission, method, params, permissionKey) {
-  const signature = await executeSign(method, params, permission.walletIndex);
+  const signature = await executeSign(method, params, permission.walletIndex, permissionKey);
   window.dappPermissions.updateLastUsed(permissionKey);
   return signature;
 }
@@ -319,7 +342,10 @@ async function autoApproveSign(permission, method, params, permissionKey) {
  * Execute a signing operation via the wallet IPC bridge.
  * Shared by both auto-approve and manual approval paths.
  */
-async function executeSign(method, params, walletIndex) {
+async function executeSign(method, params, walletIndex, site) {
+  if (isSafeAccount(walletIndex)) {
+    return signViaSafeAccount(method, params, walletIndex, site);
+  }
   let result;
   if (method === 'personal_sign') {
     result = await window.wallet.signMessage(params[0], walletIndex);
@@ -330,6 +356,27 @@ async function executeSign(method, params, walletIndex) {
   }
   if (!result.success) throw new Error(result.error || 'Signing failed');
   return result.signature;
+}
+
+/**
+ * A Safe account signs as a smart contract (EIP-1271): owner signatures
+ * are collected over the SafeMessage wrap and concatenated; the dApp
+ * verifies via isValidSignature on the Safe. Free vault signatures may
+ * satisfy the threshold on their own — the signing board only opens
+ * when a device signature is actually needed. Rejects with EIP-1193
+ * code 4001 when the user closes the board.
+ */
+async function signViaSafeAccount(method, params, walletIndex, site) {
+  const display = { kind: 'message', site, method };
+  const started = await window.wallet.safeMessageStart(walletIndex, { method, params }, display);
+  if (!started.success) throw new Error(started.error || 'Signing failed');
+
+  if (started.state?.complete) {
+    const done = await window.wallet.safeMessageComplete(walletIndex);
+    if (!done.success) throw new Error(done.error || 'Signing failed');
+    return done.signature;
+  }
+  return openSafeMessageBoard(walletIndex, started.state);
 }
 
 /**

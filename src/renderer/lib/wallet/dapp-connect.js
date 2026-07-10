@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
-import { escapeHtml, isSafeAccount } from './wallet-utils.js';
+import { escapeHtml, isSafeAccount, isSafeDeployed } from './wallet-utils.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
 import { getActiveWebview, emitAccountsChanged, getPermissionKey } from '../dapp-provider.js';
 import { showDappPermissions } from './permission-manage.js';
@@ -154,8 +154,9 @@ function renderDappConnectWalletList() {
   dappConnectWalletList.innerHTML = '';
 
   for (const wallet of walletState.derivedWallets) {
-    // Safe accounts can't satisfy dApp signing yet (EIP-1271 comes later)
-    if (isSafeAccount(wallet.index)) continue;
+    // Safe accounts sign via EIP-1271, which needs the contract on
+    // chain — receive-only (undeployed) safes stay out of the list.
+    if (safeNotConnectable(wallet)) continue;
     const item = document.createElement('div');
     item.className = 'dapp-connect-wallet-item';
     if (wallet.index === dappConnectSelectedWalletIndex) {
@@ -183,6 +184,11 @@ function renderDappConnectWalletList() {
   }
 }
 
+/** Undeployed safes can neither send nor answer EIP-1271 — not connectable. */
+function safeNotConnectable(wallet) {
+  return isSafeAccount(wallet.index) && !isSafeDeployed(wallet);
+}
+
 function selectDappConnectWallet(index) {
   dappConnectSelectedWalletIndex = index;
   const wallet = walletState.derivedWallets.find(w => w.index === index);
@@ -198,6 +204,11 @@ function selectDappConnectWallet(index) {
       dappConnectWalletAddress.textContent = truncated;
     }
   }
+
+  // Be upfront that a multi-owner account signs as a smart contract.
+  document
+    .getElementById('dapp-connect-safe-note')
+    ?.classList.toggle('hidden', !isSafeAccount(index));
 
   closeDappConnectWalletDropdown();
 }
@@ -235,11 +246,13 @@ export function showDappConnect(displayUrl, permissionKey, resolve, reject, webv
     }
   }
 
-  // A Safe can't be the dApp wallet (no direct signer yet) — default to
-  // the first signing-capable account instead.
+  // Default to the active account; a receive-only (undeployed) safe
+  // can't serve a dApp, so fall back to the first connectable account.
   let defaultIndex = walletState.activeWalletIndex;
-  if (isSafeAccount(defaultIndex)) {
-    defaultIndex = walletState.derivedWallets.find((w) => !isSafeAccount(w.index))?.index ?? 0;
+  const activeRecord = walletState.derivedWallets.find((w) => w.index === defaultIndex);
+  if (activeRecord && safeNotConnectable(activeRecord)) {
+    defaultIndex =
+      walletState.derivedWallets.find((w) => !safeNotConnectable(w))?.index ?? 0;
   }
   dappConnectSelectedWalletIndex = defaultIndex;
   selectDappConnectWallet(defaultIndex);
