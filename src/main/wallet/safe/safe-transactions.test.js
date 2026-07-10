@@ -100,9 +100,10 @@ describe('startSafeSend', () => {
     const result = await startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY }, (u) => updates.push(u));
 
     expect(result.hash).toBe(TX_HASH);
+    // owners reach the executor layer as ADDRESSES, not wallet indexes
     expect(mockBuildSafeTransaction).toHaveBeenCalledWith({
       chainId: 100,
-      safe: mockWalletRecords[5],
+      safe: { ...mockWalletRecords[5], owners: [OWNERS[0], OWNERS[1]] },
       tx: TX,
     });
     expect(mockExecTransaction).toHaveBeenCalledWith({

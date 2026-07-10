@@ -16,7 +16,7 @@ const {
   execTransaction,
   pickDefaultExecutor,
 } = require('./safe-executor');
-const { getSafeRecord, DEPLOY_CHAIN_ID } = require('./safe-service');
+const { getSafeRecord, resolveOwnerAddresses, DEPLOY_CHAIN_ID } = require('./safe-service');
 const { getPending, setPending, clearPending } = require('./pending-store');
 
 /**
@@ -41,7 +41,13 @@ async function startSafeSend({ safeIndex, tx, display }, onProgress) {
     throw new Error('A transaction is already waiting for signatures — finish or cancel it first');
   }
 
-  const built = await buildSafeTransaction({ chainId: DEPLOY_CHAIN_ID, safe: record, tx });
+  // The record stores owners as wallet INDEXES; the executor layer (and
+  // protocol-kit under it) works in owner ADDRESSES.
+  const built = await buildSafeTransaction({
+    chainId: DEPLOY_CHAIN_ID,
+    safe: { ...record, owners: resolveOwnerAddresses(record.owners) },
+    tx,
+  });
   setPending(safeIndex, {
     chainId: DEPLOY_CHAIN_ID,
     safeAddress: built.safeAddress,

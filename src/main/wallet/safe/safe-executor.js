@@ -52,6 +52,12 @@ const resolveProvider = (provider, chainId) => provider ?? getEip1193Provider(ch
 
 /** protocol-kit instance for a not-yet-assumed-deployed safe. */
 function initPredictedKit({ owners, threshold, saltNonce, chainId, provider }) {
+  // This layer works in owner ADDRESSES; wallet records store owners as
+  // wallet INDEXES — fail loudly on the mixup instead of letting the
+  // address parser produce a cryptic error deep inside protocol-kit.
+  if (!Array.isArray(owners) || owners.some((owner) => typeof owner !== 'string')) {
+    throw new Error('Safe owners must be addresses here — resolve wallet indexes first');
+  }
   return Safe.init({
     provider: resolveProvider(provider, chainId),
     predictedSafe: {

@@ -31,6 +31,26 @@ jest.mock('../../../signers', () => ({
   getSigner: (walletIndex) => require('../helpers/test-owners').createTestSigner(walletIndex),
 }));
 
+// Wallet records for the orchestrator path (owners stored as INDEXES,
+// like real vault-meta records). The safe record is added by the test
+// once the predicted address is known.
+const mockWalletRecords = {
+  0: { index: 0, name: 'Main Wallet', type: 'mnemonic', address: ownerWallet(0).address },
+  2: { index: 2, name: 'My Stax', type: 'ledger', address: ownerWallet(2).address },
+  4: { index: 4, name: 'My Phone', type: 'remote', address: ownerWallet(4).address },
+};
+jest.mock('../../../../identity-manager', () => ({
+  getWalletRecord: (index) => mockWalletRecords[index] || null,
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote', SAFE: 'safe' },
+}));
+
+// Recording is unit-tested elsewhere; here the broadcast must be real.
+jest.mock('../../../tx-recorder', () => ({
+  KINDS: { SAFE_SEND: 'safe-send', SAFE_DEPLOY: 'safe-deploy' },
+  signAndRecord: (params, signer) =>
+    jest.requireActual('../../../transaction-service').signAndSendTransaction(params, signer),
+}));
+
 // Point the broadcast path (transaction-service → provider-manager) at
 // the anvil forks instead of the registry's live RPC pool.
 jest.mock('../../../provider-manager', () => {
@@ -44,9 +64,14 @@ jest.mock('../../../provider-manager', () => {
       }
       return cache.get(chainId);
     },
-    getEip1193Provider: () => {
-      throw new Error('fork tests must pass explicit anvil providers');
-    },
+    getEip1193Provider: (chainId) => ({
+      request: ({ method, params }) => {
+        if (!cache.has(chainId)) {
+          cache.set(chainId, new Provider(urls[chainId], chainId, { staticNetwork: true }));
+        }
+        return cache.get(chainId).send(method, params ?? []);
+      },
+    }),
     withRetry: (fn) => fn(),
   };
 });
@@ -258,5 +283,42 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
     const receipt = await waitForReceipt(FORKS.gnosis, tx.hash);
     expect(receipt.status).toBe('0x1');
     expect((await getCode(FORKS.gnosis, predicted)).length).toBeGreaterThan(2);
+  });
+
+  test('the send orchestrator moves funds starting from a wallet RECORD (owners as indexes)', async () => {
+    // Regression: the record stores owners as wallet indexes; passing
+    // them unresolved into protocol-kit blew up with `Address "0" is
+    // invalid`. This walks the REAL startSafeSend path, un-mocked.
+    const { startSafeSend } = require('../../safe-transactions');
+
+    // Fund the (deployed, previous test) safe on the Gnosis fork.
+    const gnosisProvider = new JsonRpcProvider(anvilUrl(FORKS.gnosis), 100, { staticNetwork: true });
+    const funder = ownerWallet(0).connect(gnosisProvider);
+    const funding = await funder.sendTransaction({ to: predicted, value: parseEther('1') });
+    await waitForReceipt(FORKS.gnosis, funding.hash);
+    gnosisProvider.destroy();
+
+    mockWalletRecords[5] = {
+      index: 5,
+      name: 'Joint',
+      type: 'safe',
+      address: predicted,
+      owners: [0, 2, 4], // wallet indexes, exactly like vault-meta
+      threshold: INIT.threshold,
+      saltNonce: INIT.saltNonce,
+      deployed: { 100: true },
+    };
+
+    const recipient = Wallet.createRandom().address;
+    const amount = parseEther('1').toString();
+    const result = await startSafeSend({
+      safeIndex: 5,
+      tx: { to: recipient, value: amount, data: '0x' },
+      display: { toAddress: recipient, asset: null, amount },
+    });
+
+    const receipt = await waitForReceipt(FORKS.gnosis, result.hash);
+    expect(receipt.status).toBe('0x1');
+    expect(await getBalance(FORKS.gnosis, recipient)).toBe(parseEther('1'));
   });
 });

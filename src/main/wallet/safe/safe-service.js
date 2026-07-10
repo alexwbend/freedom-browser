@@ -245,6 +245,7 @@ async function activateSafe(index) {
 module.exports = {
   DEPLOY_CHAIN_ID,
   getSafeRecord,
+  resolveOwnerAddresses,
   createSafeAccount,
   getSafeStatus,
   activateSafe,
