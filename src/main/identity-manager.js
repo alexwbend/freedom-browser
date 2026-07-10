@@ -797,11 +797,27 @@ const WALLET_TYPES = {
   SAFE: 'safe', // Safe smart account owned by other wallet records
 };
 
-/** User-facing labels for device account types (auto-names, error text). */
+/** User-facing labels for non-mnemonic account types (auto-names, error text). */
 const DEVICE_LABELS = {
   [WALLET_TYPES.LEDGER]: 'Ledger',
   [WALLET_TYPES.REMOTE]: 'Phone',
+  [WALLET_TYPES.SAFE]: 'Safe',
 };
+
+/** Type-specific record fields to expose through the record seams. */
+function extraRecordFields(record) {
+  const fields = {};
+  if (record.path) {
+    fields.path = record.path;
+  }
+  if (record.type === WALLET_TYPES.SAFE) {
+    fields.owners = record.owners;
+    fields.threshold = record.threshold;
+    fields.saltNonce = record.saltNonce;
+    fields.deployed = record.deployed || {};
+  }
+  return fields;
+}
 
 /**
  * The wallet list stored in vault-meta, with the implicit pre-multi-wallet
@@ -847,7 +863,7 @@ function getWalletRecord(walletIndex, meta = getVaultMeta()) {
     name: record.name,
     address,
     type: record.type || WALLET_TYPES.MNEMONIC,
-    ...(record.path ? { path: record.path } : {}),
+    ...extraRecordFields(record),
   };
 }
 
@@ -914,7 +930,7 @@ async function getDerivedWallets() {
       name: wallet.name,
       address,
       type,
-      ...(wallet.path ? { path: wallet.path } : {}),
+      ...extraRecordFields(wallet),
     });
   }
 
@@ -998,6 +1014,79 @@ async function addLedgerWallet(name, address, path) {
  */
 async function addRemoteWallet(name, address) {
   return addDeviceWallet(WALLET_TYPES.REMOTE, name, address);
+}
+
+/**
+ * Add a Safe smart-account record.
+ *
+ * The init params (owners, threshold, saltNonce) are FROZEN once stored —
+ * they are what makes the CREATE2 address reproducible on other chains
+ * (retroactive deployment recovers funds sent there), so nothing may ever
+ * rewrite them. `owners` are wallet indexes of existing records; the
+ * caller (safe-service) resolves their addresses and predicts `address`
+ * before storing.
+ *
+ * Only the shipped presets are accepted: 1-of-2 and 2-of-3. 2-of-2 is
+ * deliberately not offered — losing either device bricks the funds.
+ *
+ * @param {string} name - Display name ('' → auto "Safe N")
+ * @param {Object} params
+ * @param {string} params.address - Predicted counterfactual address
+ * @param {number[]} params.owners - Wallet indexes of the owner records
+ * @param {number} params.threshold
+ * @param {string} params.saltNonce
+ * @returns {Promise<Object>} The stored record
+ */
+async function addSafeWallet(name, { address, owners, threshold, saltNonce }) {
+  const validPreset =
+    Array.isArray(owners) &&
+    ((owners.length === 2 && threshold === 1) || (owners.length === 3 && threshold === 2));
+  if (!validPreset) {
+    throw new Error('A Safe needs 1 of 2 or 2 of 3 owners');
+  }
+  if (new Set(owners).size !== owners.length) {
+    throw new Error('Duplicate owner accounts');
+  }
+  for (const ownerIndex of owners) {
+    const record = getWalletRecord(ownerIndex);
+    if (!record) {
+      throw new Error(`Owner wallet index ${ownerIndex} does not exist`);
+    }
+    if (record.type === WALLET_TYPES.SAFE) {
+      throw new Error('A Safe cannot own another Safe');
+    }
+  }
+  if (typeof saltNonce !== 'string' || !/^\d+$/.test(saltNonce)) {
+    throw new Error('Invalid Safe salt nonce');
+  }
+
+  return addDeviceWallet(WALLET_TYPES.SAFE, name, address, {
+    owners: [...owners],
+    threshold,
+    saltNonce,
+    deployed: {},
+  });
+}
+
+/**
+ * Record that a Safe's contract is now live on a chain. Deployment state
+ * is the ONLY mutable part of a safe record — init params stay frozen.
+ *
+ * @param {number} index - Wallet index of the safe record
+ * @param {number} chainId
+ */
+async function markSafeDeployed(index, chainId) {
+  const meta = getVaultMeta();
+  if (!meta) {
+    throw new Error('No vault found');
+  }
+  const wallets = getWalletList(meta);
+  const record = wallets.find((w) => w.index === index);
+  if (!record || record.type !== WALLET_TYPES.SAFE) {
+    throw new Error(`Wallet ${index} is not a Safe account`);
+  }
+  record.deployed = { ...(record.deployed || {}), [chainId]: true };
+  saveVaultMeta({ ...meta, derivedWallets: wallets });
 }
 
 /**
@@ -1148,6 +1237,17 @@ async function deleteDerivedWallet(index) {
     err.code = 'SWARM_PUBLISHER_IDENTITY_WALLET_IN_USE';
     err.references = publisherIdentityReferences;
     throw err;
+  }
+
+  // Safe owners are referenced by index; deleting one would leave the
+  // Safe unable to collect that signature (and break executor selection).
+  const owningSafe = wallets.find(
+    (w) => w.type === WALLET_TYPES.SAFE && (w.owners || []).includes(index)
+  );
+  if (owningSafe) {
+    throw new Error(
+      `This account is an owner of "${owningSafe.name}" — delete that Safe account first`
+    );
   }
 
   // Remove from list
@@ -1522,6 +1622,8 @@ module.exports = {
   createDerivedWallet,
   addLedgerWallet,
   addRemoteWallet,
+  addSafeWallet,
+  markSafeDeployed,
   renameDerivedWallet,
   deleteDerivedWallet,
   getActiveWalletAddress,

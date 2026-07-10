@@ -303,6 +303,38 @@ function registerWalletIpc() {
     }
   });
 
+  // Safe account lifecycle (chain-touching — see safe/safe-service.js).
+  // Lazily required so wallet-ipc doesn't load protocol-kit at startup.
+  ipcMain.handle('wallet:create-safe', async (_event, name, ownerIndexes, threshold) => {
+    try {
+      const { createSafeAccount } = require('./safe/safe-service');
+      const wallet = await createSafeAccount({ name, ownerIndexes, threshold });
+      return { success: true, wallet };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('wallet:get-safe-status', async (_event, index) => {
+    try {
+      const { getSafeStatus } = require('./safe/safe-service');
+      const status = await getSafeStatus(index);
+      return { success: true, status };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('wallet:activate-safe', async (_event, index) => {
+    try {
+      const { activateSafe } = require('./safe/safe-service');
+      const result = await activateSafe(index);
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: err.message, code: err.code };
+    }
+  });
+
   // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {

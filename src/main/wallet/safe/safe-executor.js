@@ -286,16 +286,15 @@ async function execTransaction({ chainId, safeAddress, safeTxData, signatures, e
  * Also the retroactive-deployment path: same init params on another
  * chain produce the same address, claiming any funds already sent there.
  *
+ * Callers that already built the deployment (e.g. to quote its gas) pass
+ * it as `deployment` to skip the second protocol-kit build.
+ *
  * @returns {Promise<{safeAddress: string, tx: Object}>}
  */
-async function deploySafe({ owners, threshold, saltNonce, chainId, executorIndex, provider }) {
-  const { safeAddress, to, data } = await buildDeploymentTransaction({
-    owners,
-    threshold,
-    saltNonce,
-    chainId,
-    provider,
-  });
+async function deploySafe({ owners, threshold, saltNonce, chainId, executorIndex, provider, deployment }) {
+  const { safeAddress, to, data } =
+    deployment ??
+    (await buildDeploymentTransaction({ owners, threshold, saltNonce, chainId, provider }));
   const tx = await sendViaExecutor({ chainId, to, data, executorIndex });
   return { safeAddress, tx };
 }

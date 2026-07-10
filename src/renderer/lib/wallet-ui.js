@@ -28,6 +28,7 @@ import { initWalletSettings, closeWalletSettings } from './wallet/wallet-setting
 import { initCreateWallet, openCreateWallet, closeCreateWallet } from './wallet/create-wallet.js';
 import { initConnectLedger, openConnectLedger, closeConnectLedger } from './wallet/connect-ledger.js';
 import { initConnectPhone, openConnectPhone, closeConnectPhone } from './wallet/connect-phone.js';
+import { initCreateSafe, openCreateSafe, closeCreateSafe } from './wallet/create-safe.js';
 import { initRemoteSession } from './wallet/remote-session.js';
 import { initRemoteSigningPanel } from './wallet/remote-signing-panel.js';
 import { initPublishSetup, openPublishSetup, closePublishSetup } from './wallet/publish-setup.js';
@@ -89,13 +90,14 @@ export function initWalletUi() {
   initDappSign();
   initSend();
   initExportMnemonic(switchTab);
-  initWalletSelector(openCreateWallet, openConnectLedger, openConnectPhone);
+  initWalletSelector(openCreateWallet, openConnectLedger, openConnectPhone, openCreateSafe);
   initChainSwitcher();
   initReceive();
   initWalletSettings(switchTab);
   initCreateWallet();
   initConnectLedger();
   initConnectPhone();
+  initCreateSafe();
   initRemoteSession();
   initRemoteSigningPanel(); // after initRemoteSession — subscribes to its broker
   initPublishSetup();
@@ -401,6 +403,7 @@ function closeAllSubscreens() {
   closeCreateWallet();
   closeConnectLedger();
   closeConnectPhone();
+  closeCreateSafe();
   closeReceive();
   closeWalletSettings();
   closeSend();

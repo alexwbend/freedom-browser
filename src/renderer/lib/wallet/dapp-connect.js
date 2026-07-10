@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
-import { escapeHtml } from './wallet-utils.js';
+import { escapeHtml, isSafeAccount } from './wallet-utils.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
 import { getActiveWebview, emitAccountsChanged, getPermissionKey } from '../dapp-provider.js';
 import { showDappPermissions } from './permission-manage.js';
@@ -154,6 +154,8 @@ function renderDappConnectWalletList() {
   dappConnectWalletList.innerHTML = '';
 
   for (const wallet of walletState.derivedWallets) {
+    // Safe accounts can't satisfy dApp signing yet (EIP-1271 comes later)
+    if (isSafeAccount(wallet.index)) continue;
     const item = document.createElement('div');
     item.className = 'dapp-connect-wallet-item';
     if (wallet.index === dappConnectSelectedWalletIndex) {
@@ -233,8 +235,14 @@ export function showDappConnect(displayUrl, permissionKey, resolve, reject, webv
     }
   }
 
-  dappConnectSelectedWalletIndex = walletState.activeWalletIndex;
-  selectDappConnectWallet(walletState.activeWalletIndex);
+  // A Safe can't be the dApp wallet (no direct signer yet) — default to
+  // the first signing-capable account instead.
+  let defaultIndex = walletState.activeWalletIndex;
+  if (isSafeAccount(defaultIndex)) {
+    defaultIndex = walletState.derivedWallets.find((w) => !isSafeAccount(w.index))?.index ?? 0;
+  }
+  dappConnectSelectedWalletIndex = defaultIndex;
+  selectDappConnectWallet(defaultIndex);
 
   hideAllSubscreens();
   walletState.identityView?.classList.add('hidden');

@@ -21,6 +21,14 @@ export function isLedgerAccount(walletIndex) {
 }
 
 /**
+ * Safe (multi-owner) accounts have no signer of their own — flows that
+ * sign directly must gate on this until the Safe execution flow ships.
+ */
+export function isSafeAccount(walletIndex) {
+  return accountType(walletIndex) === 'safe';
+}
+
+/**
  * Whether a wallet index belongs to a device account (Ledger hardware,
  * remote phone). Device accounts sign on the device: no vault unlock,
  * and approval UIs show a "confirm on your device" state instead of

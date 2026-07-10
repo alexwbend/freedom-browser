@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml, accountType, bypassUnlockGateForDevice } from './wallet-utils.js';
+import { escapeHtml, accountType, isSafeAccount, bypassUnlockGateForDevice } from './wallet-utils.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
   getTrustStatusSentence,
@@ -231,9 +231,30 @@ function setupSendScreen() {
   }
 }
 
+/**
+ * Safe accounts are receive-only until the multi-owner signing flow
+ * ships. Send owns its button; the active-account refresh
+ * (safe-status.js) calls this whenever the account changes.
+ */
+export function updateSendAvailability() {
+  const sendBtn = document.getElementById('wallet-send-btn');
+  if (!sendBtn) return;
+  const blocked = isSafeAccount(walletState.activeWalletIndex);
+  sendBtn.disabled = blocked;
+  sendBtn.title = blocked
+    ? 'Sending from a multi-owner account is coming next — receive-only for now'
+    : '';
+}
+
 export function openSend(options = {}) {
   if (!walletState.fullAddresses.wallet) {
     console.error('[WalletUI] No wallet address available');
+    return;
+  }
+  // Guards the programmatic openers (x402 top-up links etc.) — the
+  // Send button itself is disabled via updateSendAvailability.
+  if (isSafeAccount(walletState.activeWalletIndex)) {
+    console.warn('[WalletUI] Send is not available for Safe accounts yet');
     return;
   }
 

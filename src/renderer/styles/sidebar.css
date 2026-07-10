@@ -6407,3 +6407,132 @@
 [data-theme="light"] .dapp-sign-reject-btn:hover {
   background: rgba(0, 0, 0, 0.06);
 }
+
+/* ============================================
+   Safe (multi-owner) accounts
+   ============================================ */
+
+/* Preset choice: backup 1/2 · resilient 2/3 */
+.safe-preset-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.safe-preset {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+
+.safe-preset:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.safe-preset.selected {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.safe-preset-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.safe-preset-detail {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+[data-theme="light"] .safe-preset {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .safe-preset:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .safe-preset.selected {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Status card: activation / needs-funds blocking states */
+.safe-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.safe-status-text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.safe-status-text strong {
+  color: var(--text);
+}
+
+.safe-status-text code {
+  font-size: 11px;
+}
+
+.safe-status-btn {
+  align-self: flex-start;
+  padding: 6px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.safe-status-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.safe-status-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.safe-status-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.safe-status-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+[data-theme="light"] .safe-status-card {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .safe-status-btn {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .safe-status-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.wallet-action-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

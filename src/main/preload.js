@@ -411,6 +411,12 @@ contextBridge.exposeInMainWorld('wallet', {
 
   // RPC proxy (renderer CSP blocks direct fetch to external endpoints)
   proxyRpc: (rpcUrl, method, params) => ipcRenderer.invoke('wallet:proxy-rpc', { rpcUrl, method, params }),
+
+  // Safe multisig accounts
+  createSafe: (name, ownerIndexes, threshold) =>
+    ipcRenderer.invoke('wallet:create-safe', name, ownerIndexes, threshold),
+  getSafeStatus: (index) => ipcRenderer.invoke('wallet:get-safe-status', index),
+  activateSafe: (index) => ipcRenderer.invoke('wallet:activate-safe', index),
 });
 
 contextBridge.exposeInMainWorld('ledger', {
