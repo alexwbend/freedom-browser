@@ -18,17 +18,20 @@ import {
   truncateAddress,
   formatRawTokenBalance,
   walletRecord,
+  timeAgo,
   showInlineError,
 } from './wallet-utils.js';
 import { updateSendAvailability } from './send.js';
-import { refreshBalances } from './balance-display.js';
+import { openSafeSigningBoard, summaryLine } from './safe-signing.js';
 
 let card;
 let refreshToken = 0;
 
 // A safe send that just finished (or was abandoned) changes what the
-// card should show — re-evaluate when the send screen closes.
+// card should show — re-evaluate when the send screen or signing board
+// closes.
 window.addEventListener('wallet:send-closed', () => refreshSafeStatusCard());
+window.addEventListener('wallet:safe-signing-closed', () => refreshSafeStatusCard());
 
 /**
  * Re-evaluate the card for the active account. Called whenever the
@@ -51,10 +54,10 @@ export async function refreshSafeStatusCard() {
 
   // A pending half-signed tx trumps everything else the card could show
   // (and implies the safe is deployed — no need to quote activation).
-  const pendingResult = await window.wallet.safePendingInfo(wallet.index);
+  const pendingResult = await window.wallet.safeState(wallet.index);
   if (token !== refreshToken) return; // superseded by an account switch
-  if (pendingResult.success && pendingResult.pending) {
-    renderPending(pendingResult.pending);
+  if (pendingResult.success && pendingResult.state) {
+    renderPending(pendingResult.state);
     return;
   }
 
@@ -125,50 +128,18 @@ function renderStatus(status) {
 }
 
 function renderPending(pending) {
+  const what = summaryLine(pending.display);
   render(`
     <div class="safe-status-text">
-      <strong>Transaction awaiting signatures</strong>
-      (${pending.collected} of ${pending.threshold} collected). It was
-      kept safe — continue signing or discard it.
+      <strong>${escapeHtml(what.charAt(0).toUpperCase() + what.slice(1))}</strong> —
+      ${pending.collected} of ${pending.threshold} signatures, started
+      ${escapeHtml(timeAgo(new Date(pending.createdAt)).toLowerCase())}.
     </div>
-    <div class="safe-status-btn-row">
-      <button type="button" class="safe-status-btn primary" id="safe-status-continue">Continue signing</button>
-      <button type="button" class="safe-status-btn" id="safe-status-discard">Discard</button>
-    </div>
-    <div class="unlock-error hidden" id="safe-status-error"></div>
+    <button type="button" class="safe-status-btn primary" id="safe-status-continue">Continue signing</button>
   `);
-  document.getElementById('safe-status-continue')?.addEventListener('click', handleResume);
-  document.getElementById('safe-status-discard')?.addEventListener('click', handleDiscard);
-}
-
-async function handleResume() {
-  const wallet = walletRecord();
-  if (!wallet) return;
-
-  const button = document.getElementById('safe-status-continue');
-  if (button) {
-    button.disabled = true;
-    button.textContent = 'Collecting signatures…';
-  }
-
-  const result = await window.wallet.safeResume(wallet.index);
-  await refreshSafeStatusCard(); // re-render first, then surface errors on it
-  if (result.success) {
-    setTimeout(() => refreshBalances(), 3000);
-  } else {
-    console.error('[SafeStatus] Resume failed:', result.error);
-    showInlineError(document.getElementById('safe-status-error'), result.error);
-  }
-}
-
-async function handleDiscard() {
-  const wallet = walletRecord();
-  if (!wallet) return;
-  if (!confirm('Discard this transaction? The collected signatures will be thrown away.')) {
-    return;
-  }
-  await window.wallet.safeCancelPending(wallet.index);
-  await refreshSafeStatusCard();
+  document
+    .getElementById('safe-status-continue')
+    ?.addEventListener('click', () => openSafeSigningBoard(pending.safeIndex));
 }
 
 async function handleActivate() {

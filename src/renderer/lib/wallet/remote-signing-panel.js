@@ -28,6 +28,7 @@ let activeJobId = null;
 const REQUEST_LABELS = {
   personal_sign: 'A site asks you to sign a message.',
   eth_signTypedData_v4: 'A site asks you to sign structured data.',
+  'safe:eth_signTypedData_v4': 'Sign on your phone to approve your multi-owner transaction.',
   eth_sendTransaction: 'Approve and send the transaction from your phone.',
 };
 
@@ -77,7 +78,10 @@ function handleJobEvent(event) {
 
 function showPanel(event) {
   if (requestLabel) {
-    requestLabel.textContent = REQUEST_LABELS[event.method] || 'Signature request';
+    requestLabel.textContent =
+      (event.context === 'safe' && REQUEST_LABELS[`safe:${event.method}`]) ||
+      REQUEST_LABELS[event.method] ||
+      'Signature request';
   }
   setStatus('Waiting for your phone…');
   // Machine-readable copy of what the QR encodes (E2E tests scan this

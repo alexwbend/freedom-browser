@@ -6,6 +6,7 @@
 
 import { walletState, registerScreenHider } from './wallet-state.js';
 import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice } from './wallet-utils.js';
+import { openSafeSigningBoard } from './safe-signing.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
   getTrustStatusSentence,
@@ -83,9 +84,6 @@ let sendTxState = {
 };
 
 export function initSend() {
-  // Signing-checklist updates for in-flight Safe sends (main streams them)
-  window.wallet.onSafeSigningProgress?.(handleSafeSigningProgress);
-
   sendScreen = document.getElementById('sidebar-send');
   sendBackBtn = document.getElementById('send-back');
   sendInputView = document.getElementById('send-input-view');
@@ -257,54 +255,6 @@ function safeExecutorName(safe) {
   return executor?.name || 'an owner account';
 }
 
-// ============================================
-// Safe signing checklist (pending view)
-// ============================================
-
-let signingChecklistRows = null; // [{index, name, state}] while a safe send runs
-
-function beginSigningChecklist(safe) {
-  signingChecklistRows = safe.owners.map((index) => ({
-    index,
-    name: walletRecord(index)?.name || `Account ${index}`,
-    state: 'waiting',
-  }));
-  renderSigningChecklist();
-}
-
-function endSigningChecklist() {
-  signingChecklistRows = null;
-  document.getElementById('send-signing-checklist')?.classList.add('hidden');
-}
-
-function handleSafeSigningProgress(update) {
-  const row = signingChecklistRows?.find((r) => r.index === update.ownerIndex);
-  if (!row) return;
-  row.state = update.status;
-  renderSigningChecklist();
-}
-
-const CHECKLIST_STATE_ICONS = { waiting: '·', signing: '⧗', signed: '✓' };
-
-function renderSigningChecklist() {
-  const checklistEl = document.getElementById('send-signing-checklist');
-  if (!checklistEl || !signingChecklistRows) return;
-
-  checklistEl.innerHTML = '';
-  for (const row of signingChecklistRows) {
-    const rowEl = document.createElement('div');
-    rowEl.className = `send-signing-row ${row.state}`;
-    const icon = document.createElement('span');
-    icon.className = 'send-signing-state';
-    icon.textContent = CHECKLIST_STATE_ICONS[row.state] || '·';
-    const name = document.createElement('span');
-    name.textContent = row.name;
-    rowEl.append(icon, name);
-    checklistEl.appendChild(rowEl);
-  }
-  checklistEl.classList.remove('hidden');
-}
-
 /**
  * Send owns its button; the active-account refresh (safe-status.js)
  * calls this whenever the account changes.
@@ -317,7 +267,7 @@ export function updateSendAvailability() {
   sendBtn.title = reason || '';
 }
 
-export function openSend(options = {}) {
+export async function openSend(options = {}) {
   if (!walletState.fullAddresses.wallet) {
     console.error('[WalletUI] No wallet address available');
     return;
@@ -328,6 +278,17 @@ export function openSend(options = {}) {
   if (blockedReason) {
     console.warn('[WalletUI] Send is not available:', blockedReason);
     return;
+  }
+
+  // One pending SafeTx per Safe: while one is waiting for signatures,
+  // Send routes to its board instead of starting a second one.
+  const safe = activeSafeWallet();
+  if (safe) {
+    const pending = await window.wallet.safeState(safe.index);
+    if (pending.success && pending.state) {
+      openSafeSigningBoard(safe.index);
+      return;
+    }
   }
 
   resetSendState();
@@ -350,7 +311,6 @@ export function closeSend() {
   sendScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
   resetSendState();
-  endSigningChecklist();
   if (activeSafeWallet()) {
     // A safe send may have left (or consumed) a half-signed transaction —
     // let the status card re-evaluate without a module cycle.
@@ -419,9 +379,7 @@ function showSendPendingView() {
   sendSuccessView?.classList.add('hidden');
   sendErrorView?.classList.add('hidden');
 
-  // Device accounts wait on a confirmation elsewhere, not the network;
-  // Safe accounts wait on owner signatures (the checklist below).
-  const safe = activeSafeWallet();
+  // Device accounts wait on a confirmation elsewhere, not the network.
   const pendingCopy = {
     ledger: {
       title: 'Confirm on your Ledger',
@@ -430,10 +388,6 @@ function showSendPendingView() {
     remote: {
       title: 'Confirm on your phone',
       text: 'Scan the QR code with your phone and approve the transaction there.',
-    },
-    safe: safe && {
-      title: 'Collecting signatures',
-      text: `This transaction needs ${safe.threshold} of ${safe.owners.length} owners to sign. The network fee is paid by ${safeExecutorName(safe)}.`,
     },
   }[accountType(walletState.activeWalletIndex)] || {
     title: 'Sending Transaction',
@@ -1336,23 +1290,31 @@ async function handleSendConfirm() {
       amount: amountResult.value,
     };
 
-    let result;
     const safe = activeSafeWallet();
     if (safe) {
-      // Safe path: main collects the owner signatures (the checklist
-      // mirrors its progress) and executes through the executor EOA.
-      beginSigningChecklist(safe);
-      try {
-        result = await window.wallet.safeSend(
-          { to: txParams.to, value: txParams.value, data: txParams.data },
-          display
-        );
-      } finally {
-        endSigningChecklist();
+      // Safe path: create the SafeTx (main silently adds the free vault
+      // signatures) and hand over to the signing board — collecting the
+      // remaining signatures is the user's task, at their pace.
+      const created = await window.wallet.safeSend(
+        safe.index,
+        { to: txParams.to, value: txParams.value, data: txParams.data },
+        {
+          ...display,
+          recipientName: sendTxState.recipientResolution?.name || null,
+          symbol: token.symbol,
+          decimals: token.decimals,
+          formattedAmount: sendTxState.amount,
+        }
+      );
+      if (!created.success) {
+        throw new Error(created.error || 'Failed to create the transaction');
       }
-    } else {
-      result = await window.wallet.sendTransaction(txParams, display);
+      closeSend();
+      await openSafeSigningBoard(safe.index);
+      return;
     }
+
+    const result = await window.wallet.sendTransaction(txParams, display);
 
     if (!result.success) {
       throw new Error(result.error || 'Transaction failed');

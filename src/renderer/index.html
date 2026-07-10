@@ -1496,6 +1496,20 @@
               </div>
             </div>
 
+            <!-- Safe signing board sub-screen -->
+            <div id="sidebar-safe-signing" class="sidebar-subscreen hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="safe-signing-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title" id="safe-signing-title">Collect signatures</h3>
+              </div>
+              <div class="subscreen-content" id="safe-signing-content"></div>
+            </div>
+
             <!-- Receive sub-screen -->
             <div id="sidebar-receive" class="sidebar-subscreen hidden">
               <div class="subscreen-header">
@@ -1790,8 +1804,6 @@
                   <div class="send-pending-spinner"></div>
                   <h3 class="send-pending-title">Sending Transaction</h3>
                   <p class="send-pending-text">Please wait while your transaction is being processed...</p>
-                  <!-- Safe sends: one row per owner signature -->
-                  <div id="send-signing-checklist" class="send-signing-checklist hidden"></div>
                 </div>
               </div>
 

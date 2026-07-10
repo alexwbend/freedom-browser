@@ -180,72 +180,30 @@ async function buildSafeTransaction({ chainId, safe, tx, provider }) {
 }
 
 /**
- * Collect owner signatures over a SafeTx typed-data payload, one owner at
- * a time (each may be an interactive device), stopping at the threshold.
- *
- * Every signature is recover-verified against the owner's address before
- * it counts — a mis-keyed or compromised device fails here, not on-chain.
- * A signer error (e.g. rejection on the device) aborts the collection.
- *
- * Resume support: signatures already collected in an earlier session are
- * passed as `existing` — their owners are skipped and they count toward
- * the threshold. Each `signed` progress update carries the fresh
- * signature so callers can persist as they go.
+ * One owner's signature over a SafeTx typed-data payload, through its
+ * normal signer backend (vault instantly, Ledger tap, phone QR) —
+ * recover-verified before it counts, so a mis-keyed or compromised
+ * device fails here rather than on-chain.
  *
  * @param {Object} params
  * @param {Object} params.typedData - From buildSafeTransaction
- * @param {number[]} params.owners - Wallet indexes to ask, in order
- * @param {number} params.threshold
- * @param {Array<{signer: string, data: string}>} [params.existing]
- * @param {(update: {ownerIndex: number, address: string,
- *   status: 'signing'|'signed', collected: number, threshold: number,
- *   signature?: {signer: string, data: string}}) => void}
- *   [params.onProgress]
- * @returns {Promise<Array<{signer: string, data: string}>>}
+ * @param {number} params.ownerIndex - Wallet index of the owner
+ * @returns {Promise<{signer: string, data: string}>}
  */
-async function collectOwnerSignatures({ typedData, owners, threshold, existing = [], onProgress }) {
-  if (!Array.isArray(owners) || owners.length < threshold) {
-    throw new Error(
-      `Cannot reach a threshold of ${threshold} with ${owners?.length ?? 0} owner(s)`
-    );
+async function collectOwnerSignature({ typedData, ownerIndex }) {
+  const signer = getSigner(ownerIndex);
+  const address = await signer.getAddress();
+  const data = await signer.signTypedData(typedData);
+  const recovered = verifyTypedData(
+    typedData.domain,
+    withoutDomainType(typedData.types),
+    typedData.message,
+    data
+  );
+  if (recovered !== getAddress(address)) {
+    throw new Error(`Owner signature from ${address} does not match: recovered ${recovered}`);
   }
-
-  const strippedTypes = withoutDomainType(typedData.types);
-  const signatures = [...existing];
-  const alreadySigned = new Set(existing.map((sig) => sig.signer.toLowerCase()));
-  for (const ownerIndex of owners) {
-    if (signatures.length >= threshold) break;
-
-    // Skip owners that signed in an earlier session — checked against the
-    // stored record address so no signer (or device) is touched. (Safe
-    // owners are existing records by construction, so this is complete.)
-    const recordAddress = getWalletRecord(ownerIndex)?.address;
-    if (recordAddress && alreadySigned.has(recordAddress.toLowerCase())) continue;
-
-    const signer = getSigner(ownerIndex);
-    const address = await signer.getAddress();
-    onProgress?.({ ownerIndex, address, status: 'signing', collected: signatures.length, threshold });
-
-    const data = await signer.signTypedData(typedData);
-    const recovered = verifyTypedData(typedData.domain, strippedTypes, typedData.message, data);
-    if (recovered !== getAddress(address)) {
-      throw new Error(
-        `Owner signature from ${address} does not match: recovered ${recovered}`
-      );
-    }
-
-    const signature = { signer: getAddress(address), data };
-    signatures.push(signature);
-    onProgress?.({
-      ownerIndex,
-      address,
-      status: 'signed',
-      collected: signatures.length,
-      threshold,
-      signature,
-    });
-  }
-  return signatures;
+  return { signer: getAddress(address), data };
 }
 
 /**
@@ -356,7 +314,7 @@ module.exports = {
   predictSafeAddress,
   buildDeploymentTransaction,
   buildSafeTransaction,
-  collectOwnerSignatures,
+  collectOwnerSignature,
   execTransaction,
   deploySafe,
   pickDefaultExecutor,

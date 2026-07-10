@@ -17,12 +17,13 @@ jest.mock('electron', () => ({
 const mockWalletRecords = {
   0: { index: 0, name: 'Main Wallet', address: OWNERS[0], type: 'mnemonic' },
   2: { index: 2, name: 'My Stax', address: OWNERS[1], type: 'ledger' },
+  4: { index: 4, name: 'My Phone', address: OWNERS[2], type: 'remote' },
   5: {
     index: 5,
     name: 'Joint',
     address: SAFE_ADDRESS,
     type: 'safe',
-    owners: [0, 2],
+    owners: [0, 2, 4],
     threshold: 2,
     saltNonce: '7508',
     deployed: { 100: true },
@@ -33,61 +34,77 @@ const mockWalletRecords = {
     address: SAFE_ADDRESS.replace('41', '42'),
     type: 'safe',
     owners: [0, 2],
-    threshold: 2,
+    threshold: 1,
     saltNonce: '9',
     deployed: {},
   },
 };
+const mockIsVaultUnlocked = jest.fn(async () => true);
 jest.mock('../../identity-manager', () => ({
   getWalletRecord: (index) => mockWalletRecords[index] || null,
+  isVaultUnlocked: (...args) => mockIsVaultUnlocked(...args),
   WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote', SAFE: 'safe' },
 }));
 
 const builtResult = {
   safeAddress: SAFE_ADDRESS,
   deployed: true,
-  safeTxData: { to: OWNERS[2], value: '1000', data: '0x', nonce: 0 },
+  safeTxData: { to: OWNERS[2], value: '1000', data: '0x', nonce: 3 },
   safeTxHash: SAFE_TX_HASH,
   typedData: { domain: {}, types: {}, message: {} },
 };
-const signatureOf = (index) => ({ signer: OWNERS[index === 0 ? 0 : 1], data: '0x' + 'ee'.repeat(65) });
+const signatureOf = (index) => ({
+  signer: OWNERS[index === 0 ? 0 : index === 2 ? 1 : 2],
+  data: '0x' + 'ee'.repeat(65),
+});
 
 const mockBuildSafeTransaction = jest.fn(async () => builtResult);
-const mockCollectOwnerSignatures = jest.fn(async ({ owners, threshold, existing = [], onProgress }) => {
-  const signatures = [...existing];
-  for (const ownerIndex of owners) {
-    if (signatures.length >= threshold) break;
-    const signature = signatureOf(ownerIndex);
-    if (signatures.some((sig) => sig.signer === signature.signer)) continue;
-    signatures.push(signature);
-    onProgress?.({ ownerIndex, address: signature.signer, status: 'signed', collected: signatures.length, threshold, signature });
-  }
-  return signatures;
-});
-const mockExecTransaction = jest.fn(async () => ({ hash: TX_HASH, recorded: true }));
+const mockCollectOwnerSignature = jest.fn(async ({ ownerIndex }) => signatureOf(ownerIndex));
+const mockExecTransaction = jest.fn(async () => ({
+  hash: TX_HASH,
+  explorerUrl: `https://gnosisscan.io/tx/${TX_HASH}`,
+  recorded: true,
+}));
 jest.mock('./safe-executor', () => ({
   buildSafeTransaction: (...args) => mockBuildSafeTransaction(...args),
-  collectOwnerSignatures: (...args) => mockCollectOwnerSignatures(...args),
+  collectOwnerSignature: (...args) => mockCollectOwnerSignature(...args),
   execTransaction: (...args) => mockExecTransaction(...args),
   pickDefaultExecutor: jest.requireActual('./safe-executor').pickDefaultExecutor,
 }));
 
+// Chain reads (the Safe nonce guard).
+const mockRpcRequest = jest.fn(async () => '0x3'); // == pending nonce → executable
+jest.mock('../provider-manager', () => ({
+  getEip1193Provider: () => ({ request: (...args) => mockRpcRequest(...args) }),
+}));
+
 const {
   startSafeSend,
-  resumeSafeSend,
+  signSafePending,
+  executeSafePending,
+  getSafeSendState,
   cancelSafeSend,
-  getPendingInfo,
 } = require('./safe-transactions');
-const { getPending } = require('./pending-store');
+const { getPending, clearPending } = require('./pending-store');
 
-const DISPLAY = { toAddress: OWNERS[2], asset: null, amount: '1000' };
+const DISPLAY = {
+  toAddress: OWNERS[2],
+  asset: null,
+  amount: '1000',
+  symbol: 'xDAI',
+  decimals: 18,
+  formattedAmount: '0.000000000000001',
+};
 const TX = { to: OWNERS[2], value: '1000', data: '0x' };
+
+const start = (safeIndex = 5) => startSafeSend({ safeIndex, tx: TX, display: DISPLAY });
 
 beforeEach(() => {
   mockTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-pending-'));
   jest.clearAllMocks();
-  // pending-store caches per module load; reset by clearing all safes
-  for (const index of [5, 6]) cancelSafeSend(index);
+  mockIsVaultUnlocked.mockResolvedValue(true);
+  mockRpcRequest.mockResolvedValue('0x3');
+  for (const index of [5, 6]) clearPending(index);
 });
 
 afterEach(() => {
@@ -95,17 +112,139 @@ afterEach(() => {
 });
 
 describe('startSafeSend', () => {
-  test('builds, persists, collects to threshold, executes with recording, clears pending', async () => {
-    const updates = [];
-    const result = await startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY }, (u) => updates.push(u));
+  test('builds, persists, silently signs the mnemonic owner only, never executes', async () => {
+    const state = await start();
 
-    expect(result.hash).toBe(TX_HASH);
-    // owners reach the executor layer as ADDRESSES, not wallet indexes
     expect(mockBuildSafeTransaction).toHaveBeenCalledWith({
       chainId: 100,
-      safe: { ...mockWalletRecords[5], owners: [OWNERS[0], OWNERS[1]] },
+      // owners resolved to ADDRESSES for the executor layer
+      safe: { ...mockWalletRecords[5], owners: OWNERS },
       tx: TX,
     });
+    // only the free (mnemonic) owner was asked — devices are never cold-called
+    expect(mockCollectOwnerSignature).toHaveBeenCalledTimes(1);
+    expect(mockCollectOwnerSignature).toHaveBeenCalledWith({ typedData: builtResult.typedData, ownerIndex: 0 });
+    expect(mockExecTransaction).not.toHaveBeenCalled();
+
+    expect(state).toMatchObject({
+      safeIndex: 5,
+      chainId: 100,
+      safeTxHash: SAFE_TX_HASH,
+      threshold: 2,
+      collected: 1,
+      status: 'awaiting',
+      display: DISPLAY,
+      executorIndex: 0,
+      owners: [
+        { index: 0, type: 'mnemonic', signed: true },
+        { index: 2, type: 'ledger', signed: false },
+        { index: 4, type: 'remote', signed: false },
+      ].map((owner) => expect.objectContaining(owner)),
+    });
+    expect(getPending(5).signatures).toEqual([signatureOf(0)]);
+  });
+
+  test('a locked vault skips the silent signing entirely', async () => {
+    mockIsVaultUnlocked.mockResolvedValue(false);
+    const state = await start();
+    expect(mockCollectOwnerSignature).not.toHaveBeenCalled();
+    expect(state.collected).toBe(0);
+  });
+
+  test('an auto-sign failure degrades the owner to a manual row instead of failing', async () => {
+    mockCollectOwnerSignature.mockRejectedValueOnce(new Error('Vault is locked'));
+    const state = await start();
+    expect(state.collected).toBe(0);
+    expect(state.status).toBe('awaiting');
+  });
+
+  test('refuses a second pending transaction (typed code)', async () => {
+    await start();
+    await expect(start()).rejects.toMatchObject({ code: 'SAFE_PENDING_EXISTS' });
+  });
+
+  test('refuses safes not yet deployed and non-safe accounts', async () => {
+    await expect(start(6)).rejects.toThrow(/activate/i);
+    await expect(start(0)).rejects.toThrow(/not a Safe/i);
+  });
+});
+
+describe('signSafePending', () => {
+  test('signs exactly the requested owner and persists it', async () => {
+    await start(); // collected: owner 0
+    mockCollectOwnerSignature.mockClear();
+
+    const state = await signSafePending(5, 2);
+
+    expect(mockCollectOwnerSignature).toHaveBeenCalledWith({ typedData: builtResult.typedData, ownerIndex: 2 });
+    expect(state.collected).toBe(2);
+    expect(state.owners.find((o) => o.index === 2).signed).toBe(true);
+    expect(getPending(5).signatures).toHaveLength(2);
+    expect(mockExecTransaction).not.toHaveBeenCalled(); // execution is a separate step
+  });
+
+  test('is idempotent for an already-signed owner', async () => {
+    await start();
+    mockCollectOwnerSignature.mockClear();
+    const state = await signSafePending(5, 0);
+    expect(mockCollectOwnerSignature).not.toHaveBeenCalled();
+    expect(state.collected).toBe(1);
+  });
+
+  test('a device failure leaves the pending transaction intact', async () => {
+    await start();
+    mockCollectOwnerSignature.mockRejectedValueOnce(
+      Object.assign(new Error('Ledger not connected'), { code: 'LEDGER_NOT_CONNECTED' })
+    );
+
+    await expect(signSafePending(5, 2)).rejects.toMatchObject({ code: 'LEDGER_NOT_CONNECTED' });
+    expect(getPending(5).signatures).toHaveLength(1); // owner 0's survives
+    expect(getSafeSendState(5).status).toBe('awaiting'); // guard released
+  });
+
+  test('refuses concurrent steps (SAFE_BUSY) and exposes the signing status', async () => {
+    await start();
+    let resolveSign;
+    mockCollectOwnerSignature.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveSign = resolve))
+    );
+
+    const inFlight = signSafePending(5, 2);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(signSafePending(5, 4)).rejects.toMatchObject({ code: 'SAFE_BUSY' });
+    expect(() => cancelSafeSend(5)).toThrow(/current step/i);
+
+    resolveSign(signatureOf(2));
+    await inFlight;
+    expect(getSafeSendState(5).status).toBe('awaiting');
+  });
+
+  test('drops a signature whose transaction was replaced mid-ceremony', async () => {
+    await start();
+    mockCollectOwnerSignature.mockImplementationOnce(async ({ ownerIndex }) => {
+      // While the device ceremony runs, the pending entry disappears
+      // (simulates a discard path that bypassed the guard).
+      clearPending(5);
+      return signatureOf(ownerIndex);
+    });
+
+    await expect(signSafePending(5, 2)).rejects.toMatchObject({ code: 'SAFE_DISCARDED' });
+    expect(getPending(5)).toBeNull();
+  });
+});
+
+describe('executeSafePending', () => {
+  async function readyPending() {
+    await start();
+    await signSafePending(5, 2);
+  }
+
+  test('executes at threshold with recording, clears pending, returns the result', async () => {
+    await readyPending();
+
+    const state = await executeSafePending(5);
+
     expect(mockExecTransaction).toHaveBeenCalledWith({
       chainId: 100,
       safeAddress: SAFE_ADDRESS,
@@ -121,84 +260,61 @@ describe('startSafeSend', () => {
         metadata: { safeAddress: SAFE_ADDRESS, safeTxHash: SAFE_TX_HASH },
       },
     });
-    expect(updates.filter((u) => u.status === 'signed')).toHaveLength(2);
+    expect(state.status).toBe('executed');
+    expect(state.executed).toEqual({ hash: TX_HASH, explorerUrl: `https://gnosisscan.io/tx/${TX_HASH}` });
     expect(getPending(5)).toBeNull();
+    expect(getSafeSendState(5)).toBeNull();
   });
 
-  test('refuses a second pending transaction for the same safe', async () => {
-    // First collection stalls at one signature (device error on owner 2)
-    mockCollectOwnerSignatures.mockImplementationOnce(async ({ onProgress }) => {
-      onProgress?.({ ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2, signature: signatureOf(0) });
-      throw new Error('Rejected on device');
-    });
-    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY })).rejects.toThrow('Rejected on device');
-
-    // The half-signed tx survived, so a new one is refused
-    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY })).rejects.toThrow(/already waiting/i);
-    expect(getPending(5).signatures).toEqual([signatureOf(0)]);
+  test('refuses below the threshold', async () => {
+    await start(); // 1 of 2
+    await expect(executeSafePending(5)).rejects.toThrow(/not enough signatures/i);
+    expect(mockExecTransaction).not.toHaveBeenCalled();
   });
 
-  test('refuses safes not yet deployed on Gnosis', async () => {
-    await expect(startSafeSend({ safeIndex: 6, tx: TX, display: DISPLAY })).rejects.toThrow(/activate/i);
+  test('a moved Safe nonce flips the transaction to a terminal superseded state', async () => {
+    await readyPending();
+    mockRpcRequest.mockResolvedValue('0x4'); // chain nonce > SafeTx nonce 3
+
+    const state = await executeSafePending(5);
+
+    expect(state.status).toBe('superseded');
+    expect(mockExecTransaction).not.toHaveBeenCalled();
+    // persisted: the board renders it terminal without another chain read
+    expect(getSafeSendState(5).status).toBe('superseded');
+    await expect(signSafePending(5, 4)).rejects.toThrow(/discard/i);
+    // discard is the way out
+    cancelSafeSend(5);
+    expect(getSafeSendState(5)).toBeNull();
   });
 
-  test('refuses non-safe accounts', async () => {
-    await expect(startSafeSend({ safeIndex: 0, tx: TX, display: DISPLAY })).rejects.toThrow(/not a Safe/i);
-  });
-});
+  test("maps the executor's empty wallet to SAFE_NEEDS_FUNDS, signatures intact", async () => {
+    await readyPending();
+    mockExecTransaction.mockRejectedValueOnce(new Error('Insufficient funds for transaction'));
 
-describe('resumeSafeSend', () => {
-  test('passes persisted signatures as existing and executes', async () => {
-    mockCollectOwnerSignatures.mockImplementationOnce(async ({ onProgress }) => {
-      onProgress?.({ ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2, signature: signatureOf(0) });
-      throw new Error('phone unreachable');
-    });
-    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY })).rejects.toThrow('phone unreachable');
-
-    const result = await resumeSafeSend(5);
-
-    expect(result.hash).toBe(TX_HASH);
-    expect(mockCollectOwnerSignatures).toHaveBeenLastCalledWith(
-      expect.objectContaining({ existing: [signatureOf(0)] })
-    );
-    expect(getPending(5)).toBeNull();
+    await expect(executeSafePending(5)).rejects.toMatchObject({ code: 'SAFE_NEEDS_FUNDS' });
+    expect(getPending(5).signatures).toHaveLength(2);
   });
 
-  test('a failed broadcast keeps the pending entry (signatures stay valid)', async () => {
+  test('a failed broadcast keeps everything for a retry', async () => {
+    await readyPending();
     mockExecTransaction.mockRejectedValueOnce(new Error('RPC down'));
-    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY })).rejects.toThrow('RPC down');
 
-    expect(getPending(5)).not.toBeNull();
+    await expect(executeSafePending(5)).rejects.toThrow('RPC down');
     expect(getPending(5).signatures).toHaveLength(2);
 
-    // retry succeeds without re-asking anyone
-    const result = await resumeSafeSend(5);
-    expect(result.hash).toBe(TX_HASH);
-    expect(getPending(5)).toBeNull();
-  });
-
-  test('throws when there is nothing to resume', async () => {
-    await expect(resumeSafeSend(5)).rejects.toThrow(/no pending/i);
+    const state = await executeSafePending(5); // retry, no re-signing
+    expect(state.status).toBe('executed');
+    expect(mockCollectOwnerSignature).toHaveBeenCalledTimes(2); // from setup only
   });
 });
 
-describe('getPendingInfo / cancelSafeSend', () => {
-  test('reports the pending tx for the UI and cancel clears it', async () => {
-    mockCollectOwnerSignatures.mockImplementationOnce(async ({ onProgress }) => {
-      onProgress?.({ ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2, signature: signatureOf(0) });
-      throw new Error('later');
-    });
-    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY })).rejects.toThrow('later');
-
-    const info = getPendingInfo(5);
-    expect(info).toMatchObject({
-      collected: 1,
-      threshold: 2,
-    });
-    expect(typeof info.createdAt).toBe('number');
-
+describe('getSafeSendState / cancelSafeSend', () => {
+  test('null when nothing is pending; cancel clears', async () => {
+    expect(getSafeSendState(5)).toBeNull();
+    await start();
+    expect(getSafeSendState(5)).not.toBeNull();
     cancelSafeSend(5);
-    expect(getPendingInfo(5)).toBeNull();
-    expect(getPending(5)).toBeNull();
+    expect(getSafeSendState(5)).toBeNull();
   });
 });

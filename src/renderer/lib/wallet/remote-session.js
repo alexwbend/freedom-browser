@@ -143,6 +143,16 @@ export function createRemoteSessionBroker({
     return switchChain();
   }
 
+  /** Typed-data signature over a SafeTx (an owner co-signing a Safe). */
+  function isSafeTxSignature(method, params) {
+    if (method !== 'eth_signTypedData_v4') return false;
+    try {
+      return JSON.parse(params[1]).primaryType === 'SafeTx';
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Host a session for one request and deliver the outcome via `respond`
    * — main's IPC reply for signing jobs, a local promise for the
@@ -197,6 +207,9 @@ export function createRemoteSessionBroker({
         kind,
         phase: 'qr',
         method,
+        // A SafeTx signature is the user's own multi-owner transaction,
+        // not a dApp request — the panel words it accordingly.
+        context: isSafeTxSignature(method, params) ? 'safe' : 'dapp',
         uri,
         bridgeUrl: `${bridgeOrigin}/#${uri}`,
       });

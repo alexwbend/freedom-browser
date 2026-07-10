@@ -98,12 +98,13 @@ test('create, activate, and send from a Safe account', async ({ window: win, anv
   await expect(win.locator('#send-confirm-btn')).toBeEnabled({ timeout: 15_000 });
   await win.click('#send-confirm-btn');
 
-  // Signature checklist appears, then the success view.
-  await expect(win.locator('#send-signing-checklist .send-signing-row')).toHaveCount(2, {
-    timeout: 30_000,
+  // Confirm hands over to the signing board; with a 1-of-2 vault owner
+  // the free signature meets the threshold and execution runs on its own.
+  await expect(win.locator('#sidebar-safe-signing')).toBeVisible({ timeout: 30_000 });
+  await expect(win.locator('#safe-signing-title')).toHaveText('Transaction sent', {
+    timeout: 90_000,
   });
-  await expect(win.locator('#send-success-view')).toBeVisible({ timeout: 90_000 });
-  await win.click('#send-done-btn');
+  await win.click('#safe-signing-done');
 
   // The money actually moved on the fork (allow a block for inclusion).
   await expect

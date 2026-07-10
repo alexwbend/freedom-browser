@@ -54,7 +54,7 @@ const {
   predictSafeAddress,
   buildDeploymentTransaction,
   buildSafeTransaction,
-  collectOwnerSignatures,
+  collectOwnerSignature,
   execTransaction,
   deploySafe,
   pickDefaultExecutor,
@@ -184,7 +184,7 @@ describe('buildSafeTransaction', () => {
   });
 });
 
-describe('collectOwnerSignatures', () => {
+describe('collectOwnerSignature', () => {
   let typedData;
 
   beforeAll(async () => {
@@ -197,82 +197,13 @@ describe('collectOwnerSignatures', () => {
     typedData = built.typedData;
   });
 
-  test('collects signatures in owner order and stops at the threshold', async () => {
-    const signatures = await collectOwnerSignatures({
-      typedData,
-      owners: [0, 2, 4],
-      threshold: 2,
-    });
-    expect(signatures).toHaveLength(2);
-    expect(signatures.map((s) => s.signer)).toEqual([OWNERS[0], OWNERS[1]]);
-    // the third owner is never asked
-    expect(mockGetSigner).toHaveBeenCalledTimes(2);
-
+  test('returns a recover-verified signature for the owner', async () => {
+    const signature = await collectOwnerSignature({ typedData, ownerIndex: 2 });
+    expect(signature.signer).toBe(OWNERS[1]);
     const types = withoutDomainType(typedData.types);
-    for (const { signer, data } of signatures) {
-      expect(verifyTypedData(typedData.domain, types, typedData.message, data)).toBe(signer);
-    }
-  });
-
-  test('reports progress per owner', async () => {
-    const updates = [];
-    await collectOwnerSignatures({
-      typedData,
-      owners: [0, 2],
-      threshold: 2,
-      onProgress: (update) => updates.push(update),
-    });
-    expect(updates).toEqual([
-      { ownerIndex: 0, address: OWNERS[0], status: 'signing', collected: 0, threshold: 2 },
-      expect.objectContaining({ ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2 }),
-      { ownerIndex: 2, address: OWNERS[1], status: 'signing', collected: 1, threshold: 2 },
-      expect.objectContaining({ ownerIndex: 2, address: OWNERS[1], status: 'signed', collected: 2, threshold: 2 }),
-    ]);
-  });
-
-  test('resumes from existing signatures: signed owners are skipped, count carries over', async () => {
-    const [existing] = await collectOwnerSignatures({ typedData, owners: [0], threshold: 1 });
-    mockGetSigner.mockClear();
-
-    const signatures = await collectOwnerSignatures({
-      typedData,
-      owners: [0, 2, 4],
-      threshold: 2,
-      existing: [existing],
-    });
-
-    expect(signatures).toHaveLength(2);
-    expect(signatures.map((s) => s.signer)).toEqual([OWNERS[0], OWNERS[1]]);
-    // owner 0 already signed — only owner 2 is asked
-    expect(mockGetSigner).toHaveBeenCalledTimes(1);
-    expect(mockGetSigner).toHaveBeenCalledWith(2);
-  });
-
-  test('a met threshold returns the existing signatures without asking anyone', async () => {
-    const existing = await collectOwnerSignatures({ typedData, owners: [0, 2], threshold: 2 });
-    mockGetSigner.mockClear();
-
-    const signatures = await collectOwnerSignatures({
-      typedData,
-      owners: [0, 2, 4],
-      threshold: 2,
-      existing,
-    });
-
-    expect(signatures).toEqual(existing);
-    expect(mockGetSigner).not.toHaveBeenCalled();
-  });
-
-  test('signed progress updates carry the signature (persistence hook)', async () => {
-    const updates = [];
-    const signatures = await collectOwnerSignatures({
-      typedData,
-      owners: [0],
-      threshold: 1,
-      onProgress: (update) => updates.push(update),
-    });
-    const signed = updates.find((update) => update.status === 'signed');
-    expect(signed.signature).toEqual(signatures[0]);
+    expect(verifyTypedData(typedData.domain, types, typedData.message, signature.data)).toBe(
+      OWNERS[1]
+    );
   });
 
   test('rejects a signature that does not recover to the owner address', async () => {
@@ -282,28 +213,21 @@ describe('collectOwnerSignatures', () => {
       signTypedData: async ({ domain, types, message }) =>
         ownerWallet(2).signTypedData(domain, withoutDomainType(types), message),
     }));
-    await expect(
-      collectOwnerSignatures({ typedData, owners: [0, 2], threshold: 1 })
-    ).rejects.toThrow(/signature.*does not match/i);
+    await expect(collectOwnerSignature({ typedData, ownerIndex: 0 })).rejects.toThrow(
+      /signature.*does not match/i
+    );
   });
 
-  test('propagates signer errors (device rejection aborts collection)', async () => {
+  test('propagates signer errors (device rejection)', async () => {
     mockGetSigner.mockImplementationOnce(() => ({
       getAddress: async () => OWNERS[0],
       signTypedData: async () => {
         throw new Error('Rejected on device');
       },
     }));
-    await expect(
-      collectOwnerSignatures({ typedData, owners: [0, 2], threshold: 2 })
-    ).rejects.toThrow('Rejected on device');
-  });
-
-  test('throws when the threshold cannot be met by the owner list', async () => {
-    await expect(
-      collectOwnerSignatures({ typedData, owners: [0], threshold: 2 })
-    ).rejects.toThrow(/threshold/i);
-    expect(mockGetSigner).not.toHaveBeenCalled();
+    await expect(collectOwnerSignature({ typedData, ownerIndex: 0 })).rejects.toThrow(
+      'Rejected on device'
+    );
   });
 });
 
@@ -324,11 +248,10 @@ describe('execTransaction', () => {
       tx: { to: OWNERS[2], value: '1000', data: '0x' },
       provider,
     });
-    const signatures = await collectOwnerSignatures({
-      typedData: built.typedData,
-      owners: [0, 2],
-      threshold: 2,
-    });
+    const signatures = [
+      await collectOwnerSignature({ typedData: built.typedData, ownerIndex: 0 }),
+      await collectOwnerSignature({ typedData: built.typedData, ownerIndex: 2 }),
+    ];
     return { built, signatures, provider };
   }
 

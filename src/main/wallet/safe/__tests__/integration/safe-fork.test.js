@@ -41,6 +41,7 @@ const mockWalletRecords = {
 };
 jest.mock('../../../../identity-manager', () => ({
   getWalletRecord: (index) => mockWalletRecords[index] || null,
+  isVaultUnlocked: async () => true,
   WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote', SAFE: 'safe' },
 }));
 
@@ -79,7 +80,7 @@ jest.mock('../../../provider-manager', () => {
 const {
   predictSafeAddress,
   buildSafeTransaction,
-  collectOwnerSignatures,
+  collectOwnerSignature,
   execTransaction,
   deploySafe,
 } = require('../../safe-executor');
@@ -253,11 +254,10 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
     expect(built.deployed).toBe(true);
     expect(built.safeAddress).toBe(predicted);
 
-    const signatures = await collectOwnerSignatures({
-      typedData: built.typedData,
-      owners: [0, 2],
-      threshold: 2,
-    });
+    const signatures = [
+      await collectOwnerSignature({ typedData: built.typedData, ownerIndex: 0 }),
+      await collectOwnerSignature({ typedData: built.typedData, ownerIndex: 2 }),
+    ];
     const result = await execTransaction({
       chainId: 8453,
       safeAddress: predicted,
@@ -288,8 +288,11 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
   test('the send orchestrator moves funds starting from a wallet RECORD (owners as indexes)', async () => {
     // Regression: the record stores owners as wallet indexes; passing
     // them unresolved into protocol-kit blew up with `Address "0" is
-    // invalid`. This walks the REAL startSafeSend path, un-mocked.
-    const { startSafeSend } = require('../../safe-transactions');
+    // invalid`. This walks the REAL start → sign → execute path, un-mocked.
+    const { startSafeSend, signSafePending, executeSafePending } = require('../../safe-transactions');
+    // The mocked electron userData dir is shared across runs — drop any
+    // pending entry a previous run left behind.
+    require('../../pending-store').clearPending(5);
 
     // Fund the (deployed, previous test) safe on the Gnosis fork.
     const gnosisProvider = new JsonRpcProvider(anvilUrl(FORKS.gnosis), 100, { staticNetwork: true });
@@ -311,13 +314,21 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
 
     const recipient = Wallet.createRandom().address;
     const amount = parseEther('1').toString();
-    const result = await startSafeSend({
+    // start silently signs the mnemonic owner (1 of 2)…
+    const started = await startSafeSend({
       safeIndex: 5,
       tx: { to: recipient, value: amount, data: '0x' },
       display: { toAddress: recipient, asset: null, amount },
     });
+    expect(started).toMatchObject({ collected: 1, threshold: 2, status: 'awaiting' });
 
-    const receipt = await waitForReceipt(FORKS.gnosis, result.hash);
+    // …the user signs the second owner, then execution runs on its own.
+    const signed = await signSafePending(5, 2);
+    expect(signed.collected).toBe(2);
+    const result = await executeSafePending(5);
+    expect(result.status).toBe('executed');
+
+    const receipt = await waitForReceipt(FORKS.gnosis, result.executed.hash);
     expect(receipt.status).toBe('0x1');
     expect(await getBalance(FORKS.gnosis, recipient)).toBe(parseEther('1'));
   });
