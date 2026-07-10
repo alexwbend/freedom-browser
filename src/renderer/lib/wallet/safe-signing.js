@@ -18,6 +18,7 @@
 import { walletState, registerScreenHider } from './wallet-state.js';
 import { escapeHtml, truncateAddress, formatRawTokenBalance, walletRecord, timeAgo } from './wallet-utils.js';
 import { refreshBalances } from './balance-display.js';
+import { showVaultUnlock } from './vault-unlock.js';
 
 // DOM references
 let screen;
@@ -91,6 +92,25 @@ async function refreshState() {
   if (state?.status === 'superseded') phase = 'superseded';
 }
 
+/**
+ * Walk the user through the standard vault unlock (a locked vault is a
+ * step, not an error). The unlock screen replaces the board; bring the
+ * board back either way.
+ * @returns {Promise<boolean>} whether the vault is now unlocked
+ */
+async function requestVaultUnlock() {
+  let unlocked = true;
+  try {
+    await showVaultUnlock('Your multi-owner transaction');
+  } catch {
+    unlocked = false; // user cancelled
+  }
+  walletState.identityView?.classList.add('hidden');
+  screen?.classList.remove('hidden');
+  render();
+  return unlocked;
+}
+
 /** Silent free signatures (main owns the policy) + execute if ready. */
 async function progressAutomatics() {
   if (!state || phase !== 'board') return;
@@ -129,6 +149,15 @@ async function signOwner(ownerIndex) {
     state = result.state;
     render();
     await maybeExecute();
+    return;
+  }
+
+  if (result.code === 'VAULT_LOCKED') {
+    if (await requestVaultUnlock()) {
+      return signOwner(ownerIndex);
+    }
+    rowNotes.set(ownerIndex, { kind: 'info', text: 'Unlock your wallet to sign' });
+    render();
     return;
   }
 
@@ -172,6 +201,18 @@ async function executeNow() {
   } else if (result.success && result.state?.status === 'superseded') {
     state = result.state;
     phase = 'superseded';
+  } else if (result.code === 'VAULT_LOCKED') {
+    // The executor signs with the vault key — unlocking is a step in
+    // the flow, not a failure.
+    phase = 'board';
+    await refreshState();
+    if (await requestVaultUnlock()) {
+      return executeNow();
+    }
+    executeError = {
+      message: 'Your wallet is locked — unlock it to execute the transaction',
+      needsFunds: false,
+    };
   } else {
     executeError = {
       message: result.error || 'Execution failed',

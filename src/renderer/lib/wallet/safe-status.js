@@ -20,6 +20,7 @@ import {
   showInlineError,
 } from './wallet-utils.js';
 import { updateSendAvailability } from './send.js';
+import { showVaultUnlock } from './vault-unlock.js';
 
 let card;
 let refreshToken = 0;
@@ -127,10 +128,23 @@ async function handleActivate() {
   }
 
   const result = await window.wallet.activateSafe(wallet.index);
+
+  // Deployment is signed by the executor's vault key: a locked vault is
+  // a step in the flow, not a failure — walk the user through the
+  // standard unlock and retry.
+  if (!result.success && result.code === 'VAULT_LOCKED') {
+    try {
+      await showVaultUnlock('Activate your multi-owner account');
+      return handleActivate();
+    } catch {
+      // user cancelled — fall through to the re-rendered card
+    }
+  }
+
   await refreshSafeStatusCard(); // re-render first, then surface errors on it
-  if (!result.success) {
+  if (!result.success && result.code !== 'VAULT_LOCKED') {
     // NEEDS_FUNDS re-renders as its own blocking state; anything else
-    // (locked vault, RPC down) must be said out loud, not just reset.
+    // (RPC down …) must be said out loud, not just reset.
     console.error('[SafeStatus] Activation failed:', result.error);
     showInlineError(document.getElementById('safe-status-error'), result.error);
   }

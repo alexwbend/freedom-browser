@@ -21,6 +21,7 @@ const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { getSigner } = require('./signers');
+const { isVaultLockedError } = require('./vault-errors');
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -331,7 +332,8 @@ function registerWalletIpc() {
       const result = await activateSafe(index);
       return { success: true, ...result };
     } catch (err) {
-      return { success: false, error: err.message, code: err.code };
+      const code = err.code ?? (isVaultLockedError(err) ? 'VAULT_LOCKED' : undefined);
+      return { success: false, error: err.message, code };
     }
   });
 
@@ -344,7 +346,10 @@ function registerWalletIpc() {
       const state = await fn(...args);
       return { success: true, state };
     } catch (err) {
-      return { success: false, error: err.message, code: err.code };
+      // A locked vault is recoverable — the renderer walks the user
+      // through the standard unlock and retries.
+      const code = err.code ?? (isVaultLockedError(err) ? 'VAULT_LOCKED' : undefined);
+      return { success: false, error: err.message, code };
     }
   };
 

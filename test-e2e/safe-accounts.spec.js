@@ -60,17 +60,22 @@ test('create, activate, and send from a Safe account', async ({ window: win, anv
   // --- Activate: real deployment through the canonical factory -----------
 
   await expect(win.locator('#safe-status-activate')).toBeVisible({ timeout: 60_000 });
-  // Deployment is signed by the executor's vault key — unlock first
-  // (through the same IPC the unlock UIs use).
-  const unlock = await win.evaluate((pw) => window.identity.unlock(pw), VAULT_PASSWORD);
-  expect(unlock.success).toBe(true);
+  // Deployment is signed by the executor's vault key; the vault is
+  // locked, so activating walks through the standard unlock screen.
   await win.click('#safe-status-activate');
-  await expect(card).toBeHidden({ timeout: 90_000 });
+  await expect(win.locator('#sidebar-vault-unlock')).toBeVisible({ timeout: 15_000 });
+  await win.fill('#vault-unlock-password-input', VAULT_PASSWORD);
+  await win.click('#vault-unlock-password-submit');
 
-  // Deployment is on the fork and the Send button knows immediately.
+  // The Send button enabling is the unambiguous "deployed" barrier (the
+  // card is inside the identity view, which the unlock screen hides —
+  // toBeHidden would pass prematurely).
+  await expect(win.locator('#wallet-send-btn')).toBeEnabled({ timeout: 90_000 });
+  await expect(card).toBeHidden();
+
+  // Deployment really is on the fork.
   const code = await anvil.rpc('eth_getCode', [safeAddress, 'latest']);
   expect(code.length).toBeGreaterThan(2);
-  await expect(win.locator('#wallet-send-btn')).toBeEnabled();
 
   // --- Send xDAI out of the Safe ------------------------------------------
 

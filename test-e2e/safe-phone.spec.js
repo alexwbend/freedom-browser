@@ -81,13 +81,19 @@ test('a phone owner co-signs a Safe send through the bridge page', async ({
   const safeAddress = (await win.locator('#create-safe-result-address').textContent()).trim();
   await win.click('#create-safe-done');
 
+  // Fund the executor; the card may have quoted before or after the
+  // balance landed, so accept either state and nudge if needed
+  // (needs-funds semantics are covered by the safe-accounts spec).
   const mainAddress = (await win.evaluate(() => window.wallet.getDerivedWallets()))
     .wallets.find((w) => w.index === 0).address;
   await anvil.rpc('anvil_setBalance', [mainAddress, '0x' + parseEther('1').toString(16)]);
-  await expect(win.locator('#safe-status-card')).toContainText(/fund/i, { timeout: 60_000 });
-  await win.click('#safe-status-refresh');
-
-  await expect(win.locator('#safe-status-activate')).toBeVisible({ timeout: 60_000 });
+  const activateBtn = win.locator('#safe-status-activate');
+  const refreshBtn = win.locator('#safe-status-refresh');
+  await expect(activateBtn.or(refreshBtn)).toBeVisible({ timeout: 60_000 });
+  if (await refreshBtn.isVisible()) {
+    await refreshBtn.click();
+  }
+  await expect(activateBtn).toBeVisible({ timeout: 60_000 });
   const unlock = await win.evaluate((pw) => window.identity.unlock(pw), VAULT_PASSWORD);
   expect(unlock.success).toBe(true);
   await win.click('#safe-status-activate');
