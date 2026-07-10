@@ -425,6 +425,14 @@ contextBridge.exposeInMainWorld('wallet', {
   safeState: (safeIndex) => ipcRenderer.invoke('wallet:safe-state', safeIndex),
   safeCancelPending: (index) => ipcRenderer.invoke('wallet:safe-cancel-pending', index),
   safePendingList: () => ipcRenderer.invoke('wallet:safe-pending-list'),
+  // SafeMessage sessions (dApp message signing via EIP-1271)
+  safeMessageStart: (safeIndex, request, display) =>
+    ipcRenderer.invoke('wallet:safe-message-start', safeIndex, request, display),
+  safeMessageSign: (safeIndex, ownerIndex) =>
+    ipcRenderer.invoke('wallet:safe-message-sign', safeIndex, ownerIndex),
+  safeMessageState: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-state', safeIndex),
+  safeMessageCancel: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-cancel', safeIndex),
+  safeMessageComplete: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-complete', safeIndex),
 });
 
 contextBridge.exposeInMainWorld('ledger', {

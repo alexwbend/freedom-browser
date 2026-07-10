@@ -402,6 +402,51 @@ function registerWalletIpc() {
     }
   });
 
+  // SafeMessage sessions — dApp message signing via EIP-1271 (see
+  // safe/safe-messages.js). Same granular board API as sends; complete
+  // returns the concatenated owner signatures instead of a state.
+  ipcMain.handle(
+    'wallet:safe-message-start',
+    safeStateHandler((safeIndex, request, display) => {
+      const { startSafeMessage } = require('./safe/safe-messages');
+      return startSafeMessage({ safeIndex, request, display });
+    })
+  );
+
+  ipcMain.handle(
+    'wallet:safe-message-sign',
+    safeStateHandler((safeIndex, ownerIndex) => {
+      const { signSafeMessage } = require('./safe/safe-messages');
+      return signSafeMessage(safeIndex, ownerIndex);
+    })
+  );
+
+  ipcMain.handle(
+    'wallet:safe-message-state',
+    safeStateHandler((safeIndex) => {
+      const { getSafeMessageState } = require('./safe/safe-messages');
+      return getSafeMessageState(safeIndex);
+    })
+  );
+
+  ipcMain.handle(
+    'wallet:safe-message-cancel',
+    safeStateHandler((safeIndex) => {
+      const { cancelSafeMessage } = require('./safe/safe-messages');
+      cancelSafeMessage(safeIndex);
+    })
+  );
+
+  ipcMain.handle('wallet:safe-message-complete', async (_event, safeIndex) => {
+    try {
+      const { completeSafeMessage } = require('./safe/safe-messages');
+      const { signature } = completeSafeMessage(safeIndex);
+      return { success: true, signature };
+    } catch (err) {
+      return { success: false, error: err.message, code: err.code };
+    }
+  });
+
   // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {

@@ -22,12 +22,7 @@
  */
 
 const { KINDS: PAYMENT_KINDS } = require('../tx-recorder');
-const {
-  buildSafeTransaction,
-  collectOwnerSignature,
-  execTransaction,
-  pickDefaultExecutor,
-} = require('./safe-executor');
+const { buildSafeTransaction, execTransaction, pickDefaultExecutor } = require('./safe-executor');
 const {
   getSafeRecord,
   resolveOwnerAddresses,
@@ -35,29 +30,19 @@ const {
   DEPLOY_CHAIN_ID,
 } = require('./safe-service');
 const { getPending, setPending, clearPending, listPendingIndexes } = require('./pending-store');
-const { getWalletRecord, isVaultUnlocked, WALLET_TYPES } = require('../../identity-manager');
+const { codedError, SAFE_BUSY, SAFE_PENDING_EXISTS, SAFE_NEEDS_FUNDS } = require('./errors');
+const {
+  acquire,
+  release,
+  isBusy,
+  ownersView,
+  collectFreeSignatures,
+  signEntryOwner,
+} = require('./signature-collection');
 
-// One live operation per Safe at a time. In-memory only (a main-process
-// crash clears it, which is the correct reset). The renderer keeps its
-// own row-level spinner state; this guard is about mutual exclusion.
-const inFlight = new Set();
-
-function codedError(message, code) {
-  const err = new Error(message);
-  err.code = code;
-  return err;
-}
-
-function acquire(safeIndex) {
-  if (inFlight.has(safeIndex)) {
-    throw codedError('Another step of this transaction is still running', 'SAFE_BUSY');
-  }
-  inFlight.add(safeIndex);
-}
-
-const hasSigned = (signatures, address) =>
-  Boolean(address) &&
-  signatures.some((sig) => sig.signer.toLowerCase() === address.toLowerCase());
+// The signature-collection store over the persisted pending-SafeTx
+// entries; the SafeTx hash is the entry's identity.
+const store = { get: getPending, set: setPending, idOf: (entry) => entry.safeTxHash };
 
 /** Safe.nonce() — raw uncached read. */
 async function chainSafeNonce(safeAddress) {
@@ -91,15 +76,7 @@ function getSafeSendState(safeIndex) {
   } catch {
     // record gone — render what the pending entry alone supports
   }
-  const owners = ownerIndexes.map((index) => {
-    const record = getWalletRecord(index);
-    return {
-      index,
-      address: record?.address || null,
-      type: record?.type || WALLET_TYPES.MNEMONIC,
-      signed: hasSigned(pending.signatures, record?.address),
-    };
-  });
+  const owners = ownersView(ownerIndexes, pending.signatures);
 
   let executorIndex = null;
   try {
@@ -144,7 +121,7 @@ async function startSafeSend({ safeIndex, tx, display }) {
   if (getPending(safeIndex)) {
     throw codedError(
       'A transaction is already waiting for signatures — finish or discard it first',
-      'SAFE_PENDING_EXISTS'
+      SAFE_PENDING_EXISTS
     );
   }
 
@@ -166,41 +143,11 @@ async function startSafeSend({ safeIndex, tx, display }) {
       signatures: [],
       createdAt: Date.now(),
     });
-    await collectFreeSignatures(safeIndex, record);
+    await collectFreeSignatures(store, safeIndex, record.owners);
   } finally {
-    inFlight.delete(safeIndex);
+    release(safeIndex);
   }
   return getSafeSendState(safeIndex);
-}
-
-/**
- * Silently sign every unsigned mnemonic owner while the vault is
- * unlocked — zero ceremony, so no user action is required. The single
- * home of the "which signatures are free" policy; runs at creation and
- * again when the board (re)opens (covers a vault that was locked the
- * first time).
- */
-async function collectFreeSignatures(safeIndex, record) {
-  if (!(await isVaultUnlocked())) {
-    return;
-  }
-  for (const ownerIndex of record.owners) {
-    const pending = getPending(safeIndex);
-    if (!pending || pending.superseded || pending.signatures.length >= pending.threshold) break;
-    const owner = getWalletRecord(ownerIndex);
-    if (owner?.type !== WALLET_TYPES.MNEMONIC || hasSigned(pending.signatures, owner.address)) {
-      continue;
-    }
-    try {
-      const signature = await collectOwnerSignature({ typedData: pending.typedData, ownerIndex });
-      pending.signatures = [...pending.signatures, signature];
-      setPending(safeIndex, pending);
-    } catch (err) {
-      // Vault locked mid-loop or a derivation hiccup: this owner
-      // degrades to a manual row on the board, nothing fails.
-      console.warn(`[SafeTx] auto-sign skipped for owner ${ownerIndex}:`, err.message);
-    }
-  }
 }
 
 /**
@@ -227,39 +174,7 @@ async function signSafePending(safeIndex, ownerIndex) {
     throw new Error('This transaction can no longer be signed — discard it');
   }
 
-  if (ownerIndex == null) {
-    acquire(safeIndex);
-    try {
-      await collectFreeSignatures(safeIndex, record);
-    } finally {
-      inFlight.delete(safeIndex);
-    }
-    return getSafeSendState(safeIndex);
-  }
-
-  if (!record.owners.includes(ownerIndex)) {
-    throw new Error('That account is not an owner of this Safe');
-  }
-  if (hasSigned(pending.signatures, getWalletRecord(ownerIndex)?.address)) {
-    return getSafeSendState(safeIndex); // already signed — idempotent
-  }
-
-  acquire(safeIndex);
-  try {
-    const expectedHash = pending.safeTxHash;
-    const signature = await collectOwnerSignature({ typedData: pending.typedData, ownerIndex });
-
-    // The ceremony can take minutes: re-validate that THIS SafeTx is
-    // still the pending one before persisting into it.
-    const current = getPending(safeIndex);
-    if (!current || current.safeTxHash !== expectedHash) {
-      throw codedError('The transaction was discarded while the signature was being made', 'SAFE_DISCARDED');
-    }
-    current.signatures = [...current.signatures, signature];
-    setPending(safeIndex, current);
-  } finally {
-    inFlight.delete(safeIndex);
-  }
+  await signEntryOwner({ store, safeIndex, ownerIndex, ownerIndexes: record.owners });
   return getSafeSendState(safeIndex);
 }
 
@@ -312,12 +227,14 @@ async function executeSafePending(safeIndex) {
           toAddress: pending.display?.toAddress,
           asset: pending.display?.asset ?? null,
           amount: pending.display?.amount,
+          // dApp-initiated sends carry the requesting site.
+          ...(pending.display?.site ? { origin: pending.display.site } : {}),
           metadata: { safeAddress: pending.safeAddress, safeTxHash: pending.safeTxHash },
         },
       });
     } catch (err) {
       if (/insufficient funds/i.test(err.message)) {
-        err.code = 'SAFE_NEEDS_FUNDS';
+        err.code = SAFE_NEEDS_FUNDS;
       }
       throw err;
     }
@@ -326,7 +243,7 @@ async function executeSafePending(safeIndex) {
     clearPending(safeIndex);
     return { ...state, status: 'executed', executed: { hash: result.hash, explorerUrl: result.explorerUrl } };
   } finally {
-    inFlight.delete(safeIndex);
+    release(safeIndex);
   }
 }
 
@@ -347,8 +264,8 @@ function getAllSafeSendStates() {
  * Refused while a signature ceremony or the execution is live.
  */
 function cancelSafeSend(safeIndex) {
-  if (inFlight.has(safeIndex)) {
-    throw codedError('Wait for the current step to finish first', 'SAFE_BUSY');
+  if (isBusy(safeIndex)) {
+    throw codedError('Wait for the current step to finish first', SAFE_BUSY);
   }
   clearPending(safeIndex);
 }

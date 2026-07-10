@@ -15,7 +15,14 @@
  */
 
 const { spawn, spawnSync } = require('child_process');
-const { Wallet, JsonRpcProvider, parseEther } = require('ethers');
+const {
+  Wallet,
+  JsonRpcProvider,
+  parseEther,
+  hashMessage,
+  Interface,
+  TypedDataEncoder,
+} = require('ethers');
 
 const { ownerWallet } = require('../helpers/test-owners');
 
@@ -331,5 +338,66 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
     const receipt = await waitForReceipt(FORKS.gnosis, result.executed.hash);
     expect(receipt.status).toBe('0x1');
     expect(await getBalance(FORKS.gnosis, recipient)).toBe(parseEther('1'));
+  });
+
+  test('a collected SafeMessage signature passes isValidSignature on chain (EIP-1271)', async () => {
+    // What WP-S4 promises dApps: personal_sign / typed data answered by
+    // a Safe account verifies through the REAL contract's fallback
+    // handler, exactly the call a dApp makes.
+    const { startSafeMessage, signSafeMessage, completeSafeMessage } = require('../../safe-messages');
+    const IS_VALID = new Interface([
+      'function isValidSignature(bytes32 dataHash, bytes signature) view returns (bytes4)',
+    ]);
+    const MAGIC = '0x1626ba7e';
+    const callIsValid = async (digest, signature) => {
+      const data = IS_VALID.encodeFunctionData('isValidSignature', [digest, signature]);
+      const result = await rpc(anvilUrl(FORKS.gnosis), 'eth_call', [
+        { to: predicted, data },
+        'latest',
+      ]);
+      return result.slice(0, 10);
+    };
+
+    // personal_sign, hex-encoded the way dApps send it (2 of 3 owners)
+    const text = 'freedom 1271';
+    const hexMessage = '0x' + Buffer.from(text, 'utf8').toString('hex');
+    const started = await startSafeMessage({
+      safeIndex: 5,
+      request: { method: 'personal_sign', params: [hexMessage, predicted] },
+      display: { site: 'app.example', method: 'personal_sign' },
+    });
+    expect(started).toMatchObject({ collected: 1, threshold: 2, complete: false });
+    await signSafeMessage(5, 2);
+    const { signature } = completeSafeMessage(5);
+
+    // the digest a verifying dApp computes: EIP-191 over the BYTES
+    expect(await callIsValid(hashMessage(text), signature)).toBe(MAGIC);
+    // …and the same signature over a different digest is refused
+    await expect(callIsValid(hashMessage('tampered'), signature)).rejects.toThrow();
+
+    // eth_signTypedData_v4 (JSON-string param, EIP712Domain included)
+    const typed = {
+      domain: { name: 'Fork Dapp', chainId: 100, verifyingContract: ownerWallet(0).address },
+      types: {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' },
+        ],
+        Ping: [{ name: 'note', type: 'string' }],
+      },
+      primaryType: 'Ping',
+      message: { note: 'gm' },
+    };
+    await startSafeMessage({
+      safeIndex: 5,
+      request: { method: 'eth_signTypedData_v4', params: [predicted, JSON.stringify(typed)] },
+      display: { site: 'app.example', method: 'eth_signTypedData_v4' },
+    });
+    await signSafeMessage(5, 4); // a different second owner this time
+    const { signature: typedSignature } = completeSafeMessage(5);
+
+    const typedDigest = TypedDataEncoder.hash(typed.domain, { Ping: typed.types.Ping }, typed.message);
+    expect(await callIsValid(typedDigest, typedSignature)).toBe(MAGIC);
   });
 });

@@ -37,6 +37,7 @@ const {
 } = require('../transaction-service');
 const { KINDS: PAYMENT_KINDS } = require('../tx-recorder');
 const { getEip1193Provider } = require('../provider-manager');
+const { codedError, SAFE_NEEDS_FUNDS } = require('./errors');
 
 /** v1: Safes deploy on Gnosis only (decision 5). */
 const DEPLOY_CHAIN_ID = 100;
@@ -212,9 +213,7 @@ async function activateSafe(index) {
       status.executorIndex === null
         ? 'None of the owners is a browser account that could pay the activation fee'
         : `Fund ${status.executorAddress} with at least ${formatEther(status.estimatedCost)} xDAI to activate`;
-    const err = new Error(message);
-    err.code = 'SAFE_NEEDS_FUNDS';
-    throw err;
+    throw codedError(message, SAFE_NEEDS_FUNDS);
   }
 
   const { safeAddress, tx } = await deploySafe({
