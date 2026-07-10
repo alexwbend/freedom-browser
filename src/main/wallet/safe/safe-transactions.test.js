@@ -83,6 +83,7 @@ const {
   signSafePending,
   executeSafePending,
   getSafeSendState,
+  getAllSafeSendStates,
   cancelSafeSend,
 } = require('./safe-transactions');
 const { getPending, clearPending } = require('./pending-store');
@@ -316,5 +317,15 @@ describe('getSafeSendState / cancelSafeSend', () => {
     expect(getSafeSendState(5)).not.toBeNull();
     cancelSafeSend(5);
     expect(getSafeSendState(5)).toBeNull();
+  });
+});
+
+describe('getAllSafeSendStates', () => {
+  test('lists every pending SafeTx, oldest first', async () => {
+    expect(getAllSafeSendStates()).toEqual([]);
+    await start();
+    const states = getAllSafeSendStates();
+    expect(states).toHaveLength(1);
+    expect(states[0]).toMatchObject({ safeIndex: 5, collected: 1, threshold: 2 });
   });
 });

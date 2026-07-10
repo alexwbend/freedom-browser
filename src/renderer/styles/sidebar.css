@@ -6682,3 +6682,62 @@
 [data-theme="light"] .safe-signing-row {
   background: rgba(0, 0, 0, 0.03);
 }
+
+/* Unfinished Safe transactions: entry row above Recent payments */
+.safe-pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.safe-pending-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.safe-pending-row-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.safe-pending-row-label svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.safe-pending-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  border-radius: 9px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.safe-pending-item-chevron {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+[data-theme="light"] .safe-pending-row {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+[data-theme="light"] .safe-pending-row:hover {
+  background: rgba(0, 0, 0, 0.06);
+}

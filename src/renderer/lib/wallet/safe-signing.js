@@ -16,7 +16,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml, truncateAddress, walletRecord, timeAgo } from './wallet-utils.js';
+import { escapeHtml, truncateAddress, formatRawTokenBalance, walletRecord, timeAgo } from './wallet-utils.js';
 import { refreshBalances } from './balance-display.js';
 
 // DOM references
@@ -239,10 +239,14 @@ function ownerName(index) {
 
 export function summaryLine(display = state?.display) {
   const d = display || {};
-  const amount = d.formattedAmount || d.amount || '';
-  const symbol = d.symbol || '';
+  // Entries persisted before presentation fields existed carry only the
+  // atomic amount — format it instead of showing raw wei.
+  const amount =
+    d.formattedAmount ||
+    (d.amount ? formatRawTokenBalance(d.amount, d.decimals ?? 18) : '');
+  const symbol = d.symbol || (d.asset ? '' : 'xDAI');
   const to = d.recipientName || truncateAddress(d.toAddress || '');
-  return `sending ${amount} ${symbol} to ${to}`.trim();
+  return `sending ${amount} ${symbol} to ${to}`.replace(/\s+/g, ' ').trim();
 }
 
 function render() {

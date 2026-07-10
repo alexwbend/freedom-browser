@@ -424,6 +424,7 @@ contextBridge.exposeInMainWorld('wallet', {
   safeExecute: (safeIndex) => ipcRenderer.invoke('wallet:safe-execute', safeIndex),
   safeState: (safeIndex) => ipcRenderer.invoke('wallet:safe-state', safeIndex),
   safeCancelPending: (index) => ipcRenderer.invoke('wallet:safe-cancel-pending', index),
+  safePendingList: () => ipcRenderer.invoke('wallet:safe-pending-list'),
 });
 
 contextBridge.exposeInMainWorld('ledger', {

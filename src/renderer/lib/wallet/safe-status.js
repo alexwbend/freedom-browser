@@ -5,9 +5,8 @@
  *   - ready:        activation fee quote + who pays + Activate button
  *   - needs-funds:  blocking "fund <executor> with ≥ X xDAI" card
  *   - no-executor:  none of the owners is a browser account that can pay
- *   - pending tx:   a half-signed SafeTx waiting for signatures, with
- *                   continue/discard (it survives restarts)
- * A deployed Safe with nothing pending shows no card. The Send button's
+ * (Pending SafeTxs live in the wallet-wide "unfinished transactions"
+ * row — see safe-pending-list.js.) A deployed Safe shows no card. The Send button's
  * availability is owned by send.js; this module just triggers the
  * re-evaluation whenever the active account changes.
  */
@@ -18,20 +17,12 @@ import {
   truncateAddress,
   formatRawTokenBalance,
   walletRecord,
-  timeAgo,
   showInlineError,
 } from './wallet-utils.js';
 import { updateSendAvailability } from './send.js';
-import { openSafeSigningBoard, summaryLine } from './safe-signing.js';
 
 let card;
 let refreshToken = 0;
-
-// A safe send that just finished (or was abandoned) changes what the
-// card should show — re-evaluate when the send screen or signing board
-// closes.
-window.addEventListener('wallet:send-closed', () => refreshSafeStatusCard());
-window.addEventListener('wallet:safe-signing-closed', () => refreshSafeStatusCard());
 
 /**
  * Re-evaluate the card for the active account. Called whenever the
@@ -49,20 +40,18 @@ export async function refreshSafeStatusCard() {
     return;
   }
 
-  const token = ++refreshToken;
-  render(`<div class="safe-status-text">Checking account status…</div>`);
-
-  // A pending half-signed tx trumps everything else the card could show
-  // (and implies the safe is deployed — no need to quote activation).
-  const pendingResult = await window.wallet.safeState(wallet.index);
-  if (token !== refreshToken) return; // superseded by an account switch
-  if (pendingResult.success && pendingResult.state) {
-    renderPending(pendingResult.state);
+  // Deployed safes need no activation card — and the record snapshot is
+  // trustworthy once it says deployed (deployment is permanent).
+  if (wallet.deployed?.[100]) {
+    card.classList.add('hidden');
     return;
   }
 
+  const token = ++refreshToken;
+  render(`<div class="safe-status-text">Checking account status…</div>`);
+
   const statusResult = await window.wallet.getSafeStatus(wallet.index);
-  if (token !== refreshToken) return;
+  if (token !== refreshToken) return; // superseded by an account switch
   if (!statusResult.success) {
     render(`<div class="safe-status-text">${escapeHtml(statusResult.error)}</div>`);
     return;
@@ -125,21 +114,6 @@ function renderStatus(status) {
     <div class="unlock-error hidden" id="safe-status-error"></div>
   `);
   document.getElementById('safe-status-activate')?.addEventListener('click', handleActivate);
-}
-
-function renderPending(pending) {
-  const what = summaryLine(pending.display);
-  render(`
-    <div class="safe-status-text">
-      <strong>${escapeHtml(what.charAt(0).toUpperCase() + what.slice(1))}</strong> —
-      ${pending.collected} of ${pending.threshold} signatures, started
-      ${escapeHtml(timeAgo(new Date(pending.createdAt)).toLowerCase())}.
-    </div>
-    <button type="button" class="safe-status-btn primary" id="safe-status-continue">Continue signing</button>
-  `);
-  document
-    .getElementById('safe-status-continue')
-    ?.addEventListener('click', () => openSafeSigningBoard(pending.safeIndex));
 }
 
 async function handleActivate() {

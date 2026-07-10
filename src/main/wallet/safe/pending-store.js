@@ -62,4 +62,9 @@ function clearPending(safeIndex) {
   }
 }
 
-module.exports = { getPending, setPending, clearPending };
+/** Safe wallet indexes that currently have a pending SafeTx. */
+function listPendingIndexes() {
+  return Object.keys(load()).map(Number);
+}
+
+module.exports = { getPending, setPending, clearPending, listPendingIndexes };

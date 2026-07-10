@@ -34,7 +34,7 @@ const {
   chainRead,
   DEPLOY_CHAIN_ID,
 } = require('./safe-service');
-const { getPending, setPending, clearPending } = require('./pending-store');
+const { getPending, setPending, clearPending, listPendingIndexes } = require('./pending-store');
 const { getWalletRecord, isVaultUnlocked, WALLET_TYPES } = require('../../identity-manager');
 
 // One live operation per Safe at a time. In-memory only (a main-process
@@ -331,6 +331,18 @@ async function executeSafePending(safeIndex) {
 }
 
 /**
+ * Render models of every pending SafeTx, across all Safes — the wallet's
+ * "unfinished transactions" overview.
+ * @returns {Array<Object>} SafeSendStates, oldest first
+ */
+function getAllSafeSendStates() {
+  return listPendingIndexes()
+    .map((safeIndex) => getSafeSendState(safeIndex))
+    .filter(Boolean)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+/**
  * Discard the pending SafeTx (collected signatures are thrown away).
  * Refused while a signature ceremony or the execution is live.
  */
@@ -346,5 +358,6 @@ module.exports = {
   signSafePending,
   executeSafePending,
   getSafeSendState,
+  getAllSafeSendStates,
   cancelSafeSend,
 };

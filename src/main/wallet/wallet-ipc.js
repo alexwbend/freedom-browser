@@ -388,6 +388,15 @@ function registerWalletIpc() {
     })
   );
 
+  ipcMain.handle('wallet:safe-pending-list', async () => {
+    try {
+      const { getAllSafeSendStates } = require('./safe/safe-transactions');
+      return { success: true, states: getAllSafeSendStates() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {

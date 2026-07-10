@@ -892,6 +892,18 @@
                     <span class="balance-error-text" id="balance-error-text"></span>
                   </div>
 
+                  <!-- Unfinished Safe transactions (waiting for signatures) -->
+                  <button type="button" id="safe-pending-row" class="safe-pending-row hidden">
+                    <span class="safe-pending-row-label">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                      </svg>
+                      Unfinished transactions
+                    </span>
+                    <span class="safe-pending-badge" id="safe-pending-count"></span>
+                  </button>
+
                   <!-- Recent payments (5 most recent; full list at freedom://payments) -->
                   <div class="recent-payments">
                     <div class="recent-payments-header">
@@ -1508,6 +1520,26 @@
                 <h3 class="subscreen-title" id="safe-signing-title">Collect signatures</h3>
               </div>
               <div class="subscreen-content" id="safe-signing-content"></div>
+            </div>
+
+            <!-- Unfinished Safe transactions sub-screen -->
+            <div id="sidebar-safe-pending" class="sidebar-subscreen hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="safe-pending-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title">Unfinished Transactions</h3>
+              </div>
+              <div class="subscreen-content">
+                <p class="create-wallet-message">
+                  These transactions are waiting for owner signatures.
+                  Pick one to continue signing or discard it.
+                </p>
+                <div id="safe-pending-list" class="connect-ledger-account-list"></div>
+              </div>
             </div>
 
             <!-- Receive sub-screen -->
