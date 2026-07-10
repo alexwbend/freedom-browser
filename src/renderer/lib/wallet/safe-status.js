@@ -182,12 +182,13 @@ async function handleActivate() {
   }
 
   const result = await window.wallet.activateSafe(wallet.index);
+  await refreshSafeStatusCard(); // re-render first, then surface errors on it
   if (!result.success) {
-    // NEEDS_FUNDS and friends: the re-rendered status is the blocking
-    // state that explains what to do.
+    // NEEDS_FUNDS re-renders as its own blocking state; anything else
+    // (locked vault, RPC down) must be said out loud, not just reset.
     console.error('[SafeStatus] Activation failed:', result.error);
+    showInlineError(document.getElementById('safe-status-error'), result.error);
   }
-  await refreshSafeStatusCard();
 }
 
 function render(html) {

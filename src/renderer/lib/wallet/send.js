@@ -844,6 +844,14 @@ function isEnsLikeName(value) {
 function validateAmount() {
   const amount = sendAmountInput?.value?.trim() || '';
 
+  // Without a selected asset there is nothing to send. (Vault-account
+  // sends fail this later in gas estimation, but the Safe path skips
+  // that — enforce it where the validation belongs.)
+  if (!sendTxState.selectedToken) {
+    showSendError('amount', 'Select an asset to send');
+    return false;
+  }
+
   if (!amount) {
     showSendError('amount', 'Amount is required');
     return false;
