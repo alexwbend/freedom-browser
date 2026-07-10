@@ -335,6 +335,56 @@ function registerWalletIpc() {
     }
   });
 
+  // Safe sends: build → collect signatures (checklist progress streamed
+  // to the caller) → execute. Half-signed state is persisted main-side;
+  // the raw signature bytes stay there too — the UI stream carries only
+  // who/what-state.
+  const withSigningProgress = (event) => ({ signature: _signature, ...uiUpdate }) =>
+    event.sender.send('safe-signing:progress', uiUpdate);
+
+  ipcMain.handle('wallet:safe-send', async (event, tx, display) => {
+    const safeIndex = getActiveWalletIndex();
+    try {
+      const { startSafeSend } = require('./safe/safe-transactions');
+      const result = await startSafeSend(
+        { safeIndex, tx, display },
+        withSigningProgress(event)
+      );
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('wallet:safe-resume', async (event, safeIndex) => {
+    try {
+      const { resumeSafeSend } = require('./safe/safe-transactions');
+      const result = await resumeSafeSend(safeIndex, withSigningProgress(event));
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('wallet:safe-pending', async (_event, safeIndex) => {
+    try {
+      const { getPendingInfo } = require('./safe/safe-transactions');
+      return { success: true, pending: getPendingInfo(safeIndex) };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('wallet:safe-cancel-pending', async (_event, safeIndex) => {
+    try {
+      const { cancelSafeSend } = require('./safe/safe-transactions');
+      cancelSafeSend(safeIndex);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {

@@ -35,6 +35,10 @@ jest.mock('../transaction-service', () => ({
   toFeeFields: jest.requireActual('../transaction-service').toFeeFields,
   signAndSendTransaction: (...args) => mockSignAndSendTransaction(...args),
 }));
+const mockSignAndRecord = jest.fn(async () => ({ hash: '0x' + 'bb'.repeat(32), recorded: true }));
+jest.mock('../tx-recorder', () => ({
+  signAndRecord: (...args) => mockSignAndRecord(...args),
+}));
 jest.mock('../../identity-manager', () => ({
   getWalletRecord: (index) => mockWalletRecords[index] || null,
   WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger', REMOTE: 'remote', SAFE: 'safe' },
@@ -66,6 +70,7 @@ beforeEach(() => {
   mockEstimateGas.mockClear();
   mockGetGasPrices.mockClear();
   mockSignAndSendTransaction.mockClear();
+  mockSignAndRecord.mockClear();
 });
 
 describe('predictSafeAddress', () => {
@@ -219,10 +224,55 @@ describe('collectOwnerSignatures', () => {
     });
     expect(updates).toEqual([
       { ownerIndex: 0, address: OWNERS[0], status: 'signing', collected: 0, threshold: 2 },
-      { ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2 },
+      expect.objectContaining({ ownerIndex: 0, address: OWNERS[0], status: 'signed', collected: 1, threshold: 2 }),
       { ownerIndex: 2, address: OWNERS[1], status: 'signing', collected: 1, threshold: 2 },
-      { ownerIndex: 2, address: OWNERS[1], status: 'signed', collected: 2, threshold: 2 },
+      expect.objectContaining({ ownerIndex: 2, address: OWNERS[1], status: 'signed', collected: 2, threshold: 2 }),
     ]);
+  });
+
+  test('resumes from existing signatures: signed owners are skipped, count carries over', async () => {
+    const [existing] = await collectOwnerSignatures({ typedData, owners: [0], threshold: 1 });
+    mockGetSigner.mockClear();
+
+    const signatures = await collectOwnerSignatures({
+      typedData,
+      owners: [0, 2, 4],
+      threshold: 2,
+      existing: [existing],
+    });
+
+    expect(signatures).toHaveLength(2);
+    expect(signatures.map((s) => s.signer)).toEqual([OWNERS[0], OWNERS[1]]);
+    // owner 0 already signed — only owner 2 is asked
+    expect(mockGetSigner).toHaveBeenCalledTimes(1);
+    expect(mockGetSigner).toHaveBeenCalledWith(2);
+  });
+
+  test('a met threshold returns the existing signatures without asking anyone', async () => {
+    const existing = await collectOwnerSignatures({ typedData, owners: [0, 2], threshold: 2 });
+    mockGetSigner.mockClear();
+
+    const signatures = await collectOwnerSignatures({
+      typedData,
+      owners: [0, 2, 4],
+      threshold: 2,
+      existing,
+    });
+
+    expect(signatures).toEqual(existing);
+    expect(mockGetSigner).not.toHaveBeenCalled();
+  });
+
+  test('signed progress updates carry the signature (persistence hook)', async () => {
+    const updates = [];
+    const signatures = await collectOwnerSignatures({
+      typedData,
+      owners: [0],
+      threshold: 1,
+      onProgress: (update) => updates.push(update),
+    });
+    const signed = updates.find((update) => update.status === 'signed');
+    expect(signed.signature).toEqual(signatures[0]);
   });
 
   test('rejects a signature that does not recover to the owner address', async () => {
@@ -319,6 +369,37 @@ describe('execTransaction', () => {
       value: '0',
       data: params.data,
       chainId: 100,
+    });
+  });
+
+  test('a record context routes through tx-recorder with from = safe and the executor stamped in', async () => {
+    const { built, signatures } = await buildSignedTx();
+    const result = await execTransaction({
+      chainId: 100,
+      safeAddress: built.safeAddress,
+      safeTxData: built.safeTxData,
+      signatures,
+      executorIndex: 0,
+      record: {
+        kind: 'safe-send',
+        fromAddress: built.safeAddress,
+        toAddress: OWNERS[2],
+        amount: '1000',
+        metadata: { safeAddress: built.safeAddress },
+      },
+    });
+
+    expect(result.hash).toBe('0x' + 'bb'.repeat(32));
+    expect(mockSignAndSendTransaction).not.toHaveBeenCalled();
+    const [params, signer, context] = mockSignAndRecord.mock.calls[0];
+    expect(params).toMatchObject({ to: built.safeAddress, value: '0', chainId: 100 });
+    await expect(signer.getAddress()).resolves.toBe(OWNERS[0]);
+    expect(context).toEqual({
+      kind: 'safe-send',
+      fromAddress: built.safeAddress,
+      toAddress: OWNERS[2],
+      amount: '1000',
+      metadata: { safeAddress: built.safeAddress, executor: OWNERS[0] },
     });
   });
 

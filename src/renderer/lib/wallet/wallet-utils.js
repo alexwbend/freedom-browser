@@ -11,9 +11,14 @@ export function truncateAddress(address, startChars = 6, endChars = 4) {
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
 
-/** Account type ('mnemonic' | 'ledger' | 'remote') for a wallet index. */
+/** The wallet record for an index (defaults to the active account). */
+export function walletRecord(walletIndex = walletState.activeWalletIndex) {
+  return walletState.derivedWallets?.find((wallet) => wallet.index === walletIndex);
+}
+
+/** Account type ('mnemonic' | 'ledger' | 'remote' | 'safe') for a wallet index. */
 export function accountType(walletIndex) {
-  return walletState.derivedWallets?.find((wallet) => wallet.index === walletIndex)?.type;
+  return walletRecord(walletIndex)?.type;
 }
 
 export function isLedgerAccount(walletIndex) {

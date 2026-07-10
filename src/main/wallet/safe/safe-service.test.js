@@ -197,6 +197,13 @@ describe('activateSafe', () => {
       executorIndex: 0,
       // the quoted deployment is reused — no second protocol-kit build
       deployment: await mockBuildDeploymentTransaction.mock.results[0].value,
+      // the deploy lands in payment history
+      record: {
+        kind: 'safe-deploy',
+        toAddress: SAFE_ADDRESS,
+        amount: '0',
+        metadata: { safeAddress: SAFE_ADDRESS },
+      },
     });
     expect(mockBuildDeploymentTransaction).toHaveBeenCalledTimes(1);
     expect(mockWaitForTransaction).toHaveBeenCalledWith('0x' + 'ab'.repeat(32), DEPLOY_CHAIN_ID);

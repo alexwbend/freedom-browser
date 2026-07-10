@@ -6536,3 +6536,52 @@
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+.safe-status-btn-row {
+  display: flex;
+  gap: 8px;
+}
+
+/* Safe send: per-owner signature checklist in the pending view */
+.send-signing-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  text-align: left;
+}
+
+.send-signing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.send-signing-row.signing {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.send-signing-row.signed {
+  color: var(--text);
+}
+
+.send-signing-state {
+  width: 16px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.send-signing-row.signed .send-signing-state {
+  color: #2ebb89;
+}
+
+[data-theme="light"] .send-signing-row {
+  background: rgba(0, 0, 0, 0.03);
+}

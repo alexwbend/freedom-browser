@@ -35,6 +35,7 @@ const {
   toFeeFields,
   waitForTransaction,
 } = require('../transaction-service');
+const { KINDS: PAYMENT_KINDS } = require('../tx-recorder');
 const { getEip1193Provider } = require('../provider-manager');
 
 /** v1: Safes deploy on Gnosis only (decision 5). */
@@ -223,6 +224,14 @@ async function activateSafe(index) {
     chainId: DEPLOY_CHAIN_ID,
     executorIndex: status.executorIndex,
     deployment,
+    // The executor paid gas to create the safe: from = executor
+    // (tx-recorder default), the safe is what came into existence.
+    record: {
+      kind: PAYMENT_KINDS.SAFE_DEPLOY,
+      toAddress: record.address,
+      amount: '0',
+      metadata: { safeAddress: record.address },
+    },
   });
 
   const receipt = await waitForTransaction(tx.hash, DEPLOY_CHAIN_ID);
@@ -235,6 +244,7 @@ async function activateSafe(index) {
 
 module.exports = {
   DEPLOY_CHAIN_ID,
+  getSafeRecord,
   createSafeAccount,
   getSafeStatus,
   activateSafe,

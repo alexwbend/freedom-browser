@@ -417,6 +417,16 @@ contextBridge.exposeInMainWorld('wallet', {
     ipcRenderer.invoke('wallet:create-safe', name, ownerIndexes, threshold),
   getSafeStatus: (index) => ipcRenderer.invoke('wallet:get-safe-status', index),
   activateSafe: (index) => ipcRenderer.invoke('wallet:activate-safe', index),
+  safeSend: (tx, display) => ipcRenderer.invoke('wallet:safe-send', tx, display),
+  safeResume: (index) => ipcRenderer.invoke('wallet:safe-resume', index),
+  safePendingInfo: (index) => ipcRenderer.invoke('wallet:safe-pending', index),
+  safeCancelPending: (index) => ipcRenderer.invoke('wallet:safe-cancel-pending', index),
+  // Signing-checklist updates for an in-flight safe send. Returns a disposer.
+  onSafeSigningProgress: (callback) => {
+    const handler = (_event, update) => callback(update);
+    ipcRenderer.on('safe-signing:progress', handler);
+    return () => ipcRenderer.removeListener('safe-signing:progress', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('ledger', {

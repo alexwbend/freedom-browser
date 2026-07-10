@@ -37,6 +37,7 @@ const {
   toFeeFields,
   signAndSendTransaction,
 } = require('../transaction-service');
+const { signAndRecord } = require('../tx-recorder');
 const { getWalletRecord, WALLET_TYPES } = require('../../identity-manager');
 const { getEip1193Provider } = require('../provider-manager');
 
@@ -180,16 +181,23 @@ async function buildSafeTransaction({ chainId, safe, tx, provider }) {
  * it counts — a mis-keyed or compromised device fails here, not on-chain.
  * A signer error (e.g. rejection on the device) aborts the collection.
  *
+ * Resume support: signatures already collected in an earlier session are
+ * passed as `existing` — their owners are skipped and they count toward
+ * the threshold. Each `signed` progress update carries the fresh
+ * signature so callers can persist as they go.
+ *
  * @param {Object} params
  * @param {Object} params.typedData - From buildSafeTransaction
  * @param {number[]} params.owners - Wallet indexes to ask, in order
  * @param {number} params.threshold
+ * @param {Array<{signer: string, data: string}>} [params.existing]
  * @param {(update: {ownerIndex: number, address: string,
- *   status: 'signing'|'signed', collected: number, threshold: number}) => void}
+ *   status: 'signing'|'signed', collected: number, threshold: number,
+ *   signature?: {signer: string, data: string}}) => void}
  *   [params.onProgress]
  * @returns {Promise<Array<{signer: string, data: string}>>}
  */
-async function collectOwnerSignatures({ typedData, owners, threshold, onProgress }) {
+async function collectOwnerSignatures({ typedData, owners, threshold, existing = [], onProgress }) {
   if (!Array.isArray(owners) || owners.length < threshold) {
     throw new Error(
       `Cannot reach a threshold of ${threshold} with ${owners?.length ?? 0} owner(s)`
@@ -197,9 +205,16 @@ async function collectOwnerSignatures({ typedData, owners, threshold, onProgress
   }
 
   const strippedTypes = withoutDomainType(typedData.types);
-  const signatures = [];
+  const signatures = [...existing];
+  const alreadySigned = new Set(existing.map((sig) => sig.signer.toLowerCase()));
   for (const ownerIndex of owners) {
     if (signatures.length >= threshold) break;
+
+    // Skip owners that signed in an earlier session — checked against the
+    // stored record address so no signer (or device) is touched. (Safe
+    // owners are existing records by construction, so this is complete.)
+    const recordAddress = getWalletRecord(ownerIndex)?.address;
+    if (recordAddress && alreadySigned.has(recordAddress.toLowerCase())) continue;
 
     const signer = getSigner(ownerIndex);
     const address = await signer.getAddress();
@@ -213,8 +228,16 @@ async function collectOwnerSignatures({ typedData, owners, threshold, onProgress
       );
     }
 
-    signatures.push({ signer: getAddress(address), data });
-    onProgress?.({ ownerIndex, address, status: 'signed', collected: signatures.length, threshold });
+    const signature = { signer: getAddress(address), data };
+    signatures.push(signature);
+    onProgress?.({
+      ownerIndex,
+      address,
+      status: 'signed',
+      collected: signatures.length,
+      threshold,
+      signature,
+    });
   }
   return signatures;
 }
@@ -223,22 +246,25 @@ async function collectOwnerSignatures({ typedData, owners, threshold, onProgress
  * Quote gas against the executor account and broadcast through the
  * ordinary transaction-service path (the executor EOA pays the fee).
  *
- * Payment-history recording is deliberately not wired yet: the row for a
- * Safe execution must say `from = safe address` with the executor in
- * metadata (research doc B.3), which tx-recorder's signAndRecord cannot
- * express today — the checklist/persistence WP adds it.
+ * With a `record` context the tx lands in payment history (the executor
+ * address is stamped into the metadata automatically); without one the
+ * broadcast is bare — callers own the recording decision.
  */
-async function sendViaExecutor({ chainId, to, data, executorIndex }) {
+async function sendViaExecutor({ chainId, to, data, executorIndex, record }) {
   const executor = getSigner(executorIndex);
   const from = await executor.getAddress();
   const [{ gasLimit }, gasPrices] = await Promise.all([
     estimateGas({ from, to, value: '0', data, chainId }),
     getGasPrices(chainId),
   ]);
-  return signAndSendTransaction(
-    { to, value: '0', data, gasLimit, ...toFeeFields(gasPrices), chainId },
-    executor
-  );
+  const params = { to, value: '0', data, gasLimit, ...toFeeFields(gasPrices), chainId };
+  if (record) {
+    return signAndRecord(params, executor, {
+      ...record,
+      metadata: { ...record.metadata, executor: from },
+    });
+  }
+  return signAndSendTransaction(params, executor);
 }
 
 /**
@@ -252,9 +278,11 @@ async function sendViaExecutor({ chainId, to, data, executorIndex }) {
  * @param {Object} params.safeTxData - From buildSafeTransaction
  * @param {Array<{signer: string, data: string}>} params.signatures
  * @param {number} params.executorIndex - Wallet index that pays gas
+ * @param {Object} [params.record] - Payment-history context (tx-recorder
+ *   shape); from should be the SAFE address, the executor is stamped in
  * @returns {Promise<Object>} transaction-service result ({hash, …})
  */
-async function execTransaction({ chainId, safeAddress, safeTxData, signatures, executorIndex }) {
+async function execTransaction({ chainId, safeAddress, safeTxData, signatures, executorIndex, record }) {
   const safeTx = new EthSafeTransaction(safeTxData);
   for (const { signer, data } of signatures) {
     safeTx.addSignature(new EthSafeSignature(signer, data));
@@ -278,6 +306,7 @@ async function execTransaction({ chainId, safeAddress, safeTxData, signatures, e
     to: getAddress(safeAddress),
     data: calldata,
     executorIndex,
+    record,
   });
 }
 
@@ -291,11 +320,11 @@ async function execTransaction({ chainId, safeAddress, safeTxData, signatures, e
  *
  * @returns {Promise<{safeAddress: string, tx: Object}>}
  */
-async function deploySafe({ owners, threshold, saltNonce, chainId, executorIndex, provider, deployment }) {
+async function deploySafe({ owners, threshold, saltNonce, chainId, executorIndex, provider, deployment, record }) {
   const { safeAddress, to, data } =
     deployment ??
     (await buildDeploymentTransaction({ owners, threshold, saltNonce, chainId, provider }));
-  const tx = await sendViaExecutor({ chainId, to, data, executorIndex });
+  const tx = await sendViaExecutor({ chainId, to, data, executorIndex, record });
   return { safeAddress, tx };
 }
 

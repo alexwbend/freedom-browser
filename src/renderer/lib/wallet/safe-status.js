@@ -1,29 +1,34 @@
 /**
- * Safe account status card — the "needs funds" / activation blocking
- * states as first-class UI (research doc Part B, decision 2).
- *
- * Shown under the Send/Receive actions whenever the active account is a
- * not-yet-deployed Safe:
- *   - ready:       activation fee quote + who pays + Activate button
- *   - needs-funds: blocking "fund <executor> with ≥ X xDAI" card
- *   - no-executor: none of the owners is a browser account that can pay
- * Deployed Safes show nothing. Sending is disabled for Safe accounts
- * until the signing-checklist flow ships; the card is what explains why
- * the account is receive-only.
+ * Safe account status card — the blocking states of a Safe account as
+ * first-class UI (research doc Part B, decision 2), shown under the
+ * Send/Receive actions when the active account is a Safe:
+ *   - ready:        activation fee quote + who pays + Activate button
+ *   - needs-funds:  blocking "fund <executor> with ≥ X xDAI" card
+ *   - no-executor:  none of the owners is a browser account that can pay
+ *   - pending tx:   a half-signed SafeTx waiting for signatures, with
+ *                   continue/discard (it survives restarts)
+ * A deployed Safe with nothing pending shows no card. The Send button's
+ * availability is owned by send.js; this module just triggers the
+ * re-evaluation whenever the active account changes.
  */
 
 import { walletState } from './wallet-state.js';
-import { escapeHtml, truncateAddress, formatRawTokenBalance, isSafeAccount } from './wallet-utils.js';
+import {
+  escapeHtml,
+  truncateAddress,
+  formatRawTokenBalance,
+  walletRecord,
+  showInlineError,
+} from './wallet-utils.js';
 import { updateSendAvailability } from './send.js';
+import { refreshBalances } from './balance-display.js';
 
 let card;
 let refreshToken = 0;
 
-function activeWallet() {
-  return walletState.derivedWallets.find(
-    (wallet) => wallet.index === walletState.activeWalletIndex
-  );
-}
+// A safe send that just finished (or was abandoned) changes what the
+// card should show — re-evaluate when the send screen closes.
+window.addEventListener('wallet:send-closed', () => refreshSafeStatusCard());
 
 /**
  * Re-evaluate the card for the active account. Called whenever the
@@ -35,23 +40,40 @@ export async function refreshSafeStatusCard() {
 
   updateSendAvailability();
 
-  const wallet = activeWallet();
-  if (!isSafeAccount(wallet?.index)) {
+  const wallet = walletRecord();
+  if (wallet?.type !== 'safe') {
     card.classList.add('hidden');
     return;
   }
 
   const token = ++refreshToken;
-  render(`<div class="safe-status-text">Checking activation status…</div>`);
+  render(`<div class="safe-status-text">Checking account status…</div>`);
 
-  const result = await window.wallet.getSafeStatus(wallet.index);
+  // A pending half-signed tx trumps everything else the card could show
+  // (and implies the safe is deployed — no need to quote activation).
+  const pendingResult = await window.wallet.safePendingInfo(wallet.index);
   if (token !== refreshToken) return; // superseded by an account switch
-  if (!result.success) {
-    render(`<div class="safe-status-text">${escapeHtml(result.error)}</div>`);
+  if (pendingResult.success && pendingResult.pending) {
+    renderPending(pendingResult.pending);
     return;
   }
 
-  renderStatus(result.status);
+  const statusResult = await window.wallet.getSafeStatus(wallet.index);
+  if (token !== refreshToken) return;
+  if (!statusResult.success) {
+    render(`<div class="safe-status-text">${escapeHtml(statusResult.error)}</div>`);
+    return;
+  }
+
+  // Main owns deployment truth (it self-heals the stored record from
+  // chain state) — sync the renderer's record snapshot so capability
+  // gates like the Send button don't act on a stale copy.
+  if (statusResult.status.deployed && !wallet.deployed?.[statusResult.status.chainId]) {
+    wallet.deployed = { ...wallet.deployed, [statusResult.status.chainId]: true };
+    updateSendAvailability();
+  }
+
+  renderStatus(statusResult.status);
 }
 
 function renderStatus(status) {
@@ -102,27 +124,69 @@ function renderStatus(status) {
   document.getElementById('safe-status-activate')?.addEventListener('click', handleActivate);
 }
 
+function renderPending(pending) {
+  render(`
+    <div class="safe-status-text">
+      <strong>Transaction awaiting signatures</strong>
+      (${pending.collected} of ${pending.threshold} collected). It was
+      kept safe — continue signing or discard it.
+    </div>
+    <div class="safe-status-btn-row">
+      <button type="button" class="safe-status-btn primary" id="safe-status-continue">Continue signing</button>
+      <button type="button" class="safe-status-btn" id="safe-status-discard">Discard</button>
+    </div>
+    <div class="unlock-error hidden" id="safe-status-error"></div>
+  `);
+  document.getElementById('safe-status-continue')?.addEventListener('click', handleResume);
+  document.getElementById('safe-status-discard')?.addEventListener('click', handleDiscard);
+}
+
+async function handleResume() {
+  const wallet = walletRecord();
+  if (!wallet) return;
+
+  const button = document.getElementById('safe-status-continue');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Collecting signatures…';
+  }
+
+  const result = await window.wallet.safeResume(wallet.index);
+  await refreshSafeStatusCard(); // re-render first, then surface errors on it
+  if (result.success) {
+    setTimeout(() => refreshBalances(), 3000);
+  } else {
+    console.error('[SafeStatus] Resume failed:', result.error);
+    showInlineError(document.getElementById('safe-status-error'), result.error);
+  }
+}
+
+async function handleDiscard() {
+  const wallet = walletRecord();
+  if (!wallet) return;
+  if (!confirm('Discard this transaction? The collected signatures will be thrown away.')) {
+    return;
+  }
+  await window.wallet.safeCancelPending(wallet.index);
+  await refreshSafeStatusCard();
+}
+
 async function handleActivate() {
-  const wallet = activeWallet();
+  const wallet = walletRecord();
   if (!wallet) return;
 
   const button = document.getElementById('safe-status-activate');
-  const errorEl = document.getElementById('safe-status-error');
   if (button) {
     button.disabled = true;
     button.textContent = 'Activating…';
   }
-  errorEl?.classList.add('hidden');
 
   const result = await window.wallet.activateSafe(wallet.index);
-  if (result.success) {
-    await refreshSafeStatusCard(); // deployed now → card hides
-    return;
+  if (!result.success) {
+    // NEEDS_FUNDS and friends: the re-rendered status is the blocking
+    // state that explains what to do.
+    console.error('[SafeStatus] Activation failed:', result.error);
   }
-
-  // NEEDS_FUNDS and friends: re-render the status so the blocking state
-  // (which explains what to do) replaces the failed button.
-  console.error('[SafeStatus] Activation failed:', result.error);
   await refreshSafeStatusCard();
 }
 

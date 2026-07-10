@@ -5,7 +5,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
-import { escapeHtml, accountType, isSafeAccount, bypassUnlockGateForDevice } from './wallet-utils.js';
+import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice } from './wallet-utils.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
   getTrustStatusSentence,
@@ -83,6 +83,9 @@ let sendTxState = {
 };
 
 export function initSend() {
+  // Signing-checklist updates for in-flight Safe sends (main streams them)
+  window.wallet.onSafeSigningProgress?.(handleSafeSigningProgress);
+
   sendScreen = document.getElementById('sidebar-send');
   sendBackBtn = document.getElementById('send-back');
   sendInputView = document.getElementById('send-input-view');
@@ -231,19 +234,87 @@ function setupSendScreen() {
   }
 }
 
+/** The active account's record when it is a Safe, else null. */
+function activeSafeWallet() {
+  const wallet = walletRecord();
+  return wallet?.type === 'safe' ? wallet : null;
+}
+
+/** Whether the active account can send at all (Safes need activation). */
+function sendBlockedReason() {
+  const safe = activeSafeWallet();
+  if (safe && !safe.deployed?.[100]) {
+    return 'Activate this account on Gnosis before sending';
+  }
+  return null;
+}
+
+/** Display name of the owner that pays a Safe's execution fee. */
+function safeExecutorName(safe) {
+  const executor = safe.owners
+    .map((index) => walletState.derivedWallets.find((w) => w.index === index))
+    .find((owner) => owner?.type === 'mnemonic');
+  return executor?.name || 'an owner account';
+}
+
+// ============================================
+// Safe signing checklist (pending view)
+// ============================================
+
+let signingChecklistRows = null; // [{index, name, state}] while a safe send runs
+
+function beginSigningChecklist(safe) {
+  signingChecklistRows = safe.owners.map((index) => ({
+    index,
+    name: walletRecord(index)?.name || `Account ${index}`,
+    state: 'waiting',
+  }));
+  renderSigningChecklist();
+}
+
+function endSigningChecklist() {
+  signingChecklistRows = null;
+  document.getElementById('send-signing-checklist')?.classList.add('hidden');
+}
+
+function handleSafeSigningProgress(update) {
+  const row = signingChecklistRows?.find((r) => r.index === update.ownerIndex);
+  if (!row) return;
+  row.state = update.status;
+  renderSigningChecklist();
+}
+
+const CHECKLIST_STATE_ICONS = { waiting: '·', signing: '⧗', signed: '✓' };
+
+function renderSigningChecklist() {
+  const checklistEl = document.getElementById('send-signing-checklist');
+  if (!checklistEl || !signingChecklistRows) return;
+
+  checklistEl.innerHTML = '';
+  for (const row of signingChecklistRows) {
+    const rowEl = document.createElement('div');
+    rowEl.className = `send-signing-row ${row.state}`;
+    const icon = document.createElement('span');
+    icon.className = 'send-signing-state';
+    icon.textContent = CHECKLIST_STATE_ICONS[row.state] || '·';
+    const name = document.createElement('span');
+    name.textContent = row.name;
+    rowEl.append(icon, name);
+    checklistEl.appendChild(rowEl);
+  }
+  checklistEl.classList.remove('hidden');
+}
+
 /**
- * Safe accounts are receive-only until the multi-owner signing flow
- * ships. Send owns its button; the active-account refresh
- * (safe-status.js) calls this whenever the account changes.
+ * Send owns its button; the active-account refresh (safe-status.js)
+ * calls this whenever the account changes.
  */
 export function updateSendAvailability() {
   const sendBtn = document.getElementById('wallet-send-btn');
   if (!sendBtn) return;
-  const blocked = isSafeAccount(walletState.activeWalletIndex);
-  sendBtn.disabled = blocked;
-  sendBtn.title = blocked
-    ? 'Sending from a multi-owner account is coming next — receive-only for now'
-    : '';
+  const reason = sendBlockedReason();
+  sendBtn.disabled = Boolean(reason);
+  sendBtn.title = reason || '';
 }
 
 export function openSend(options = {}) {
@@ -253,8 +324,9 @@ export function openSend(options = {}) {
   }
   // Guards the programmatic openers (x402 top-up links etc.) — the
   // Send button itself is disabled via updateSendAvailability.
-  if (isSafeAccount(walletState.activeWalletIndex)) {
-    console.warn('[WalletUI] Send is not available for Safe accounts yet');
+  const blockedReason = sendBlockedReason();
+  if (blockedReason) {
+    console.warn('[WalletUI] Send is not available:', blockedReason);
     return;
   }
 
@@ -278,6 +350,12 @@ export function closeSend() {
   sendScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
   resetSendState();
+  endSigningChecklist();
+  if (activeSafeWallet()) {
+    // A safe send may have left (or consumed) a half-signed transaction —
+    // let the status card re-evaluate without a module cycle.
+    window.dispatchEvent(new CustomEvent('wallet:send-closed'));
+  }
 }
 
 function resetSendState() {
@@ -341,7 +419,9 @@ function showSendPendingView() {
   sendSuccessView?.classList.add('hidden');
   sendErrorView?.classList.add('hidden');
 
-  // Device accounts wait on a confirmation elsewhere, not the network.
+  // Device accounts wait on a confirmation elsewhere, not the network;
+  // Safe accounts wait on owner signatures (the checklist below).
+  const safe = activeSafeWallet();
   const pendingCopy = {
     ledger: {
       title: 'Confirm on your Ledger',
@@ -350,6 +430,10 @@ function showSendPendingView() {
     remote: {
       title: 'Confirm on your phone',
       text: 'Scan the QR code with your phone and approve the transaction there.',
+    },
+    safe: safe && {
+      title: 'Collecting signatures',
+      text: `This transaction needs ${safe.threshold} of ${safe.owners.length} owners to sign. The network fee is paid by ${safeExecutorName(safe)}.`,
     },
   }[accountType(walletState.activeWalletIndex)] || {
     title: 'Sending Transaction',
@@ -855,7 +939,10 @@ async function handleSendContinue() {
     }
 
     if (sendContinueBtn) sendContinueBtn.textContent = 'Loading...';
-    const [, reverseResult] = await Promise.all([estimateTransactionGas(), reverseLookup]);
+    // Safe sends: the executor pays the (execTransaction) fee, quoted
+    // after signatures exist — there is no meaningful estimate here.
+    const gasEstimate = activeSafeWallet() ? Promise.resolve() : estimateTransactionGas();
+    const [, reverseResult] = await Promise.all([gasEstimate, reverseLookup]);
     if (reverseResult && !sendTxState.recipientResolution) {
       sendTxState.recipientResolution = reverseResult;
     }
@@ -1001,6 +1088,14 @@ function populateSendReview() {
 
   if (sendReviewNetwork) {
     sendReviewNetwork.textContent = chain?.name || `Chain ${sendTxState.chainId}`;
+  }
+
+  const safe = activeSafeWallet();
+  if (safe) {
+    // The executor EOA pays the execution fee, quoted after signing.
+    if (sendReviewFee) sendReviewFee.textContent = `Paid by ${safeExecutorName(safe)}`;
+    if (sendReviewTotal) sendReviewTotal.textContent = `${sendTxState.amount} ${token?.symbol || ''}`;
+    return;
   }
 
   if (sendReviewFee && sendTxState.estimatedFee) {
@@ -1227,11 +1322,29 @@ async function handleSendConfirm() {
     // History captures the *user-visible* counterparty + amount: the real
     // recipient (not the ERC-20 contract address) and the atomic amount
     // (not txParams.value which is 0 for token transfers).
-    const result = await window.wallet.sendTransaction(txParams, {
+    const display = {
       asset: token.address,
       toAddress: sendTxState.recipient,
       amount: amountResult.value,
-    });
+    };
+
+    let result;
+    const safe = activeSafeWallet();
+    if (safe) {
+      // Safe path: main collects the owner signatures (the checklist
+      // mirrors its progress) and executes through the executor EOA.
+      beginSigningChecklist(safe);
+      try {
+        result = await window.wallet.safeSend(
+          { to: txParams.to, value: txParams.value, data: txParams.data },
+          display
+        );
+      } finally {
+        endSigningChecklist();
+      }
+    } else {
+      result = await window.wallet.sendTransaction(txParams, display);
+    }
 
     if (!result.success) {
       throw new Error(result.error || 'Transaction failed');
