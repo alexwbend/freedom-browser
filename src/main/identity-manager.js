@@ -1250,6 +1250,18 @@ async function deleteDerivedWallet(index) {
     );
   }
 
+  // A Safe's half-signed state is keyed by wallet index (safe-pending.json
+  // entry, in-memory SafeMessage session). Discard both WITH the record:
+  // a later account that reuses the index must neither inherit nor be
+  // blocked by the deleted Safe's leftovers. Cleanup precedes the meta
+  // write so a failure never leaves a deleted record with live state.
+  // (Lazy requires — both modules are dependency-light — keep the Safe
+  // stack out of ordinary wallet operations.)
+  if (wallets[walletIndex].type === WALLET_TYPES.SAFE) {
+    require('./wallet/safe/message-sessions').discardSession(index);
+    require('./wallet/safe/pending-store').clearPending(index);
+  }
+
   // Remove from list
   wallets.splice(walletIndex, 1);
 

@@ -561,6 +561,48 @@ describe('identity-manager safe accounts', () => {
     await identityManager.deleteDerivedWallet(safe.index);
     await expect(identityManager.deleteDerivedWallet(1)).resolves.toBeUndefined();
   });
+
+  test('deleting a Safe discards its pending SafeTx and live message session', async () => {
+    await seedOwners();
+    const safe = await addSafe();
+
+    // Half-signed leftovers are keyed by the Safe's WALLET INDEX — they
+    // must go with the record, or a later account reusing the index
+    // would inherit (or be blocked by) them.
+    const { setPending, getPending } = require('./wallet/safe/pending-store');
+    const messageSessions = require('./wallet/safe/message-sessions');
+    setPending(safe.index, { safeTxHash: '0xdead', threshold: 1, signatures: [] });
+    const detach = jest.fn();
+    messageSessions.setSession(safe.index, { token: 'session-token', detach });
+
+    await identityManager.deleteDerivedWallet(safe.index);
+
+    expect(getPending(safe.index)).toBeNull();
+    expect(messageSessions.getSession(safe.index)).toBeNull();
+    expect(detach).toHaveBeenCalled(); // webContents lifecycle listeners unhooked
+    // the on-disk store no longer carries the entry either
+    const pendingFile = path.join(tmpDir, 'safe-pending.json');
+    expect(JSON.parse(fs.readFileSync(pendingFile, 'utf-8'))).toEqual({});
+  });
+
+  test('an account created after deleting the highest-index Safe starts with a clean slate', async () => {
+    await seedOwners();
+    const safe = await addSafe(); // highest index in the vault
+
+    const { setPending, getPending } = require('./wallet/safe/pending-store');
+    setPending(safe.index, { safeTxHash: '0xdead', threshold: 1, signatures: [] });
+
+    await identityManager.deleteDerivedWallet(safe.index);
+
+    // new wallet indexes are max+1 — the successor REUSES the freed index
+    const successor = await identityManager.addRemoteWallet(
+      'New Phone',
+      '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
+    );
+    expect(successor.index).toBe(safe.index);
+    expect(getPending(successor.index)).toBeNull();
+    expect(require('./wallet/safe/message-sessions').getSession(successor.index)).toBeNull();
+  });
 });
 
 /**
