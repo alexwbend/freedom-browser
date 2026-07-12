@@ -479,11 +479,20 @@ contextBridge.exposeInMainWorld('rpcManager', {
 // Site permissions (web permission prompts). The chrome renderer shows
 // the anchored prompt + the address-bar indicator; both live here.
 contextBridge.exposeInMainWorld('sitePermissions', {
-  // Main asks this window to show a prompt ({id, origin, permission, keys}).
+  // Main asks this window to show a prompt
+  // ({id, origin, permission, keys, guestId}). `guestId` is the requesting
+  // webview's webContents id; the prompt only shows while that tab is active.
   onPromptRequest: (callback) => {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('permissions:prompt-request', handler);
     return () => ipcRenderer.removeListener('permissions:prompt-request', handler);
+  },
+  // Main withdraws a prompt ({id}): the requesting document navigated away
+  // or its webContents was destroyed (already denied once on the main side).
+  onPromptCancel: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:prompt-cancel', handler);
+    return () => ipcRenderer.removeListener('permissions:prompt-cancel', handler);
   },
   // Answer a prompt: {id, decision: 'allow'|'deny'|'dismiss', remember}.
   respondToPrompt: (response) => ipcRenderer.invoke('permissions:prompt-response', response),

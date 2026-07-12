@@ -42,11 +42,28 @@ function makeHost() {
   return host;
 }
 
-function makeWebContents(url, host) {
-  return {
-    getURL: () => url,
-    hostWebContents: host,
+let nextGuestId = 100;
+
+// Fake requesting webContents (webview guest): EventEmitter semantics for
+// the did-navigate/destroyed lifecycle hooks the manager installs.
+function makeGuest(url, host) {
+  const { EventEmitter } = require('events');
+  const guest = new EventEmitter();
+  guest.id = nextGuestId++;
+  guest.hostWebContents = host;
+  guest.currentUrl = url;
+  guest.destroyed = false;
+  guest.getURL = () => guest.currentUrl;
+  guest.isDestroyed = () => guest.destroyed;
+  guest.navigate = (nextUrl) => {
+    guest.currentUrl = nextUrl || guest.currentUrl;
+    guest.emit('did-navigate');
   };
+  guest.destroy = () => {
+    guest.destroyed = true;
+    guest.emit('destroyed');
+  };
+  return guest;
 }
 
 describe('permissions-manager', () => {
@@ -70,10 +87,14 @@ describe('permissions-manager', () => {
     return ctx;
   };
 
-  // Ask for a permission; returns the callback mock.
-  const request = (permission, { url = 'https://example.com/page', host, details = {} } = {}) => {
+  // Ask for a permission; returns the callback mock. Pass `guest` to
+  // issue several requests from the same tab.
+  const request = (
+    permission,
+    { url = 'https://example.com/page', host, guest, details = {} } = {}
+  ) => {
     const callback = jest.fn();
-    const wc = makeWebContents(url, host);
+    const wc = guest || makeGuest(url, host);
     session.requestHandler(wc, permission, callback, { requestingUrl: url, ...details });
     return callback;
   };
@@ -84,11 +105,18 @@ describe('permissions-manager', () => {
     return calls.length ? calls[calls.length - 1][1] : null;
   };
 
+  const promptCount = (host) =>
+    host.send.mock.calls.filter(([ch]) => ch === IPC.PERMISSIONS_PROMPT_REQUEST).length;
+
+  const cancelPayloads = (host) =>
+    host.send.mock.calls.filter(([ch]) => ch === IPC.PERMISSIONS_PROMPT_CANCEL).map(([, p]) => p);
+
   const respond = (response) => ctx.ipcMain.invoke(IPC.PERMISSIONS_PROMPT_RESPONSE, response);
 
   beforeEach(() => {
     userDataDir = createTempUserDataDir();
     nextHostId = 1;
+    nextGuestId = 100;
   });
 
   afterEach(() => {
@@ -117,7 +145,7 @@ describe('permissions-manager', () => {
     const host = makeHost();
     const callback = jest.fn();
     session.requestHandler(
-      makeWebContents('file:///pages/settings.html', host),
+      makeGuest('file:///pages/settings.html', host),
       'notifications',
       callback,
       { requestingUrl: 'file:///pages/settings.html' }
@@ -126,10 +154,11 @@ describe('permissions-manager', () => {
     expect(host.send).not.toHaveBeenCalled();
   });
 
-  test('no stored decision → prompt goes to the requesting window', () => {
+  test('no stored decision → prompt goes to the requesting window with the requester identity', () => {
     load();
     const host = makeHost();
-    const callback = request('notifications', { host });
+    const guest = makeGuest('https://example.com/page', host);
+    const callback = request('notifications', { host, guest });
 
     expect(callback).not.toHaveBeenCalled();
     const prompt = lastPrompt(host);
@@ -137,6 +166,7 @@ describe('permissions-manager', () => {
       origin: 'https://example.com',
       permission: 'notifications',
       keys: ['notifications'],
+      guestId: guest.id,
     });
     expect(typeof prompt.id).toBe('number');
   });
@@ -226,38 +256,36 @@ describe('permissions-manager', () => {
     expect(lastPrompt(host)).not.toBeNull();
   });
 
-  test('one prompt at a time per window; the queue advances on response', async () => {
+  test('one prompt at a time per tab; the queue advances on response', async () => {
     load();
     const host = makeHost();
-    const first = request('notifications', { host, url: 'https://one.example/page' });
-    const second = request('geolocation', { host, url: 'https://two.example/page' });
+    const guest = makeGuest('https://one.example/page', host);
+    const first = request('notifications', { host, guest, url: 'https://one.example/page' });
+    const second = request('geolocation', { host, guest, url: 'https://one.example/page' });
 
     // Only the first prompt is on screen.
-    expect(
-      host.send.mock.calls.filter(([ch]) => ch === IPC.PERMISSIONS_PROMPT_REQUEST)
-    ).toHaveLength(1);
+    expect(promptCount(host)).toBe(1);
     const prompt1 = lastPrompt(host);
-    expect(prompt1.origin).toBe('https://one.example');
+    expect(prompt1.keys).toEqual(['notifications']);
 
     await respond({ id: prompt1.id, decision: 'allow', remember: false });
     await flush();
     expect(first).toHaveBeenCalledWith(true);
 
     const prompt2 = lastPrompt(host);
-    expect(prompt2.origin).toBe('https://two.example');
+    expect(prompt2.keys).toEqual(['geolocation']);
     await respond({ id: prompt2.id, decision: 'deny', remember: false });
     expect(second).toHaveBeenCalledWith(false);
   });
 
-  test('identical origin+permission requests coalesce onto one prompt', async () => {
+  test('identical origin+permission requests from the same tab coalesce onto one prompt', async () => {
     load();
     const host = makeHost();
-    const first = request('notifications', { host });
-    const second = request('notifications', { host });
+    const guest = makeGuest('https://example.com/page', host);
+    const first = request('notifications', { host, guest });
+    const second = request('notifications', { host, guest });
 
-    expect(
-      host.send.mock.calls.filter(([ch]) => ch === IPC.PERMISSIONS_PROMPT_REQUEST)
-    ).toHaveLength(1);
+    expect(promptCount(host)).toBe(1);
 
     await respond({ id: lastPrompt(host).id, decision: 'allow', remember: false });
     await flush();
@@ -265,15 +293,109 @@ describe('permissions-manager', () => {
     expect(second).toHaveBeenCalledWith(true);
   });
 
+  test('same-origin requests from different tabs stay separate prompts with their own guestId', () => {
+    load();
+    const host = makeHost();
+    const guestA = makeGuest('https://example.com/page', host);
+    const guestB = makeGuest('https://example.com/other', host);
+    request('notifications', { host, guest: guestA });
+    request('notifications', { host, guest: guestB });
+
+    const prompts = host.send.mock.calls
+      .filter(([ch]) => ch === IPC.PERMISSIONS_PROMPT_REQUEST)
+      .map(([, payload]) => payload);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[0].guestId).toBe(guestA.id);
+    expect(prompts[1].guestId).toBe(guestB.id);
+    expect(prompts[0].id).not.toBe(prompts[1].id);
+  });
+
   test('destroying the window denies everything still pending', () => {
     load();
     const host = makeHost();
-    const active = request('notifications', { host });
-    const queued = request('geolocation', { host });
+    const guest = makeGuest('https://example.com/page', host);
+    const active = request('notifications', { host, guest });
+    const queued = request('geolocation', { host, guest });
 
     host.destroy();
     expect(active).toHaveBeenCalledWith(false);
     expect(queued).toHaveBeenCalledWith(false);
+  });
+
+  test('requesting document navigation invalidates its prompted and queued requests', async () => {
+    load();
+    const host = makeHost();
+    const guest = makeGuest('https://example.com/page', host);
+    const prompted = request('notifications', { host, guest });
+    const queued = request('geolocation', { host, guest });
+    const promptedId = lastPrompt(host).id;
+
+    guest.navigate('https://example.com/elsewhere');
+
+    // Both requests are denied once, nothing recorded…
+    expect(prompted).toHaveBeenCalledWith(false);
+    expect(queued).toHaveBeenCalledWith(false);
+    expect(ctx.mod.getDecisionsForOrigin('https://example.com')).toEqual({});
+
+    // …the renderer is told to withdraw the on-screen prompt…
+    expect(cancelPayloads(host)).toEqual([{ id: promptedId }]);
+
+    // …and a late answer for the stale prompt is a no-op.
+    expect(await respond({ id: promptedId, decision: 'allow', remember: true })).toBe(false);
+    expect(ctx.mod.getDecisionsForOrigin('https://example.com')).toEqual({});
+
+    // The new document can prompt afresh.
+    host.send.mockClear();
+    const again = request('notifications', { host, guest });
+    expect(again).not.toHaveBeenCalled();
+    expect(lastPrompt(host)).not.toBeNull();
+  });
+
+  test('destroying the requesting webContents cleans up its pending requests', async () => {
+    load();
+    const host = makeHost();
+    const guest = makeGuest('https://example.com/page', host);
+    const prompted = request('notifications', { host, guest });
+    const queued = request('geolocation', { host, guest });
+    const promptedId = lastPrompt(host).id;
+
+    guest.destroy();
+
+    expect(prompted).toHaveBeenCalledWith(false);
+    expect(queued).toHaveBeenCalledWith(false);
+    expect(cancelPayloads(host)).toEqual([{ id: promptedId }]);
+    expect(await respond({ id: promptedId, decision: 'allow', remember: true })).toBe(false);
+
+    // Other tabs are unaffected.
+    host.send.mockClear();
+    const other = request('notifications', { host });
+    expect(other).not.toHaveBeenCalled();
+    expect(lastPrompt(host)).not.toBeNull();
+  });
+
+  test("another tab's navigation does not dismiss a background tab's pending request", async () => {
+    load();
+    const host = makeHost();
+    const requester = makeGuest('https://example.com/page', host);
+    const otherTab = makeGuest('https://other.example/page', host);
+
+    const callback = request('notifications', { host, guest: requester });
+    const promptId = lastPrompt(host).id;
+    expect(lastPrompt(host).guestId).toBe(requester.id);
+
+    // The user navigates a DIFFERENT tab (e.g. the active one, or any
+    // tab that isn't the requester). Even one with its own pending
+    // prompt state must not touch the requester's request.
+    request('geolocation', { host, guest: otherTab });
+    otherTab.navigate('https://other.example/next');
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(cancelPayloads(host)).not.toContainEqual({ id: promptId });
+
+    // The requester's prompt is still answerable.
+    await respond({ id: promptId, decision: 'allow', remember: false });
+    await flush();
+    expect(callback).toHaveBeenCalledWith(true);
   });
 
   test('media requests split by mediaTypes and store per-device decisions', async () => {

@@ -21,8 +21,16 @@
  * Swarm permission stores use, so `bzz://name.eth` and the resolved
  * hash stay distinct origins exactly like they do for wallet grants.
  *
- * Prompts are queued per window (one visible prompt at a time); identical
- * origin+permission requests are coalesced onto the same prompt.
+ * Prompts are queued per requesting webContents (the guest webview) —
+ * one prompt in flight per tab — and identical origin+permission
+ * requests from the same tab are coalesced onto one prompt. Every
+ * prompt carries the requesting guest's webContents id so the renderer
+ * can scope display to that tab, plus a navigation generation: when the
+ * requesting document navigates away or its webContents is destroyed,
+ * the request is invalidated (denied once) and the renderer is told to
+ * withdraw the prompt. A background tab can therefore never park a
+ * prompt under the active tab's address bar, and the active tab's
+ * navigation never dismisses a background tab's pending request.
  */
 
 const { ipcMain, systemPreferences } = require('electron');
@@ -46,8 +54,16 @@ const MEDIA_TYPE_KEYS = {
 // Map<origin, Map<storageKey, 'allow'|'deny'>>. Never persisted.
 const sessionDecisions = new Map();
 
-// Per-window prompt queues: Map<hostWebContentsId, {host, active, queue: []}>
-const hostQueues = new Map();
+// Per-guest prompt queues (one prompt in flight per requesting tab):
+// Map<guestWebContentsId, {guest, host, hostId, generation, active, queue}>
+// `generation` increments on every committed main-frame navigation of the
+// guest; entries remember the generation they were created under so an
+// answer can never apply to a request made by a since-replaced document.
+const guestQueues = new Map();
+
+// Guests per host window, so closing the window tears down every queue
+// that would have rendered into it: Map<hostWebContentsId, Set<GuestState>>
+const hostGuests = new Map();
 
 // Pending prompt entries by prompt id (for the renderer's response).
 const pendingById = new Map();
@@ -221,31 +237,111 @@ function hostForWebContents(webContents) {
   return webContents?.hostWebContents || webContents || null;
 }
 
-function getHostQueue(host) {
-  const id = host.id;
-  if (!hostQueues.has(id)) {
-    hostQueues.set(id, { host, active: null, queue: [] });
-    // When the window goes away, deny everything still pending on it.
+/**
+ * Deny-once and drop every pending entry of one guest. The prompt the
+ * renderer is currently showing (if any) is withdrawn via
+ * PERMISSIONS_PROMPT_CANCEL so it disappears instead of lingering for a
+ * document that no longer exists.
+ */
+function invalidateGuestEntries(state, reason) {
+  const entries = [state.active, ...state.queue].filter(Boolean);
+  const active = state.active;
+  state.active = null;
+  state.queue = [];
+  if (entries.length === 0) return;
+  for (const entry of entries) {
+    pendingById.delete(entry.id);
+    denyAll(entry.callbacks);
+  }
+  if (active) {
+    try {
+      if (state.host && !state.host.isDestroyed()) {
+        state.host.send(IPC.PERMISSIONS_PROMPT_CANCEL, { id: active.id });
+      }
+    } catch {
+      // Host window may be closing
+    }
+  }
+  log.info(
+    `[permissions] invalidated ${entries.length} pending prompt(s) for guest ${state.guestId} (${reason})`
+  );
+}
+
+function teardownGuestState(state, reason) {
+  invalidateGuestEntries(state, reason);
+  if (typeof state.guest?.removeListener === 'function') {
+    state.guest.removeListener('did-navigate', state.onDidNavigate);
+    state.guest.removeListener('destroyed', state.onDestroyed);
+  }
+  guestQueues.delete(state.guestId);
+  const siblings = hostGuests.get(state.hostId);
+  if (siblings) {
+    siblings.delete(state);
+    if (siblings.size === 0) hostGuests.delete(state.hostId);
+  }
+}
+
+/**
+ * Track (once per host window) that this guest renders its prompts into
+ * `host`, so window destruction cleans up all of its guests' queues.
+ */
+function trackHostGuest(host, state) {
+  const hostId = host.id;
+  if (!hostGuests.has(hostId)) {
+    hostGuests.set(hostId, new Set());
     host.once('destroyed', () => {
-      const state = hostQueues.get(id);
-      hostQueues.delete(id);
-      if (!state) return;
-      const entries = [state.active, ...state.queue].filter(Boolean);
-      for (const entry of entries) {
-        pendingById.delete(entry.id);
-        denyAll(entry.callbacks);
+      const set = hostGuests.get(hostId);
+      hostGuests.delete(hostId);
+      if (!set) return;
+      for (const guestState of [...set]) {
+        teardownGuestState(guestState, 'window closed');
       }
     });
   }
-  return hostQueues.get(id);
+  hostGuests.get(hostId).add(state);
+}
+
+/**
+ * Queue state for one requesting webContents. Installs the lifecycle
+ * hooks that carry the reviewer-facing guarantees: a committed
+ * main-frame navigation of the guest bumps its generation and
+ * invalidates everything it had pending, and destruction tears the
+ * whole queue down.
+ */
+function getGuestState(guest, host) {
+  const id = guest.id;
+  let state = guestQueues.get(id);
+  if (state) return state;
+
+  state = {
+    guest,
+    guestId: id,
+    host,
+    hostId: host.id,
+    generation: 0,
+    active: null,
+    queue: [],
+  };
+  state.onDidNavigate = () => {
+    state.generation += 1;
+    invalidateGuestEntries(state, 'document navigated');
+  };
+  state.onDestroyed = () => {
+    teardownGuestState(state, 'webContents destroyed');
+  };
+  guest.on('did-navigate', state.onDidNavigate);
+  guest.once('destroyed', state.onDestroyed);
+  guestQueues.set(id, state);
+  trackHostGuest(host, state);
+  return state;
 }
 
 function sendNextPrompt(state) {
   if (state.active || state.queue.length === 0) return;
   state.active = state.queue.shift();
-  const { id, origin, permission, keys } = state.active;
+  const { id, origin, permission, keys, guestId } = state.active;
   try {
-    state.host.send(IPC.PERMISSIONS_PROMPT_REQUEST, { id, origin, permission, keys });
+    state.host.send(IPC.PERMISSIONS_PROMPT_REQUEST, { id, origin, permission, keys, guestId });
   } catch {
     // Host went away between queueing and sending
     const entry = state.active;
@@ -257,12 +353,14 @@ function sendNextPrompt(state) {
 }
 
 /**
- * Queue a prompt on the requesting window. Coalesces with an existing
- * pending prompt for the same origin + key set.
+ * Queue a prompt for the requesting guest. Coalesces with an existing
+ * pending prompt from the SAME guest for the same origin + key set;
+ * same-origin requests from different tabs stay separate prompts so
+ * each answer binds to the tab the user is actually looking at.
  */
-function enqueuePrompt({ host, origin, permission, keys, callback }) {
-  const state = getHostQueue(host);
-  const signature = `${origin} ${[...keys].sort().join(',')}`;
+function enqueuePrompt({ host, guest, origin, permission, keys, callback }) {
+  const state = getGuestState(guest, host);
+  const signature = `${origin} ${[...keys].sort().join(',')}`;
 
   const existing = [state.active, ...state.queue].find(
     (entry) => entry && entry.signature === signature
@@ -274,7 +372,8 @@ function enqueuePrompt({ host, origin, permission, keys, callback }) {
 
   const entry = {
     id: nextPromptId++,
-    hostId: host.id,
+    guestId: state.guestId,
+    generation: state.generation,
     origin,
     permission,
     keys,
@@ -299,9 +398,20 @@ function resolvePrompt({ id, decision, remember }) {
   if (!entry) return false;
   pendingById.delete(id);
 
-  const state = hostQueues.get(entry.hostId);
+  const state = guestQueues.get(entry.guestId);
   if (state && state.active === entry) {
     state.active = null;
+  }
+
+  // Defensive: an answer must never apply to a request made by a document
+  // that has since been replaced. Navigation/destruction invalidates
+  // entries eagerly (removing them from pendingById), so this only fires
+  // if a stale answer races that cleanup — deny once, record nothing.
+  if (!state || entry.generation !== state.generation) {
+    log.info(`[permissions] stale prompt answer for ${entry.origin} ignored (denied once)`);
+    denyAll(entry.callbacks);
+    if (state) sendNextPrompt(state);
+    return true;
   }
 
   if (decision === 'allow' || decision === 'deny') {
@@ -385,7 +495,18 @@ function installPermissionHandlers(targetSession) {
       return;
     }
 
-    enqueuePrompt({ host, origin, permission, keys, callback });
+    // A prompt is only meaningful while the requesting webContents can be
+    // tracked (navigation/destroy invalidation, tab-scoped display).
+    if (
+      typeof webContents?.id !== 'number' ||
+      typeof webContents.on !== 'function' ||
+      webContents.isDestroyed?.()
+    ) {
+      callback(false);
+      return;
+    }
+
+    enqueuePrompt({ host, guest: webContents, origin, permission, keys, callback });
   });
 
   targetSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
@@ -502,7 +623,8 @@ function registerPermissionsIpc() {
 // Test-only: reset all in-memory state (queues, session decisions).
 function _resetState() {
   sessionDecisions.clear();
-  hostQueues.clear();
+  guestQueues.clear();
+  hostGuests.clear();
   pendingById.clear();
   nextPromptId = 1;
 }

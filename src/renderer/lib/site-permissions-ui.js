@@ -5,10 +5,17 @@
  * notifications, clipboard-read, geolocation, MIDI):
  *
  * 1. The permission prompt anchored under the address bar. Main queues
- *    requests per window and sends one at a time over
- *    `permissions:prompt-request`; the answer goes back via
- *    `permissions:prompt-response`. Dismissing (Esc, clicking away,
- *    switching tabs, navigating) denies once without recording anything.
+ *    requests per requesting webContents (tab) and sends one per tab at
+ *    a time over `permissions:prompt-request`; each payload carries the
+ *    requesting webview's webContents id (`guestId`) and is only shown
+ *    while that tab is the active one — a background tab's request is
+ *    held and surfaces when the user switches to it. The answer goes
+ *    back via `permissions:prompt-response`. Dismissing (Esc, clicking
+ *    away) denies once without recording anything. Navigation-driven
+ *    invalidation is owned by main: it watches the REQUESTING
+ *    webContents and withdraws its prompts via
+ *    `permissions:prompt-cancel`, so navigating the active tab never
+ *    dismisses a background tab's pending request.
  *
  * 2. The address-bar indicator + popover: a small icon when the current
  *    site holds granted permissions, listing decisions with quick revoke.
@@ -89,10 +96,14 @@ let popoverEl;
 let popoverTitleEl;
 let popoverListEl;
 
-// Prompt state. Main sends one prompt per window at a time, but an
-// os-denied notice can arrive while a prompt is up — both flow through
-// the same local queue. Entries: {type: 'request'|'os-denied', ...payload}.
-let promptQueue = [];
+// Prompt state. Requests are tab-scoped: each carries the requesting
+// webview's webContents id (`guestId`) and only shows while that tab is
+// active; requests for background tabs are held in `pendingPrompts`
+// until the user switches to the requesting tab. os-denied notices are
+// window-scoped and always eligible. Entries:
+// {type: 'request'|'os-denied', ...payload}.
+let pendingPrompts = [];
+let noticeQueue = [];
 let activePrompt = null;
 
 // Indicator state for the popover renderer.
@@ -106,9 +117,35 @@ const hidePromptElement = () => {
   activePrompt = null;
 };
 
+// webContents id of the active tab's webview, or null when unavailable
+// (no tab yet, or the webview is not attached).
+const activeGuestId = () => {
+  const webview = getActiveWebview();
+  if (!webview || typeof webview.getWebContentsId !== 'function') return null;
+  try {
+    return webview.getWebContentsId();
+  } catch {
+    return null;
+  }
+};
+
+// Next prompt eligible for display: notices first (window-scoped), then
+// the first held request whose requesting tab is the active one.
+const takeNextPrompt = () => {
+  if (noticeQueue.length > 0) return noticeQueue.shift();
+  const guestId = activeGuestId();
+  const index = pendingPrompts.findIndex(
+    (p) => typeof p.guestId !== 'number' || p.guestId === guestId
+  );
+  if (index === -1) return null;
+  return pendingPrompts.splice(index, 1)[0];
+};
+
 const showNextPrompt = () => {
-  if (activePrompt || promptQueue.length === 0 || !promptEl) return;
-  activePrompt = promptQueue.shift();
+  if (activePrompt || !promptEl) return;
+  const next = takeNextPrompt();
+  if (!next) return;
+  activePrompt = next;
 
   const isNotice = activePrompt.type === 'os-denied';
   const keys = activePrompt.keys || activePrompt.permissions || [];
@@ -170,8 +207,8 @@ const respondToActivePrompt = (decision) => {
   showNextPrompt();
 };
 
-// Dismiss = deny once, nothing recorded (Esc, click-away, tab switch,
-// navigation). Safe to call when no prompt is showing.
+// Dismiss = deny once, nothing recorded (Esc, click-away). Safe to call
+// when no prompt is showing.
 const dismissActivePrompt = (reason = 'unknown') => {
   if (!activePrompt) return;
   pushDebug(`[permissions] prompt dismissed (${reason})`);
@@ -296,12 +333,25 @@ export const initSitePermissionsUi = () => {
 
   api.onPromptRequest((payload) => {
     if (!payload || typeof payload.id !== 'number') return;
-    promptQueue.push({ type: 'request', ...payload });
+    pendingPrompts.push({ type: 'request', ...payload });
     showNextPrompt();
   });
 
+  // Main invalidated a request (its document navigated away or its
+  // webContents died) — drop it without answering; main already denied.
+  api.onPromptCancel?.((payload) => {
+    const id = payload?.id;
+    if (typeof id !== 'number') return;
+    pendingPrompts = pendingPrompts.filter((p) => p.id !== id);
+    if (activePrompt?.type === 'request' && activePrompt.id === id) {
+      pushDebug('[permissions] prompt withdrawn by main (requester gone)');
+      hidePromptElement();
+      showNextPrompt();
+    }
+  });
+
   api.onOsDenied((payload) => {
-    promptQueue.push({ type: 'os-denied', ...(payload || {}) });
+    noticeQueue.push({ type: 'os-denied', ...(payload || {}) });
     showNextPrompt();
   });
 
@@ -346,21 +396,32 @@ export const initSitePermissionsUi = () => {
   // load, so dismissing on blur deny-onces the prompt the page just
   // triggered via the blur from its own load stealing focus. Keeping
   // the prompt pending across focus changes matches Chrome and
-  // Firefox; it still dismisses on click-away in the chrome, Esc,
-  // navigation, and tab switch, and grants nothing by itself.
+  // Firefox; it still dismisses on click-away in the chrome and Esc,
+  // is withdrawn by main when the requesting document navigates or
+  // dies, and grants nothing by itself.
   window.addEventListener('blur', () => {
     setPopoverOpen(false);
   });
 
-  // Navigating away or switching tabs invalidates the prompt's context.
+  // Navigation-driven invalidation lives in main (it watches the
+  // REQUESTING webContents and sends prompt-cancel), so an active-tab
+  // navigation never touches a background tab's pending request. This
+  // event only refreshes the address-bar indicator.
   document.addEventListener('navigation-completed', () => {
-    dismissActivePrompt('navigation');
     refreshIndicator();
   });
+
+  // Prompts are tab-scoped: when the requesting tab goes to the
+  // background its prompt is held (unanswered) and re-surfaces when the
+  // user switches back; switching TO a tab shows its held prompt.
   document.addEventListener('active-tab-changed', () => {
-    dismissActivePrompt('tab-changed');
+    if (activePrompt && activePrompt.type === 'request') {
+      pendingPrompts.unshift(activePrompt);
+      hidePromptElement();
+    }
     setPopoverOpen(false);
     refreshIndicator();
+    showNextPrompt();
   });
 
   refreshIndicator();
@@ -368,7 +429,8 @@ export const initSitePermissionsUi = () => {
 
 // Test-only: reset module state between cases.
 export const _resetForTests = () => {
-  promptQueue = [];
+  pendingPrompts = [];
+  noticeQueue = [];
   activePrompt = null;
   indicatorOrigin = null;
   indicatorDecisions = {};
