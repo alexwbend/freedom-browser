@@ -27,6 +27,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { isHostNativeBinary } = require('./native-binary-arch');
 
 const args = process.argv.slice(2);
 
@@ -113,18 +114,10 @@ const BS3_BINARY = path.join(
   'better_sqlite3.node'
 );
 
-function isHostNativeBinary(buffer) {
-  if (!buffer || buffer.length < 4) return false;
-  const magic = buffer.readUInt32LE(0);
-  if (process.platform === 'darwin') {
-    // Thin Mach-O 64-bit or universal (fat) binary
-    return magic === 0xfeedfacf || buffer.readUInt32BE(0) === 0xcafebabe;
-  }
-  if (process.platform === 'linux') {
-    return buffer.toString('latin1', 0, 4) === '\x7fELF';
-  }
-  return buffer.toString('latin1', 0, 2) === 'MZ'; // Windows PE
-}
+// isHostNativeBinary (see ./native-binary-arch.js) parses the real CPU
+// architecture from the binary headers — not just the file format — so a
+// same-platform cross-arch build (e.g. `--mac --x64` on an arm64 mac) is
+// also detected and restored.
 
 const hostPlatform = { darwin: 'mac', win32: 'win', linux: 'linux' }[process.platform];
 const crossBuild = platform !== hostPlatform || archs.some((a) => a !== process.arch);
