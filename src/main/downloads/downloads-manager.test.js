@@ -591,6 +591,44 @@ describe('downloads-manager private sessions', () => {
     expect(privateStore.getCount()).toBe(0);
   });
 
+  test('pause / resume / cancel on a private download are refused for other windows', async () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    mod.registerDownloadsIpc();
+
+    const item = startOn(privateSession, {
+      url: 'https://example.com/secret.iso',
+      filename: 'secret.iso',
+    });
+
+    const [row] = await invokeAs(privateSender, IPC.DOWNLOADS_GET, {});
+    expect(row.id).toBeLessThan(0);
+
+    // A normal window cannot control the private window's live download,
+    // even though private ids are predictable negative integers.
+    expect(await invokeAs(normalSender, IPC.DOWNLOADS_PAUSE, row.id)).toBe(false);
+    expect(await invokeAs(normalSender, IPC.DOWNLOADS_RESUME, row.id)).toBe(false);
+    expect(await invokeAs(normalSender, IPC.DOWNLOADS_CANCEL, row.id)).toBe(false);
+
+    // Neither can a different private window (another partition).
+    const otherPrivateSender = { privatePartition: 'private-other' };
+    expect(await invokeAs(otherPrivateSender, IPC.DOWNLOADS_PAUSE, row.id)).toBe(false);
+    expect(await invokeAs(otherPrivateSender, IPC.DOWNLOADS_RESUME, row.id)).toBe(false);
+    expect(await invokeAs(otherPrivateSender, IPC.DOWNLOADS_CANCEL, row.id)).toBe(false);
+
+    expect(item.pause).not.toHaveBeenCalled();
+    expect(item.resume).not.toHaveBeenCalled();
+    expect(item.cancel).not.toHaveBeenCalled();
+
+    // The owning private window still can.
+    expect(await invokeAs(privateSender, IPC.DOWNLOADS_PAUSE, row.id)).toBe(true);
+    expect(item.pause).toHaveBeenCalled();
+    expect(await invokeAs(privateSender, IPC.DOWNLOADS_RESUME, row.id)).toBe(true);
+    expect(item.resume).toHaveBeenCalled();
+    expect(await invokeAs(privateSender, IPC.DOWNLOADS_CANCEL, row.id)).toBe(true);
+    expect(item.cancel).toHaveBeenCalled();
+  });
+
   test('dropping the partition clears the memory store (window-close hook)', async () => {
     const privateSession = new EventEmitter();
     mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });

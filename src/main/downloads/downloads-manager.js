@@ -288,6 +288,17 @@ function resolveRowForSender(event, id) {
 }
 
 /**
+ * Resolve a live DownloadItem for an id-based IPC request, enforcing the
+ * same ownership rule as resolveRowForSender: private ids are predictable
+ * negative integers, so pause / resume / cancel must refuse senders outside
+ * the owning private window's partition just like open / show / remove do.
+ */
+function resolveActiveItemForSender(event, id) {
+  if (!resolveRowForSender(event, id)) return null;
+  return activeItems.get(id) || null;
+}
+
+/**
  * Register IPC handlers for download operations
  */
 function registerDownloadsIpc() {
@@ -318,22 +329,24 @@ function registerDownloadsIpc() {
     return withLiveFlags(rows);
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_PAUSE, (_event, id) => {
-    const item = activeItems.get(id);
+  // Live controls authorize through the stored row too: a private row's
+  // item is only reachable from renderers of the owning private window.
+  ipcMain.handle(IPC.DOWNLOADS_PAUSE, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     if (!item) return false;
     item.pause();
     return true;
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_RESUME, (_event, id) => {
-    const item = activeItems.get(id);
+  ipcMain.handle(IPC.DOWNLOADS_RESUME, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     if (!item || !item.canResume()) return false;
     item.resume();
     return true;
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_CANCEL, (_event, id) => {
-    const item = activeItems.get(id);
+  ipcMain.handle(IPC.DOWNLOADS_CANCEL, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     if (!item) return false;
     item.cancel();
     return true;
