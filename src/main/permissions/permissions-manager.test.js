@@ -131,6 +131,25 @@ describe('permissions-manager', () => {
     expect(host.send).not.toHaveBeenCalled();
   });
 
+  test('clipboard writes are auto-allowed without a prompt (reads still prompt)', () => {
+    load();
+    const host = makeHost();
+    expect(request('clipboard-sanitized-write', { host })).toHaveBeenCalledWith(true);
+    expect(host.send).not.toHaveBeenCalled();
+    expect(
+      session.checkHandler(null, 'clipboard-sanitized-write', 'https://example.com', {
+        requestingUrl: 'https://example.com/page',
+      })
+    ).toBe(true);
+
+    // Reading remains a prompted permission.
+    expect(request('clipboard-read', { host })).not.toHaveBeenCalled();
+    expect(host.send).toHaveBeenCalledWith(
+      IPC.PERMISSIONS_PROMPT_REQUEST,
+      expect.objectContaining({ keys: ['clipboard-read'] })
+    );
+  });
+
   test('non-promptable permissions (hid, display-capture, unknown) are denied without a prompt', () => {
     load();
     const host = makeHost();

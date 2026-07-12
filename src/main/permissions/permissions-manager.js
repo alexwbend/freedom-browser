@@ -40,8 +40,12 @@ const store = require('./permissions-store');
 const { normalizeOrigin } = require('../../shared/origin-utils');
 const { broadcastToAllWebContents } = require('../lib/broadcast-to-all-webcontents');
 
-// Auto-allowed without prompting (status quo before this manager).
-const ALWAYS_ALLOWED = new Set(['pointerLock', 'fullscreen']);
+// Auto-allowed without prompting. pointerLock/fullscreen were the status
+// quo before this manager. Sanitized clipboard WRITES (writeText/copy)
+// are write-only — nothing to exfiltrate — and every major browser grants
+// them without a prompt (Chrome reports clipboard-write as 'granted' by
+// default); reading stays behind the clipboard-read prompt.
+const ALWAYS_ALLOWED = new Set(['pointerLock', 'fullscreen', 'clipboard-sanitized-write']);
 
 // Media types → storage keys. `media` requests are split so the prompt
 // names the right device and decisions stay per-device.
