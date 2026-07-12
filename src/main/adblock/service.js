@@ -214,8 +214,24 @@ async function writeEngineCache(cacheFile, builtEngine) {
  * an adblock setting changes, and after a list update lands (WP5 Swarm
  * channel). Prefers a serialized-engine cache (milliseconds) over
  * parsing raw list text (hundreds of milliseconds of main-thread CPU).
+ *
+ * Builds are serialized: settings changes fire refreshes without awaiting
+ * each other, and if builds overlapped, a slower earlier build (say, with a
+ * since-disabled category) could finish last and clobber the newer engine.
+ * Each build starts only after the previous one settled and reads the
+ * then-current settings/artifacts, so the last caller always wins.
  */
-async function refreshEngine() {
+let refreshChain = Promise.resolve();
+
+function refreshEngine() {
+  const run = refreshChain.then(rebuildEngineOnce);
+  // Keep the chain usable after a failed build; the failure still reaches
+  // this call's caller through `run`.
+  refreshChain = run.catch(() => {});
+  return run;
+}
+
+async function rebuildEngineOnce() {
   // Not installed yet (e.g. a settings save before bootstrap wires us up).
   if (!installed) return;
   // Re-resolve each build (unless pinned) so a just-promoted update dir wins.
@@ -434,6 +450,7 @@ function _resetAdblockForTests() {
   allowlistedHosts = [];
   topLevelUrls.clear();
   frameUrlCache.clear();
+  refreshChain = Promise.resolve();
 }
 
 module.exports = {

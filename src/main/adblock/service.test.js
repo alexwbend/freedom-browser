@@ -359,6 +359,49 @@ describe('refreshEngine', () => {
     fs.rmSync(empty, { recursive: true, force: true });
   });
 
+  test('a slower earlier build cannot overwrite a newer one (settings race)', async () => {
+    // Settings changes fire refreshEngine() without awaiting each other.
+    // Build #1 sees cookies enabled and is made artificially slow (its
+    // cookies-list read blocks on a gate); build #2 sees them disabled
+    // again. However the two interleave, the engine must end up
+    // reflecting the newest settings: cookies not blocked. Caching is off
+    // so both builds really parse list text.
+    _resetAdblockForTests();
+    installAdblockInterception({ artifactsDir, cacheDir: null });
+
+    const realReadFile = fs.promises.readFile;
+    let releaseCookiesRead;
+    const gate = new Promise((resolve) => (releaseCookiesRead = resolve));
+    const readFileSpy = jest
+      .spyOn(fs.promises, 'readFile')
+      .mockImplementation(async (file, ...args) => {
+        if (String(file).includes('easylist-cookies')) await gate;
+        return realReadFile(file, ...args);
+      });
+
+    try {
+      loadSettings.mockReturnValue({ ...DEFAULT_TEST_SETTINGS, adblockCookies: true });
+      const first = refreshEngine();
+      await Promise.resolve(); // let build #1 capture the cookies-on settings
+      loadSettings.mockReturnValue({ ...DEFAULT_TEST_SETTINGS });
+      const second = refreshEngine();
+
+      // Give any ungated build time to finish, then unblock the slow one.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      releaseCookiesRead();
+      await Promise.all([first, second]);
+    } finally {
+      readFileSpy.mockRestore();
+    }
+
+    navigateTab(7, 'https://news.example/story');
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://cookiewall.test/banner.js' }))
+    ).toBe(null);
+    // The newest build is live, not merely "no engine at all".
+    expect(adblockRequestForDispatch(makeDetails())).toEqual({ cancel: true });
+  });
+
   test('skips unreadable list files without disabling the rest', async () => {
     const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-broken-'));
     fs.writeFileSync(
