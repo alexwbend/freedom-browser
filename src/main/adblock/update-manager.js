@@ -102,9 +102,20 @@ async function runUpdateOnce(io = {}) {
   const entries = desktopListsFor(manifest, getEnabledCategories());
   if (entries.length === 0) return { status: 'no_enabled_lists' };
 
+  const stageDir = path.join(root, 'updated.next');
+
   // Download + verify every enabled list before touching disk.
   const files = [];
   for (const entry of entries) {
+    // Belt-and-braces alongside verifyManifest's list_id schema check: the
+    // resolved output path must stay a direct child of the staging dir, so
+    // even a hostile list_id can never write outside it.
+    const file = `${entry.list_id}.txt`;
+    const dest = path.resolve(stageDir, file);
+    if (path.dirname(dest) !== path.resolve(stageDir) || path.basename(dest) !== file) {
+      log.warn(`[adblock-update] unsafe list_id ${JSON.stringify(entry.list_id)} — aborting`);
+      return { status: 'rejected', reason: 'unsafe_list_id' };
+    }
     let blob;
     try {
       blob = await downloadBlob(entry.ref);
@@ -116,11 +127,10 @@ async function runUpdateOnce(io = {}) {
       log.warn(`[adblock-update] sha256 mismatch for ${entry.category} — aborting`);
       return { status: 'hash_mismatch', reason: entry.category };
     }
-    files.push({ entry, blob, file: `${entry.list_id}.txt` });
+    files.push({ entry, blob, file });
   }
 
   // Stage, then promote atomically. Keep the prior updated dir as last-known-good.
-  const stageDir = path.join(root, 'updated.next');
   const prevDir = path.join(root, 'updated.prev');
   await fs.promises.rm(stageDir, { recursive: true, force: true });
   await fs.promises.mkdir(stageDir, { recursive: true });

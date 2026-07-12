@@ -20,6 +20,9 @@ const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
 const ADS = Buffer.from('||ads.example^\n');
 const PRIV = Buffer.from('||track.example^\n');
+// Well-formed bzz refs (64 hex chars); the injected downloadBlob keys on them.
+const REF_ADS = 'aa'.repeat(32);
+const REF_PRIV = 'bb'.repeat(32);
 
 function manifest(version = 1) {
   return {
@@ -36,7 +39,7 @@ function manifest(version = 1) {
             title: 'EasyList',
             source_url: 'u',
             license: 'l',
-            ref: 'ref-ads',
+            ref: REF_ADS,
             sha256: sha256(ADS),
             bytes: ADS.length,
             rule_count: 1,
@@ -47,7 +50,7 @@ function manifest(version = 1) {
             title: 'EasyPrivacy',
             source_url: 'u',
             license: 'l',
-            ref: 'ref-priv',
+            ref: REF_PRIV,
             sha256: sha256(PRIV),
             bytes: PRIV.length,
             rule_count: 1,
@@ -65,7 +68,7 @@ async function signedManifest(version) {
   return m;
 }
 
-const blobFor = (ref) => (ref === 'ref-ads' ? ADS : ref === 'ref-priv' ? PRIV : Buffer.from('x'));
+const blobFor = (ref) => (ref === REF_ADS ? ADS : ref === REF_PRIV ? PRIV : Buffer.from('x'));
 
 let root;
 function io(overrides = {}) {
@@ -107,7 +110,7 @@ describe('runUpdateOnce', () => {
     const opts = io({ readFeed: async () => signedManifest(1) });
     await runUpdateOnce(opts);
     expect(opts.downloadBlob).toHaveBeenCalledTimes(1);
-    expect(opts.downloadBlob).toHaveBeenCalledWith('ref-ads');
+    expect(opts.downloadBlob).toHaveBeenCalledWith(REF_ADS);
     expect(fs.existsSync(path.join(root, 'updated', 'easyprivacy.txt'))).toBe(false);
   });
 
@@ -116,6 +119,24 @@ describe('runUpdateOnce', () => {
     const result = await runUpdateOnce(io({ readFeed: async () => m }));
     expect(result.status).toBe('rejected');
     expect(fs.existsSync(path.join(root, 'updated'))).toBe(false);
+  });
+
+  test('rejects a correctly-signed manifest whose list_id path-escapes, writing nothing', async () => {
+    // A compromised publisher key must still not get an arbitrary file write:
+    // `<list_id>.txt` would resolve outside updated.next/ for this list_id.
+    const m = manifest(2);
+    m.platforms.desktop.lists[0].list_id = '../../escape';
+    m.sig = await SIGNER.signMessage(canonicalManifestForSigning(m));
+    // The traversal target (root/updated.next/../../escape.txt) resolves to
+    // the tmpdir; make sure nothing pre-exists there, then assert no write.
+    const escaped = path.resolve(root, '..', 'escape.txt');
+    fs.rmSync(escaped, { force: true });
+    const opts = io({ readFeed: async () => m });
+    const result = await runUpdateOnce(opts);
+    expect(result).toEqual({ status: 'rejected', reason: 'bad_list_entry' });
+    expect(fs.existsSync(path.join(root, 'updated'))).toBe(false);
+    expect(fs.existsSync(escaped)).toBe(false);
+    expect(opts.activate).not.toHaveBeenCalled();
   });
 
   test('rejects a downgrade (version <= applied)', async () => {

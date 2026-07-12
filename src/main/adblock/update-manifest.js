@@ -47,6 +47,42 @@ function isPositiveInt(value) {
   return Number.isInteger(value) && value > 0;
 }
 
+// Field formats for desktop list entries (contract: DesktopListEntry in
+// freedom-adblock-service/src/manifest.ts). `list_id` names the output file
+// (`<list_id>.txt`) the update-manager writes, so it must be a plain filename
+// token — no separators, no dots, nothing that could path-escape the staging
+// dir. `ref` is a bzz hex reference (64 hex chars, 128 when encrypted) and
+// `sha256` a hex digest; anything else is malformed even if correctly signed.
+const LIST_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const CATEGORY_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
+const SWARM_REF_RE = /^[0-9a-f]{64}(?:[0-9a-f]{64})?$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
+
+function isOptionalString(value) {
+  return value === undefined || value === null || typeof value === 'string';
+}
+
+/** Strict shape check for one desktop list entry — see field notes above. */
+function isValidDesktopListEntry(entry) {
+  return (
+    isPlainObject(entry) &&
+    typeof entry.category === 'string' &&
+    CATEGORY_RE.test(entry.category) &&
+    typeof entry.list_id === 'string' &&
+    LIST_ID_RE.test(entry.list_id) &&
+    typeof entry.ref === 'string' &&
+    SWARM_REF_RE.test(entry.ref) &&
+    typeof entry.sha256 === 'string' &&
+    SHA256_RE.test(entry.sha256) &&
+    isPositiveInt(entry.bytes) &&
+    Number.isInteger(entry.rule_count) &&
+    entry.rule_count >= 0 &&
+    isOptionalString(entry.title) &&
+    isOptionalString(entry.source_url) &&
+    isOptionalString(entry.license)
+  );
+}
+
 /**
  * Validate and authenticate a manifest.
  *
@@ -65,6 +101,17 @@ function verifyManifest(manifest, { sigAddress, appliedVersion = 0 }) {
   const desktop = manifest.platforms?.desktop;
   if (!isPlainObject(desktop) || !Array.isArray(desktop.lists)) {
     return { ok: false, reason: 'bad_desktop_section' };
+  }
+  // Every entry is validated before anything downstream trusts its fields —
+  // a signature only proves who published the manifest, not that its
+  // contents are safe to act on.
+  if (!desktop.lists.every(isValidDesktopListEntry)) {
+    return { ok: false, reason: 'bad_list_entry' };
+  }
+  // Duplicate list_ids would write the same `<list_id>.txt` twice, leaving a
+  // file whose bytes no longer match the first entry's recorded sha256.
+  if (new Set(desktop.lists.map((e) => e.list_id)).size !== desktop.lists.length) {
+    return { ok: false, reason: 'duplicate_list_id' };
   }
 
   // Downgrade protection: never move backward or replay the current version.

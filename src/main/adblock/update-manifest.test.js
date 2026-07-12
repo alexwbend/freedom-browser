@@ -8,6 +8,12 @@ const {
 // A deterministic throwaway signer (never used outside tests).
 const SIGNER = new Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
 
+// Well-formed bzz refs / sha256 digests (64 hex chars) for fixtures.
+const REF_A = 'aa'.repeat(32);
+const REF_B = 'bb'.repeat(32);
+const SHA_A = '11'.repeat(32);
+const SHA_B = '22'.repeat(32);
+
 function baseManifest(overrides = {}) {
   return {
     schema: 1,
@@ -20,16 +26,16 @@ function baseManifest(overrides = {}) {
           {
             category: 'ads',
             list_id: 'easylist',
-            ref: 'aa',
-            sha256: '11',
+            ref: REF_A,
+            sha256: SHA_A,
             bytes: 10,
             rule_count: 3,
           },
           {
             category: 'privacy',
             list_id: 'easyprivacy',
-            ref: 'bb',
-            sha256: '22',
+            ref: REF_B,
+            sha256: SHA_B,
             bytes: 20,
             rule_count: 4,
           },
@@ -39,6 +45,13 @@ function baseManifest(overrides = {}) {
     },
     ...overrides,
   };
+}
+
+// A baseManifest whose first desktop list entry has `fields` overridden.
+function withEntry(fields) {
+  const m = baseManifest();
+  m.platforms.desktop.lists[0] = { ...m.platforms.desktop.lists[0], ...fields };
+  return m;
 }
 
 async function signed(manifest, signer = SIGNER) {
@@ -75,7 +88,7 @@ describe('verifyManifest', () => {
 
   test('rejects a manifest tampered after signing (sig no longer matches)', async () => {
     const m = await signed(baseManifest());
-    m.platforms.desktop.lists[0].sha256 = 'deadbeef'; // flip a hash post-signature
+    m.platforms.desktop.lists[0].sha256 = 'de'.repeat(32); // flip a hash post-signature
     expect(verifyManifest(m, opts())).toEqual({ ok: false, reason: 'wrong_signer' });
   });
 
@@ -118,6 +131,38 @@ describe('verifyManifest', () => {
       verifyManifest(baseManifest({ platforms: { desktop: {}, ios: { lists: [] } } }), opts())
         .reason
     ).toBe('bad_desktop_section');
+  });
+
+  test('rejects a list_id that could path-escape the staging dir, even if signed', async () => {
+    for (const list_id of ['../../evil', 'a/b', 'a\\b', '..', '.hidden', 'UPPER', '']) {
+      const m = await signed(withEntry({ list_id }));
+      expect(verifyManifest(m, opts())).toEqual({ ok: false, reason: 'bad_list_entry' });
+    }
+  });
+
+  test('rejects malformed entry fields (ref, sha256, sizes, counts, category)', async () => {
+    const bad = [
+      { ref: 'not-hex' },
+      { ref: 'aa' }, // too short for a bzz reference
+      { sha256: 'deadbeef' }, // not a 64-char digest
+      { sha256: 42 },
+      { bytes: 0 },
+      { bytes: 10.5 },
+      { rule_count: -1 },
+      { rule_count: '3' },
+      { category: '../ads' },
+      { category: 7 },
+      { title: 12 },
+    ];
+    for (const fields of bad) {
+      const m = await signed(withEntry(fields));
+      expect(verifyManifest(m, opts())).toEqual({ ok: false, reason: 'bad_list_entry' });
+    }
+  });
+
+  test('rejects duplicate list_ids (they would collide on the same output file)', async () => {
+    const m = await signed(withEntry({ list_id: 'easyprivacy' }));
+    expect(verifyManifest(m, opts())).toEqual({ ok: false, reason: 'duplicate_list_id' });
   });
 });
 
