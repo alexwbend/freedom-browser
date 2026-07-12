@@ -216,6 +216,10 @@ module.exports = {
   // user's decision (renderer→main).
   PERMISSIONS_PROMPT_REQUEST: 'permissions:prompt-request',
   PERMISSIONS_PROMPT_RESPONSE: 'permissions:prompt-response',
+  // Main withdraws a previously sent prompt (main→renderer): the
+  // requesting document navigated away or its webContents was destroyed,
+  // so the request was invalidated (denied once) on the main side.
+  PERMISSIONS_PROMPT_CANCEL: 'permissions:prompt-cancel',
   // macOS only: the user allowed a site's camera/mic but the OS-level
   // privacy setting blocks Freedom itself (main→renderer notice).
   PERMISSIONS_OS_DENIED: 'permissions:os-denied',

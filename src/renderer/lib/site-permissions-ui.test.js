@@ -1,7 +1,10 @@
 // tabs.js reads `window` at module scope (heavy chrome-DOM import chain);
-// these helper tests only exercise the pure label/phrase functions.
+// mock it with a controllable "active webview" so the prompt tests can
+// simulate tab switches. `var` (not let) avoids the TDZ under jest.mock
+// hoisting; the name must start with "mock" to be referenced here.
+var mockActiveWebview = null;
 jest.mock('./tabs.js', () => ({
-  getActiveWebview: jest.fn(() => null),
+  getActiveWebview: jest.fn(() => mockActiveWebview),
   getDisplayUrlForWebview: jest.fn(() => ''),
 }));
 
@@ -9,7 +12,11 @@ import {
   permissionLabel,
   describePermissionRequest,
   permissionRequestNote,
+  initSitePermissionsUi,
+  _resetForTests,
 } from './site-permissions-ui.js';
+
+const { createDocument, createElement } = require('../../../test/helpers/fake-dom.js');
 
 describe('site-permissions-ui helpers', () => {
   describe('permissionLabel', () => {
@@ -70,5 +77,145 @@ describe('site-permissions-ui helpers', () => {
       expect(permissionRequestNote(['camera'])).toBeNull();
       expect(permissionRequestNote([])).toBeNull();
     });
+  });
+});
+
+describe('site-permissions-ui prompt tab-scoping', () => {
+  const originalDocument = global.document;
+  const originalWindow = global.window;
+
+  let els;
+  let doc;
+  let api;
+
+  const setActiveGuest = (id) => {
+    mockActiveWebview = id == null ? null : { getWebContentsId: () => id };
+  };
+
+  const buildDom = () => {
+    const byId = {
+      'permission-prompt': createElement('div'),
+      'permission-prompt-origin': createElement('span'),
+      'permission-prompt-action': createElement('span'),
+      'permission-prompt-note': createElement('div'),
+      'permission-prompt-remember-label': createElement('label'),
+      'permission-prompt-remember': createElement('input'),
+      'permission-prompt-allow': createElement('button'),
+      'permission-prompt-block': createElement('button'),
+      'permission-indicator': createElement('button'),
+      'permission-popover': createElement('div'),
+      'permission-popover-title': createElement('div'),
+      'permission-popover-list': createElement('div'),
+    };
+    byId['permission-prompt'].hidden = true;
+    byId['permission-popover'].hidden = true;
+    return byId;
+  };
+
+  const makeApi = () => {
+    const fake = { handlers: {} };
+    fake.onPromptRequest = jest.fn((cb) => {
+      fake.handlers.request = cb;
+    });
+    fake.onPromptCancel = jest.fn((cb) => {
+      fake.handlers.cancel = cb;
+    });
+    fake.onOsDenied = jest.fn((cb) => {
+      fake.handlers.osDenied = cb;
+    });
+    fake.onChanged = jest.fn((cb) => {
+      fake.handlers.changed = cb;
+    });
+    fake.respondToPrompt = jest.fn(() => Promise.resolve(true));
+    fake.getForOrigin = jest.fn(() => Promise.resolve({}));
+    fake.revoke = jest.fn(() => Promise.resolve(true));
+    return fake;
+  };
+
+  const promptVisible = () => els['permission-prompt'].hidden === false;
+  const sendRequest = (payload) => api.handlers.request(payload);
+  const switchTab = (guestId) => {
+    setActiveGuest(guestId);
+    doc.handlers['active-tab-changed']();
+  };
+
+  beforeEach(() => {
+    _resetForTests();
+    els = buildDom();
+    doc = createDocument({ elementsById: els });
+    global.document = doc;
+    api = makeApi();
+    global.window = { sitePermissions: api, addEventListener: jest.fn() };
+    setActiveGuest(1);
+    initSitePermissionsUi();
+  });
+
+  afterEach(() => {
+    global.document = originalDocument;
+    global.window = originalWindow;
+    mockActiveWebview = null;
+  });
+
+  test("a request from the active tab's webview shows immediately", () => {
+    sendRequest({ id: 10, origin: 'https://a.example', keys: ['notifications'], guestId: 1 });
+    expect(promptVisible()).toBe(true);
+    expect(els['permission-prompt-origin'].textContent).toBe('https://a.example');
+  });
+
+  test("a background tab's request is held, not shown under the active tab", () => {
+    sendRequest({ id: 11, origin: 'https://bg.example', keys: ['camera'], guestId: 2 });
+
+    // Active tab is guest 1 — nothing may render beneath its address bar.
+    expect(promptVisible()).toBe(false);
+    expect(api.respondToPrompt).not.toHaveBeenCalled();
+
+    // Switching to the requesting tab surfaces the held prompt.
+    switchTab(2);
+    expect(promptVisible()).toBe(true);
+    expect(els['permission-prompt-origin'].textContent).toBe('https://bg.example');
+  });
+
+  test('switching away holds the prompt unanswered; switching back re-shows it', () => {
+    sendRequest({ id: 12, origin: 'https://a.example', keys: ['microphone'], guestId: 1 });
+    expect(promptVisible()).toBe(true);
+
+    switchTab(2);
+    expect(promptVisible()).toBe(false);
+    expect(api.respondToPrompt).not.toHaveBeenCalled();
+
+    switchTab(1);
+    expect(promptVisible()).toBe(true);
+
+    els['permission-prompt-allow'].dispatch('click');
+    expect(api.respondToPrompt).toHaveBeenCalledWith({
+      id: 12,
+      decision: 'allow',
+      remember: true,
+    });
+  });
+
+  test('active-tab navigation does not dismiss the prompt (main owns invalidation)', () => {
+    sendRequest({ id: 13, origin: 'https://a.example', keys: ['geolocation'], guestId: 1 });
+    expect(promptVisible()).toBe(true);
+
+    doc.handlers['navigation-completed']();
+    expect(promptVisible()).toBe(true);
+    expect(api.respondToPrompt).not.toHaveBeenCalled();
+  });
+
+  test('prompt-cancel withdraws shown and held prompts without answering', () => {
+    sendRequest({ id: 14, origin: 'https://a.example', keys: ['camera'], guestId: 1 });
+    sendRequest({ id: 15, origin: 'https://bg.example', keys: ['camera'], guestId: 2 });
+    expect(promptVisible()).toBe(true);
+
+    // Withdraw the on-screen prompt (its document navigated away).
+    api.handlers.cancel({ id: 14 });
+    expect(promptVisible()).toBe(false);
+
+    // Withdraw the held background prompt; switching to its tab shows nothing.
+    api.handlers.cancel({ id: 15 });
+    switchTab(2);
+    expect(promptVisible()).toBe(false);
+    expect(api.respondToPrompt).not.toHaveBeenCalled();
   });
 });
