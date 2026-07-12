@@ -39,7 +39,6 @@ const SWEEP_NORM = norm(
   `UPDATE downloads SET state = 'interrupted', end_time = ? WHERE state = 'in_progress'`
 );
 const COUNT_NORM = norm(`SELECT COUNT(*) as count FROM downloads`);
-const REMOVE_FOR_PARTITION_NORM = norm(`DELETE FROM downloads WHERE session_partition = ?`);
 const REMOVE_ALL_PRIVATE_NORM = norm(`DELETE FROM downloads WHERE is_private = 1`);
 
 class FakeBetterSqlite3DownloadsDatabase {
@@ -176,16 +175,6 @@ class FakeBetterSqlite3DownloadsDatabase {
             }
           }
           return { changes };
-        },
-      };
-    }
-
-    if (normalized === REMOVE_FOR_PARTITION_NORM) {
-      return {
-        run: (partition) => {
-          const before = this.rows.length;
-          this.rows = this.rows.filter((r) => r.session_partition !== partition);
-          return { changes: before - this.rows.length };
         },
       };
     }

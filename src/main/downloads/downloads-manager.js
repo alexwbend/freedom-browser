@@ -10,18 +10,27 @@
  * for attachment dispositions, `download`-attribute clicks, data: URIs, and
  * non-renderable main-frame navigations.
  *
- * Persistence lives in downloads-store.js (per-profile downloads.sqlite).
+ * Persistence lives in downloads-store.js (per-profile downloads.sqlite)
+ * for normal windows only. PRIVATE MODE GUARD (downloads): downloads from
+ * private windows never touch SQLite — their rows live in the in-memory
+ * private-downloads-store, scoped to the window's partition, merged into
+ * query results served to that window's renderers alone, and dropped when
+ * the window closes. Ids route by sign: SQLite rowids are positive, private
+ * in-memory ids are negative.
+ *
  * Completed files are never opened automatically; open / show-in-folder are
  * explicit user actions arriving over IPC and resolved against the stored
  * row, never against a renderer-supplied path.
  */
 
 const log = require('../logger');
-const { app, ipcMain, shell, BrowserWindow } = require('electron');
+const { app, ipcMain, shell, BrowserWindow, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const IPC = require('../../shared/ipc-channels');
 const store = require('./downloads-store');
+const privateStore = require('./private-downloads-store');
+const { getPartitionForWebContents } = require('../private/private-windows');
 const { loadSettings } = require('../settings-store');
 const { broadcastToAllWebContents } = require('../lib/broadcast-to-all-webcontents');
 
@@ -145,9 +154,25 @@ function ownerWindowOf(webContents) {
   return BrowserWindow.fromWebContents(host);
 }
 
-function sendToOwner(ownerWindow, payload) {
+function sendToOwner(ownerWindow, payload, privatePartition = null) {
   if (ownerWindow && !ownerWindow.isDestroyed()) {
     ownerWindow.webContents.send(IPC.DOWNLOADS_UPDATED, payload);
+  }
+  if (privatePartition) {
+    // PRIVATE MODE GUARD (downloads): change hints for private downloads
+    // carry URL and save-path metadata — deliver them only to renderers of
+    // the owning private window, never to normal windows.
+    if (!webContents?.getAllWebContents) return;
+    for (const wc of webContents.getAllWebContents()) {
+      try {
+        if (getPartitionForWebContents(wc) === privatePartition) {
+          wc.send(IPC.DOWNLOADS_CHANGED, payload);
+        }
+      } catch {
+        // webContents may be destroyed mid-iteration
+      }
+    }
+    return;
   }
   // The freedom://downloads page may be open in any window; it re-queries
   // the store on this signal.
@@ -176,16 +201,19 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
   }
 
   // PRIVATE MODE GUARD (downloads): downloads from private windows are
-  // allowed but flagged; their rows are purged when the window closes
-  // (see removeDownloadsForPartition in downloads-store.js).
-  const row = store.insertDownload({
+  // allowed, but their metadata (URL, save path) must never be written to
+  // the profile database — a crash would strand the rows, and SQLite
+  // DELETE/WAL does not scrub previously written pages. Private rows live
+  // in the in-memory partition-scoped store instead and evaporate with the
+  // window (src/main/index.js registers the dropPartition close hook).
+  const rowStore = isPrivate ? privateStore : store;
+  const row = rowStore.insertDownload({
     url: item.getURL(),
     filename,
     savePath: item.getSavePath() || null,
     mimeType: item.getMimeType() || null,
     totalBytes: item.getTotalBytes(),
     startTime: Date.now(),
-    isPrivate,
     partition: privatePartition,
   });
   const id = row.id;
@@ -193,7 +221,7 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
 
   const ownerWindow = ownerWindowOf(webContents);
   log.info('[Downloads] Download started:', filename, `(id ${id})`);
-  sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }));
+  sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }), privatePartition);
 
   let lastProgressAt = 0;
   let lastUpdatedState = 'progressing';
@@ -213,13 +241,13 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
     if (!stateChanged && now - lastProgressAt < PROGRESS_THROTTLE_MS) return;
     lastProgressAt = now;
 
-    store.updateDownload(id, {
+    rowStore.updateDownload(id, {
       receivedBytes: item.getReceivedBytes(),
       totalBytes: item.getTotalBytes(),
       // The save dialog resolves the path after insert; keep the row current.
       savePath: item.getSavePath() || null,
     });
-    sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }));
+    sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }), privatePartition);
   });
 
   item.once('done', (_doneEvent, doneState) => {
@@ -236,7 +264,7 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
           ? store.STATES.CANCELLED
           : store.STATES.INTERRUPTED;
 
-    store.updateDownload(id, {
+    rowStore.updateDownload(id, {
       receivedBytes: item.getReceivedBytes(),
       totalBytes: item.getTotalBytes(),
       savePath: item.getSavePath() || null,
@@ -245,13 +273,17 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
     });
 
     log.info('[Downloads] Download', doneState + ':', filename, `(id ${id})`);
-    sendToOwner(ownerWindow, {
-      ...serializeDownload(id, item, { isPrivate }),
-      state,
-      is_paused: false,
-      can_resume: false,
-      is_interrupted: false,
-    });
+    sendToOwner(
+      ownerWindow,
+      {
+        ...serializeDownload(id, item, { isPrivate }),
+        state,
+        is_paused: false,
+        can_resume: false,
+        is_interrupted: false,
+      },
+      privatePartition
+    );
   });
 }
 
@@ -263,7 +295,8 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
  * downloads would silently bypass the manager.
  * @param {Electron.Session} targetSession
  * @param {{ privatePartition?: string|null }} [options] - set for private
- *   sessions so their rows are flagged and purged on window close
+ *   sessions so their rows stay in the in-memory partition store and never
+ *   reach the profile database
  */
 function attachDownloadsManager(targetSession, { privatePartition = null } = {}) {
   if (!targetSession || typeof targetSession.on !== 'function') {
@@ -298,18 +331,49 @@ function withLiveFlags(rows) {
 }
 
 /**
+ * Resolve a row for an id-based IPC request. Negative ids are in-memory
+ * private rows; only renderers of the owning private window may act on
+ * them — any other sender resolves to null. Positive ids are SQLite rows.
+ */
+function resolveRowForSender(event, id) {
+  if (typeof id === 'number' && id < 0) {
+    const row = privateStore.getDownloadById(id);
+    if (!row || getPartitionForWebContents(event?.sender) !== row.session_partition) {
+      return null;
+    }
+    return row;
+  }
+  return store.getDownloadById(id);
+}
+
+/**
  * Register IPC handlers for download operations
  */
 function registerDownloadsIpc() {
   // Crash recovery: rows a previous run left in_progress are dead.
   store.markStaleInProgressAsInterrupted();
-  // PRIVATE MODE GUARD (downloads history): private rows never survive a
-  // restart — a crash can skip the on-close purge, so sweep here too.
+  // Legacy sweep: builds before the in-memory private store wrote private
+  // rows into SQLite; drop any still lingering. Current code never inserts
+  // them (see handleWillDownload), so this only cleans up old profiles.
   store.removeAllPrivateDownloads();
 
-  ipcMain.handle(IPC.DOWNLOADS_GET, (_event, options = {}) => {
+  ipcMain.handle(IPC.DOWNLOADS_GET, (event, options = {}) => {
     const { query, limit } = options;
-    const rows = query ? store.searchDownloads(query, limit || 100) : store.getAllDownloads();
+    const max = limit || 100;
+    let rows = query ? store.searchDownloads(query, max) : store.getAllDownloads();
+    // PRIVATE MODE GUARD (downloads): in-memory private rows are merged in
+    // only for renderers of the owning private window; normal windows (and
+    // other private windows) never see them.
+    const partition = getPartitionForWebContents(event?.sender);
+    if (partition) {
+      const privateRows = query
+        ? privateStore.searchDownloads(partition, query, max)
+        : privateStore.getDownloads(partition);
+      if (privateRows.length > 0) {
+        rows = [...privateRows, ...rows].sort((a, b) => b.start_time - a.start_time);
+        if (query) rows = rows.slice(0, max);
+      }
+    }
     return withLiveFlags(rows);
   });
 
@@ -339,8 +403,8 @@ function registerDownloadsIpc() {
   // Open and show-in-folder resolve the path from the stored row — a
   // renderer can only ever act on files this manager wrote, never on an
   // arbitrary path. Files are never opened without this explicit request.
-  ipcMain.handle(IPC.DOWNLOADS_OPEN_FILE, async (_event, id) => {
-    const row = store.getDownloadById(id);
+  ipcMain.handle(IPC.DOWNLOADS_OPEN_FILE, async (event, id) => {
+    const row = resolveRowForSender(event, id);
     if (!row || row.state !== store.STATES.COMPLETED || !row.save_path) {
       return { success: false, error: 'Download is not completed' };
     }
@@ -354,8 +418,8 @@ function registerDownloadsIpc() {
     return { success: true };
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_SHOW_IN_FOLDER, (_event, id) => {
-    const row = store.getDownloadById(id);
+  ipcMain.handle(IPC.DOWNLOADS_SHOW_IN_FOLDER, (event, id) => {
+    const row = resolveRowForSender(event, id);
     if (!row || !row.save_path || !fs.existsSync(row.save_path)) {
       return { success: false, error: 'File no longer exists' };
     }
@@ -363,15 +427,25 @@ function registerDownloadsIpc() {
     return { success: true };
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_REMOVE, (_event, id) => {
+  ipcMain.handle(IPC.DOWNLOADS_REMOVE, (event, id) => {
     // Removing from the list never deletes the file, and an in-flight
     // download must be cancelled first so its row can't be orphaned.
     if (activeItems.has(id)) return false;
+    if (typeof id === 'number' && id < 0) {
+      return resolveRowForSender(event, id) ? privateStore.removeDownload(id) : false;
+    }
     return store.removeDownload(id);
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_CLEAR, () => {
-    return store.clearDownloads();
+  ipcMain.handle(IPC.DOWNLOADS_CLEAR, (event) => {
+    let cleared = store.clearDownloads();
+    // A private window's "Clear All" also drops its own settled in-memory
+    // rows (they are part of the merged view it sees).
+    const partition = getPartitionForWebContents(event?.sender);
+    if (partition) {
+      cleared += privateStore.clearSettled(partition);
+    }
+    return cleared;
   });
 
   log.info('[Downloads] IPC handlers registered');

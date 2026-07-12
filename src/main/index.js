@@ -181,10 +181,8 @@ const {
   registerDownloadsIpc,
   attachDownloadsManager,
 } = require('./downloads/downloads-manager');
-const {
-  closeDb: closeDownloadsDb,
-  removeDownloadsForPartition,
-} = require('./downloads/downloads-store');
+const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
+const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
 const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
@@ -360,9 +358,9 @@ async function bootstrap() {
   // Private windows: each gets a unique non-persisted `private-<uuid>`
   // partition whose session is configured here, before the window's first
   // webview loads — same protocol handlers (or their test-mode stubs),
-  // request rewriter and downloads hook (rows flagged private) as the
-  // default session, and permission prompts whose decisions stay
-  // session-only. One deliberate exception:
+  // request rewriter and downloads hook (rows kept in memory only, never
+  // in the profile database) as the default session, and permission
+  // prompts whose decisions stay session-only. One deliberate exception:
   // PRIVATE MODE GUARD (x402): payment interception is NOT attached to
   // private sessions. The wallet providers are unavailable in private
   // windows, so no payment could ever be signed; excluding the x402
@@ -382,11 +380,11 @@ async function bootstrap() {
     attachDownloadsManager(privateSession, { privatePartition: partition });
     installPermissionHandlers(privateSession, { privatePartition: partition });
   });
-  // On private-window close: drop the window's download-history rows
-  // (files stay on disk, Chromium semantics) and its session-only
-  // permission decisions. The session's storage is cleared by the
-  // private-windows module itself.
-  registerPrivateCleanup((partition) => removeDownloadsForPartition(partition));
+  // On private-window close: drop the window's in-memory download rows
+  // (they never touch SQLite — files stay on disk, Chromium semantics) and
+  // its session-only permission decisions. The session's storage is
+  // cleared by the private-windows module itself.
+  registerPrivateCleanup((partition) => dropPrivateDownloads(partition));
   registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
 
   registerWebContentsHandlers();

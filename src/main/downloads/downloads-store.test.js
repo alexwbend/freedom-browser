@@ -129,9 +129,10 @@ describe('downloads-store', () => {
   });
 });
 
-// PRIVATE MODE GUARD coverage: private-window rows are flagged, purgeable
-// per-partition on window close, and swept wholesale at startup.
-describe('downloads-store private rows', () => {
+// PRIVATE MODE GUARD coverage: current code never writes private rows to
+// SQLite (they live in private-downloads-store.js); what remains here is
+// the legacy startup sweep that cleans rows older builds left behind.
+describe('downloads-store legacy private rows', () => {
   let userDataDir;
   let storeModule;
 
@@ -159,52 +160,16 @@ describe('downloads-store private rows', () => {
       partition,
     });
 
-  test('insertDownload flags private rows with their partition', () => {
+  test('insertDownload writes normal rows unflagged by default', () => {
     const { mod } = loadDownloadsStore({ userDataDir });
     storeModule = mod;
 
     const normal = insertNormal(mod);
-    const priv = insertPrivate(mod, 'private-abc');
-
     expect(normal.is_private).toBe(0);
     expect(normal.session_partition).toBe(null);
-    expect(priv.is_private).toBe(1);
-    expect(priv.session_partition).toBe('private-abc');
-
-    const rows = mod.getAllDownloads();
-    expect(rows.find((r) => r.id === priv.id)).toEqual(
-      expect.objectContaining({ is_private: 1, session_partition: 'private-abc' })
-    );
   });
 
-  test('removeDownloadsForPartition purges only that window rows', () => {
-    const { mod } = loadDownloadsStore({ userDataDir });
-    storeModule = mod;
-
-    insertNormal(mod);
-    insertPrivate(mod, 'private-a');
-    insertPrivate(mod, 'private-a', 'https://example.com/secret2.zip');
-    insertPrivate(mod, 'private-b');
-
-    expect(mod.removeDownloadsForPartition('private-a')).toBe(2);
-    const remaining = mod.getAllDownloads();
-    expect(remaining).toHaveLength(2);
-    expect(remaining.every((r) => r.session_partition !== 'private-a')).toBe(true);
-    // Files on disk are never touched — the store only knows rows, and
-    // removeDownloadsForPartition is a pure DELETE (asserted here by the
-    // absence of any fs interaction in this module's API surface).
-  });
-
-  test('removeDownloadsForPartition with no partition is a no-op', () => {
-    const { mod } = loadDownloadsStore({ userDataDir });
-    storeModule = mod;
-    insertPrivate(mod, 'private-a');
-    expect(mod.removeDownloadsForPartition(null)).toBe(0);
-    expect(mod.removeDownloadsForPartition('')).toBe(0);
-    expect(mod.getDownloadCount()).toBe(1);
-  });
-
-  test('removeAllPrivateDownloads sweeps every private row at startup', () => {
+  test('removeAllPrivateDownloads sweeps legacy private rows at startup', () => {
     const { mod } = loadDownloadsStore({ userDataDir });
     storeModule = mod;
 
