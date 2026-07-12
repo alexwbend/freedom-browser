@@ -109,6 +109,20 @@ describe('shortcuts IPC', () => {
     });
     expect(bare.reason).toBe('needs-modifier');
 
+    // Bare character on a renderer-only shortcut — it listens globally too.
+    const bareRenderer = await ctx.ipcMain.invoke(IPC.SHORTCUTS_PREVIEW_BINDING, {
+      id: 'view.toggleSidebar',
+      event: recordedKey('w', 'KeyW'),
+    });
+    expect(bareRenderer.reason).toBe('needs-modifier');
+
+    // Bare editing key (Enter would fire while typing anywhere).
+    const bareEnter = await ctx.ipcMain.invoke(IPC.SHORTCUTS_PREVIEW_BINDING, {
+      id: 'tab.new',
+      event: recordedKey('Enter', 'Enter'),
+    });
+    expect(bareEnter.reason).toBe('needs-modifier');
+
     // Conflict with another shortcut's default.
     const conflicted = await ctx.ipcMain.invoke(IPC.SHORTCUTS_PREVIEW_BINDING, {
       id: 'tab.new',

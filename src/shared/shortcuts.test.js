@@ -276,16 +276,62 @@ describe('validateBinding', () => {
     expect(validateBinding('tab.new', 'F12', 'win32').reason).toBe('reserved');
   });
 
-  test('rejects bare characters for menu-context shortcuts', () => {
+  test('rejects bare characters for every scope — renderer-only included', () => {
     expect(validateBinding('tab.new', 'K', 'linux')).toEqual({
       ok: false,
       reason: 'needs-modifier',
     });
     expect(validateBinding('downloads.show', 'Shift+K', 'linux').reason).toBe('needs-modifier');
+    // Renderer-only shortcuts listen globally too — bare W must not pass.
+    expect(validateBinding('view.toggleSidebar', 'W', 'linux')).toEqual({
+      ok: false,
+      reason: 'needs-modifier',
+    });
+    expect(validateBinding('view.toggleSidebar', 'Shift+W', 'darwin').reason).toBe(
+      'needs-modifier'
+    );
     // Function keys are fine without modifiers…
     expect(validateBinding('tab.new', 'F6', 'linux').ok).toBe(true);
+    expect(validateBinding('view.toggleSidebar', 'F5', 'win32').ok).toBe(true);
     // …and real modifiers make characters fine.
     expect(validateBinding('tab.new', 'Alt+K', 'linux').ok).toBe(true);
+    expect(validateBinding('view.toggleSidebar', 'Ctrl+Shift+W', 'linux').ok).toBe(true);
+  });
+
+  test('rejects modifier-less named editing/navigation keys for every scope', () => {
+    const namedKeys = [
+      'Enter',
+      'Space',
+      'Backspace',
+      'Delete',
+      'Tab',
+      'Up',
+      'Down',
+      'Left',
+      'Right',
+      'Home',
+      'End',
+      'PageUp',
+      'PageDown',
+      'Insert',
+    ];
+    for (const id of ['tab.new', 'downloads.show', 'view.toggleSidebar']) {
+      for (const key of namedKeys) {
+        expect(validateBinding(id, key, 'linux')).toEqual({
+          ok: false,
+          reason: 'needs-modifier',
+        });
+      }
+    }
+    // Shift alone is not a real modifier…
+    expect(validateBinding('view.toggleSidebar', 'Shift+Enter', 'linux').reason).toBe(
+      'needs-modifier'
+    );
+    // …Escape is the universal cancel/dismiss key, also not bindable bare…
+    expect(validateBinding('tab.new', 'Escape', 'linux').reason).toBe('needs-modifier');
+    // …but a real modifier makes named keys fine.
+    expect(validateBinding('tab.new', 'Ctrl+Enter', 'linux').ok).toBe(true);
+    expect(validateBinding('view.toggleSidebar', 'Alt+Delete', 'darwin').ok).toBe(true);
   });
 
   test('rejects non-editable and unknown shortcuts', () => {
@@ -316,6 +362,8 @@ describe('override resolution', () => {
         unknown: 'Ctrl+U', // unknown id → dropped
         'page.findInPage': 42, // not a string → dropped
         'tab.next': 'bad+', // unparsable → dropped
+        'view.toggleSidebar': 'W', // bare character → dropped
+        'page.hardReload': 'Enter', // bare editing key → dropped
       },
       'linux'
     );

@@ -431,6 +431,27 @@ function isReservedAccelerator(accelerator, platform) {
 const isModifierEventKey = (key) =>
   ['Shift', 'Control', 'Alt', 'Meta', 'AltGraph'].includes(String(key));
 
+// The only keys safe to bind without a real modifier: function keys never
+// type or edit text, so a bare binding cannot fire mid-typing. Everything
+// else — printable characters and named editing/navigation keys (Enter,
+// Space, Backspace, Delete, Tab, arrows, Home/End/Page keys, …) — needs
+// Ctrl/Alt/Cmd. Escape is deliberately not allowlisted: it is the
+// universal cancel/dismiss gesture inside dialogs and text fields.
+const SAFE_BARE_KEY_RE = /^F([1-9]|1\d|2[0-4])$/;
+
+/**
+ * True when `accelerator` would fire while the user is typing if bound
+ * as-is: no real modifier (Ctrl/Alt/Cmd — Shift alone does not count) and
+ * a key outside the safe-bare allowlist. Applies to every action scope;
+ * renderer-only shortcuts listen globally too.
+ */
+function acceleratorNeedsModifier(accelerator, platform) {
+  const parsed = parseAccelerator(accelerator, platform);
+  if (!parsed) return false;
+  if (parsed.ctrl || parsed.alt || parsed.meta) return false;
+  return !SAFE_BARE_KEY_RE.test(parsed.key);
+}
+
 /**
  * Build a normalized accelerator from a keydown event (Settings recording
  * mode). Prefers the physical key code so the stored binding is stable
@@ -476,11 +497,11 @@ function validateBinding(entryOrId, accelerator, platform) {
   if (!parsed) return { ok: false, reason: 'invalid' };
   if (isReservedAccelerator(accelerator, platform)) return { ok: false, reason: 'reserved' };
 
-  // Menu-context shortcuts must carry a real modifier: a bare (or
-  // shift-only) character would fire while typing in any text field.
-  const hasRealModifier = parsed.ctrl || parsed.alt || parsed.meta;
-  const isBareCharacter = parsed.key.length === 1;
-  if (entry.context !== 'renderer' && isBareCharacter && !hasRealModifier) {
+  // Every scope must carry a real modifier for typing/editing keys: a bare
+  // (or shift-only) character, Enter, Space, Backspace, Delete, … would
+  // fire while typing in any text field — renderer-only actions included.
+  // Only function keys are safe bare (see SAFE_BARE_KEY_RE).
+  if (acceleratorNeedsModifier(accelerator, platform)) {
     return { ok: false, reason: 'needs-modifier' };
   }
 
@@ -526,9 +547,10 @@ function findConflict(entryOrId, accelerator, overrides, platform) {
 
 /**
  * Defensive cleanup for a stored/incoming overrides map: drops unknown or
- * non-editable ids, non-string and unparsable values, reserved combos, and
- * no-op overrides equal to the default. Values are normalized. Never
- * throws — malformed input yields {}.
+ * non-editable ids, non-string and unparsable values, reserved combos,
+ * modifier-less typing/editing keys, and no-op overrides equal to the
+ * default. Values are normalized. Never throws — malformed input
+ * yields {}.
  */
 function sanitizeOverrides(raw, platform) {
   const clean = {};
@@ -540,6 +562,7 @@ function sanitizeOverrides(raw, platform) {
     const normalized = normalizeAccelerator(value, platform);
     if (!normalized) continue;
     if (isReservedAccelerator(normalized, platform)) continue;
+    if (acceleratorNeedsModifier(normalized, platform)) continue;
     if (normalized === normalizeAccelerator(getDefaultAccelerator(entry, platform), platform)) {
       continue;
     }
@@ -602,6 +625,7 @@ module.exports = {
   getAliasAccelerators,
   normalizeAccelerator,
   isReservedAccelerator,
+  acceleratorNeedsModifier,
   acceleratorFromEvent,
   validateBinding,
   getEffectiveAccelerator,

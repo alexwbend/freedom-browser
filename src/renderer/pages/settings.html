@@ -1116,8 +1116,8 @@
         <section class="section" id="shortcuts">
           <h2 class="section-title">Shortcuts</h2>
           <p class="row-help" style="margin-bottom: 16px">
-            Click a binding, press the new key combination, done — changes apply immediately.
-            Press Esc while recording to cancel.
+            Click a binding, press the new key combination, done — changes apply immediately. Press
+            Esc while recording to cancel.
           </p>
           <div class="shortcut-toolbar">
             <input
@@ -1151,9 +1151,9 @@
         <section class="section" id="ens">
           <h2 class="section-title">Ethereum Name Resolution</h2>
           <p class="row-help" style="margin-bottom: 16px">
-            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>,
-            and <code>.gwei</code> names. These records live on Ethereum — manage RPC
-            endpoints under <a href="#chains">Chains settings</a>.
+            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>, and
+            <code>.gwei</code> names. These records live on Ethereum — manage RPC endpoints under
+            <a href="#chains">Chains settings</a>.
           </p>
           <div class="card">
             <div class="row">
@@ -1191,9 +1191,9 @@
               <div class="row-body">
                 <p class="row-label">Block unverified name navigation</p>
                 <p class="row-help">
-                  Show a warning page before navigating to a name that resolved without
-                  verification (for example, when only one RPC answered). Turn off to navigate
-                  straight through with only the amber shield indicator.
+                  Show a warning page before navigating to a name that resolved without verification
+                  (for example, when only one RPC answered). Turn off to navigate straight through
+                  with only the amber shield indicator.
                 </p>
               </div>
               <div class="row-control">
@@ -2153,7 +2153,8 @@
 
         const REASON_MESSAGES = {
           reserved: 'That combination is reserved and cannot be assigned.',
-          'needs-modifier': 'Combine letters or digits with Ctrl, Alt or Cmd.',
+          'needs-modifier':
+            'Combine that key with Ctrl, Alt or Cmd. Only function keys work on their own.',
           invalid: 'That key cannot be used as a shortcut.',
           'not-editable': 'This shortcut cannot be changed.',
           conflict: 'That combination is already in use.',
@@ -2323,7 +2324,10 @@
 
             stopRecording();
             if (!preview.ok) {
-              rowNotice = { id, message: REASON_MESSAGES[preview.reason] || REASON_MESSAGES.invalid };
+              rowNotice = {
+                id,
+                message: REASON_MESSAGES[preview.reason] || REASON_MESSAGES.invalid,
+              };
               render();
               return;
             }
@@ -2357,7 +2361,10 @@
               conflictState = null;
               rowNotice = null;
               const result = await freedomAPI.resetShortcut(id).catch(() => null);
-              setStatus(result?.ok ? 'Shortcut reset to default.' : 'Could not reset.', result?.ok ? 'success' : 'error');
+              setStatus(
+                result?.ok ? 'Shortcut reset to default.' : 'Could not reset.',
+                result?.ok ? 'success' : 'error'
+              );
               await load();
               break;
             }

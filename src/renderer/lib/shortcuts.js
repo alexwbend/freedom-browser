@@ -326,6 +326,27 @@ export function eventMatchesAccelerator(event, accelerator, platform) {
   return eventKeyCandidates(event).has(parsed.key);
 }
 
+// The only keys safe to bind without a real modifier: function keys never
+// type or edit text, so a bare binding cannot fire mid-typing. Everything
+// else — printable characters and named editing/navigation keys (Enter,
+// Space, Backspace, Delete, Tab, arrows, Home/End/Page keys, …) — needs
+// Ctrl/Alt/Cmd. Escape is deliberately not allowlisted: it is the
+// universal cancel/dismiss gesture inside dialogs and text fields.
+const SAFE_BARE_KEY_RE = /^F([1-9]|1\d|2[0-4])$/;
+
+/**
+ * True when `accelerator` would fire while the user is typing if bound
+ * as-is: no real modifier (Ctrl/Alt/Cmd — Shift alone does not count) and
+ * a key outside the safe-bare allowlist. Applies to every action scope;
+ * renderer-only shortcuts listen globally too.
+ */
+export function acceleratorNeedsModifier(accelerator, platform) {
+  const parsed = parseAccelerator(accelerator, platform);
+  if (!parsed) return false;
+  if (parsed.ctrl || parsed.alt || parsed.meta) return false;
+  return !SAFE_BARE_KEY_RE.test(parsed.key);
+}
+
 export function getShortcutById(id) {
   return SHORTCUTS.find((entry) => entry.id === id) || null;
 }
@@ -405,16 +426,32 @@ export const getEffectiveAccelerator = (id) => {
   return getDefaultAccelerator(id, getPlatform());
 };
 
+// True for events originating in editable UI — inputs, textareas, selects,
+// contenteditable regions — where modifier-less bindings must never fire.
+const isEditableEventTarget = (target) => {
+  if (!target || typeof target !== 'object') return false;
+  if (target.isContentEditable === true) return true;
+  const tag = typeof target.tagName === 'string' ? target.tagName.toLowerCase() : '';
+  return tag === 'input' || tag === 'textarea' || tag === 'select';
+};
+
 /**
  * True when a keydown event matches the shortcut's effective primary
  * accelerator or one of its fixed aliases. Keydown handlers resolve every
  * shortcut through this so user remaps apply without a restart.
+ *
+ * Defense in depth: validation and sanitizeOverrides already reject
+ * modifier-less typing/editing keys, but should one still reach the
+ * renderer (stale store, out-of-band settings edit), it is ignored while
+ * the user is typing in an editable target.
  */
 export const matchesShortcut = (event, id) => {
   const platform = getPlatform();
-  const primary = getEffectiveAccelerator(id);
-  if (primary && eventMatchesAccelerator(event, primary, platform)) return true;
-  return getAliasAccelerators(id, platform).some((alias) =>
-    eventMatchesAccelerator(event, alias, platform)
-  );
+  const editable = isEditableEventTarget(event?.target);
+  const matches = (accelerator) =>
+    Boolean(accelerator) &&
+    eventMatchesAccelerator(event, accelerator, platform) &&
+    !(editable && acceleratorNeedsModifier(accelerator, platform));
+  if (matches(getEffectiveAccelerator(id))) return true;
+  return getAliasAccelerators(id, platform).some(matches);
 };

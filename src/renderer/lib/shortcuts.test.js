@@ -86,6 +86,37 @@ describe('shared ↔ renderer mirror equivalence', () => {
     }
   });
 
+  test('acceleratorNeedsModifier agrees across a battery of accelerators', async () => {
+    const mirror = await loadMirror();
+    const accelerators = [
+      'W',
+      'Shift+W',
+      'Ctrl+W',
+      'CmdOrCtrl+Shift+W',
+      'Enter',
+      'Shift+Enter',
+      'Alt+Enter',
+      'Space',
+      'Backspace',
+      'Delete',
+      'Tab',
+      'Escape',
+      'Left',
+      'Home',
+      'PageUp',
+      'F5',
+      'F11',
+      'Shift+F5',
+    ];
+    for (const accelerator of accelerators) {
+      for (const platform of PLATFORMS) {
+        expect(mirror.acceleratorNeedsModifier(accelerator, platform)).toBe(
+          shared.acceleratorNeedsModifier(accelerator, platform)
+        );
+      }
+    }
+  });
+
   test('default and alias lookups agree', async () => {
     const mirror = await loadMirror();
     for (const entry of shared.SHORTCUTS) {
@@ -157,6 +188,54 @@ describe('renderer live bindings', () => {
 
     expect(mirror.getEffectiveAccelerator('tab.new')).toBe('Ctrl+Shift+U');
     expect(mirror.getEffectiveAccelerator('tab.close')).toBe('CmdOrCtrl+W');
+  });
+
+  test('bare-key bindings are ignored while typing in editable targets', async () => {
+    const mirror = await loadMirror();
+    // A modifier-less override should never reach the renderer (validation
+    // and sanitizeOverrides both reject it) — but if one does (stale store,
+    // out-of-band settings edit), it must not fire mid-typing.
+    mirror.configureShortcuts({ platform: 'linux', overrides: { 'view.toggleSidebar': 'W' } });
+
+    const bareW = keyEvent({ key: 'w', code: 'KeyW' });
+    const page = { tagName: 'BODY', isContentEditable: false };
+    const input = { tagName: 'INPUT', isContentEditable: false };
+    const textarea = { tagName: 'TEXTAREA', isContentEditable: false };
+    const select = { tagName: 'SELECT', isContentEditable: false };
+    const editableDiv = { tagName: 'DIV', isContentEditable: true };
+
+    expect(mirror.matchesShortcut({ ...bareW, target: page }, 'view.toggleSidebar')).toBe(true);
+    for (const target of [input, textarea, select, editableDiv]) {
+      expect(mirror.matchesShortcut({ ...bareW, target }, 'view.toggleSidebar')).toBe(false);
+    }
+
+    // Shift alone is not a real modifier — Shift+Enter must not fire either.
+    mirror.configureShortcuts({ overrides: { 'view.toggleSidebar': 'Shift+Enter' } });
+    expect(
+      mirror.matchesShortcut(
+        { ...keyEvent({ key: 'Enter', code: 'Enter', shiftKey: true }), target: textarea },
+        'view.toggleSidebar'
+      )
+    ).toBe(false);
+  });
+
+  test('modifier combos and bare function keys still fire in editable targets', async () => {
+    const mirror = await loadMirror();
+    mirror.configureShortcuts({ platform: 'linux', overrides: {} });
+    const input = { tagName: 'INPUT', isContentEditable: false };
+
+    expect(
+      mirror.matchesShortcut(
+        { ...keyEvent({ key: 'W', code: 'KeyW', ctrlKey: true, shiftKey: true }), target: input },
+        'view.toggleSidebar'
+      )
+    ).toBe(true);
+    expect(
+      mirror.matchesShortcut(
+        { ...keyEvent({ key: 'F11', code: 'F11' }), target: input },
+        'view.fullscreen'
+      )
+    ).toBe(true);
   });
 
   test('initShortcuts loads settings and applies live settings:updated payloads', async () => {
