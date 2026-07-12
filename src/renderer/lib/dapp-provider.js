@@ -30,6 +30,17 @@ window.addEventListener('settings:updated', (event) => {
 // Provider state per webview (keyed by webview ID or reference)
 const providerStates = new WeakMap();
 
+// Per-webview navigation generation, bumped on every committed navigation
+// and on webview destruction (mirrors radicle-provider.js). Requests capture
+// the generation on arrival and responses are only delivered while it still
+// matches: provider request ids restart per document, so a result or error
+// that lands after a navigation could otherwise satisfy a reused id in the
+// replacement document. Main already drops Safe signing sessions on
+// navigation; this closes the same gap on the renderer's delivery side.
+const navigationGenerations = new WeakMap();
+
+const getNavigationGeneration = (webview) => navigationGenerations.get(webview) ?? 0;
+
 // Current active webview reference (set by tabs.js)
 let activeWebview = null;
 
@@ -142,6 +153,12 @@ async function handleProviderRequest(webview, request) {
 
   console.log('[DappProvider] Using permissionKey:', permissionKey);
 
+  // Captured at request arrival; if the webview navigates (or is destroyed)
+  // before the async path below settles, neither the result nor the error
+  // may be delivered — the reply would land in a replacement document that
+  // never made this request.
+  const generation = getNavigationGeneration(webview);
+
   try {
     let result;
 
@@ -239,9 +256,13 @@ async function handleProviderRequest(webview, request) {
       throw ERRORS.UNSUPPORTED_METHOD;
     }
 
-    // Send success response
+    // Send success response — unless the requesting document is gone
+    if (getNavigationGeneration(webview) !== generation) return;
     sendProviderResponse(webview, id, result, null);
   } catch (error) {
+    // Never deliver a stale response (success or error) into a replacement
+    // document — request ids can be reused across navigations.
+    if (getNavigationGeneration(webview) !== generation) return;
     // Send error response
     const err = {
       code: error.code || ERRORS.INTERNAL_ERROR.code,
@@ -527,6 +548,14 @@ export function setupWebviewProvider(webview) {
       handleProviderRequest(webview, request);
     }
   });
+
+  // Invalidate in-flight requests when their document goes away, so their
+  // responses can never reach the replacement document.
+  const invalidateDocument = () => {
+    navigationGenerations.set(webview, getNavigationGeneration(webview) + 1);
+  };
+  webview.addEventListener('did-navigate', invalidateDocument);
+  webview.addEventListener('destroyed', invalidateDocument);
 
   // Initialize provider state for this webview
   getProviderState(webview);
