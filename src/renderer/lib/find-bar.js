@@ -48,6 +48,11 @@ let submittedQuery = '';
 
 let debounceTimer = null;
 
+// Monotonic id for selection-prefill requests. The selection read is
+// asynchronous, so by the time it resolves the world may have moved on;
+// only the latest request is allowed to apply its result.
+let prefillGeneration = 0;
+
 const handleFoundInPage = (event) => {
   const result = event.result || {};
   // Chromium streams interim updates while it scans; render them all so
@@ -137,10 +142,19 @@ const findNext = (forward) => {
 const prefillFromSelection = async () => {
   const webview = getActiveWebview?.();
   if (!webview || typeof webview.executeJavaScript !== 'function' || !findInput) return;
+  const generation = ++prefillGeneration;
   let selection;
   try {
     selection = await webview.executeJavaScript('window.getSelection().toString()');
   } catch {
+    return;
+  }
+  // The read can resolve after the world moved on: the bar closed, a later
+  // open superseded this request, the active tab changed, or the page
+  // navigated (which bumps the generation — see notifyFindBarNavigated).
+  // Applying the stale result then would rewrite the input and start a
+  // find session against the wrong page.
+  if (generation !== prefillGeneration || !isFindBarOpen() || getActiveWebview?.() !== webview) {
     return;
   }
   if (typeof selection !== 'string') return;
@@ -195,6 +209,10 @@ export const closeFindBar = () => {
 // typing) starts a fresh search against the new page.
 export const notifyFindBarNavigated = () => {
   if (!isFindBarOpen()) return;
+  // Navigation keeps the same webview object, so the prefill guards can't
+  // see the document change — invalidate any in-flight selection read
+  // explicitly, or a selection from the old document could still apply.
+  prefillGeneration++;
   detachSession({ clearHighlights: false });
   resetResultUi();
 };

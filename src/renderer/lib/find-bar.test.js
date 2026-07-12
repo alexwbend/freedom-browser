@@ -8,6 +8,16 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+// A promise whose resolution the test controls, for holding a prefill's
+// executeJavaScript in flight while the world changes around it.
+const createDeferred = () => {
+  let resolve;
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
 const createFakeWebview = () => {
   const webview = createElement('webview');
   webview.findInPage = jest.fn();
@@ -113,7 +123,14 @@ describe('find-bar', () => {
 
     const keydown = ctx.windowHandlers.keydown;
     const preventDefault = jest.fn();
-    keydown({ metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, key: 'f', preventDefault });
+    keydown({
+      metaKey: true,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      key: 'f',
+      preventDefault,
+    });
     await flushMicrotasks();
 
     expect(preventDefault).toHaveBeenCalled();
@@ -349,6 +366,89 @@ describe('find-bar', () => {
 
     expect(ctx.input.value).toBe('needle');
     expect(ctx.input.select).toHaveBeenCalled();
+  });
+
+  test('a prefill that resolves after the bar closed is discarded', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.mod.openFindBar();
+    ctx.mod.closeFindBar();
+
+    deferred.resolve('stale selection');
+    await flushMicrotasks();
+
+    expect(ctx.input.value).toBe('');
+    expect(webview.findInPage).not.toHaveBeenCalled();
+    expect(ctx.mod.isFindBarOpen()).toBe(false);
+  });
+
+  test('a prefill that resolves after the active webview changed is discarded', async () => {
+    const firstWebview = createFakeWebview();
+    const secondWebview = createFakeWebview();
+    const deferred = createDeferred();
+    firstWebview.executeJavaScript.mockReturnValue(deferred.promise);
+    let active = firstWebview;
+    const ctx = await loadFindBarModule({
+      webview: firstWebview,
+      initOptions: { getActiveWebview: () => active },
+    });
+
+    ctx.mod.openFindBar();
+    // The active tab changes while the selection read is still in flight.
+    active = secondWebview;
+
+    deferred.resolve('stale selection');
+    await flushMicrotasks();
+
+    expect(ctx.input.value).toBe('');
+    expect(firstWebview.findInPage).not.toHaveBeenCalled();
+    expect(secondWebview.findInPage).not.toHaveBeenCalled();
+  });
+
+  test('a prefill that resolves after the same webview navigated is discarded', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.mod.openFindBar();
+    // The page navigates while the selection read is still in flight. The
+    // webview object survives navigation, so only the generation bump in
+    // the navigation hook can invalidate the read from the old document.
+    ctx.mod.notifyFindBarNavigated();
+
+    deferred.resolve('selection from the old document');
+    await flushMicrotasks();
+
+    expect(ctx.mod.isFindBarOpen()).toBe(true);
+    expect(ctx.input.value).toBe('');
+    expect(webview.findInPage).not.toHaveBeenCalled();
+  });
+
+  test('a re-open supersedes a still-pending prefill; only the latest applies', async () => {
+    const webview = createFakeWebview();
+    const first = createDeferred();
+    const second = createDeferred();
+    webview.executeJavaScript
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.mod.openFindBar();
+    ctx.mod.openFindBar();
+
+    second.resolve('fresh selection');
+    await flushMicrotasks();
+    // The first request resolves last — it must not clobber the newer one.
+    first.resolve('stale selection');
+    await flushMicrotasks();
+
+    expect(ctx.input.value).toBe('fresh selection');
+    expect(webview.findInPage).toHaveBeenCalledTimes(1);
+    expect(webview.findInPage).toHaveBeenCalledWith('fresh selection');
   });
 
   test('handles missing DOM elements and a missing webview safely', async () => {
