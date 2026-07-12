@@ -87,9 +87,11 @@ const loadProvider = async (options = {}) => {
     isSafeAccount: jest.fn((index) => index >= SAFE_WALLET_INDEX),
     GNOSIS_CHAIN_ID: 100,
   }));
-  jest.doMock('./wallet/safe-signing.js', () => ({
+  const safeSigning = {
     openSafeMessageBoard: jest.fn(),
-  }));
+    abandonSafeMessageBoard: jest.fn(),
+  };
+  jest.doMock('./wallet/safe-signing.js', () => safeSigning);
   jest.doMock('./origin-utils.js', () => ({
     getPermissionKey: jest.fn((url) => url),
   }));
@@ -109,7 +111,7 @@ const loadProvider = async (options = {}) => {
     });
   };
 
-  return { mod, webview, sendRequest, state, walletMocks, dappPermissions };
+  return { mod, webview, sendRequest, state, walletMocks, dappPermissions, safeSigning };
 };
 
 const responsesSentTo = (webview) =>
@@ -202,6 +204,37 @@ describe('dapp-provider document binding', () => {
     await flushMicrotasks();
 
     expect(responsesSentTo(webview)).toHaveLength(0);
+  });
+
+  test('the signing board is opened for the requesting webview and withdrawn on navigation', async () => {
+    const { webview, sendRequest, walletMocks, safeSigning } = await loadProvider({
+      permission: safePermission(),
+    });
+    walletMocks.safeMessageStart.mockResolvedValue({
+      success: true,
+      state: { complete: false, token: 'tok' },
+    });
+    safeSigning.openSafeMessageBoard.mockReturnValue(new Promise(() => {}));
+
+    sendRequest({ id: 5, method: 'personal_sign', params: ['0xdead', '0xsafe'] });
+    await flushMicrotasks();
+    expect(safeSigning.openSafeMessageBoard).toHaveBeenCalledWith(
+      SAFE_WALLET_INDEX,
+      { complete: false, token: 'tok' },
+      webview
+    );
+
+    webview.dispatch('did-navigate', { url: 'https://other.example' });
+
+    expect(safeSigning.abandonSafeMessageBoard).toHaveBeenCalledWith(webview);
+  });
+
+  test('webview destruction also withdraws the signing board', async () => {
+    const { webview, safeSigning } = await loadProvider({ permission: safePermission() });
+
+    webview.dispatch('destroyed', {});
+
+    expect(safeSigning.abandonSafeMessageBoard).toHaveBeenCalledWith(webview);
   });
 
   test('a fresh request from the replacement document still gets its response', async () => {

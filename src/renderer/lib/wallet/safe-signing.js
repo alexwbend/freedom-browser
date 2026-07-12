@@ -39,6 +39,7 @@ let boardSafeIndex = null;
 let boardKind = 'send'; // 'send' | 'message'
 let messageResolver = null; // {resolve, reject} of the waiting dApp request
 let messageToken = null; // the session's capability token (from start's state)
+let messageOwner = null; // opaque token for the requesting document (its webview)
 let state = null; // SafeSendState / SafeMessageState from main
 let phase = 'board'; // 'board' | 'executing' | 'success' | 'superseded'
 let executed = null; // {hash, explorerUrl} (send mode)
@@ -104,16 +105,42 @@ export async function openSafeSigningBoard(safeIndex, initialState = null) {
  * main-side; pass its state as `initialState`). Resolves with the
  * combined EIP-1271 signature when the threshold is met, rejects with
  * an EIP-1193 user-rejection when the user closes or cancels the
- * board — a waiting dApp can't be parked.
+ * board — a waiting dApp can't be parked. `owner` identifies the
+ * requesting document (its webview), so the board can be withdrawn when
+ * that document goes away (see abandonSafeMessageBoard).
  */
-export function openSafeMessageBoard(safeIndex, initialState = null) {
+export function openSafeMessageBoard(safeIndex, initialState = null, owner = null) {
   return new Promise((resolve, reject) => {
     abandonMessageSession();
     boardKind = 'message';
     messageResolver = { resolve, reject };
     messageToken = initialState?.token ?? null;
+    messageOwner = owner;
     openBoard(safeIndex, initialState);
   });
+}
+
+/**
+ * Withdraw the message board when the document that requested the
+ * signature navigates away or its webview dies — called by the dApp
+ * provider from the same invalidation seam that suppresses the in-flight
+ * response (mirrors radicle-consent's owner-scoped dismissal). Main has
+ * already discarded the session and the provider drops the rejection, so
+ * this is chrome cleanup: settle the promise, stop the Ledger probing,
+ * take the screen down. The busy guard in closeSafeSigning doesn't apply
+ * — nothing on the board can succeed once its session is gone. Owner-
+ * scoped: a board opened by a successor document (or another tab) is
+ * left alone.
+ */
+export function abandonSafeMessageBoard(owner) {
+  if (boardKind !== 'message' || !messageResolver || !owner || messageOwner !== owner) return;
+  api().cancel(boardSafeIndex); // best effort — main usually dropped it already
+  settleMessage('reject', { code: 4001, message: 'User rejected the request' });
+  if (!screen || screen.classList.contains('hidden')) return;
+  signingIndex = null;
+  hideScreen();
+  walletState.identityView?.classList.remove('hidden');
+  window.dispatchEvent(new CustomEvent('wallet:safe-signing-closed'));
 }
 
 async function openBoard(safeIndex, initialState) {
@@ -171,6 +198,7 @@ function settleMessage(outcome, value) {
   const { resolve, reject } = messageResolver;
   messageResolver = null;
   messageToken = null;
+  messageOwner = null;
   (outcome === 'resolve' ? resolve : reject)(value);
 }
 

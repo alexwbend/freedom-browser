@@ -13,7 +13,7 @@
 import { showDappConnect, getSelectedChainId, setSelectedChainId, updateConnectionBanner, showDappTxApproval, showDappSignApproval, showVaultUnlock, updateSwarmConnectionBanner, updateX402ConnectionBanner } from './wallet-ui.js';
 import { buildDappTxContext, extractSelector } from './wallet/dapp-tx.js';
 import { isSafeAccount, GNOSIS_CHAIN_ID } from './wallet/wallet-utils.js';
-import { openSafeMessageBoard } from './wallet/safe-signing.js';
+import { openSafeMessageBoard, abandonSafeMessageBoard } from './wallet/safe-signing.js';
 import { getPermissionKey } from './origin-utils.js';
 
 // Feature flag state
@@ -408,7 +408,7 @@ async function signViaSafeAccount(method, params, walletIndex, site, webview) {
     if (!done.success) throw new Error(done.error || 'Signing failed');
     return done.signature;
   }
-  return openSafeMessageBoard(walletIndex, started.state);
+  return openSafeMessageBoard(walletIndex, started.state, webview);
 }
 
 /** The webview's webContents id, or null when it isn't attached (yet). */
@@ -550,9 +550,12 @@ export function setupWebviewProvider(webview) {
   });
 
   // Invalidate in-flight requests when their document goes away, so their
-  // responses can never reach the replacement document.
+  // responses can never reach the replacement document — and withdraw the
+  // Safe signing board it may have opened (its session is gone main-side;
+  // the board is owner-scoped, so a successor document's board survives).
   const invalidateDocument = () => {
     navigationGenerations.set(webview, getNavigationGeneration(webview) + 1);
+    abandonSafeMessageBoard(webview);
   };
   webview.addEventListener('did-navigate', invalidateDocument);
   webview.addEventListener('destroyed', invalidateDocument);
