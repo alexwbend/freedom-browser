@@ -150,9 +150,10 @@ const prefillFromSelection = async () => {
     return;
   }
   // The read can resolve after the world moved on: the bar closed, a later
-  // open superseded this request, or the active tab changed. Applying the
-  // stale result then would rewrite the input and start a find session
-  // against the wrong page.
+  // open superseded this request, the active tab changed, or the page
+  // navigated (which bumps the generation — see notifyFindBarNavigated).
+  // Applying the stale result then would rewrite the input and start a
+  // find session against the wrong page.
   if (generation !== prefillGeneration || !isFindBarOpen() || getActiveWebview?.() !== webview) {
     return;
   }
@@ -208,6 +209,10 @@ export const closeFindBar = () => {
 // typing) starts a fresh search against the new page.
 export const notifyFindBarNavigated = () => {
   if (!isFindBarOpen()) return;
+  // Navigation keeps the same webview object, so the prefill guards can't
+  // see the document change — invalidate any in-flight selection read
+  // explicitly, or a selection from the old document could still apply.
+  prefillGeneration++;
   detachSession({ clearHighlights: false });
   resetResultUi();
 };

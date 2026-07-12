@@ -408,6 +408,26 @@ describe('find-bar', () => {
     expect(secondWebview.findInPage).not.toHaveBeenCalled();
   });
 
+  test('a prefill that resolves after the same webview navigated is discarded', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.mod.openFindBar();
+    // The page navigates while the selection read is still in flight. The
+    // webview object survives navigation, so only the generation bump in
+    // the navigation hook can invalidate the read from the old document.
+    ctx.mod.notifyFindBarNavigated();
+
+    deferred.resolve('selection from the old document');
+    await flushMicrotasks();
+
+    expect(ctx.mod.isFindBarOpen()).toBe(true);
+    expect(ctx.input.value).toBe('');
+    expect(webview.findInPage).not.toHaveBeenCalled();
+  });
+
   test('a re-open supersedes a still-pending prefill; only the latest applies', async () => {
     const webview = createFakeWebview();
     const first = createDeferred();
