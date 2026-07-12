@@ -21,6 +21,15 @@ const flushMicrotasks = async () => {
   }
 };
 
+/** A promise whose settlement the test controls (a held IPC reply). */
+const deferred = () => {
+  let resolve;
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+};
+
 /** Observe a promise without awaiting it (the board settles it later). */
 const track = (promise) => {
   const outcome = { settled: false, value: undefined, rejection: undefined };
@@ -201,6 +210,148 @@ describe('safe signing board — message session withdrawal', () => {
     expect(walletMocks.safeMessageComplete).toHaveBeenCalledWith(5, 'tok-1');
     expect(outcome.value).toBe('0xsig');
     expect(walletMocks.safeMessageCancel).not.toHaveBeenCalled();
+    expect(screen.classList.contains('hidden')).toBe(true);
+  });
+});
+
+describe('safe signing board — cross-session fencing of in-flight continuations', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+    global.window = originalWindow;
+    global.document = originalDocument;
+    global.CustomEvent = originalCustomEvent;
+    jest.restoreAllMocks();
+  });
+
+  // Production hands the board the persistent webview object for every
+  // document it hosts (dapp-provider.js) — a predecessor and its
+  // successor share the SAME owner reference. These tests hold a
+  // predecessor IPC reply in flight, open a successor board, and only
+  // then release it: the stale continuation must not settle the
+  // successor's promise or touch its state, notes, UI, or polling.
+
+  const thresholdMetState = (overrides = {}) =>
+    messageState({
+      collected: 2,
+      owners: [
+        { index: 0, type: 'mnemonic', signed: true },
+        { index: 1, type: 'mnemonic', signed: true },
+      ],
+      ...overrides,
+    });
+
+  test("a predecessor's in-flight completion cannot settle or touch a successor board for the same owner", async () => {
+    jest.useFakeTimers();
+    const { mod, screen, walletMocks, ledger } = await loadBoard();
+    const webview = { tag: 'persistent-webview' };
+
+    // Document A: threshold already met, so opening the board immediately
+    // calls safeMessageComplete — hold that reply in flight.
+    const pendingA = deferred();
+    walletMocks.safeMessageComplete.mockImplementationOnce(() => pendingA.promise);
+    const first = track(mod.openSafeMessageBoard(5, thresholdMetState(), webview));
+    await flushMicrotasks();
+    expect(walletMocks.safeMessageComplete).toHaveBeenCalledWith(5, 'tok-1');
+    expect(first.settled).toBe(false);
+
+    // A navigates away; a successor document in the same webview opens
+    // its own session (with an unsigned Ledger row, so B is polling).
+    mod.abandonSafeMessageBoard(webview);
+    await flushMicrotasks();
+    expect(first.rejection).toEqual({ code: 4001, message: 'User rejected the request' });
+
+    const successorState = messageState({
+      token: 'tok-2',
+      owners: [
+        { index: 0, type: 'mnemonic', signed: true },
+        { index: 1, type: 'ledger', signed: false },
+      ],
+    });
+    const second = track(mod.openSafeMessageBoard(5, successorState, webview));
+    await flushMicrotasks();
+    expect(screen.classList.contains('hidden')).toBe(false);
+    const content = global.document.getElementById('safe-signing-content');
+    const boardHtml = content.innerHTML;
+
+    // A's completion finally resolves — with A's signature.
+    pendingA.resolve({ success: true, signature: '0xsig-A' });
+    await flushMicrotasks();
+
+    expect(second.settled).toBe(false); // B must never receive A's signature
+    expect(screen.classList.contains('hidden')).toBe(false);
+    expect(content.innerHTML).toBe(boardHtml); // no UI writes from the stale path
+
+    // B's warm Ledger detection is still running.
+    ledger.getAccounts.mockClear();
+    await jest.advanceTimersByTimeAsync(2100);
+    expect(ledger.getAccounts).toHaveBeenCalled();
+  });
+
+  test("a predecessor's delayed signing error cannot write into a successor board", async () => {
+    const { mod, walletMocks } = await loadBoard();
+    const webview = { tag: 'persistent-webview' };
+    const content = global.document.getElementById('safe-signing-content');
+
+    // Plant a sign button inside the board content so the test can drive
+    // the real signOwner path (the fake DOM keeps planted children when
+    // innerHTML is rewritten, and render() wires [data-sign-owner]).
+    const signButton = createElement('button', { dataset: { signOwner: '1' } });
+    content.appendChild(signButton);
+
+    // Document A: the user taps "Sign" — hold the sign reply in flight.
+    const pendingSign = deferred();
+    walletMocks.safeMessageSign.mockImplementationOnce(() => pendingSign.promise);
+    track(mod.openSafeMessageBoard(5, messageState(), webview));
+    await flushMicrotasks();
+    signButton.dispatch('click');
+    await flushMicrotasks();
+    expect(walletMocks.safeMessageSign).toHaveBeenCalledWith(5, 1, 'tok-1');
+
+    // A navigates; a successor session opens for the same webview.
+    mod.abandonSafeMessageBoard(webview);
+    const second = track(mod.openSafeMessageBoard(5, messageState({ token: 'tok-2' }), webview));
+    await flushMicrotasks();
+    const boardHtml = content.innerHTML;
+    walletMocks.safeMessageState.mockClear();
+
+    // A's sign attempt finally fails.
+    pendingSign.resolve({ success: false, code: 'LEDGER_FAILED', error: 'Ledger exploded' });
+    await flushMicrotasks();
+
+    expect(content.innerHTML).toBe(boardHtml); // no stale row note or re-render
+    expect(content.innerHTML).not.toContain('Ledger exploded');
+    expect(walletMocks.safeMessageState).not.toHaveBeenCalled(); // no refresh against B's session
+    expect(second.settled).toBe(false);
+  });
+
+  test('a successor board still completes normally after a stale predecessor continuation', async () => {
+    const { mod, screen, walletMocks } = await loadBoard();
+    const webview = { tag: 'persistent-webview' };
+
+    const pendingA = deferred();
+    const pendingB = deferred();
+    walletMocks.safeMessageComplete
+      .mockImplementationOnce(() => pendingA.promise)
+      .mockImplementationOnce(() => pendingB.promise);
+
+    track(mod.openSafeMessageBoard(5, thresholdMetState(), webview));
+    await flushMicrotasks();
+    mod.abandonSafeMessageBoard(webview);
+    const second = track(
+      mod.openSafeMessageBoard(5, thresholdMetState({ token: 'tok-2' }), webview)
+    );
+    await flushMicrotasks();
+    expect(walletMocks.safeMessageComplete).toHaveBeenLastCalledWith(5, 'tok-2');
+
+    // A's stale completion is ignored…
+    pendingA.resolve({ success: true, signature: '0xsig-A' });
+    await flushMicrotasks();
+    expect(second.settled).toBe(false);
+
+    // …while B's own completion settles B as usual.
+    pendingB.resolve({ success: true, signature: '0xsig-B' });
+    await flushMicrotasks();
+    expect(second.value).toBe('0xsig-B');
     expect(screen.classList.contains('hidden')).toBe(true);
   });
 });

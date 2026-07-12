@@ -49,6 +49,20 @@ let rowNotes = new Map(); // ownerIndex → {kind: 'error'|'info', text}
 let ledgerDetected = false;
 let ledgerPollTimer = null;
 
+/**
+ * Board sessions share the module globals above, but IPC continuations
+ * can outlive their session: if a board is abandoned mid-await and a
+ * successor opens, the resumed code would settle the successor's promise
+ * or write into its state. Every open/abandon bumps the epoch; async
+ * paths capture it before awaiting and bail once it has moved on. Only
+ * the continuation is fenced — the IPC calls themselves already went out
+ * against the right session.
+ */
+let boardEpoch = 0;
+
+/** Whether a captured epoch belongs to a superseded board session. */
+const isStale = (epoch) => epoch !== boardEpoch;
+
 // The IPC surface per board kind — everything else is shared.
 const KIND_API = {
   send: {
@@ -134,6 +148,7 @@ export function openSafeMessageBoard(safeIndex, initialState = null, owner = nul
  */
 export function abandonSafeMessageBoard(owner) {
   if (boardKind !== 'message' || !messageResolver || !owner || messageOwner !== owner) return;
+  boardEpoch += 1; // fence the session's in-flight continuations
   api().cancel(boardSafeIndex); // best effort — main usually dropped it already
   settleMessage('reject', { code: 4001, message: 'User rejected the request' });
   if (!screen || screen.classList.contains('hidden')) return;
@@ -144,6 +159,7 @@ export function abandonSafeMessageBoard(owner) {
 }
 
 async function openBoard(safeIndex, initialState) {
+  const epoch = ++boardEpoch; // a new session — fence the previous one's continuations
   boardSafeIndex = safeIndex;
   phase = 'board';
   executed = null;
@@ -164,6 +180,7 @@ async function openBoard(safeIndex, initialState) {
     if (state.status === 'superseded') phase = 'superseded';
   } else {
     await refreshState();
+    if (isStale(epoch)) return;
   }
   if (!state) {
     // nothing pending (e.g. discarded elsewhere) — nothing to show
@@ -208,7 +225,9 @@ function hideScreen() {
 }
 
 async function refreshState() {
+  const epoch = boardEpoch;
   const result = await api().state(boardSafeIndex);
+  if (isStale(epoch)) return;
   state = result.success ? result.state : null;
   if (state?.status === 'superseded') phase = 'superseded';
 }
@@ -220,12 +239,14 @@ async function refreshState() {
  * @returns {Promise<boolean>} whether the vault is now unlocked
  */
 async function requestVaultUnlock() {
+  const epoch = boardEpoch;
   let unlocked = true;
   try {
     await showVaultUnlock('Your multi-owner transaction');
   } catch {
     unlocked = false; // user cancelled
   }
+  if (isStale(epoch)) return false;
   walletState.identityView?.classList.add('hidden');
   screen?.classList.remove('hidden');
   render();
@@ -235,8 +256,10 @@ async function requestVaultUnlock() {
 /** Silent free signatures (main owns the policy) + finalize if ready. */
 async function progressAutomatics() {
   if (!state || phase !== 'board') return;
+  const epoch = boardEpoch;
   if (state.collected < state.threshold) {
     const result = await api().sign(boardSafeIndex); // free-signature sweep
+    if (isStale(epoch)) return;
     if (result.success) {
       state = result.state;
       render();
@@ -260,11 +283,13 @@ async function maybeFinalize() {
 
 async function signOwner(ownerIndex) {
   if (signingIndex !== null || phase !== 'board') return;
+  const epoch = boardEpoch;
   signingIndex = ownerIndex;
   rowNotes.delete(ownerIndex);
   render();
 
   const result = await api().sign(boardSafeIndex, ownerIndex);
+  if (isStale(epoch)) return;
   signingIndex = null;
 
   if (result.success) {
@@ -275,7 +300,9 @@ async function signOwner(ownerIndex) {
   }
 
   if (result.code === 'VAULT_LOCKED') {
-    if (await requestVaultUnlock()) {
+    const unlocked = await requestVaultUnlock();
+    if (isStale(epoch)) return;
+    if (unlocked) {
       return signOwner(ownerIndex);
     }
     rowNotes.set(ownerIndex, { kind: 'info', text: 'Unlock your wallet to sign' });
@@ -286,6 +313,7 @@ async function signOwner(ownerIndex) {
   const note = describeRowFailure(result);
   if (note) rowNotes.set(ownerIndex, note);
   await refreshState();
+  if (isStale(epoch)) return;
   render();
   // A failed Ledger attempt may mean it was unplugged again — re-probe.
   if (walletRecord(ownerIndex)?.type === 'ledger') {
@@ -317,7 +345,9 @@ function describeRowFailure(result) {
  * same banner-with-retry treatment as execution failures.
  */
 async function completeNow() {
+  const epoch = boardEpoch;
   const result = await window.wallet.safeMessageComplete(boardSafeIndex, messageToken);
+  if (isStale(epoch)) return;
   if (result.success) {
     phase = 'success'; // past the busy guard in closeSafeSigning
     settleMessage('resolve', result.signature);
@@ -326,15 +356,18 @@ async function completeNow() {
   }
   executeError = { message: result.error || 'Signing failed', needsFunds: false };
   await refreshState();
+  if (isStale(epoch)) return;
   render();
 }
 
 async function executeNow() {
+  const epoch = boardEpoch;
   phase = 'executing';
   executeError = null;
   render();
 
   const result = await window.wallet.safeExecute(boardSafeIndex);
+  if (isStale(epoch)) return;
   if (result.success && result.state?.status === 'executed') {
     state = result.state; // pre-clear snapshot — display survives for the summary
     executed = result.state.executed;
@@ -353,7 +386,10 @@ async function executeNow() {
     // the flow, not a failure.
     phase = 'board';
     await refreshState();
-    if (await requestVaultUnlock()) {
+    if (isStale(epoch)) return;
+    const unlocked = await requestVaultUnlock();
+    if (isStale(epoch)) return;
+    if (unlocked) {
       return executeNow();
     }
     executeError = {
@@ -367,6 +403,7 @@ async function executeNow() {
     };
     phase = 'board';
     await refreshState();
+    if (isStale(epoch)) return;
   }
   render();
 }
@@ -379,8 +416,9 @@ async function handleDiscard() {
     if (!confirm(`Discard ${what}?\n\nThe collected signatures will be deleted — devices that already signed would need to sign again.`)) {
       return;
     }
+    const epoch = boardEpoch;
     const result = await window.wallet.safeCancelPending(boardSafeIndex);
-    if (!result.success) return;
+    if (isStale(epoch) || !result.success) return;
     window.dispatchEvent(
       new CustomEvent('wallet:safe-discarded', {
         detail: { safeIndex: boardSafeIndex, safeTxHash: state?.safeTxHash },
@@ -404,11 +442,13 @@ function hasUnsignedLedgerRow() {
 
 function startLedgerDetection() {
   stopLedgerDetection();
+  const epoch = boardEpoch;
   const tick = async () => {
     ledgerPollTimer = null;
-    if (phase !== 'board' || !hasUnsignedLedgerRow()) return;
+    if (isStale(epoch) || phase !== 'board' || !hasUnsignedLedgerRow()) return;
     if (signingIndex === null) {
       const result = await window.ledger.getAccounts({ scheme: 'live', start: 0, count: 1 });
+      if (isStale(epoch)) return;
       if (result.success) {
         // Detected — highlight the row and stop probing (the transport
         // shouldn't be poked more than needed; a failed Ledger signing
