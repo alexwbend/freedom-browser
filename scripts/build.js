@@ -25,6 +25,8 @@
  */
 
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const args = process.argv.slice(2);
 
@@ -53,6 +55,24 @@ if (archs.length === 0) {
   if (platform === 'mac') archs.push('arm64');
   else if (platform === 'win') archs.push('x64');
   else archs.push('arm64', 'x64'); // Linux defaults to both
+}
+
+// Distributables must not ship the interim remote-signing bridge origin
+// (personal test deployment — see the pre-merge checklist on PR #159).
+// Override for local experiments only: FREEDOM_ALLOW_INTERIM_BRIDGE=1.
+if (dist && process.env.FREEDOM_ALLOW_INTERIM_BRIDGE !== '1') {
+  const remoteSession = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'renderer', 'lib', 'wallet', 'remote-session.js'),
+    'utf8'
+  );
+  if (remoteSession.includes('florianglatz.eth.limo')) {
+    console.error(
+      'Error: BRIDGE_ORIGIN in src/renderer/lib/wallet/remote-session.js still points at the ' +
+        'interim test deployment. Deploy freedom-bridge to the production origin and update the ' +
+        'constant before building a distributable (FREEDOM_ALLOW_INTERIM_BRIDGE=1 to override locally).'
+    );
+    process.exit(1);
+  }
 }
 
 // 1. Check binaries for the target platform/arch
