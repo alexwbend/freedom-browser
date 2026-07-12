@@ -14,8 +14,16 @@
  * half-signed message could never be delivered. They also don't touch
  * the Safe nonce, so a parked send never blocks a message session —
  * only the per-safe device-ceremony lock is shared.
+ *
+ * Every session belongs to exactly one requesting page: it is bound to
+ * the requester (site + webContents) that opened it and guarded by an
+ * unguessable per-session token that every subsequent state/sign/
+ * complete/cancel call must present. Another page can neither observe,
+ * resume, nor replace a live session — it is told to wait. Sessions of
+ * pages that navigated away or closed are dropped automatically.
  */
 
+const { randomUUID } = require('crypto');
 const { getAddress, hashMessage, TypedDataEncoder } = require('ethers');
 const { getEip712MessageTypes, buildSignatureBytes } = require('@safe-global/protocol-kit');
 
@@ -34,14 +42,10 @@ const {
   collectFreeSignatures,
   signEntryOwner,
 } = require('./signature-collection');
-const { codedError, SAFE_BUSY } = require('./errors');
+const { getSession, setSession, discardSession } = require('./message-sessions');
+const { codedError, SAFE_BUSY, SAFE_MESSAGE_EXISTS } = require('./errors');
 
-const sessions = new Map();
-const store = {
-  get: (safeIndex) => sessions.get(safeIndex) || null,
-  set: (safeIndex, entry) => sessions.set(safeIndex, entry),
-  idOf: (entry) => entry.hash,
-};
+const store = { get: getSession, set: setSession, idOf: (entry) => entry.hash };
 
 /**
  * The digest a VERIFIER computes for the dApp's request — EIP-191 for
@@ -62,17 +66,85 @@ function requestDigest(method, params) {
   throw new Error(`Unsupported signing method for Safe accounts: ${method}`);
 }
 
-function getSession(safeIndex) {
-  const entry = sessions.get(safeIndex);
+/**
+ * The session's caller identity: the requesting page's permission key
+ * plus its webview's webContents id. Two tabs are two callers even on
+ * the same site — an unknown id never matches anything.
+ */
+function sameRequester(a, b) {
+  return Boolean(
+    a &&
+      b &&
+      a.webContentsId != null &&
+      a.webContentsId === b.webContentsId &&
+      a.origin === b.origin
+  );
+}
+
+/** The Electron webContents behind a requester, when still around. */
+function requesterWebContents(requester) {
+  if (requester?.webContentsId == null) {
+    return null;
+  }
+  try {
+    return require('electron').webContents?.fromId?.(requester.webContentsId) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A session whose requesting page provably no longer exists is a dead
+ * leftover (its promise died with the page) — safe to replace. Unknown
+ * liveness counts as ALIVE: the new request is refused rather than a
+ * possibly-live ceremony hijacked.
+ */
+function requesterGone(entry) {
+  if (entry.requester?.webContentsId == null) {
+    return false;
+  }
+  const contents = requesterWebContents(entry.requester);
+  return !contents || contents.isDestroyed();
+}
+
+/**
+ * Drop the session when its requesting page goes away — closed tab or
+ * a main-frame navigation (including reload): either way the dApp's
+ * promise is gone and the collected signatures must not linger for
+ * whatever loads next.
+ */
+function attachRequesterLifecycle(safeIndex, entry) {
+  const contents = requesterWebContents(entry.requester);
+  if (!contents) {
+    return;
+  }
+  const drop = () => {
+    if (getSession(safeIndex) === entry) {
+      discardSession(safeIndex);
+    }
+  };
+  contents.on('destroyed', drop);
+  contents.on('did-navigate', drop);
+  entry.detach = () => {
+    contents.removeListener('destroyed', drop);
+    contents.removeListener('did-navigate', drop);
+  };
+}
+
+/** The session, but only for the caller holding its token. */
+function requireSession(safeIndex, token) {
+  const entry = getSession(safeIndex);
   if (!entry) {
     throw new Error('No signature request is open for this account');
+  }
+  if (token !== entry.token) {
+    throw new Error('This signature request belongs to a different page');
   }
   return entry;
 }
 
-/** The board's render model for a message session; null when none is open. */
-function getSafeMessageState(safeIndex) {
-  const entry = sessions.get(safeIndex);
+/** The board's render model (internal — no token gate). */
+function sessionState(safeIndex, entry = getSession(safeIndex)) {
   if (!entry) {
     return null;
   }
@@ -86,6 +158,7 @@ function getSafeMessageState(safeIndex) {
   return {
     safeIndex,
     kind: 'message',
+    token: entry.token,
     chainId: entry.chainId,
     hash: entry.hash,
     threshold: entry.threshold,
@@ -98,9 +171,27 @@ function getSafeMessageState(safeIndex) {
 }
 
 /**
+ * The render model for the caller holding the session token; null when
+ * no session is open — or when the token doesn't match, which renders
+ * exactly like "nothing to show" for that caller.
+ */
+function getSafeMessageState(safeIndex, token) {
+  const entry = getSession(safeIndex);
+  if (!entry || token !== entry.token) {
+    return null;
+  }
+  return sessionState(safeIndex, entry);
+}
+
+/**
  * Open a SafeMessage session for a dApp signing request and silently
  * collect the free signatures (mnemonic owners, vault unlocked). Never
  * touches a device: the signing board drives those, per user action.
+ *
+ * The returned state carries the session `token` — the capability for
+ * every follow-up call. Re-issuing the identical request from the SAME
+ * page resumes its session (collected signatures stay valid for the
+ * identical hash); any other page is refused while a session is live.
  *
  * @param {Object} params
  * @param {number} params.safeIndex
@@ -108,9 +199,12 @@ function getSafeMessageState(safeIndex) {
  *   verbatim personal_sign / eth_signTypedData_v4 request
  * @param {Object} params.display - Presentation facts for the board
  *   (site, method, preview…), stored verbatim
- * @returns {Promise<Object>} SafeMessageState
+ * @param {{origin: string, webContentsId: number|null}} [params.requester]
+ *   - The requesting page's identity (permission key + webview
+ *   webContents id)
+ * @returns {Promise<Object>} SafeMessageState (including `token`)
  */
-async function startSafeMessage({ safeIndex, request, display }) {
+async function startSafeMessage({ safeIndex, request, display, requester }) {
   const record = getSafeRecord(safeIndex);
   // isValidSignature lives on the deployed contract — nothing to verify
   // against before activation.
@@ -131,19 +225,33 @@ async function startSafeMessage({ safeIndex, request, display }) {
     typedData.message
   );
 
-  const existing = sessions.get(safeIndex);
-  if (existing && existing.hash === hash) {
-    // The identical request again (dApp page reloaded and retried) —
-    // resume: the collected signatures are still valid for this hash.
-    return signSafeMessage(safeIndex);
+  const existing = getSession(safeIndex);
+  if (existing) {
+    if (existing.hash === hash && sameRequester(existing.requester, requester)) {
+      // The identical request from the SAME page again (retried without
+      // navigating) — resume: the collected signatures are still valid
+      // for this hash.
+      return signSafeMessage(safeIndex, undefined, existing.token);
+    }
+    if (!requesterGone(existing)) {
+      // A different request, or the same digest from a DIFFERENT page:
+      // never resume or replace someone else's live ceremony.
+      throw codedError(
+        'Another signature request is already open for this account — finish or cancel it first',
+        SAFE_MESSAGE_EXISTS
+      );
+    }
+    // The requesting page provably no longer exists — dead leftover.
+    discardSession(safeIndex);
   }
-  // A different-hash leftover is a dead request (its promise died with
-  // its page — sessions never outlive their request usefully): replace
-  // it. A live ceremony is still protected by the acquire below.
 
   acquire(safeIndex);
   try {
-    sessions.set(safeIndex, {
+    const entry = {
+      token: randomUUID(),
+      requester: requester
+        ? { origin: requester.origin ?? null, webContentsId: requester.webContentsId ?? null }
+        : null,
       chainId: DEPLOY_CHAIN_ID,
       typedData,
       hash,
@@ -151,12 +259,14 @@ async function startSafeMessage({ safeIndex, request, display }) {
       display,
       signatures: [],
       createdAt: Date.now(),
-    });
+    };
+    setSession(safeIndex, entry);
+    attachRequesterLifecycle(safeIndex, entry);
     await collectFreeSignatures(store, safeIndex, record.owners);
   } finally {
     release(safeIndex);
   }
-  return getSafeMessageState(safeIndex);
+  return sessionState(safeIndex);
 }
 
 /**
@@ -167,13 +277,14 @@ async function startSafeMessage({ safeIndex, request, display }) {
  *
  * @param {number} safeIndex
  * @param {number} [ownerIndex]
+ * @param {string} token - The session token from startSafeMessage
  * @returns {Promise<Object>} SafeMessageState
  */
-async function signSafeMessage(safeIndex, ownerIndex) {
+async function signSafeMessage(safeIndex, ownerIndex, token) {
   const record = getSafeRecord(safeIndex);
-  getSession(safeIndex);
+  requireSession(safeIndex, token);
   await signEntryOwner({ store, safeIndex, ownerIndex, ownerIndexes: record.owners });
-  return getSafeMessageState(safeIndex);
+  return sessionState(safeIndex);
 }
 
 /**
@@ -182,13 +293,14 @@ async function signSafeMessage(safeIndex, ownerIndex) {
  * back to the dApp (which verifies via `isValidSignature` on the Safe).
  *
  * @param {number} safeIndex
+ * @param {string} token - The session token from startSafeMessage
  * @returns {{signature: string}}
  */
-function completeSafeMessage(safeIndex) {
+function completeSafeMessage(safeIndex, token) {
   if (isBusy(safeIndex)) {
     throw codedError('Wait for the current step to finish first', SAFE_BUSY);
   }
-  const entry = getSession(safeIndex);
+  const entry = requireSession(safeIndex, token);
   if (entry.signatures.length < entry.threshold) {
     throw new Error(
       `Not enough signatures yet (${entry.signatures.length} of ${entry.threshold})`
@@ -196,16 +308,23 @@ function completeSafeMessage(safeIndex) {
   }
   // buildSignatureBytes sorts its input in place — hand it a copy.
   const signature = buildSignatureBytes(entry.signatures.map((sig) => ({ ...sig })));
-  sessions.delete(safeIndex);
+  discardSession(safeIndex);
   return { signature };
 }
 
-/** Drop the session (collected signatures are thrown away). */
-function cancelSafeMessage(safeIndex) {
+/**
+ * Drop the session (collected signatures are thrown away). Idempotent
+ * when nothing is open; refused with someone else's token.
+ */
+function cancelSafeMessage(safeIndex, token) {
   if (isBusy(safeIndex)) {
     throw codedError('Wait for the current step to finish first', SAFE_BUSY);
   }
-  sessions.delete(safeIndex);
+  if (!getSession(safeIndex)) {
+    return; // already gone — cancelling twice is fine
+  }
+  requireSession(safeIndex, token);
+  discardSession(safeIndex);
 }
 
 module.exports = {

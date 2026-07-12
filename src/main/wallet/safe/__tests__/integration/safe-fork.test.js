@@ -365,10 +365,11 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
       safeIndex: 5,
       request: { method: 'personal_sign', params: [hexMessage, predicted] },
       display: { site: 'app.example', method: 'personal_sign' },
+      requester: { origin: 'app.example', webContentsId: 1 },
     });
     expect(started).toMatchObject({ collected: 1, threshold: 2, complete: false });
-    await signSafeMessage(5, 2);
-    const { signature } = completeSafeMessage(5);
+    await signSafeMessage(5, 2, started.token);
+    const { signature } = completeSafeMessage(5, started.token);
 
     // the digest a verifying dApp computes: EIP-191 over the BYTES
     expect(await callIsValid(hashMessage(text), signature)).toBe(MAGIC);
@@ -389,13 +390,14 @@ describeFork('Safe on forked Gnosis + Base (reproducible addresses, retroactive 
       primaryType: 'Ping',
       message: { note: 'gm' },
     };
-    await startSafeMessage({
+    const startedTyped = await startSafeMessage({
       safeIndex: 5,
       request: { method: 'eth_signTypedData_v4', params: [predicted, JSON.stringify(typed)] },
       display: { site: 'app.example', method: 'eth_signTypedData_v4' },
+      requester: { origin: 'app.example', webContentsId: 1 },
     });
-    await signSafeMessage(5, 4); // a different second owner this time
-    const { signature: typedSignature } = completeSafeMessage(5);
+    await signSafeMessage(5, 4, startedTyped.token); // a different second owner this time
+    const { signature: typedSignature } = completeSafeMessage(5, startedTyped.token);
 
     const typedDigest = TypedDataEncoder.hash(typed.domain, { Ping: typed.types.Ping }, typed.message);
     expect(await callIsValid(typedDigest, typedSignature)).toBe(MAGIC);

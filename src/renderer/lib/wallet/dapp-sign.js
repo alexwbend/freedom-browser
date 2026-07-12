@@ -311,7 +311,7 @@ async function handleDappSignPasswordUnlock() {
 async function approveDappSign() {
   if (!dappSignPending) return;
 
-  const { permissionKey, walletIndex, method, params, resolve } = dappSignPending;
+  const { permissionKey, walletIndex, method, params, resolve, webview } = dappSignPending;
 
   try {
     if (dappSignApproveBtn) {
@@ -319,7 +319,7 @@ async function approveDappSign() {
       dappSignApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
 
-    const signature = await executeSign(method, params, walletIndex, permissionKey);
+    const signature = await executeSign(method, params, walletIndex, permissionKey, webview);
 
     if (dappSignAutoApproveCheckbox?.checked && permissionKey) {
       await window.dappPermissions.setSigningAutoApprove(permissionKey, true);

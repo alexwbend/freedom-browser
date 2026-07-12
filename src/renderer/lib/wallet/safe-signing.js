@@ -38,6 +38,7 @@ let content;
 let boardSafeIndex = null;
 let boardKind = 'send'; // 'send' | 'message'
 let messageResolver = null; // {resolve, reject} of the waiting dApp request
+let messageToken = null; // the session's capability token (from start's state)
 let state = null; // SafeSendState / SafeMessageState from main
 let phase = 'board'; // 'board' | 'executing' | 'success' | 'superseded'
 let executed = null; // {hash, explorerUrl} (send mode)
@@ -55,9 +56,9 @@ const KIND_API = {
     cancel: (safeIndex) => window.wallet.safeCancelPending(safeIndex),
   },
   message: {
-    state: (safeIndex) => window.wallet.safeMessageState(safeIndex),
-    sign: (safeIndex, ownerIndex) => window.wallet.safeMessageSign(safeIndex, ownerIndex),
-    cancel: (safeIndex) => window.wallet.safeMessageCancel(safeIndex),
+    state: (safeIndex) => window.wallet.safeMessageState(safeIndex, messageToken),
+    sign: (safeIndex, ownerIndex) => window.wallet.safeMessageSign(safeIndex, ownerIndex, messageToken),
+    cancel: (safeIndex) => window.wallet.safeMessageCancel(safeIndex, messageToken),
   },
 };
 const api = () => KIND_API[boardKind];
@@ -110,6 +111,7 @@ export function openSafeMessageBoard(safeIndex, initialState = null) {
     abandonMessageSession();
     boardKind = 'message';
     messageResolver = { resolve, reject };
+    messageToken = initialState?.token ?? null;
     openBoard(safeIndex, initialState);
   });
 }
@@ -168,6 +170,7 @@ function settleMessage(outcome, value) {
   if (!messageResolver) return;
   const { resolve, reject } = messageResolver;
   messageResolver = null;
+  messageToken = null;
   (outcome === 'resolve' ? resolve : reject)(value);
 }
 
@@ -286,7 +289,7 @@ function describeRowFailure(result) {
  * same banner-with-retry treatment as execution failures.
  */
 async function completeNow() {
-  const result = await window.wallet.safeMessageComplete(boardSafeIndex);
+  const result = await window.wallet.safeMessageComplete(boardSafeIndex, messageToken);
   if (result.success) {
     phase = 'success'; // past the busy guard in closeSafeSigning
     settleMessage('resolve', result.signature);

@@ -12,6 +12,8 @@ const CODES = {
   SAFE_BUSY: 'SAFE_BUSY',
   /** One pending SafeTx per Safe — finish or discard the current one. */
   SAFE_PENDING_EXISTS: 'SAFE_PENDING_EXISTS',
+  /** A live SafeMessage session belongs to another page — no takeover. */
+  SAFE_MESSAGE_EXISTS: 'SAFE_MESSAGE_EXISTS',
   /** The pending item was discarded while a signature was being made. */
   SAFE_DISCARDED: 'SAFE_DISCARDED',
   /** Nothing local can pay gas — render the fund-the-executor state. */

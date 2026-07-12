@@ -227,7 +227,7 @@ async function handleProviderRequest(webview, request) {
         if (!vaultStatus?.isUnlocked) {
           await showVaultUnlock(permissionKey);
         }
-        result = await autoApproveSign(permission, method, params, permissionKey);
+        result = await autoApproveSign(permission, method, params, permissionKey, webview);
       } else {
         result = await showDappSignApproval(webview, permissionKey, method, params);
       }
@@ -332,19 +332,20 @@ async function autoApproveTx(permission, txParams, chainId, permissionKey) {
  * Sign a message without showing the approval UI (auto-approved).
  * Accepts the already-fetched permission object to avoid redundant IPC.
  */
-async function autoApproveSign(permission, method, params, permissionKey) {
-  const signature = await executeSign(method, params, permission.walletIndex, permissionKey);
+async function autoApproveSign(permission, method, params, permissionKey, webview) {
+  const signature = await executeSign(method, params, permission.walletIndex, permissionKey, webview);
   window.dappPermissions.updateLastUsed(permissionKey);
   return signature;
 }
 
 /**
  * Execute a signing operation via the wallet IPC bridge.
- * Shared by both auto-approve and manual approval paths.
+ * Shared by both auto-approve and manual approval paths. `webview` is
+ * the requesting page's webview — Safe message sessions are bound to it.
  */
-async function executeSign(method, params, walletIndex, site) {
+async function executeSign(method, params, walletIndex, site, webview) {
   if (isSafeAccount(walletIndex)) {
-    return signViaSafeAccount(method, params, walletIndex, site);
+    return signViaSafeAccount(method, params, walletIndex, site, webview);
   }
   let result;
   if (method === 'personal_sign') {
@@ -365,18 +366,37 @@ async function executeSign(method, params, walletIndex, site) {
  * satisfy the threshold on their own — the signing board only opens
  * when a device signature is actually needed. Rejects with EIP-1193
  * code 4001 when the user closes the board.
+ *
+ * The session is bound main-side to this page (site + webview
+ * webContents) and guarded by the returned state.token — another tab
+ * can neither resume nor replace it, and it dies with the page.
  */
-async function signViaSafeAccount(method, params, walletIndex, site) {
+async function signViaSafeAccount(method, params, walletIndex, site, webview) {
   const display = { kind: 'message', site, method };
-  const started = await window.wallet.safeMessageStart(walletIndex, { method, params }, display);
+  const requester = { origin: site || null, webContentsId: webviewContentsId(webview) };
+  const started = await window.wallet.safeMessageStart(
+    walletIndex,
+    { method, params },
+    display,
+    requester
+  );
   if (!started.success) throw new Error(started.error || 'Signing failed');
 
   if (started.state?.complete) {
-    const done = await window.wallet.safeMessageComplete(walletIndex);
+    const done = await window.wallet.safeMessageComplete(walletIndex, started.state.token);
     if (!done.success) throw new Error(done.error || 'Signing failed');
     return done.signature;
   }
   return openSafeMessageBoard(walletIndex, started.state);
+}
+
+/** The webview's webContents id, or null when it isn't attached (yet). */
+function webviewContentsId(webview) {
+  try {
+    return webview?.getWebContentsId?.() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

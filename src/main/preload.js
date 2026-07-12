@@ -425,14 +425,19 @@ contextBridge.exposeInMainWorld('wallet', {
   safeState: (safeIndex) => ipcRenderer.invoke('wallet:safe-state', safeIndex),
   safeCancelPending: (index) => ipcRenderer.invoke('wallet:safe-cancel-pending', index),
   safePendingList: () => ipcRenderer.invoke('wallet:safe-pending-list'),
-  // SafeMessage sessions (dApp message signing via EIP-1271)
-  safeMessageStart: (safeIndex, request, display) =>
-    ipcRenderer.invoke('wallet:safe-message-start', safeIndex, request, display),
-  safeMessageSign: (safeIndex, ownerIndex) =>
-    ipcRenderer.invoke('wallet:safe-message-sign', safeIndex, ownerIndex),
-  safeMessageState: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-state', safeIndex),
-  safeMessageCancel: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-cancel', safeIndex),
-  safeMessageComplete: (safeIndex) => ipcRenderer.invoke('wallet:safe-message-complete', safeIndex),
+  // SafeMessage sessions (dApp message signing via EIP-1271). start
+  // binds the session to the requesting page ({origin, webContentsId})
+  // and returns state.token — required by every other call.
+  safeMessageStart: (safeIndex, request, display, requester) =>
+    ipcRenderer.invoke('wallet:safe-message-start', safeIndex, request, display, requester),
+  safeMessageSign: (safeIndex, ownerIndex, token) =>
+    ipcRenderer.invoke('wallet:safe-message-sign', safeIndex, ownerIndex, token),
+  safeMessageState: (safeIndex, token) =>
+    ipcRenderer.invoke('wallet:safe-message-state', safeIndex, token),
+  safeMessageCancel: (safeIndex, token) =>
+    ipcRenderer.invoke('wallet:safe-message-cancel', safeIndex, token),
+  safeMessageComplete: (safeIndex, token) =>
+    ipcRenderer.invoke('wallet:safe-message-complete', safeIndex, token),
 });
 
 contextBridge.exposeInMainWorld('ledger', {

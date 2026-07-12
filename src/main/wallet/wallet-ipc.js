@@ -404,43 +404,46 @@ function registerWalletIpc() {
 
   // SafeMessage sessions — dApp message signing via EIP-1271 (see
   // safe/safe-messages.js). Same granular board API as sends; complete
-  // returns the concatenated owner signatures instead of a state.
+  // returns the concatenated owner signatures instead of a state. Each
+  // session is bound to its requesting page: start takes the requester
+  // identity and returns a per-session token that every other call must
+  // present.
   ipcMain.handle(
     'wallet:safe-message-start',
-    safeStateHandler((safeIndex, request, display) => {
+    safeStateHandler((safeIndex, request, display, requester) => {
       const { startSafeMessage } = require('./safe/safe-messages');
-      return startSafeMessage({ safeIndex, request, display });
+      return startSafeMessage({ safeIndex, request, display, requester });
     })
   );
 
   ipcMain.handle(
     'wallet:safe-message-sign',
-    safeStateHandler((safeIndex, ownerIndex) => {
+    safeStateHandler((safeIndex, ownerIndex, token) => {
       const { signSafeMessage } = require('./safe/safe-messages');
-      return signSafeMessage(safeIndex, ownerIndex);
+      return signSafeMessage(safeIndex, ownerIndex, token);
     })
   );
 
   ipcMain.handle(
     'wallet:safe-message-state',
-    safeStateHandler((safeIndex) => {
+    safeStateHandler((safeIndex, token) => {
       const { getSafeMessageState } = require('./safe/safe-messages');
-      return getSafeMessageState(safeIndex);
+      return getSafeMessageState(safeIndex, token);
     })
   );
 
   ipcMain.handle(
     'wallet:safe-message-cancel',
-    safeStateHandler((safeIndex) => {
+    safeStateHandler((safeIndex, token) => {
       const { cancelSafeMessage } = require('./safe/safe-messages');
-      cancelSafeMessage(safeIndex);
+      cancelSafeMessage(safeIndex, token);
     })
   );
 
-  ipcMain.handle('wallet:safe-message-complete', async (_event, safeIndex) => {
+  ipcMain.handle('wallet:safe-message-complete', async (_event, safeIndex, token) => {
     try {
       const { completeSafeMessage } = require('./safe/safe-messages');
-      const { signature } = completeSafeMessage(safeIndex);
+      const { signature } = completeSafeMessage(safeIndex, token);
       return { success: true, signature };
     } catch (err) {
       return { success: false, error: err.message, code: err.code };
