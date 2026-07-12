@@ -14,12 +14,14 @@ import {
   showRadicleConnect,
   showRadicleSeedApproval,
   showRadicleSigningApproval,
+  dismissRadicleConsent,
 } from './radicle-consent.js';
 
 const ERRORS = {
   UNAUTHORIZED: { code: 4100, message: 'Origin not authorized' },
   DISCONNECTED: { code: 4900, message: 'Radicle provider is not available' },
   INTERNAL_ERROR: { code: -32603, message: 'Internal error' },
+  NAVIGATED: { code: 4900, message: 'Document navigated away before the request completed' },
 };
 
 // Feature gate — the Radicle experimental setting, not the wallet flag.
@@ -43,6 +45,16 @@ const SIGNING_METHODS = new Set([
   'radicle_commentPatch',
 ]);
 
+// Per-webview navigation generation, bumped on every committed navigation
+// and on webview destruction. Requests capture the generation on arrival;
+// consent, grants, execution, and response delivery are all bound to it, so
+// approvals granted while a prompt was open can never apply to a replacement
+// document, and responses (whose ids a new document could reuse) are never
+// delivered into a document that didn't make the request.
+const navigationGenerations = new WeakMap();
+
+const getNavigationGeneration = (webview) => navigationGenerations.get(webview) ?? 0;
+
 /** Called from tabs.js when creating a webview. */
 export function setupRadicleProvider(webview) {
   if (!webview) return;
@@ -52,6 +64,16 @@ export function setupRadicleProvider(webview) {
       handleRadicleRequest(webview, event.args[0]);
     }
   });
+
+  const invalidateDocument = () => {
+    navigationGenerations.set(webview, getNavigationGeneration(webview) + 1);
+    // A consent prompt opened for the replaced (or closed) document is moot;
+    // leaving it up would let the user approve on behalf of a page that no
+    // longer exists.
+    dismissRadicleConsent(webview);
+  };
+  webview.addEventListener('did-navigate', invalidateDocument);
+  webview.addEventListener('destroyed', invalidateDocument);
 }
 
 async function handleRadicleRequest(webview, request) {
@@ -67,20 +89,30 @@ async function handleRadicleRequest(webview, request) {
 
   const displayUrl = getDisplayUrlForWebview(webview);
   const permissionKey = getPermissionKey(displayUrl);
+  const generation = getNavigationGeneration(webview);
+  // Throws if the webview committed a navigation (or was destroyed) after
+  // this request arrived. Checked after every consent prompt and before
+  // every grant/forward so nothing executes on behalf of a stale document.
+  const assertSameDocument = () => {
+    if (getNavigationGeneration(webview) !== generation) {
+      throw { ...ERRORS.NAVIGATED };
+    }
+  };
 
   try {
     let result;
 
     if (method === 'radicle_requestAccess') {
-      result = await handleRequestAccess(webview, permissionKey);
+      result = await handleRequestAccess(webview, permissionKey, assertSameDocument);
     } else if (method === 'radicle_getCapabilities') {
       result = await forwardToMain(method, params, permissionKey);
     } else if (method === 'radicle_seed') {
       await requirePermission(permissionKey);
       const autoApproved = await window.radiclePermissions.getAutoApprove(permissionKey, 'node');
       if (!autoApproved) {
-        await showRadicleSeedApproval(permissionKey, params?.rid ?? '');
+        await showRadicleSeedApproval(permissionKey, params?.rid ?? '', webview);
       }
+      assertSameDocument();
       result = await forwardToMain(method, params, permissionKey);
     } else if (SIGNING_METHODS.has(method)) {
       await requirePermission(permissionKey);
@@ -88,26 +120,34 @@ async function handleRadicleRequest(webview, request) {
       if (!hasGrant) {
         // One deliberate grant covers the tier — forge UX, like an OAuth
         // scope, not a per-comment prompt. The prompt copy says exactly that.
-        await showRadicleSigningApproval(permissionKey);
+        await showRadicleSigningApproval(permissionKey, webview);
+        assertSameDocument();
         await window.radiclePermissions.grantSigning(permissionKey);
       }
+      assertSameDocument();
       result = await forwardToMain(method, params, permissionKey);
     } else {
       // Remaining connection-tier methods: getNodeStatus, listSeededRepos,
       // unseed, sync, getSeedStatus, disconnect.
       await requirePermission(permissionKey);
+      assertSameDocument();
       result = await forwardToMain(method, params, permissionKey);
       if (method === 'radicle_disconnect') {
         // Symmetric with the 'connect' event above. NOTE: if a chrome-side
         // revocation surface (permission-management UI) ever appears, the
         // event should move to main — the authority — so every revocation
         // path emits it, not just this request path.
+        assertSameDocument();
         sendRadicleEvent(webview, 'disconnect', { origin: permissionKey });
       }
     }
 
+    if (getNavigationGeneration(webview) !== generation) return;
     sendRadicleResponse(webview, id, result, null);
   } catch (error) {
+    // Never deliver a stale response (success or error) into a replacement
+    // document — request ids can be reused across navigations.
+    if (getNavigationGeneration(webview) !== generation) return;
     sendRadicleResponse(webview, id, null, {
       code: error.code || ERRORS.INTERNAL_ERROR.code,
       message: error.message || ERRORS.INTERNAL_ERROR.message,
@@ -116,13 +156,16 @@ async function handleRadicleRequest(webview, request) {
   }
 }
 
-async function handleRequestAccess(webview, permissionKey) {
+async function handleRequestAccess(webview, permissionKey, assertSameDocument) {
   const existing = await window.radiclePermissions.getPermission(permissionKey);
   if (!existing) {
-    await showRadicleConnect(permissionKey);
+    await showRadicleConnect(permissionKey, webview);
+    assertSameDocument();
     await window.radiclePermissions.grantPermission(permissionKey);
+    assertSameDocument();
     sendRadicleEvent(webview, 'connect', { origin: permissionKey });
   }
+  assertSameDocument();
   return forwardToMain('radicle_requestAccess', {}, permissionKey);
 }
 

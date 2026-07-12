@@ -31,7 +31,10 @@ let approveBtn;
 let rejectBtn;
 let backBtn;
 
-// { resolve, reject, sidebarWasOpen } while a prompt is showing
+// { resolve, reject, sidebarWasOpen, owner } while a prompt is showing.
+// `owner` is an opaque token (the requesting webview) identifying which
+// document the prompt belongs to, so it can be dismissed when that
+// document navigates away or its tab closes.
 let pending = null;
 
 export function initRadicleConsent() {
@@ -84,7 +87,7 @@ function finish(approved, { keepSidebar = false } = {}) {
  * while one is showing is rejected immediately (prevents prompt-queue
  * confusion from spammy pages).
  */
-function prompt({ title, origin, wants, allows, warning, approveLabel }) {
+function prompt({ title, origin, wants, allows, warning, approveLabel, owner }) {
   return new Promise((resolve, reject) => {
     if (!screen) {
       reject({ code: -32603, message: 'Consent UI unavailable' });
@@ -108,7 +111,7 @@ function prompt({ title, origin, wants, allows, warning, approveLabel }) {
     warningEl.textContent = warning;
     approveBtn.textContent = approveLabel;
 
-    pending = { resolve, reject, sidebarWasOpen: isSidebarVisible() };
+    pending = { resolve, reject, sidebarWasOpen: isSidebarVisible(), owner };
 
     hideAllSubscreens();
     walletState.identityView?.classList.add('hidden');
@@ -117,8 +120,19 @@ function prompt({ title, origin, wants, allows, warning, approveLabel }) {
   });
 }
 
-export function showRadicleConnect(permissionKey) {
+/**
+ * Dismiss (reject) the pending prompt if it belongs to `owner` — called by
+ * the provider when the requesting document navigates away or its webview
+ * is destroyed, so a moot prompt can't be approved on behalf of a document
+ * that no longer exists. A no-op when the pending prompt has another owner.
+ */
+export function dismissRadicleConsent(owner) {
+  if (pending && pending.owner === owner) finish(false);
+}
+
+export function showRadicleConnect(permissionKey, owner) {
   return prompt({
+    owner,
     title: 'Connect Radicle node?',
     origin: permissionKey,
     wants: 'wants to interact with your Radicle node',
@@ -132,8 +146,9 @@ export function showRadicleConnect(permissionKey) {
   });
 }
 
-export function showRadicleSeedApproval(permissionKey, rid) {
+export function showRadicleSeedApproval(permissionKey, rid, owner) {
   return prompt({
+    owner,
     title: 'Seed this repository?',
     origin: permissionKey,
     wants: `asks your node to seed ${rid}`,
@@ -146,8 +161,9 @@ export function showRadicleSeedApproval(permissionKey, rid) {
   });
 }
 
-export function showRadicleSigningApproval(permissionKey) {
+export function showRadicleSigningApproval(permissionKey, owner) {
   return prompt({
+    owner,
     title: 'Act as your Radicle identity?',
     origin: permissionKey,
     wants: 'wants to author content as your Radicle identity',
