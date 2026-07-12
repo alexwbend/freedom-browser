@@ -209,17 +209,28 @@ test('private browsing leaves no history, no downloads history, and no cookies b
     wv.downloadURL(dataUri);
   }, DATA_URI);
 
-  // The download lands in the manager, flagged private.
+  // The download lands in the manager, flagged private — visible in the
+  // private window's own (merged, in-memory) view…
   await expect
     .poll(
       () =>
-        window.evaluate(async () => {
+        priv.evaluate(async () => {
           const rows = await window.electronAPI.getDownloads({});
           return rows.filter((r) => r.is_private === 1).length;
         }),
       { timeout: 10_000 }
     )
     .toBeGreaterThan(0);
+
+  // …but NEVER in a normal window's view, even while the private window is
+  // still open: private rows exist only in the in-memory partition store,
+  // are never written to the profile database, and are never served to
+  // normal-window queries.
+  const normalViewPrivateRows = await window.evaluate(async () => {
+    const rows = await window.electronAPI.getDownloads({});
+    return rows.filter((r) => r.is_private === 1).length;
+  });
+  expect(normalViewPrivateRows).toBe(0);
 
   // Close the private window → its traces must evaporate.
   await closePrivateWindows(electronApp);
@@ -232,8 +243,9 @@ test('private browsing leaves no history, no downloads history, and no cookies b
   expect(historyUrls.some((url) => url.startsWith(PRIVATE_URL))).toBe(false);
   expect(historyUrls.some((url) => url.startsWith(NORMAL_URL))).toBe(true);
 
-  // No downloads-history rows survive the window (files stay on disk —
-  // not asserted here; the row purge is a pure DELETE).
+  // No downloads-history rows survive the window (files stay on disk).
+  // The in-memory partition store is dropped with the window; the profile
+  // database never held the rows in the first place.
   await expect
     .poll(
       () =>

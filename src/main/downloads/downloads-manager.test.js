@@ -382,41 +382,74 @@ describe('downloads-manager', () => {
   });
 });
 
-// PRIVATE MODE GUARD coverage: the will-download hook must cover private
-// partitions' sessions too, flag their rows, and never let private rows
-// survive a restart.
+// PRIVATE MODE GUARD coverage: private-window downloads must never touch
+// the profile SQLite store — their rows live in the in-memory partition
+// store, are merged only into the owning private window's queries, and
+// evaporate when the partition is dropped. A crash can never leave private
+// rows on disk because none are ever written.
 describe('downloads-manager private sessions', () => {
+  const PARTITION = 'private-e2e';
+
+  // The manager resolves a requester's partition through
+  // private-windows.getPartitionForWebContents; the module is mocked below
+  // to read this marker property off the fake senders.
+  const privateSender = { privatePartition: PARTITION };
+  const normalSender = {};
+
   let userDataDir;
   let downloadsDir;
   let ipcMain;
   let ownerWindow;
+  let allWebContents;
+  let shell;
   let mod;
   let store;
+  let privateStore;
 
   const load = () => {
     ipcMain = createIpcMainMock();
+    allWebContents = [];
     ownerWindow = {
       isDestroyed: () => false,
       webContents: { send: jest.fn() },
     };
+    shell = { openPath: jest.fn(async () => ''), showItemInFolder: jest.fn() };
     ({ mod } = loadMainModule(require.resolve('./downloads-manager'), {
       userDataDir,
       appPaths: { userData: userDataDir, downloads: downloadsDir },
       ipcMain,
       electronOverrides: {
-        shell: { openPath: jest.fn(async () => ''), showItemInFolder: jest.fn() },
+        shell,
         BrowserWindow: {
           getAllWindows: jest.fn(() => [ownerWindow]),
           fromWebContents: jest.fn(() => ownerWindow),
         },
-        webContents: { getAllWebContents: jest.fn(() => []) },
+        webContents: { getAllWebContents: jest.fn(() => allWebContents) },
       },
       extraMocks: {
         'better-sqlite3': () => FakeBetterSqlite3DownloadsDatabase,
+        [require.resolve('../private/private-windows')]: () => ({
+          getPartitionForWebContents: (wc) => wc?.privatePartition || null,
+        }),
       },
     }));
-    // Same jest module registry → the exact store instance the manager uses.
+    // Same jest module registry → the exact store instances the manager uses.
     store = require('./downloads-store');
+    privateStore = require('./private-downloads-store');
+  };
+
+  // IPC events carry the requesting sender so partition scoping can be
+  // asserted (the shared mock's invoke() always passes an empty event).
+  const invokeAs = (sender, channel, ...args) => {
+    const handler = ipcMain.handlers.get(channel);
+    if (!handler) throw new Error(`No IPC handler registered for ${channel}`);
+    return handler({ sender }, ...args);
+  };
+
+  const startOn = (session, itemProps) => {
+    const item = new FakeDownloadItem(itemProps);
+    session.emit('will-download', {}, item, { hostWebContents: { id: 7 } });
+    return item;
   };
 
   beforeEach(() => {
@@ -426,64 +459,171 @@ describe('downloads-manager private sessions', () => {
   });
 
   afterEach(() => {
+    privateStore._resetState();
     store.closeDb();
     removeTempUserDataDir(userDataDir);
   });
 
-  test('will-download on a private session records a private-flagged row', async () => {
+  test('a private download never touches the SQLite store', () => {
+    const insertSpy = jest.spyOn(store, 'insertDownload');
+    const updateSpy = jest.spyOn(store, 'updateDownload');
+
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+
+    const item = startOn(privateSession, {
+      url: 'https://example.com/secret.bin',
+      filename: 'secret.bin',
+      totalBytes: 100,
+    });
+    item.receivedBytes = 50;
+    item.emit('updated');
+    item.receivedBytes = 100;
+    item.emit('done', {}, 'completed');
+
+    // Full lifecycle — start, progress, terminal state — with zero SQLite
+    // writes; the row lives only in the in-memory partition store.
+    expect(insertSpy).not.toHaveBeenCalled();
+    expect(updateSpy).not.toHaveBeenCalled();
+    expect(store.getDownloadCount()).toBe(0);
+    expect(privateStore.getCount()).toBe(1);
+    expect(privateStore.getDownloads(PARTITION)[0]).toEqual(
+      expect.objectContaining({
+        filename: 'secret.bin',
+        state: 'completed',
+        received_bytes: 100,
+        is_private: 1,
+        session_partition: PARTITION,
+      })
+    );
+  });
+
+  test('private rows merge into the private window view only; ids are negative', async () => {
     const defaultSession = new EventEmitter();
     const privateSession = new EventEmitter();
     mod.attachDownloadsManager(defaultSession);
-    mod.attachDownloadsManager(privateSession, { privatePartition: 'private-e2e' });
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
     mod.registerDownloadsIpc();
 
-    const privateItem = new FakeDownloadItem({
-      url: 'https://example.com/secret.bin',
-      filename: 'secret.bin',
-    });
-    privateSession.emit('will-download', {}, privateItem, { hostWebContents: { id: 7 } });
+    startOn(privateSession, { url: 'https://example.com/secret.bin', filename: 'secret.bin' });
+    startOn(defaultSession, { url: 'https://example.com/public.bin', filename: 'public.bin' });
 
-    const normalItem = new FakeDownloadItem({
-      url: 'https://example.com/public.bin',
-      filename: 'public.bin',
-    });
-    defaultSession.emit('will-download', {}, normalItem, { hostWebContents: { id: 7 } });
-
-    const rows = await ipcMain.invoke(IPC.DOWNLOADS_GET, {});
-    const privateRow = rows.find((r) => r.filename === 'secret.bin');
-    const normalRow = rows.find((r) => r.filename === 'public.bin');
+    // The owning private window sees the merged view.
+    const privateView = await invokeAs(privateSender, IPC.DOWNLOADS_GET, {});
+    expect(privateView.map((r) => r.filename).sort()).toEqual(['public.bin', 'secret.bin']);
+    const privateRow = privateView.find((r) => r.filename === 'secret.bin');
+    expect(privateRow.id).toBeLessThan(0);
     expect(privateRow).toEqual(
-      expect.objectContaining({ is_private: 1, session_partition: 'private-e2e' })
-    );
-    expect(normalRow).toEqual(
-      expect.objectContaining({ is_private: 0, session_partition: null })
+      expect.objectContaining({ is_private: 1, session_partition: PARTITION })
     );
 
-    // Shelf payload for the owning window also carries the flag.
-    const shelfPayloads = ownerWindow.webContents.send.mock.calls
-      .filter(([channel]) => channel === IPC.DOWNLOADS_UPDATED)
-      .map(([, payload]) => payload);
-    expect(shelfPayloads.some((p) => p.is_private === 1)).toBe(true);
+    // Normal windows — and other private windows — never see private rows.
+    const normalView = await invokeAs(normalSender, IPC.DOWNLOADS_GET, {});
+    expect(normalView.map((r) => r.filename)).toEqual(['public.bin']);
+    const otherPrivateView = await invokeAs(
+      { privatePartition: 'private-other' },
+      IPC.DOWNLOADS_GET,
+      {}
+    );
+    expect(otherPrivateView.map((r) => r.filename)).toEqual(['public.bin']);
+
+    // Search queries scope the same way.
+    const privateSearch = await invokeAs(privateSender, IPC.DOWNLOADS_GET, { query: 'secret' });
+    expect(privateSearch).toHaveLength(1);
+    const normalSearch = await invokeAs(normalSender, IPC.DOWNLOADS_GET, { query: 'secret' });
+    expect(normalSearch).toHaveLength(0);
   });
 
-  test('closing the private window purges its rows; files stay untouched', () => {
-    const privateSession = new EventEmitter();
-    mod.attachDownloadsManager(privateSession, { privatePartition: 'private-gone' });
+  test('private change hints reach only the private window renderers', () => {
+    const privateWc = { privatePartition: PARTITION, send: jest.fn() };
+    const normalWc = { send: jest.fn() };
+    allWebContents.push(privateWc, normalWc);
 
-    const item = new FakeDownloadItem({
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    startOn(privateSession, { url: 'https://example.com/secret.bin', filename: 'secret.bin' });
+
+    // Shelf update goes to the owning window; the downloads:changed hint
+    // (which carries URL and save path) stays inside the private window.
+    expect(ownerWindow.webContents.send).toHaveBeenCalledWith(
+      IPC.DOWNLOADS_UPDATED,
+      expect.objectContaining({ is_private: 1 })
+    );
+    expect(privateWc.send).toHaveBeenCalledWith(
+      IPC.DOWNLOADS_CHANGED,
+      expect.objectContaining({ filename: 'secret.bin' })
+    );
+    expect(normalWc.send).not.toHaveBeenCalled();
+  });
+
+  test('open / show / remove on a private row are refused for other windows', async () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    mod.registerDownloadsIpc();
+
+    fs.mkdirSync(downloadsDir, { recursive: true });
+    const item = startOn(privateSession, {
+      url: 'https://example.com/secret.pdf',
+      filename: 'secret.pdf',
+    });
+    fs.writeFileSync(item.savePath, 'content');
+    item.emit('done', {}, 'completed');
+
+    const [row] = await invokeAs(privateSender, IPC.DOWNLOADS_GET, {});
+    expect(row.id).toBeLessThan(0);
+
+    // A normal window cannot act on (or probe) the private row by id.
+    await expect(invokeAs(normalSender, IPC.DOWNLOADS_OPEN_FILE, row.id)).resolves.toEqual(
+      expect.objectContaining({ success: false })
+    );
+    expect(await invokeAs(normalSender, IPC.DOWNLOADS_SHOW_IN_FOLDER, row.id)).toEqual(
+      expect.objectContaining({ success: false })
+    );
+    expect(await invokeAs(normalSender, IPC.DOWNLOADS_REMOVE, row.id)).toBe(false);
+    expect(shell.openPath).not.toHaveBeenCalled();
+
+    // The owning private window can.
+    await expect(invokeAs(privateSender, IPC.DOWNLOADS_OPEN_FILE, row.id)).resolves.toEqual({
+      success: true,
+    });
+    expect(shell.openPath).toHaveBeenCalledWith(item.savePath);
+    expect(await invokeAs(privateSender, IPC.DOWNLOADS_REMOVE, row.id)).toBe(true);
+    expect(privateStore.getCount()).toBe(0);
+  });
+
+  test('dropping the partition clears the memory store (window-close hook)', async () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    mod.registerDownloadsIpc();
+
+    const item = startOn(privateSession, {
       url: 'https://example.com/a.bin',
       filename: 'a.bin',
     });
-    privateSession.emit('will-download', {}, item, { hostWebContents: { id: 7 } });
     item.emit('done', {}, 'completed');
+    expect(privateStore.getCount()).toBe(1);
 
-    expect(store.getDownloadCount()).toBe(1);
     // This is the cleanup hook src/main/index.js registers for window close.
-    expect(store.removeDownloadsForPartition('private-gone')).toBe(1);
-    expect(store.getDownloadCount()).toBe(0);
+    expect(privateStore.dropPartition(PARTITION)).toBe(1);
+    expect(privateStore.getCount()).toBe(0);
+    expect(await invokeAs(privateSender, IPC.DOWNLOADS_GET, {})).toEqual([]);
   });
 
-  test('registerDownloadsIpc sweeps stale private rows from a previous run', () => {
+  test('crash scenario: nothing was persisted, so the next run has nothing to sweep', () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+
+    // Simulate a crash mid-download: no window-close hook ever runs.
+    startOn(privateSession, { url: 'https://example.com/secret.bin', filename: 'secret.bin' });
+
+    // Nothing reached the profile database…
+    expect(store.getDownloadCount()).toBe(0);
+    // …so the startup legacy sweep of the "next run" finds nothing.
+    expect(store.removeAllPrivateDownloads()).toBe(0);
+    expect(store.getAllDownloads()).toEqual([]);
+  });
+
+  test('registerDownloadsIpc sweeps legacy private rows written by old builds', () => {
     store.insertDownload({
       url: 'https://example.com/stale.bin',
       filename: 'stale.bin',

@@ -3,6 +3,12 @@
  * accepted via `will-download`, mirrored live while the DownloadItem is in
  * flight and left behind as history once it settles.
  *
+ * PRIVATE MODE GUARD (downloads): private-window downloads never reach
+ * this store — their rows live in private-downloads-store.js (in-memory,
+ * partition-scoped). The is_private / session_partition columns remain for
+ * schema continuity and the legacy startup sweep (removeAllPrivateDownloads)
+ * that cleans rows written by older builds.
+ *
  * States: 'in_progress' | 'completed' | 'cancelled' | 'interrupted'.
  * Rows left 'in_progress' by a crash are swept to 'interrupted' on the
  * next startup (see markStaleInProgressAsInterrupted).
@@ -88,8 +94,10 @@ function migrateDatabase() {
 
   if (version < 2) {
     log.info('[Downloads] Running migration to version 2 (private-window columns)');
-    // Private-window downloads: rows are flagged and carry their window's
-    // ephemeral partition so they can be purged when the window closes.
+    // Historical: older builds flagged private-window rows here so they
+    // could be purged later. Private rows no longer reach SQLite at all
+    // (see private-downloads-store.js); the columns stay for schema
+    // continuity and the legacy startup sweep.
     // (`session_partition`, not `partition` — PARTITION is an SQL keyword.)
     db.exec(`
       ALTER TABLE downloads ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;
@@ -147,9 +155,6 @@ function getStatements() {
     sweepStale: database.prepare(`
       UPDATE downloads SET state = 'interrupted', end_time = ? WHERE state = 'in_progress'
     `),
-    removeForPartition: database.prepare(`
-      DELETE FROM downloads WHERE session_partition = ?
-    `),
     removeAllPrivate: database.prepare(`
       DELETE FROM downloads WHERE is_private = 1
     `),
@@ -162,7 +167,10 @@ function getStatements() {
 }
 
 /**
- * Insert a new download row (state starts as in_progress)
+ * Insert a new download row (state starts as in_progress).
+ * `isPrivate` / `partition` write the legacy private columns; the manager
+ * never passes them anymore (private rows are in-memory only) — they exist
+ * so tests can fabricate rows for the legacy startup sweep.
  * @param {object} entry - { url, filename, savePath, mimeType, totalBytes, startTime }
  * @returns {object} The inserted row shape (with id)
  */
@@ -278,27 +286,13 @@ function clearDownloads() {
 }
 
 /**
- * PRIVATE MODE GUARD (downloads history): remove every download-history row
- * recorded by the private window on `partition`. Called when that window
- * closes. Never touches files on disk — Chromium semantics: the download
- * stays, the history entry evaporates with the window.
- * @param {string} partition - The window's `private-<uuid>` partition
- * @returns {number} Number of rows removed
- */
-function removeDownloadsForPartition(partition) {
-  if (!partition) return 0;
-  const stmt = getStatements().removeForPartition;
-  const result = stmt.run(partition);
-  if (result.changes > 0) {
-    log.info('[Downloads] Purged', result.changes, 'private download entries for closed window');
-  }
-  return result.changes;
-}
-
-/**
- * PRIVATE MODE GUARD (downloads history): startup sweep. Private rows must
- * never survive a restart (a crash can skip the on-close purge); drop any
- * that did. Files on disk are untouched.
+ * PRIVATE MODE GUARD (downloads history): legacy startup sweep. Current
+ * code never writes private rows to SQLite (they live in
+ * private-downloads-store.js), but builds before that change did — drop
+ * any such rows left behind in an old profile. Files on disk are
+ * untouched. Note: a plain DELETE cannot scrub previously written
+ * SQLite/WAL pages, which is exactly why private rows are no longer
+ * written here in the first place.
  * @returns {number} Number of rows removed
  */
 function removeAllPrivateDownloads() {
@@ -345,7 +339,6 @@ module.exports = {
   getDownloadById,
   removeDownload,
   clearDownloads,
-  removeDownloadsForPartition,
   removeAllPrivateDownloads,
   markStaleInProgressAsInterrupted,
   getDownloadCount,
