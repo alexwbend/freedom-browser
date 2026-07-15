@@ -203,15 +203,17 @@ function normalizePayloadParam(data) {
 /**
  * Shared bounded-payload validation for chunk and message writes.
  * Returns { payload } on success or an invalidParams result to return as-is.
+ * Empty payloads are rejected by default (bee refuses empty chunks/SOCs);
+ * PSS opts out via allowEmpty — its trojan framing carries an explicit
+ * length, so a zero-byte message is well-formed (spec: pings/signals).
  */
-function validateBoundedPayload(data, maxBytes, label) {
+function validateBoundedPayload(data, maxBytes, label, options = {}) {
   const payload = normalizePayloadParam(data);
   if (!payload) {
     return invalidParams('data must be a string, Uint8Array, or ArrayBuffer');
   }
-  if (payload.length === 0) {
-    // Bee rejects empty chunks; fail before prompting or spending postage.
-    return invalidParams('data must not be empty', 'invalid_params');
+  if (payload.length === 0 && !options.allowEmpty) {
+    return invalidParams('data must not be empty', options.emptyReason || 'invalid_params');
   }
   if (payload.length > maxBytes) {
     return invalidParams(
@@ -1468,10 +1470,6 @@ function validateMessagingTopic(topic) {
   return null;
 }
 
-function validateMessagePayload(data) {
-  return validateBoundedPayload(data, LIMITS.maxMessageBytes, 'message');
-}
-
 /**
  * Handle swarm_getMessagingIdentity: disclose the PSS public key peers
  * encrypt to and the truncated routing target they send toward.
@@ -1543,7 +1541,9 @@ async function handleSendPss(params, origin) {
     );
   }
 
-  const { payload, error } = validateMessagePayload(params.data);
+  const { payload, error } = validateBoundedPayload(params.data, LIMITS.maxMessageBytes, 'message', {
+    allowEmpty: true,
+  });
   if (error) return { error };
 
   if (!hasMessagingGrant(origin)) {
@@ -1595,7 +1595,11 @@ async function handleSendGsoc(params, origin) {
   const topicError = validateMessagingTopic(params.topic);
   if (topicError) return topicError;
 
-  const { payload, error } = validateMessagePayload(params.data);
+  // A GSOC update is a SOC; bee's chunk layer rejects an empty SOC
+  // payload, so an empty broadcast is inexpressible (spec: invalid_payload).
+  const { payload, error } = validateBoundedPayload(params.data, LIMITS.maxMessageBytes, 'message', {
+    emptyReason: 'invalid_payload',
+  });
   if (error) return { error };
 
   if (!hasMessagingGrant(origin)) {
@@ -1747,7 +1751,17 @@ async function handleSubscribe(params, origin, meta) {
       });
     }
     if (err.reason === 'node_subscription_limit') {
-      return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message, data: { reason: 'node_subscription_limit' } } };
+      // Node-wide pipeline pool exhausted (possibly by other origins) —
+      // per spec this is a retryable 4900, NOT a parameter error: the
+      // calling dApp did nothing wrong and capacity frees as other
+      // subscriptions close.
+      return {
+        error: {
+          ...ERRORS.NODE_UNAVAILABLE,
+          message: `Node subscription capacity exhausted: ${err.message}`,
+          data: { reason: 'node_subscription_limit' },
+        },
+      };
     }
     log.error(`[SwarmProvider] subscribe failed for ${origin}:`, err.message);
     return { error: { ...ERRORS.INTERNAL_ERROR, message: err.message } };

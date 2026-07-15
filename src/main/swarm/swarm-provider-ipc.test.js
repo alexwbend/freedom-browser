@@ -2070,6 +2070,16 @@ describe('swarm-provider-ipc', () => {
           data: expect.any(Buffer),
         });
       });
+
+      test('accepts an empty payload (trojan framing carries a length)', async () => {
+        mockMessagingGranted();
+        mockSendPreFlightOk();
+        mockSendPss.mockResolvedValue();
+
+        const result = await invokeProvider('swarm_sendPss', { ...validParams, data: '' }, ORIGIN);
+        expect(result.result).toEqual({ sent: true });
+        expect(mockSendPss.mock.calls[0][0].data).toHaveLength(0);
+      });
     });
 
     describe('swarm_sendGsoc', () => {
@@ -2081,6 +2091,12 @@ describe('swarm-provider-ipc', () => {
       test('rejects a missing topic', async () => {
         const result = await invokeProvider('swarm_sendGsoc', { data: 'x' }, ORIGIN);
         expect(result.error.data.reason).toBe('invalid_topic');
+      });
+
+      test('rejects an empty payload with invalid_payload (empty SOC is inexpressible)', async () => {
+        const result = await invokeProvider('swarm_sendGsoc', { topic: 't', data: '' }, ORIGIN);
+        expect(result.error.code).toBe(-32602);
+        expect(result.error.data.reason).toBe('invalid_payload');
       });
 
       test('sends and returns the derived address', async () => {
@@ -2174,8 +2190,10 @@ describe('swarm-provider-ipc', () => {
         slotError.reason = 'node_subscription_limit';
         mockRegistrySubscribe.mockRejectedValueOnce(slotError);
 
+        // Node-wide capacity exhaustion is a retryable 4900, per spec —
+        // distinct from the per-origin -32602 cap above.
         result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
-        expect(result.error.code).toBe(-32603);
+        expect(result.error.code).toBe(4900);
         expect(result.error.data.reason).toBe('node_subscription_limit');
       });
 
