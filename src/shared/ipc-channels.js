@@ -235,9 +235,12 @@ module.exports = {
   SWARM_UPDATE_LAST_USED: 'swarm:update-last-used',
   SWARM_GET_AUTO_APPROVE: 'swarm:get-auto-approve',
   SWARM_SET_AUTO_APPROVE: 'swarm:set-auto-approve',
+  SWARM_GRANT_MESSAGING: 'swarm:grant-messaging',
+  SWARM_HAS_MESSAGING_GRANT: 'swarm:has-messaging-grant',
 
   // Swarm Provider (main-process authority)
   SWARM_PROVIDER_EXECUTE: 'swarm:provider-execute',
+  SWARM_PROVIDER_EVENT: 'swarm:provider-event',
 
   // Swarm Feed Store
   SWARM_GET_ALL_ORIGINS: 'swarm:get-all-origins',

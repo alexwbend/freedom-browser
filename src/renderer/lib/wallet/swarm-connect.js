@@ -44,6 +44,22 @@ let swarmPublishRejectBtn;
 let swarmPublishConfirmBtn;
 let swarmPublishAutoApproveCheckbox;
 
+// DOM references — messaging approval screen
+let swarmMessagingScreen;
+let swarmMessagingBackBtn;
+let swarmMessagingTitle;
+let swarmMessagingSite;
+let swarmMessagingWants;
+let swarmMessagingTopicRow;
+let swarmMessagingTopic;
+let swarmMessagingSizeRow;
+let swarmMessagingSize;
+let swarmMessagingWarning;
+let swarmMessagingAutoApproveLabel;
+let swarmMessagingAutoApproveCheckbox;
+let swarmMessagingRejectBtn;
+let swarmMessagingConfirmBtn;
+
 // DOM references — feed approval screen
 let swarmFeedScreen;
 let swarmFeedBackBtn;
@@ -73,6 +89,7 @@ let swarmFeedUnlockError;
 // Local state
 let swarmConnectPending = null;
 let swarmPublishPending = null;
+let swarmMessagingPending = null;
 let swarmFeedPending = null;
 let swarmFeedIdentityState = null;
 let currentBannerPermissionKey = null;
@@ -123,6 +140,30 @@ export function initSwarmConnect() {
     }
   });
 
+  swarmMessagingScreen = document.getElementById('sidebar-swarm-messaging-approve');
+  swarmMessagingBackBtn = document.getElementById('swarm-messaging-back');
+  swarmMessagingTitle = document.getElementById('swarm-messaging-title');
+  swarmMessagingSite = document.getElementById('swarm-messaging-site');
+  swarmMessagingWants = document.getElementById('swarm-messaging-wants');
+  swarmMessagingTopicRow = document.getElementById('swarm-messaging-topic-row');
+  swarmMessagingTopic = document.getElementById('swarm-messaging-topic');
+  swarmMessagingSizeRow = document.getElementById('swarm-messaging-size-row');
+  swarmMessagingSize = document.getElementById('swarm-messaging-size');
+  swarmMessagingWarning = document.getElementById('swarm-messaging-warning');
+  swarmMessagingAutoApproveLabel = document.getElementById('swarm-messaging-auto-approve-label');
+  swarmMessagingAutoApproveCheckbox = document.getElementById('swarm-messaging-auto-approve');
+  swarmMessagingRejectBtn = document.getElementById('swarm-messaging-reject');
+  swarmMessagingConfirmBtn = document.getElementById('swarm-messaging-confirm');
+
+  registerScreenHider(() => {
+    const wasVisible = swarmMessagingScreen && !swarmMessagingScreen.classList.contains('hidden');
+    swarmMessagingScreen?.classList.add('hidden');
+    if (wasVisible && swarmMessagingPending) {
+      swarmMessagingPending.reject({ code: 4001, message: 'User dismissed prompt' });
+      swarmMessagingPending = null;
+    }
+  });
+
   swarmFeedScreen = document.getElementById('sidebar-swarm-feed-approve');
   swarmFeedBackBtn = document.getElementById('swarm-feed-back');
   swarmFeedTitle = document.getElementById('swarm-feed-title');
@@ -157,6 +198,7 @@ export function initSwarmConnect() {
 
   setupSwarmConnectScreen();
   setupSwarmPublishScreen();
+  setupSwarmMessagingScreen();
   setupSwarmFeedScreen();
 }
 
@@ -330,6 +372,16 @@ export async function disconnectSwarmApp(permissionKey = null) {
   }
 }
 
+// Byte size of a prompt payload — Blob handles strings (UTF-8),
+// ArrayBuffers, and TypedArrays alike.
+function payloadByteSize(data) {
+  try {
+    return new Blob([data]).size;
+  } catch {
+    return data?.length || 0;
+  }
+}
+
 // ============================================
 // Per-publish approval prompt
 // ============================================
@@ -400,16 +452,7 @@ export function showSwarmPublishApproval(permissionKey, params, resolve, reject,
       swarmPublishType.textContent = isChunkMode ? 'Swarm chunk' : (params?.contentType || 'unknown');
     }
     if (swarmPublishSize) {
-      const data = params?.data;
-      let size = 0;
-      if (typeof data === 'string') {
-        size = new Blob([data]).size;
-      } else if (data instanceof ArrayBuffer) {
-        size = data.byteLength;
-      } else if (data?.length !== undefined) {
-        size = data.length;
-      }
-      swarmPublishSize.textContent = formatBytes(size);
+      swarmPublishSize.textContent = formatBytes(payloadByteSize(params?.data));
     }
     if (swarmPublishNameRow && swarmPublishName) {
       if (params?.name) {
@@ -453,6 +496,131 @@ function rejectSwarmPublish() {
   const { reject } = swarmPublishPending;
   reject({ code: 4001, message: 'User rejected publish' });
   console.log('[SwarmConnect] Publish rejected');
+}
+
+// ============================================
+// Messaging approval prompt (PSS/GSOC)
+// ============================================
+
+function setupSwarmMessagingScreen() {
+  if (swarmMessagingBackBtn) {
+    swarmMessagingBackBtn.addEventListener('click', () => {
+      rejectSwarmMessaging();
+      closeSwarmMessagingApproval();
+    });
+  }
+
+  if (swarmMessagingRejectBtn) {
+    swarmMessagingRejectBtn.addEventListener('click', () => {
+      rejectSwarmMessaging();
+      closeSwarmMessagingApproval();
+    });
+  }
+
+  if (swarmMessagingConfirmBtn) {
+    swarmMessagingConfirmBtn.addEventListener('click', () => {
+      approveSwarmMessaging();
+      closeSwarmMessagingApproval();
+    });
+  }
+}
+
+function messagingRequestLabel(method) {
+  switch (method) {
+    case 'swarm_sendPss':
+      return 'wants to send a private message (PSS)';
+    case 'swarm_sendGsoc':
+      return 'wants to broadcast a message (GSOC)';
+    case 'swarm_subscribe':
+      return 'wants to receive real-time messages';
+    default:
+      return 'wants to send and receive real-time messages';
+  }
+}
+
+/**
+ * Show the messaging approval prompt.
+ *
+ * Grant mode (first messaging call for the origin) asks for the
+ * messaging tier as a whole; send mode asks per message and offers the
+ * messaging auto-approve. Resolves on approve, rejects (4001) on cancel.
+ */
+export function showSwarmMessagingApproval(permissionKey, params, resolve, reject, options = {}) {
+  const { method, grantMode } = options;
+  swarmMessagingPending = { permissionKey, resolve, reject };
+
+  if (swarmMessagingSite) swarmMessagingSite.textContent = permissionKey || 'Unknown';
+  if (swarmMessagingTitle) {
+    swarmMessagingTitle.textContent = grantMode ? 'Messaging Access' : 'Confirm Message';
+  }
+  if (swarmMessagingWants) {
+    // The grant prompt uses messagingRequestLabel's default (tier-wide) copy.
+    swarmMessagingWants.textContent = messagingRequestLabel(grantMode ? undefined : method);
+  }
+
+  const isSend = method === 'swarm_sendPss' || method === 'swarm_sendGsoc';
+
+  if (swarmMessagingTopicRow && swarmMessagingTopic) {
+    if (typeof params?.topic === 'string') {
+      swarmMessagingTopic.textContent = params.topic;
+      swarmMessagingTopicRow.classList.remove('hidden');
+    } else {
+      swarmMessagingTopicRow.classList.add('hidden');
+    }
+  }
+
+  if (swarmMessagingSizeRow && swarmMessagingSize) {
+    if (isSend && params?.data !== undefined && params?.data !== null) {
+      swarmMessagingSize.textContent = formatBytes(payloadByteSize(params.data));
+      swarmMessagingSizeRow.classList.remove('hidden');
+    } else {
+      swarmMessagingSizeRow.classList.add('hidden');
+    }
+  }
+
+  if (swarmMessagingWarning) {
+    swarmMessagingWarning.textContent = grantMode
+      ? 'Messaging discloses a stable identity key to this site. Sending uses your stamps; open subscriptions use bandwidth while the page is loaded.'
+      : 'Sending this message uses your stamps and is visible to the Swarm network.';
+  }
+
+  // Auto-approve only applies to per-send prompts (the grant is one-off).
+  if (swarmMessagingAutoApproveLabel) {
+    swarmMessagingAutoApproveLabel.classList.toggle('hidden', !!grantMode || !isSend);
+  }
+  if (swarmMessagingAutoApproveCheckbox) swarmMessagingAutoApproveCheckbox.checked = false;
+
+  hideAllSubscreens();
+  walletState.identityView?.classList.add('hidden');
+  swarmMessagingScreen?.classList.remove('hidden');
+
+  openSidebarPanel();
+}
+
+function closeSwarmMessagingApproval() {
+  swarmMessagingScreen?.classList.add('hidden');
+  walletState.identityView?.classList.remove('hidden');
+  swarmMessagingPending = null;
+}
+
+async function approveSwarmMessaging() {
+  if (!swarmMessagingPending) return;
+  const { permissionKey, resolve } = swarmMessagingPending;
+
+  if (swarmMessagingAutoApproveCheckbox?.checked && permissionKey) {
+    await window.swarmPermissions.setAutoApprove(permissionKey, 'messaging', true);
+    console.log('[SwarmConnect] Auto-approve messaging enabled for:', permissionKey);
+  }
+
+  resolve();
+  console.log('[SwarmConnect] Messaging approved');
+}
+
+function rejectSwarmMessaging() {
+  if (!swarmMessagingPending) return;
+  const { reject } = swarmMessagingPending;
+  reject({ code: 4001, message: 'User rejected the request' });
+  console.log('[SwarmConnect] Messaging rejected');
 }
 
 // ============================================
