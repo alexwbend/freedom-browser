@@ -1359,6 +1359,25 @@ describe('navigation', () => {
       );
     });
 
+    test('Tezos HTTP content keeps the published query when the suffix has none', async () => {
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'https',
+        uri: 'https://example.com/page?v=2',
+        redirect: false,
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('docs.example.tez/guide');
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://example.com/page/guide?v=2'
+      );
+    });
+
     test('protocol icon and address bar update immediately when an ENS-Swarm name is dispatched, before resolution completes', async () => {
       // Regression on two fronts:
       //   1. The swarm logo used to only appear after the page finished

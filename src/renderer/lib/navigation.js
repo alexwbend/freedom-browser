@@ -89,8 +89,11 @@ const appendPublishedWebsiteSuffix = (targetUri, suffix = '') => {
       const basePath = target.pathname === '/' ? '' : target.pathname.replace(/\/$/, '');
       target.pathname = `${basePath}${requested.pathname}`;
     }
-    target.search = requested.search;
-    target.hash = requested.hash;
+    // Only override query/fragment the suffix actually carries, so a
+    // published content URL like `…/page?v=2` keeps its query when the
+    // address bar appends a bare path.
+    if (requested.search) target.search = requested.search;
+    if (requested.hash) target.hash = requested.hash;
     return target.toString();
   } catch {
     return `${targetUri.replace(/\/+$/, '')}${suffix}`;

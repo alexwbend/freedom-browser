@@ -80,10 +80,20 @@ function response(value, status = 200) {
   };
 }
 
-function createRpcFetch(recordValue) {
+function createRpcFetch(
+  recordValue,
+  {
+    expiry = { string: '2099-01-01T00:00:00Z' },
+    headLevels = {},
+    recordsByEndpoint = null,
+  } = {}
+) {
   return jest.fn(async (url) => {
+    const origin = new URL(url).origin;
     if (url.endsWith('/chains/main/chain_id')) return response('NetXdQprcVkpaWU');
-    if (url.endsWith('/blocks/head/header')) return response({ level: 1_000 });
+    if (url.endsWith('/blocks/head/header')) {
+      return response({ level: headLevels[origin] ?? 1_000 });
+    }
     if (url.endsWith('/blocks/992/hash')) return response('BLockHashSharedByProviders');
     if (url.includes('KT1F7JKNqwaoLzRsMio1MQC7zv3jG9dHcDdJ/script/normalized')) {
       return response(proxyScript);
@@ -91,11 +101,15 @@ function createRpcFetch(recordValue) {
     if (url.includes('KT1GBZmSxmnKJXGMdMLbugPfLyUPmuLSMwKS/script/normalized')) {
       return response(registryScript);
     }
-    if (url.includes('/big_maps/1264/')) return response(recordValue);
-    if (url.includes('/big_maps/1262/')) return response({ string: '2099-01-01T00:00:00Z' });
+    if (url.includes('/big_maps/1264/')) {
+      return response(recordsByEndpoint ? recordsByEndpoint[origin] : recordValue);
+    }
+    if (url.includes('/big_maps/1262/')) return response(expiry);
     throw new Error(`Unexpected RPC request: ${url}`);
   });
 }
+
+const THREE_ENDPOINTS = ['https://rpc-one.test', 'https://rpc-two.test', 'https://rpc-three.test'];
 
 describe('Tezos Domains resolver', () => {
   afterEach(() => invalidateTezosDomain());
@@ -160,5 +174,107 @@ describe('Tezos Domains resolver', () => {
       basePath: '/site',
       trust: { level: 'verified', m: 2 },
     });
+  });
+
+  test('flags conflicting provider answers with a reason instead of picking a side', async () => {
+    const fetchImpl = createRpcFetch(null, {
+      recordsByEndpoint: {
+        'https://rpc-one.test': record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]),
+        'https://rpc-two.test': record([['web:content_url', 'ipfs://bafyother/site']]),
+      },
+    });
+    const result = await resolveTezosDomain('contested.tez', {
+      fetchImpl,
+      endpoints: ['https://rpc-one.test', 'https://rpc-two.test'],
+    });
+
+    expect(result.type).toBe('conflict');
+    expect(result.reason).toBe('Tezos RPC providers returned conflicting results');
+    expect(result.trust).toMatchObject({ level: 'conflict', k: 2, m: 1 });
+  });
+
+  test('refuses expired domains', async () => {
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]), {
+      expiry: { string: '2001-01-01T00:00:00Z' },
+    });
+    const result = await resolveTezosDomain('stale.tez', {
+      fetchImpl,
+      endpoints: THREE_ENDPOINTS,
+    });
+
+    expect(result).toMatchObject({ type: 'not_found', reason: 'domain record expired' });
+  });
+
+  test('excludes a provider whose head level deviates wildly from the median', async () => {
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]), {
+      headLevels: { 'https://rpc-three.test': 100 },
+    });
+    const result = await resolveTezosDomain('anchored.tez', {
+      fetchImpl,
+      endpoints: THREE_ENDPOINTS,
+    });
+
+    expect(result.trust).toMatchObject({ level: 'verified', k: 2, m: 2 });
+    expect(result.trust.agreed).not.toContain('https://rpc-three.test');
+  });
+
+  test('coalesces concurrent resolutions of the same name into one quorum round', async () => {
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]));
+    const options = { fetchImpl, endpoints: THREE_ENDPOINTS };
+
+    const [first, second] = await Promise.all([
+      resolveTezosDomain('shared.tez', options),
+      resolveTezosDomain('shared.tez', options),
+    ]);
+
+    expect(first).toBe(second);
+    expect(
+      fetchImpl.mock.calls.filter(([url]) => url.endsWith('/chains/main/chain_id'))
+    ).toHaveLength(3);
+  });
+
+  test('reuses discovered registry big maps across names instead of refetching scripts', async () => {
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]));
+    const options = { fetchImpl, endpoints: THREE_ENDPOINTS };
+    const scriptCalls = () =>
+      fetchImpl.mock.calls.filter(([url]) => url.includes('/script/normalized')).length;
+
+    await resolveTezosDomain('first.tez', options);
+    const afterFirst = scriptCalls();
+    expect(afterFirst).toBe(6); // proxy + registry script per provider
+
+    await resolveTezosDomain('second.tez', options);
+    expect(scriptCalls()).toBe(afterFirst);
+  });
+
+  test('short-caches unverified single-provider results so trust can recover', async () => {
+    const realNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    jest.spyOn(Date, 'now').mockImplementation(() => realNow() + offsetMs);
+    try {
+      const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]));
+      const single = await resolveTezosDomain('solo.tez', {
+        fetchImpl,
+        endpoints: ['https://rpc-one.test'],
+      });
+      expect(single.trust.level).toBe('unverified');
+
+      // Within the short TTL the unverified result is still served from cache…
+      const cached = await resolveTezosDomain('solo.tez', {
+        fetchImpl,
+        endpoints: THREE_ENDPOINTS,
+      });
+      expect(cached.trust.level).toBe('unverified');
+
+      // …but it does not outlive it: the next lookup re-runs the quorum.
+      offsetMs = 31_000;
+      const recovered = await resolveTezosDomain('solo.tez', {
+        fetchImpl,
+        endpoints: THREE_ENDPOINTS,
+      });
+      expect(recovered.trust.level).toBe('verified');
+    } finally {
+      Date.now.mockRestore();
+    }
   });
 });

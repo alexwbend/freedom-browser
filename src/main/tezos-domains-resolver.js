@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { ethers } = require('ethers');
 const IPC = require('../shared/ipc-channels');
 const { blake2b } = require('../shared/blake2b');
+const { capCache } = require('./cache-utils');
 
 const MAINNET_CHAIN_ID = 'NetXdQprcVkpaWU';
 const PROXY_CONTRACT = 'KT1F7JKNqwaoLzRsMio1MQC7zv3jG9dHcDdJ';
@@ -14,13 +15,32 @@ const DEFAULT_RPC_ENDPOINTS = [
 ];
 const REQUEST_TIMEOUT_MS = 8_000;
 const ANCHOR_DEPTH = 8;
+// Providers whose reported head deviates from the median by more than this
+// many blocks are excluded from the quorum: a provider reporting a tiny head
+// level would otherwise drag the shared anchor to a block that predates the
+// registry (failing every leg), and one reporting a far-future level is lying.
+const MAX_HEAD_LAG_BLOCKS = 60;
 const DEFAULT_TTL_MS = 5 * 60_000;
 const MAX_TTL_MS = 60 * 60_000;
 const NEGATIVE_TTL_MS = 30_000;
+// Positive result that only one provider could confirm. Deliberately short —
+// distinct from NEGATIVE_TTL_MS so the two policies stay independently tunable.
+const UNVERIFIED_TTL_MS = 30_000;
+// Registry address and big-map IDs change essentially never; rediscovering
+// them means re-downloading two full contract scripts per provider on every
+// uncached name. Bounded so a registry migration is picked up within minutes.
+const DISCOVERY_TTL_MS = 10 * 60_000;
 const MAX_RPC_RESPONSE_BYTES = 5 * 1024 * 1024;
 const SCRIPT_EXPR_PREFIX = Uint8Array.from([13, 44, 64, 27]);
 
 const resultCache = new Map();
+// endpoint → { discovery: { recordsId, expiryMapId, recordType }, expiresAt }.
+// Kept per endpoint so one lying provider can only poison its own leg, never
+// the big-map IDs the other legs read from.
+const discoveryCache = new Map();
+// name → in-flight resolution promise, so N concurrent subresource loads for
+// the same uncached name share one quorum round instead of racing N of them.
+const inflightResolutions = new Map();
 
 function isTezosDomainName(value) {
   if (!value || typeof value !== 'string') return false;
@@ -52,6 +72,33 @@ function getRpcEndpoints() {
   });
 }
 
+// Reads the body while enforcing MAX_RPC_RESPONSE_BYTES incrementally, so a
+// hostile endpoint can't buffer an arbitrarily large body into memory before
+// the size check runs. Falls back to text() when no stream is exposed.
+async function readBodyWithLimit(response) {
+  if (typeof response.body?.getReader !== 'function') {
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_RPC_RESPONSE_BYTES) {
+      throw new Error('RPC response exceeded the size limit');
+    }
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.byteLength;
+    if (received > MAX_RPC_RESPONSE_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new Error('RPC response exceeded the size limit');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 async function rpcRequest(endpoint, path, { method = 'GET', body, fetchImpl = fetch } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -68,11 +115,7 @@ async function rpcRequest(endpoint, path, { method = 'GET', body, fetchImpl = fe
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RPC_RESPONSE_BYTES) {
       throw new Error('RPC response exceeded the size limit');
     }
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > MAX_RPC_RESPONSE_BYTES) {
-      throw new Error('RPC response exceeded the size limit');
-    }
-    return JSON.parse(text);
+    return JSON.parse(await readBodyWithLimit(response));
   } finally {
     clearTimeout(timer);
   }
@@ -207,7 +250,7 @@ async function fetchNormalizedScript(endpoint, blockHash, contract, fetchImpl) {
   );
 }
 
-async function resolveAtBlock(endpoint, blockHash, name, fetchImpl = fetch) {
+async function discoverRegistry(endpoint, blockHash, fetchImpl) {
   const proxyScript = await fetchNormalizedScript(endpoint, blockHash, PROXY_CONTRACT, fetchImpl);
   const proxyContract = findAnnotatedValue(
     storageTypeFromScript(proxyScript),
@@ -227,7 +270,27 @@ async function resolveAtBlock(endpoint, blockHash, name, fetchImpl = fetch) {
   if (!/^\d+$/.test(recordsId || '') || !/^\d+$/.test(expiryMapId || '')) {
     throw new Error('Tezos Domains registry storage is missing annotated big maps');
   }
+  return { recordsId, expiryMapId, recordType: records.type?.args?.[1] || null };
+}
 
+async function resolveAtBlock(endpoint, blockHash, name, fetchImpl = fetch) {
+  const cached = discoveryCache.get(endpoint);
+  if (cached && cached.expiresAt > Date.now()) {
+    try {
+      return await lookupRecord(endpoint, blockHash, name, cached.discovery, fetchImpl);
+    } catch {
+      // The cached IDs may be stale (registry migration) or the failure
+      // transient — rediscover once below before failing the leg.
+      discoveryCache.delete(endpoint);
+    }
+  }
+  const discovery = await discoverRegistry(endpoint, blockHash, fetchImpl);
+  discoveryCache.set(endpoint, { discovery, expiresAt: Date.now() + DISCOVERY_TTL_MS });
+  return lookupRecord(endpoint, blockHash, name, discovery, fetchImpl);
+}
+
+async function lookupRecord(endpoint, blockHash, name, discovery, fetchImpl) {
+  const { recordsId, expiryMapId, recordType } = discovery;
   const nameBytes = new TextEncoder().encode(name);
   const record = await rpcRequest(
     endpoint,
@@ -236,7 +299,6 @@ async function resolveAtBlock(endpoint, blockHash, name, fetchImpl = fetch) {
   );
   if (!record) return { type: 'not_found', reason: 'domain record not found', system: 'tezos' };
 
-  const recordType = records.type?.args?.[1];
   const dataValue = findAnnotatedValue(recordType, record, '%data')?.value;
   const expiryKeyValue = findAnnotatedValue(recordType, record, '%expiry_key')?.value;
   const recordsMap = mapEntries(dataValue);
@@ -315,6 +377,10 @@ function semanticResultKey(result) {
 
 function cacheDuration(result) {
   if (result.type !== 'ok') return NEGATIVE_TTL_MS;
+  // A result that only one provider could confirm should not be pinned for
+  // the full record TTL — short-cache it so trust recovers as soon as the
+  // other providers come back.
+  if (result.trust?.level !== 'verified') return UNVERIFIED_TTL_MS;
   const recordTtl = Number(result.ttl);
   let duration = Number.isFinite(recordTtl) && recordTtl > 0 ? recordTtl * 1_000 : DEFAULT_TTL_MS;
   duration = Math.min(duration, MAX_TTL_MS);
@@ -333,12 +399,38 @@ async function resolveTezosDomain(name, { fetchImpl = fetch, endpoints = getRpcE
   if (cached && cached.expiresAt > Date.now()) return cached.result;
   resultCache.delete(normalized);
 
+  const inflight = inflightResolutions.get(normalized);
+  if (inflight) return inflight;
+  const resolution = resolveTezosDomainUncached(normalized, fetchImpl, endpoints).finally(() =>
+    inflightResolutions.delete(normalized)
+  );
+  inflightResolutions.set(normalized, resolution);
+  return resolution;
+}
+
+async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
   const headSettled = await Promise.allSettled(
     endpoints.slice(0, 3).map((endpoint) => fetchHead(endpoint, fetchImpl))
   );
-  const heads = headSettled.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
-  if (heads.length === 0) {
+  const allHeads = headSettled.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
+  if (allHeads.length === 0) {
     return { type: 'error', reason: 'all Tezos RPC providers failed', system: 'tezos' };
+  }
+  // Median-referenced outlier rejection: with the default three providers this
+  // tolerates one head that is wildly behind (stale or lying low — which would
+  // drag the anchor to a block predating the registry) or wildly ahead (lying
+  // high) without letting it distort the shared anchor.
+  const sortedLevels = allHeads.map((head) => head.level).sort((a, b) => a - b);
+  const referenceLevel = sortedLevels[Math.floor((sortedLevels.length - 1) / 2)];
+  const heads = [];
+  for (const head of allHeads) {
+    if (Math.abs(head.level - referenceLevel) <= MAX_HEAD_LAG_BLOCKS) {
+      heads.push(head);
+    } else {
+      log.warn(
+        `[tezos-domains] excluding ${head.endpoint}: head level ${head.level} deviates from median ${referenceLevel}`
+      );
+    }
   }
   const anchorLevel = Math.min(...heads.map((head) => head.level)) - ANCHOR_DEPTH;
   const anchorSettled = await Promise.allSettled(
@@ -380,6 +472,7 @@ async function resolveTezosDomain(name, { fetchImpl = fetch, endpoints = getRpcE
   if (winner.length < 2 && groups.length > 1) {
     return {
       type: 'conflict',
+      reason: 'Tezos RPC providers returned conflicting results',
       system: 'tezos',
       groups: groups.map((group) => ({
         value: group[0].result.uri || group[0].result.reason || group[0].result.type,
@@ -390,6 +483,13 @@ async function resolveTezosDomain(name, { fetchImpl = fetch, endpoints = getRpcE
   }
 
   const trustLevel = winner.length >= 2 ? 'verified' : 'unverified';
+  if (winner.length < successful.length) {
+    const dissenting = successful
+      .filter((leg) => !winner.includes(leg))
+      .map((leg) => leg.endpoint)
+      .join(', ');
+    log.warn(`[tezos-domains] ${dissenting} disagreed with the majority for ${normalized}`);
+  }
   const result = {
     ...winner[0].result,
     trust: {
@@ -402,12 +502,17 @@ async function resolveTezosDomain(name, { fetchImpl = fetch, endpoints = getRpcE
     },
   };
   resultCache.set(normalized, { result, expiresAt: Date.now() + cacheDuration(result) });
+  capCache(resultCache);
   return result;
 }
 
 function invalidateTezosDomain(name) {
-  if (name) resultCache.delete(String(name).trim().toLowerCase());
-  else resultCache.clear();
+  if (name) {
+    resultCache.delete(String(name).trim().toLowerCase());
+    return;
+  }
+  resultCache.clear();
+  discoveryCache.clear();
 }
 
 function registerTezosDomainsIpc() {

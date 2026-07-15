@@ -6,6 +6,7 @@ const IPC = require('../shared/ipc-channels');
 const { cidV1BytesToBase32 } = require('../shared/cid-utils');
 const registry = require('./networks/network-registry');
 const { prefetchGatewayUrl, NOOP_HANDLE: NOOP_PREFETCH } = require('./ens-prefetch');
+const { capCache } = require('./cache-utils');
 
 // Canonical ENS Universal Resolver — a DAO-owned proxy that delegates to
 // the current implementation, so future UR upgrades don't require a code
@@ -437,27 +438,6 @@ function ttlForResult(result) {
     return TTL_BY_LEVEL[level];
   }
   return DEFAULT_CACHE_TTL_MS;
-}
-
-// Upper bound per cache. Long browsing sessions can accumulate thousands
-// of distinct ENS names; without a cap the caches grow unboundedly since
-// expired entries are only evicted on re-read. On set, if we're over the
-// cap, drop expired entries first, then fall back to FIFO eviction.
-const MAX_CACHE_ENTRIES = 500;
-
-function capCache(cache) {
-  if (cache.size <= MAX_CACHE_ENTRIES) return;
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (entry.expiresAt <= now) {
-      cache.delete(key);
-      if (cache.size <= MAX_CACHE_ENTRIES) return;
-    }
-  }
-  while (cache.size > MAX_CACHE_ENTRIES) {
-    const firstKey = cache.keys().next().value;
-    cache.delete(firstKey);
-  }
 }
 
 const ensResultCache = new Map();
