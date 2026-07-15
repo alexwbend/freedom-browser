@@ -35,6 +35,7 @@ export const TRUST_STATUS_SENTENCE = {
 };
 
 const nameSystemLabel = (trust = {}) => {
+  if (trust.system === 'tezos') return 'Tezos Domains';
   if (trust.system === 'wns') return 'WNS';
   if (trust.system === 'gns') return 'GNS';
   return 'ENS';

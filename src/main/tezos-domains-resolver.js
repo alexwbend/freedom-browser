@@ -1,0 +1,437 @@
+const log = require('./logger');
+const { ipcMain } = require('electron');
+const crypto = require('crypto');
+const { ethers } = require('ethers');
+const IPC = require('../shared/ipc-channels');
+const { blake2b } = require('../shared/blake2b');
+
+const MAINNET_CHAIN_ID = 'NetXdQprcVkpaWU';
+const PROXY_CONTRACT = 'KT1F7JKNqwaoLzRsMio1MQC7zv3jG9dHcDdJ';
+const DEFAULT_RPC_ENDPOINTS = [
+  'https://tezos-mainnet.octez.io',
+  'https://rpc.tzkt.io/mainnet',
+  'https://rpc.tzbeta.net',
+];
+const REQUEST_TIMEOUT_MS = 8_000;
+const ANCHOR_DEPTH = 8;
+const DEFAULT_TTL_MS = 5 * 60_000;
+const MAX_TTL_MS = 60 * 60_000;
+const NEGATIVE_TTL_MS = 30_000;
+const MAX_RPC_RESPONSE_BYTES = 5 * 1024 * 1024;
+const SCRIPT_EXPR_PREFIX = Uint8Array.from([13, 44, 64, 27]);
+
+const resultCache = new Map();
+
+function isTezosDomainName(value) {
+  if (!value || typeof value !== 'string') return false;
+  const lower = value.toLowerCase();
+  if (!lower.endsWith('.tez') || lower.length > 255) return false;
+  if (/[\s/?#]/.test(lower)) return false;
+  if ([...lower].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  })) return false;
+  return lower.split('.').every((label) => label.length > 0);
+}
+
+function getRpcEndpoints() {
+  const override = String(process.env.TEZOS_RPC || '').trim();
+  const candidates = override ? [override, ...DEFAULT_RPC_ENDPOINTS] : DEFAULT_RPC_ENDPOINTS;
+  const seen = new Set();
+  return candidates.filter((candidate) => {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+      const normalized = parsed.toString().replace(/\/$/, '');
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function rpcRequest(endpoint, path, { method = 'GET', body, fetchImpl = fetch } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(`${endpoint}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error(`RPC returned HTTP ${response.status}`);
+    const declaredLength = Number(response.headers?.get?.('content-length'));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_RPC_RESPONSE_BYTES) {
+      throw new Error('RPC response exceeded the size limit');
+    }
+    const text = await response.text();
+    if (Buffer.byteLength(text, 'utf8') > MAX_RPC_RESPONSE_BYTES) {
+      throw new Error('RPC response exceeded the size limit');
+    }
+    return JSON.parse(text);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function concatBytes(...arrays) {
+  const length = arrays.reduce((total, array) => total + array.length, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+  for (const array of arrays) {
+    output.set(array, offset);
+    offset += array.length;
+  }
+  return output;
+}
+
+function u32be(value) {
+  return Uint8Array.from([
+    (value >>> 24) & 0xff,
+    (value >>> 16) & 0xff,
+    (value >>> 8) & 0xff,
+    value & 0xff,
+  ]);
+}
+
+function base58Check(payload) {
+  const first = crypto.createHash('sha256').update(payload).digest();
+  const checksum = crypto.createHash('sha256').update(first).digest().subarray(0, 4);
+  return ethers.encodeBase58(concatBytes(payload, checksum));
+}
+
+function scriptExprHash(keyBytes) {
+  const packed = concatBytes(Uint8Array.from([0x05, 0x0a]), u32be(keyBytes.length), keyBytes);
+  const digest = blake2b(packed, 32);
+  return base58Check(concatBytes(SCRIPT_EXPR_PREFIX, digest));
+}
+
+function annotationMatches(node, annotation) {
+  return Array.isArray(node?.annots) && node.annots.includes(annotation);
+}
+
+function flattenPairLeaves(node) {
+  if (node && typeof node === 'object' && String(node.prim || '').toLowerCase() === 'pair') {
+    return (node.args || []).flatMap(flattenPairLeaves);
+  }
+  return [node];
+}
+
+function findAnnotatedValue(typeNode, valueNode, annotation) {
+  if (!typeNode || valueNode === undefined || valueNode === null) return null;
+  const typeLeaves = flattenPairLeaves(typeNode);
+  const valueLeaves = flattenPairLeaves(valueNode);
+  const index = typeLeaves.findIndex((node) => annotationMatches(node, annotation));
+  if (index < 0 || index >= valueLeaves.length) return null;
+  return { type: typeLeaves[index], value: valueLeaves[index] };
+}
+
+function storageTypeFromScript(script) {
+  const storageDeclaration = script?.code?.find((entry) => entry?.prim === 'storage');
+  return storageDeclaration?.args?.[0] || null;
+}
+
+function bytesFromHex(value) {
+  if (typeof value !== 'string' || value.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(value)) {
+    throw new Error('Invalid Micheline bytes value');
+  }
+  return Uint8Array.from(Buffer.from(value, 'hex'));
+}
+
+function decodeJsonBytes(value) {
+  const text = Buffer.from(bytesFromHex(value)).toString('utf8');
+  return JSON.parse(text);
+}
+
+function mapEntries(value) {
+  if (!Array.isArray(value)) return new Map();
+  return new Map(
+    value
+      .filter((entry) => entry?.prim === 'Elt' && entry.args?.[0]?.string !== undefined)
+      .map((entry) => [entry.args[0].string, entry.args[1]?.bytes])
+  );
+}
+
+function parsePublishedUri(rawUri, { redirect = false } = {}) {
+  if (typeof rawUri !== 'string' || rawUri.length > 8_192) {
+    return { type: 'unsupported', reason: 'invalid website URI', system: 'tezos' };
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(rawUri);
+  } catch {
+    return { type: 'unsupported', reason: 'invalid website URI', system: 'tezos' };
+  }
+
+  const protocol = parsed.protocol.slice(0, -1).toLowerCase();
+  if (redirect && protocol !== 'http' && protocol !== 'https') {
+    return { type: 'unsupported', reason: 'redirect URL must use HTTP(S)', system: 'tezos' };
+  }
+
+  if (protocol === 'http' || protocol === 'https') {
+    if (!parsed.hostname || parsed.username || parsed.password) {
+      return { type: 'unsupported', reason: 'invalid HTTP(S) website URI', system: 'tezos' };
+    }
+    return { type: 'ok', protocol, uri: parsed.toString(), redirect, system: 'tezos' };
+  }
+
+  if (!redirect && (protocol === 'ipfs' || protocol === 'ipns')) {
+    if (!parsed.hostname || parsed.username || parsed.password || parsed.port) {
+      return { type: 'unsupported', reason: `invalid ${protocol.toUpperCase()} website URI`, system: 'tezos' };
+    }
+    const basePath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '');
+    return {
+      type: 'ok',
+      protocol,
+      uri: parsed.toString(),
+      decoded: parsed.hostname,
+      basePath,
+      redirect: false,
+      system: 'tezos',
+    };
+  }
+
+  return { type: 'unsupported', reason: `unsupported website protocol: ${protocol}`, system: 'tezos' };
+}
+
+async function fetchNormalizedScript(endpoint, blockHash, contract, fetchImpl) {
+  return rpcRequest(
+    endpoint,
+    `/chains/main/blocks/${encodeURIComponent(blockHash)}/context/contracts/${contract}/script/normalized`,
+    { method: 'POST', body: { unparsing_mode: 'Readable' }, fetchImpl }
+  );
+}
+
+async function resolveAtBlock(endpoint, blockHash, name, fetchImpl = fetch) {
+  const proxyScript = await fetchNormalizedScript(endpoint, blockHash, PROXY_CONTRACT, fetchImpl);
+  const proxyContract = findAnnotatedValue(
+    storageTypeFromScript(proxyScript),
+    proxyScript?.storage,
+    '%contract'
+  )?.value?.string;
+  if (!/^KT1[1-9A-HJ-NP-Za-km-z]{33}$/.test(proxyContract || '')) {
+    throw new Error('Tezos Domains proxy returned an invalid registry contract');
+  }
+
+  const registryScript = await fetchNormalizedScript(endpoint, blockHash, proxyContract, fetchImpl);
+  const registryStorageType = storageTypeFromScript(registryScript);
+  const records = findAnnotatedValue(registryStorageType, registryScript?.storage, '%records');
+  const expiryMap = findAnnotatedValue(registryStorageType, registryScript?.storage, '%expiry_map');
+  const recordsId = records?.value?.int;
+  const expiryMapId = expiryMap?.value?.int;
+  if (!/^\d+$/.test(recordsId || '') || !/^\d+$/.test(expiryMapId || '')) {
+    throw new Error('Tezos Domains registry storage is missing annotated big maps');
+  }
+
+  const nameBytes = new TextEncoder().encode(name);
+  const record = await rpcRequest(
+    endpoint,
+    `/chains/main/blocks/${encodeURIComponent(blockHash)}/context/big_maps/${recordsId}/${scriptExprHash(nameBytes)}`,
+    { fetchImpl }
+  );
+  if (!record) return { type: 'not_found', reason: 'domain record not found', system: 'tezos' };
+
+  const recordType = records.type?.args?.[1];
+  const dataValue = findAnnotatedValue(recordType, record, '%data')?.value;
+  const expiryKeyValue = findAnnotatedValue(recordType, record, '%expiry_key')?.value;
+  const recordsMap = mapEntries(dataValue);
+
+  let expiry = null;
+  const expiryKeyHex = expiryKeyValue?.prim === 'Some' ? expiryKeyValue.args?.[0]?.bytes : null;
+  if (expiryKeyHex) {
+    const expiryRecord = await rpcRequest(
+      endpoint,
+      `/chains/main/blocks/${encodeURIComponent(blockHash)}/context/big_maps/${expiryMapId}/${scriptExprHash(bytesFromHex(expiryKeyHex))}`,
+      { fetchImpl }
+    );
+    if (typeof expiryRecord?.string !== 'string') {
+      throw new Error('Tezos Domains expiry record is missing');
+    }
+    expiry = expiryRecord.string;
+    const expiresAt = expiry ? Date.parse(expiry) : Number.NaN;
+    if (Number.isFinite(expiresAt) && expiresAt <= Date.now()) {
+      return { type: 'not_found', reason: 'domain record expired', expiry, system: 'tezos' };
+    }
+  }
+
+  let redirectUrl;
+  let contentUrl;
+  let ttl;
+  try {
+    if (recordsMap.has('web:redirect_url')) {
+      redirectUrl = decodeJsonBytes(recordsMap.get('web:redirect_url'));
+    }
+    if (recordsMap.has('web:content_url')) {
+      contentUrl = decodeJsonBytes(recordsMap.get('web:content_url'));
+    }
+    if (recordsMap.has('td:ttl')) ttl = decodeJsonBytes(recordsMap.get('td:ttl'));
+  } catch (err) {
+    return { type: 'unsupported', reason: `invalid Tezos Domains metadata: ${err.message}`, system: 'tezos' };
+  }
+
+  if (redirectUrl !== undefined) {
+    return { ...parsePublishedUri(redirectUrl, { redirect: true }), expiry, ttl };
+  }
+  if (contentUrl !== undefined) {
+    return { ...parsePublishedUri(contentUrl), expiry, ttl };
+  }
+  return { type: 'not_found', reason: 'domain has no website record', expiry, ttl, system: 'tezos' };
+}
+
+async function fetchHead(endpoint, fetchImpl = fetch) {
+  const [chainId, header] = await Promise.all([
+    rpcRequest(endpoint, '/chains/main/chain_id', { fetchImpl }),
+    rpcRequest(endpoint, '/chains/main/blocks/head/header', { fetchImpl }),
+  ]);
+  if (chainId !== MAINNET_CHAIN_ID) throw new Error(`unexpected Tezos chain: ${chainId}`);
+  const level = Number(header?.level);
+  if (!Number.isSafeInteger(level) || level <= ANCHOR_DEPTH) throw new Error('invalid Tezos head level');
+  return { endpoint, level };
+}
+
+async function fetchAnchor(endpoint, level, fetchImpl = fetch) {
+  const hash = await rpcRequest(endpoint, `/chains/main/blocks/${level}/hash`, { fetchImpl });
+  if (typeof hash !== 'string' || !hash.startsWith('B')) throw new Error('invalid Tezos block hash');
+  return { endpoint, level, hash };
+}
+
+function semanticResultKey(result) {
+  return JSON.stringify({
+    type: result.type,
+    reason: result.reason || null,
+    protocol: result.protocol || null,
+    uri: result.uri || null,
+    decoded: result.decoded || null,
+    basePath: result.basePath || null,
+    redirect: Boolean(result.redirect),
+    expiry: result.expiry || null,
+  });
+}
+
+function cacheDuration(result) {
+  if (result.type !== 'ok') return NEGATIVE_TTL_MS;
+  const recordTtl = Number(result.ttl);
+  let duration = Number.isFinite(recordTtl) && recordTtl > 0 ? recordTtl * 1_000 : DEFAULT_TTL_MS;
+  duration = Math.min(duration, MAX_TTL_MS);
+  const expiryMs = Date.parse(result.expiry || '');
+  if (Number.isFinite(expiryMs)) duration = Math.min(duration, Math.max(0, expiryMs - Date.now()));
+  return Math.max(1_000, duration);
+}
+
+async function resolveTezosDomain(name, { fetchImpl = fetch, endpoints = getRpcEndpoints() } = {}) {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (!isTezosDomainName(normalized)) {
+    return { type: 'not_found', reason: 'invalid .tez domain', system: 'tezos' };
+  }
+
+  const cached = resultCache.get(normalized);
+  if (cached && cached.expiresAt > Date.now()) return cached.result;
+  resultCache.delete(normalized);
+
+  const headSettled = await Promise.allSettled(
+    endpoints.slice(0, 3).map((endpoint) => fetchHead(endpoint, fetchImpl))
+  );
+  const heads = headSettled.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
+  if (heads.length === 0) {
+    return { type: 'error', reason: 'all Tezos RPC providers failed', system: 'tezos' };
+  }
+  const anchorLevel = Math.min(...heads.map((head) => head.level)) - ANCHOR_DEPTH;
+  const anchorSettled = await Promise.allSettled(
+    heads.map((head) => fetchAnchor(head.endpoint, anchorLevel, fetchImpl))
+  );
+  const anchors = anchorSettled.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
+  if (anchors.length === 0) {
+    return { type: 'error', reason: 'Tezos RPC providers could not anchor a block', system: 'tezos' };
+  }
+
+  const anchorGroups = new Map();
+  for (const anchor of anchors) {
+    const key = `${anchor.level}:${anchor.hash}`;
+    if (!anchorGroups.has(key)) anchorGroups.set(key, []);
+    anchorGroups.get(key).push(anchor);
+  }
+  const bestAnchors = [...anchorGroups.values()].sort((a, b) => b.length - a.length)[0];
+  const legs = await Promise.allSettled(
+    bestAnchors.map(async (anchor) => ({
+      endpoint: anchor.endpoint,
+      result: await resolveAtBlock(anchor.endpoint, anchor.hash, normalized, fetchImpl),
+    }))
+  );
+  const successful = legs.filter((entry) => entry.status === 'fulfilled').map((entry) => entry.value);
+  if (successful.length === 0) {
+    return { type: 'error', reason: 'Tezos Domains registry lookup failed', system: 'tezos' };
+  }
+
+  const resultGroups = new Map();
+  for (const leg of successful) {
+    const key = semanticResultKey(leg.result);
+    if (!resultGroups.has(key)) resultGroups.set(key, []);
+    resultGroups.get(key).push(leg);
+  }
+  const groups = [...resultGroups.values()].sort((a, b) => b.length - a.length);
+  const winner = groups[0];
+  const block = { number: bestAnchors[0].level, hash: bestAnchors[0].hash };
+
+  if (winner.length < 2 && groups.length > 1) {
+    return {
+      type: 'conflict',
+      system: 'tezos',
+      groups: groups.map((group) => ({
+        value: group[0].result.uri || group[0].result.reason || group[0].result.type,
+        providers: group.map((leg) => leg.endpoint),
+      })),
+      trust: { level: 'conflict', system: 'tezos', block, k: successful.length, m: winner.length },
+    };
+  }
+
+  const trustLevel = winner.length >= 2 ? 'verified' : 'unverified';
+  const result = {
+    ...winner[0].result,
+    trust: {
+      level: trustLevel,
+      system: 'tezos',
+      block,
+      k: successful.length,
+      m: winner.length,
+      agreed: winner.map((leg) => leg.endpoint),
+    },
+  };
+  resultCache.set(normalized, { result, expiresAt: Date.now() + cacheDuration(result) });
+  return result;
+}
+
+function invalidateTezosDomain(name) {
+  if (name) resultCache.delete(String(name).trim().toLowerCase());
+  else resultCache.clear();
+}
+
+function registerTezosDomainsIpc() {
+  ipcMain.handle(IPC.TEZOS_DOMAINS_RESOLVE, async (_event, { name } = {}) => {
+    try {
+      return await resolveTezosDomain(name);
+    } catch (err) {
+      log.error(`[tezos-domains] Resolution failed for ${name}: ${err.message}`);
+      return { type: 'error', reason: err.message, system: 'tezos' };
+    }
+  });
+  ipcMain.handle(IPC.TEZOS_DOMAINS_INVALIDATE, (_event, { name } = {}) => {
+    invalidateTezosDomain(name);
+    return { ok: true };
+  });
+}
+
+module.exports = {
+  invalidateTezosDomain,
+  isTezosDomainName,
+  parsePublishedUri,
+  registerTezosDomainsIpc,
+  resolveAtBlock,
+  resolveTezosDomain,
+  scriptExprHash,
+  _test: { findAnnotatedValue, semanticResultKey },
+};

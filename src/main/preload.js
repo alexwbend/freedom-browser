@@ -70,6 +70,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resolveEnsAddress: (name) => ipcRenderer.invoke('ens:resolve-address', { name }),
   resolveEnsReverse: (address) => ipcRenderer.invoke('ens:resolve-reverse', { address }),
   invalidateEnsContent: (name) => ipcRenderer.invoke('ens:invalidate-content', { name }),
+  resolveTezosDomain: (name) => ipcRenderer.invoke('tezos-domains:resolve', { name }),
+  invalidateTezosDomain: (name) => ipcRenderer.invoke('tezos-domains:invalidate', { name }),
   // History
   getHistory: (options) => ipcRenderer.invoke('history:get', options),
   addHistory: (entry) => ipcRenderer.invoke('history:add', entry),

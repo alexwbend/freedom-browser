@@ -71,9 +71,43 @@ const isIpfsProgressUrl = (value) => {
 
 const nameSystemLabelForName = (name = '') => {
   const lower = String(name).toLowerCase();
+  if (lower.endsWith('.tez')) return 'Tezos Domains';
   if (lower.endsWith('.wei')) return 'WNS';
   if (lower.endsWith('.gwei')) return 'GNS';
   return 'ENS';
+};
+
+const resolverForNameInput = (input) =>
+  input?.system === 'tezos' ? electronAPI?.resolveTezosDomain : electronAPI?.resolveEns;
+
+const appendPublishedWebsiteSuffix = (targetUri, suffix = '') => {
+  if (!suffix) return targetUri;
+  try {
+    const target = new URL(targetUri);
+    const requested = new URL(suffix, 'https://name.invalid/');
+    if (suffix.startsWith('/')) {
+      const basePath = target.pathname === '/' ? '' : target.pathname.replace(/\/$/, '');
+      target.pathname = `${basePath}${requested.pathname}`;
+    }
+    target.search = requested.search;
+    target.hash = requested.hash;
+    return target.toString();
+  } catch {
+    return `${targetUri.replace(/\/+$/, '')}${suffix}`;
+  }
+};
+
+const invalidateContentName = (input) => {
+  if (!input?.name) return;
+  if (input.system === 'tezos') {
+    electronAPI?.invalidateTezosDomain?.(input.name).catch((err) => {
+      pushDebug(`[Tezos Domains] cache invalidation failed: ${err?.message || err}`);
+    });
+    return;
+  }
+  electronAPI?.invalidateEnsContent?.(input.name).catch((err) => {
+    pushDebug(`[ENS] invalidateEnsContent failed: ${err?.message || err}`);
+  });
 };
 
 // Experimental opt-in (Settings → Experimental, default off). Mirrors the
@@ -988,7 +1022,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     // If inner URL is a dweb URL, we need to resolve it first
     // Check for ENS
     const ens = parseEnsInput(innerUrl);
-    if (ens && electronAPI?.resolveEns) {
+    const resolveName = resolverForNameInput(ens);
+    if (ens && resolveName) {
       const systemLabel = nameSystemLabelForName(ens.name);
       const capturedWebview = webview;
       // Tab id pinned for the duration of this async resolution so a tab
@@ -1003,12 +1038,11 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       // background-tab dispatch restores the resolved value rather than
       // clobbering the foreground tab.
       setAddressDisplayForTab(
-        `view-source:ens://${ens.name}${ens.suffix || ''}`,
+        `view-source:${ens.system === 'tezos' ? '' : 'ens://'}${ens.name}${ens.suffix || ''}`,
         capturedTabId,
         { isViewingSourceForTab: true }
       );
-      electronAPI
-        .resolveEns(ens.name)
+      resolveName(ens.name)
         .then((result) => {
           setLoading(false, capturedTabId);
           if (!result || result.type !== 'ok') {
@@ -1104,7 +1138,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try Ethereum names first (legacy ens:// plus supported name suffixes)
   const ens = parseEnsInput(value);
-  if (ens && electronAPI?.resolveEns) {
+  const resolveName = resolverForNameInput(ens);
+  if (ens && resolveName) {
     const systemLabel = nameSystemLabelForName(ens.name);
     // Capture the webview reference before async operation to prevent loading in wrong tab
     const capturedWebview = webview;
@@ -1142,8 +1177,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         alert(alertMessage);
       }
     };
-    electronAPI
-      .resolveEns(ens.name)
+    resolveName(ens.name)
       .then((result) => {
         setLoading(false, capturedTabId);
         if (!result) {
@@ -1185,6 +1219,34 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
             `${systemLabel} resolution failed for ${ens.name}: ${reason}`,
             `${systemLabel} resolution failed for ${ens.name}: ${reason}`
           );
+          return;
+        }
+
+        const isExternalTezosWebsite =
+          ens.system === 'tezos' && (result.protocol === 'http' || result.protocol === 'https');
+        if (isExternalTezosWebsite) {
+          if (assertedTransport) {
+            failEnsResolution(
+              `${systemLabel} transport mismatch for ${ens.name}: asserted ${assertedTransport}, got ${result.protocol}`,
+              `${systemLabel} name ${ens.name} resolves to ${result.protocol}, not ${assertedTransport}.`
+            );
+            return;
+          }
+          const targetUri = result.redirect
+            ? result.uri
+            : appendPublishedWebsiteSuffix(result.uri, ens.suffix);
+          if (
+            result.trust?.level === 'unverified'
+            && state.blockUnverifiedEns
+            && !options.allowUnverifiedOnce
+          ) {
+            capturedWebview.loadURL(
+              buildInternalPageUrl('ens-unverified.html', { name: ens.name, uri: targetUri })
+            );
+            return;
+          }
+          pushDebug(`${systemLabel} resolved: ${ens.name} -> ${targetUri}`);
+          loadTarget(targetUri, displayOverride || targetUri, capturedWebview);
           return;
         }
 
@@ -1545,14 +1607,6 @@ export const loadHomePage = () => {
 // re-resolves rather than returning the cached result. Fire-and-forget IPC —
 // the subsequent `loadTarget` call kicks off a fresh `resolveEns` that misses
 // the now-empty cache.
-const invalidateEnsContentForHardReload = (ensName) => {
-  if (!ensName || !electronAPI?.invalidateEnsContent) return;
-  pushDebug(`Hard reload: invalidating ENS contenthash cache for ${ensName}`);
-  electronAPI.invalidateEnsContent(ensName).catch((err) => {
-    pushDebug(`[ENS] invalidateEnsContent failed: ${err?.message || err}`);
-  });
-};
-
 // Shared error-page retry logic used by both reload variants and the reload button
 const retryErrorPageOrReload = (webview, hard) => {
   const current = webview.getURL();
@@ -1563,7 +1617,7 @@ const retryErrorPageOrReload = (webview, hard) => {
     // rather than returning the cached contenthash from the failed attempt.
     if (hard) {
       const errorEns = parseEnsInput(originalUrl);
-      if (errorEns) invalidateEnsContentForHardReload(errorEns.name);
+      if (errorEns) invalidateContentName(errorEns);
     }
     pushDebug(`Retrying original URL from error page: ${originalUrl}`);
     loadTarget(originalUrl);
@@ -1597,8 +1651,8 @@ const retryErrorPageOrReload = (webview, hard) => {
   const committedDisplay = (navState.committedDisplayUrl || '').trim();
   const ensInput = committedDisplay ? parseEnsInput(committedDisplay) : null;
   if (ensInput) {
-    if (hard) invalidateEnsContentForHardReload(ensInput.name);
-    pushDebug(`${hard ? 'Hard reload' : 'Reload'} re-resolving ENS: ${committedDisplay}`);
+    if (hard) invalidateContentName(ensInput);
+    pushDebug(`${hard ? 'Hard reload' : 'Reload'} re-resolving ${nameSystemLabelForName(ensInput.name)}: ${committedDisplay}`);
     loadTarget(committedDisplay);
     return;
   }

@@ -158,6 +158,7 @@ const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
   createAntLifecycle,
@@ -258,6 +259,7 @@ async function bootstrap() {
   registerHistoryIpc();
   registerFaviconsIpc();
   registerEnsIpc();
+  registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
   registerRadicleIpc();

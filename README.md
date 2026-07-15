@@ -3,7 +3,7 @@
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
-Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, and ENS as first-class protocols.
+Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols.
 It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
 
 ---
@@ -32,7 +32,7 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm start
    ```
 
-5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei` domain in the address bar.
+5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
 
 ---
 
@@ -249,6 +249,7 @@ Enter any of the following in the address bar:
 | IPNS URL    | `ipns://k51...` or `ipns://domain.eth`          |
 | Radicle ID  | `rad://z3gqc...`                                |
 | Ethereum Name | `vitalik.eth`, `mysite.box`, `alice.wei`, `apoorv.gwei`, `mysite.eth/about` |
+| Tezos Domain | `mysite.tez`, `ipfs://mysite.tez/docs` |
 | HTTP(S) URL | `https://example.com`                           |
 | Domain      | `example.com` (auto-prefixes `https://`)        |
 
@@ -263,6 +264,13 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Typed Scheme Is an Assertion**: Typing `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, or the equivalent `.wei`/`.gwei` forms only resolves if the contenthash matches the typed transport. Mismatches surface as a "resolves to X, not Y" message rather than silently switching transports — same rule the `bzz://` protocol handler enforces for subresource fetches. Bare names and the legacy `ens://` form make no assertion and accept any supported transport.
 - **Path Forwarding**: Paths appended to names (e.g., `mysite.eth/docs`, `alice.wei/docs`, `apoorv.gwei/docs`) are preserved after resolution.
 - **In-HTML Links**: Ethereum name links inside web pages must carry a scheme — `ens://name.eth`, `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, `bzz://name.wei`, `ipfs://name.wei`, `ipns://name.wei`, `bzz://name.gwei`, `ipfs://name.gwei`, or `ipns://name.gwei`. Bare hrefs like `<a href="vitalik.eth">` are relative URLs by HTML/URL-spec rules and resolve against the page's base before any of our handlers see them; bare names are only resolved in the address bar, where input is always absolute.
+
+### Tezos Domains Website Resolution
+
+- **Native on-chain resolution**: Bare `.tez` names are resolved directly from the Tezos Domains mainnet registry through three public Tezos RPC endpoints. Freedom follows the upgradeable proxy, discovers the annotated records and expiry big maps, pins all providers to one block, and requires a 2-of-3 matching result before marking it verified. Set `TEZOS_RPC` to prepend a development endpoint.
+- **Published website records**: `web:redirect_url` takes precedence over `web:content_url`, matching Tezos Domains publishing semantics. HTTP(S) records navigate directly; IPFS and IPNS records stay on Freedom's native transports and keep the `.tez` name as the page origin.
+- **Paths and assertions**: A base path embedded in the published URI is preserved when an address-bar path is appended. Typed `ipfs://name.tez` and `ipns://name.tez` forms assert that transport; `ens://name.tez` is intentionally rejected because `.tez` is not ENS.
+- **Expiry and caching**: Expired domains do not resolve. Positive cache entries honor `td:ttl` within a bounded lifetime and never outlive the on-chain expiry; negative results use a short cache.
 
 ### Tabbed Browsing
 

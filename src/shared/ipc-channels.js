@@ -39,6 +39,10 @@ module.exports = {
   ENS_RESOLVE_REVERSE: 'ens:resolve-reverse',
   ENS_INVALIDATE_CONTENT: 'ens:invalidate-content',
 
+  // Tezos Domains website resolution
+  TEZOS_DOMAINS_RESOLVE: 'tezos-domains:resolve',
+  TEZOS_DOMAINS_INVALIDATE: 'tezos-domains:invalidate',
+
   // Settings
   SETTINGS_GET: 'settings:get',
   SETTINGS_SAVE: 'settings:save',
