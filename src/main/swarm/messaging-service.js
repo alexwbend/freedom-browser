@@ -121,7 +121,9 @@ async function getMessagingIdentity() {
 }
 
 async function selectMessageBatch() {
-  const batchId = await selectBestBatch(4096);
+  // Messages are ephemeral: a full mutable batch (rolling stamp window)
+  // is an acceptable fallback here, unlike for content publishes.
+  const batchId = await selectBestBatch(4096, { allowFullMutable: true });
   if (!batchId) {
     throw new Error('No usable postage batch available. Purchase stamps first.');
   }

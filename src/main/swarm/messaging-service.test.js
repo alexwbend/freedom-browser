@@ -160,6 +160,8 @@ describe('sendPss', () => {
     await sendPss({ topic: 'dm:alice', targets: 'aabb', recipient: '02' + 'ab'.repeat(32), data: 'hello' });
 
     expect(mockPssSend).toHaveBeenCalledTimes(1);
+    // Messaging opts into the full-mutable-batch fallback (ephemeral traffic).
+    expect(mockSelectBestBatch).toHaveBeenCalledWith(4096, { allowFullMutable: true });
     const [batchId, topic, target, data, recipient] = mockPssSend.mock.calls[0];
     expect(batchId).toBe(BATCH_ID);
     expect(topic.toHex()).toBe(MockTopic.fromString('dm:alice').toHex());
