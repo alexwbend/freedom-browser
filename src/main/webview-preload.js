@@ -437,6 +437,8 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 document.addEventListener(
   'contextmenu',
   (event) => {
+    if (event.defaultPrevented) return;
+
     const context = {
       x: event.clientX,
       y: event.clientY,
@@ -511,7 +513,7 @@ document.addEventListener(
     // Send context info to the host renderer
     ipcRenderer.sendToHost('context-menu', context);
   },
-  true
+  false
 );
 
 // Handle context menu actions from the renderer
