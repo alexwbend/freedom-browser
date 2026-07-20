@@ -34,10 +34,12 @@ import { initVaultUnlock, showVaultUnlock } from './wallet/vault-unlock.js';
 import { initPermissionManage, showDappPermissions, showSwarmPermissions, showX402Permissions, closeDappPerms, closeSwarmPerms, closeX402Perms } from './wallet/permission-manage.js';
 import { initPublisherIdentities, closePublisherIdentities } from './wallet/publisher-identities.js';
 import { initPublisherIdentityCreate, closePublisherIdentityCreate } from './wallet/publisher-identity-create.js';
+import { initPermissionManifest, showPermissionManifest } from './wallet/permission-manifest.js';
 
 // Re-export public API consumed by dapp-provider.js, swarm-provider.js, and index.js
 export { showDappConnect, updateConnectionBanner, showDappTxApproval, showDappSignApproval };
 export { showSwarmConnect, updateSwarmConnectionBanner, showSwarmPublishApproval, showSwarmFeedApproval, showSwarmMessagingApproval, showVaultUnlock };
+export { showPermissionManifest };
 export { updateX402ConnectionBanner };
 export { showDappPermissions, showSwarmPermissions, showX402Permissions };
 export { getSelectedChainId, setSelectedChainId };
@@ -77,6 +79,7 @@ export function initWalletUi() {
   initRpcSettings();
   initDappConnect();
   initSwarmConnect();
+  initPermissionManifest();
   initVaultUnlock();
   initPermissionManage();
   initDappTx();

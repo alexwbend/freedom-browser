@@ -365,6 +365,8 @@ function saveFeeds() {
     fs.renameSync(tempPath, filePath);
   } catch (err) {
     log.error('[FeedStore] Failed to save feeds:', err.message);
+    feedsCache = null;
+    throw err;
   }
 }
 

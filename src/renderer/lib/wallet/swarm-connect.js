@@ -353,8 +353,11 @@ export async function disconnectSwarmApp(permissionKey = null) {
   if (!key) return;
 
   try {
-    await window.swarmPermissions.revokePermission(key);
-    await window.swarmFeedStore?.revokeFeedAccess?.(key);
+    if (window.swarmManifest?.disconnect) await window.swarmManifest.disconnect(key);
+    else {
+      await window.swarmPermissions.revokePermission(key);
+      await window.swarmFeedStore?.revokeFeedAccess?.(key);
+    }
     console.log('[SwarmConnect] Disconnected:', key);
 
     const webview = getActiveWebview();

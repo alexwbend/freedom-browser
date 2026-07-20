@@ -195,6 +195,7 @@ const { getTransactionStatus: getTxStatus } = require('./wallet/transaction-serv
 const { registerSwarmPermissionsIpc } = require('./swarm/swarm-permissions');
 const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
+const { registerPermissionManifestIpc } = require('./swarm/permission-manifests');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
 const { promptForDefaultExternalCandidates } = require('./profile-external-candidates');
@@ -281,8 +282,9 @@ async function bootstrap() {
   registerPublishIpc();
   registerPublishHistoryIpc();
   registerSwarmPermissionsIpc();
-  registerSwarmProviderIpc();
   registerFeedStoreIpc();
+  registerPermissionManifestIpc();
+  registerSwarmProviderIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
   // before the previous run exited. Fire-and-forget — the wallet stack
