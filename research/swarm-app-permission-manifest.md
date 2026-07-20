@@ -185,6 +185,28 @@ equivalent.
 | `signing` | Establish the base connection, grant feed/signing access, ensure a publisher identity exists, and allow Swarm content signing without repeated approval. |
 | `messaging` | Establish the base connection, grant the messaging tier, and allow supported PSS/GSOC messaging operations without repeated approval. |
 
+**Informative method mapping.** Capability semantics above are stated
+behaviorally because clients differ in internal permission granularity.
+For clients exposing the Swarm provider API (the `window.swarm` SWIP
+draft and its messaging extension), the reference implementation maps
+capabilities to provider methods as follows; a successor profile should
+make this mapping normative once the provider API is finalized:
+
+| Category | Provider methods covered |
+|---|---|
+| Connection establishment | `swarm_requestAccess` |
+| Base connection only | `swarm_getUploadStatus` (origin-owned uploads), `swarm_unsubscribe` (origin-owned teardown; freshness bypassed) |
+| `publish` | `swarm_publishData`, `swarm_publishFiles`, `swarm_publishChunk` |
+| `feeds` | `swarm_createFeed`, `swarm_updateFeed`, `swarm_writeFeedEntry` |
+| `signing` | `swarm_writeSingleOwnerChunk`, `swarm_getSigningIdentity` |
+| `messaging` | `swarm_getMessagingIdentity`, `swarm_subscribe`, `swarm_sendPss`, `swarm_sendGsoc` |
+
+Permission-free methods (`swarm_getCapabilities`, `swarm_readFeedEntry`,
+`swarm_readChunk`, `swarm_readSingleOwnerChunk`, `swarm_listFeeds`) are
+not affected by any capability. `swarm_unsubscribe` remains connection- and
+origin-scoped, but bypasses the freshness boundary so teardown cannot be
+blocked (section 2.2).
+
 The `feeds` and `signing` projections share the feed grant and publisher
 identity dependency. A client MUST track those shared dependencies so removing
 one capability does not revoke a dependency still justified by the other.

@@ -464,10 +464,15 @@ Non-`found` outcomes:
   empty-set prune/drop transition before legacy handling; for an
   untracked origin, there is no manifest state to mutate (§5.4).
 - `unresolved` → keep everything, set `unresolvedSince`, retry next
-  qualifying navigation subject to the §5.1 session backoff. Optional
-  hardening (implementer's choice): after N consecutive unresolved
-  checks, surface a passive Settings notice — never auto-prune on
-  `unresolved`.
+  qualifying navigation subject to the §5.1 session backoff — never
+  auto-prune on `unresolved`. For a TRACKED origin the freshness gate
+  cannot be satisfied, so privileged methods FAIL with a temporary
+  availability error until a check succeeds (this is what PR #168
+  implements and what the interoperability profile §2.3 requires:
+  "neither broadens nor revokes authority, but blocks its use until
+  freshness is established" — earlier revisions of this doc were
+  ambiguous here). Untracked origins are unaffected and continue
+  through per-action prompts.
 
 ### 6.3 Provenance rules (the manual-override contract)
 
