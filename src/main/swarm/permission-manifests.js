@@ -14,11 +14,13 @@ const { normalizeOrigin } = require('../../shared/origin-utils');
 const { handleBzzRequest } = require('./bzz-protocol');
 const permissions = require('./swarm-permissions');
 const feeds = require('./feed-store');
+const { withOriginLock } = require('./origin-mutation-lock');
 
 const STORE_FILE = 'swarm-manifest-grants.json';
 const MAX_BYTES = 8 * 1024;
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 const MAX_RECEIPTS = 20;
+const UNRESOLVED_BACKOFF_MS = [2_000, 10_000, 30_000, 60_000];
 const CAPABILITY_KEYS = ['publish', 'feeds', 'signing', 'messaging'];
 const CAPABILITY_META = {
   publish: { label: 'Publish content', detail: 'Use your postage stamps and bandwidth.' },
@@ -35,8 +37,10 @@ const PROJECTIONS = {
 
 let storeCache = null;
 let storeLoadedFromBackup = false;
+let faultInjector = null;
 const tokens = new Map();
 const completedTokens = new Map();
+const unresolvedBackoff = new Map();
 
 function getStorePath() {
   return path.join(app.getPath('userData'), STORE_FILE);
@@ -255,10 +259,15 @@ function runTransaction(origin, record, operations) {
   const state = loadStore();
   state.pending = { origin, record, operations };
   saveStore();
-  for (const operation of operations) applyProjectionValue(origin, operation.projection, operation.enabled);
+  faultInjector?.('after-journal');
+  for (const [index, operation] of operations.entries()) {
+    applyProjectionValue(origin, operation.projection, operation.enabled);
+    faultInjector?.(`after-operation:${index}:${operation.projection}`);
+  }
   if (record) state.records[origin] = record;
   else delete state.records[origin];
   delete state.pending;
+  faultInjector?.('before-commit');
   saveStore();
 }
 
@@ -319,8 +328,22 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
   const firstContact = !existing && !permissions.getPermission(key);
   if (!existing && !eager) return { kind: 'legacy' };
 
+  const backoff = unresolvedBackoff.get(key);
+  if (backoff && Date.now() < backoff.retryAt) {
+    return existing
+      ? { kind: 'unresolved', retryAt: backoff.retryAt }
+      : { kind: 'legacy', reason: 'unresolved-backoff', retryAt: backoff.retryAt };
+  }
+
   const found = await discover(committedUrl, deps.fetchManifest);
-  if (found.status === 'unresolved') return existing ? { kind: 'unresolved' } : { kind: 'legacy' };
+  if (found.status === 'unresolved') {
+    const failures = (backoff?.failures || 0) + 1;
+    const delay = UNRESOLVED_BACKOFF_MS[Math.min(failures - 1, UNRESOLVED_BACKOFF_MS.length - 1)];
+    const retryAt = Date.now() + delay;
+    unresolvedBackoff.set(key, { failures, retryAt });
+    return existing ? { kind: 'unresolved', retryAt } : { kind: 'legacy', reason: 'unresolved', retryAt };
+  }
+  unresolvedBackoff.delete(key);
   if (found.status !== 'found') {
     if (existing) pruneRecord(key);
     return { kind: 'legacy', pruned: !!existing, reason: found.status };
@@ -475,11 +498,22 @@ function getRecord(origin) {
 function registerPermissionManifestIpc() {
   recoverPending();
   permissions.onManifestMutation(detachManaged);
-  ipcMain.handle(IPC.SWARM_MANIFEST_CHECK, (_event, request) => checkManifest(request));
-  ipcMain.handle(IPC.SWARM_MANIFEST_DECIDE, (_event, { token, outcome }) => decideManifest(token, outcome));
-  ipcMain.handle(IPC.SWARM_MANIFEST_GET, (_event, origin) => getRecord(origin));
-  ipcMain.handle(IPC.SWARM_MANIFEST_USE_INDIVIDUAL, (_event, { origin, capability }) => useIndividual(origin, capability));
-  ipcMain.handle(IPC.SWARM_MANIFEST_DISCONNECT, (_event, origin) => disconnect(origin));
+  ipcMain.handle(IPC.SWARM_MANIFEST_CHECK, (_event, request) => (
+    withOriginLock(request.origin, () => checkManifest(request))
+  ));
+  ipcMain.handle(IPC.SWARM_MANIFEST_DECIDE, (_event, { token, outcome }) => {
+    const origin = tokens.get(token)?.origin || `consent-token:${token}`;
+    return withOriginLock(origin, () => decideManifest(token, outcome));
+  });
+  ipcMain.handle(IPC.SWARM_MANIFEST_GET, (_event, origin) => (
+    withOriginLock(origin, () => getRecord(origin))
+  ));
+  ipcMain.handle(IPC.SWARM_MANIFEST_USE_INDIVIDUAL, (_event, { origin, capability }) => (
+    withOriginLock(origin, () => useIndividual(origin, capability))
+  ));
+  ipcMain.handle(IPC.SWARM_MANIFEST_DISCONNECT, (_event, origin) => (
+    withOriginLock(origin, () => disconnect(origin))
+  ));
   console.log('[PermissionManifests] IPC handlers registered');
 }
 
@@ -488,6 +522,12 @@ function _resetForTests() {
   storeLoadedFromBackup = false;
   tokens.clear();
   completedTokens.clear();
+  unresolvedBackoff.clear();
+  faultInjector = null;
+}
+
+function _setFaultInjectorForTests(injector) {
+  faultInjector = injector;
 }
 
 module.exports = {
@@ -501,4 +541,5 @@ module.exports = {
   useIndividual,
   registerPermissionManifestIpc,
   _resetForTests,
+  _setFaultInjectorForTests,
 };

@@ -28,6 +28,7 @@ const path = require('path');
 const fs = require('fs');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
+const { withOriginLock } = require('./origin-mutation-lock');
 const { getDerivedKeys, getPublisherKey, getDerivedWallets } = require('../identity-manager');
 const log = require('electron-log');
 
@@ -940,51 +941,63 @@ function registerFeedStoreIpc() {
   });
 
   ipcMain.handle(IPC.SWARM_CREATE_APP_SCOPED_IDENTITY, async (_event, origin, options = {}) => {
-    createAppScopedIdentity(origin, options);
-    return getOriginIdentityStateWithOwners(origin);
+    return withOriginLock(origin, async () => {
+      createAppScopedIdentity(origin, options);
+      return getOriginIdentityStateWithOwners(origin);
+    });
   });
 
   ipcMain.handle(IPC.SWARM_ENSURE_ANT_WALLET_IDENTITY, async (_event, origin, options = {}) => {
-    ensureAntWalletIdentity(origin, options);
-    return getOriginIdentityStateWithOwners(origin);
+    return withOriginLock(origin, async () => {
+      ensureAntWalletIdentity(origin, options);
+      return getOriginIdentityStateWithOwners(origin);
+    });
   });
 
   ipcMain.handle(IPC.SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY, async (_event, origin, walletIndex, options = {}) => {
-    await ensureEthereumWalletIdentity(origin, walletIndex, options);
-    return getOriginIdentityStateWithOwners(origin);
+    return withOriginLock(origin, async () => {
+      await ensureEthereumWalletIdentity(origin, walletIndex, options);
+      return getOriginIdentityStateWithOwners(origin);
+    });
   });
 
   ipcMain.handle(IPC.SWARM_ACTIVATE_FEED_IDENTITY, async (_event, origin, identityId) => {
-    activateIdentity(origin, identityId);
-    return getOriginIdentityStateWithOwners(origin);
+    return withOriginLock(origin, async () => {
+      activateIdentity(origin, identityId);
+      return getOriginIdentityStateWithOwners(origin);
+    });
   });
 
   // Idempotent for identity: if the origin already has an identity mode set,
   // return the existing entry without allocating a new key index.
   // Always grants feed access (feedGranted = true).
   ipcMain.handle(IPC.SWARM_SET_FEED_IDENTITY, (_event, origin, identityMode) => {
-    if (!VALID_IDENTITY_MODES.includes(identityMode)) {
-      throw new Error(`Invalid identity mode: ${identityMode}. Must be one of: ${VALID_IDENTITY_MODES.join(', ')}`);
-    }
-
-    const existing = getOriginEntry(origin);
-    if (identityMode === 'ethereum-wallet' && !existing?.activeIdentityId) {
-      throw new Error('Use ensureEthereumWalletIdentity(origin, walletIndex) before setting ethereum-wallet feed identity');
-    }
-    if (existing && existing.activeIdentityId) {
-      // Identity already set — just re-grant feed access
-      if (!existing.feedGranted) {
-        grantFeedAccess(origin);
+    return withOriginLock(origin, () => {
+      if (!VALID_IDENTITY_MODES.includes(identityMode)) {
+        throw new Error(`Invalid identity mode: ${identityMode}. Must be one of: ${VALID_IDENTITY_MODES.join(', ')}`);
       }
-      return getOriginEntry(origin);
-    }
 
-    return setOriginEntry(origin, { identityMode, feedGranted: true });
+      const existing = getOriginEntry(origin);
+      if (identityMode === 'ethereum-wallet' && !existing?.activeIdentityId) {
+        throw new Error('Use ensureEthereumWalletIdentity(origin, walletIndex) before setting ethereum-wallet feed identity');
+      }
+      if (existing && existing.activeIdentityId) {
+        // Identity already set — just re-grant feed access
+        if (!existing.feedGranted) {
+          grantFeedAccess(origin);
+        }
+        return getOriginEntry(origin);
+      }
+
+      return setOriginEntry(origin, { identityMode, feedGranted: true });
+    });
   });
 
   ipcMain.handle(IPC.SWARM_REVOKE_FEED_ACCESS, (_event, origin) => {
-    revokeFeedAccess(origin);
-    return true;
+    return withOriginLock(origin, () => {
+      revokeFeedAccess(origin);
+      return true;
+    });
   });
 
   log.info('[FeedStore] IPC handlers registered');

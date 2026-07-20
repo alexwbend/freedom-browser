@@ -53,8 +53,10 @@ const {
   detachManaged,
   getRecord,
   useIndividual,
+  registerPermissionManifestIpc,
   _resetForTests,
 } = require('./permission-manifests');
+const { handleBzzRequest: mockHandleBzzRequest } = require('./bzz-protocol');
 
 let tempDir;
 
@@ -321,8 +323,69 @@ describe('permission manifests', () => {
       committedUrl: 'bzz://app.eth/',
       eager: false,
     }, { fetchManifest: async () => responseFor({}, 503) });
-    expect(result).toEqual({ kind: 'unresolved' });
+    expect(result).toMatchObject({ kind: 'unresolved', retryAt: expect.any(Number) });
     expect(mockPermissionState['app.eth'].autoApprove.publish).toBe(true);
     expect(getRecord('app.eth')).not.toBeNull();
+  });
+
+  test('backs off unresolved discovery across rapid committed navigations', async () => {
+    const realNow = Date.now;
+    let now = 10_000;
+    Date.now = () => now;
+    try {
+      const fetchManifest = jest.fn().mockResolvedValue(responseFor({}, 503));
+      const first = await checkManifest({
+        origin: 'app.eth',
+        committedUrl: 'bzz://app.eth/',
+        eager: true,
+      }, { fetchManifest });
+      const second = await checkManifest({
+        origin: 'app.eth',
+        committedUrl: 'bzz://app.eth/',
+        eager: true,
+      }, { fetchManifest });
+
+      expect(fetchManifest).toHaveBeenCalledTimes(1);
+      expect(second).toMatchObject({ kind: 'legacy', reason: 'unresolved-backoff', retryAt: first.retryAt });
+
+      now = first.retryAt;
+      await checkManifest({
+        origin: 'app.eth',
+        committedUrl: 'bzz://app.eth/',
+        eager: true,
+      }, { fetchManifest });
+      expect(fetchManifest).toHaveBeenCalledTimes(2);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  test('serializes concurrent manifest IPC checks for the same origin', async () => {
+    registerPermissionManifestIpc();
+    let releaseFirst;
+    mockHandleBzzRequest
+      .mockImplementationOnce(() => new Promise((resolve) => { releaseFirst = resolve; }))
+      .mockResolvedValue(responseFor(manifest({ publish: { why: 'Publish releases' } })));
+
+    const first = ipcHandlers['swarm:manifest-check']({}, {
+      origin: 'app.eth',
+      committedUrl: 'bzz://app.eth/',
+      navigationKey: 'tab-1:1',
+      eager: true,
+    });
+    await Promise.resolve();
+    const second = ipcHandlers['swarm:manifest-check']({}, {
+      origin: 'app.eth',
+      committedUrl: 'bzz://app.eth/',
+      navigationKey: 'tab-2:1',
+      eager: true,
+    });
+    await Promise.resolve();
+
+    expect(mockHandleBzzRequest).toHaveBeenCalledTimes(1);
+    releaseFirst(responseFor(manifest({ publish: { why: 'Publish releases' } })));
+    await first;
+    await second;
+    expect(mockHandleBzzRequest).toHaveBeenCalledTimes(2);
   });
 });

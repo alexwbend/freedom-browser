@@ -20,6 +20,7 @@ const path = require('path');
 const fs = require('fs');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
+const { withOriginLock } = require('./origin-mutation-lock');
 
 const PERMISSIONS_FILE = 'swarm-permissions.json';
 
@@ -283,11 +284,11 @@ function registerSwarmPermissionsIpc() {
   });
 
   ipcMain.handle(IPC.SWARM_GRANT_PERMISSION, (_event, origin) => {
-    return grantPermission(origin);
+    return withOriginLock(origin, () => grantPermission(origin));
   });
 
   ipcMain.handle(IPC.SWARM_REVOKE_PERMISSION, (_event, origin) => {
-    return revokePermission(origin);
+    return withOriginLock(origin, () => revokePermission(origin));
   });
 
   ipcMain.handle(IPC.SWARM_GET_ALL_PERMISSIONS, () => {
@@ -303,11 +304,11 @@ function registerSwarmPermissionsIpc() {
   });
 
   ipcMain.handle(IPC.SWARM_SET_AUTO_APPROVE, (_event, origin, type, enabled) => {
-    return setAutoApprove(origin, type, enabled);
+    return withOriginLock(origin, () => setAutoApprove(origin, type, enabled));
   });
 
   ipcMain.handle(IPC.SWARM_GRANT_MESSAGING, (_event, origin) => {
-    return grantMessaging(origin);
+    return withOriginLock(origin, () => grantMessaging(origin));
   });
 
   ipcMain.handle(IPC.SWARM_HAS_MESSAGING_GRANT, (_event, origin) => {
@@ -315,7 +316,7 @@ function registerSwarmPermissionsIpc() {
   });
 
   ipcMain.handle(IPC.SWARM_REVOKE_MESSAGING, (_event, origin) => {
-    return revokeMessaging(origin);
+    return withOriginLock(origin, () => revokeMessaging(origin));
   });
 
   console.log('[SwarmPermissions] IPC handlers registered');
