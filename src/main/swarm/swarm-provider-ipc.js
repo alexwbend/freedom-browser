@@ -52,9 +52,13 @@ const LIMITS = {
   maxPathBytes: 100,
   maxChunkPayloadBytes: 4096,
   // Messaging extension — maxMessageBytes/maxTargetDepth mirror the Ant
-  // node's own enforcement (see messaging-service.js).
+  // node's own enforcement (see messaging-service.js). minTargetDepth is
+  // the SWIP storability floor (2 bytes); defaultTargetDepth is the L=16
+  // interop convention we emit as `pssTarget`.
   maxMessageBytes: messagingService.MAX_MESSAGE_BYTES,
   maxTargetDepth: messagingService.MAX_TARGET_DEPTH,
+  defaultTargetDepth: messagingService.DEFAULT_TARGET_DEPTH,
+  minTargetDepth: messagingService.DEFAULT_TARGET_DEPTH,
   maxSubscriptions: 32,
 };
 
@@ -1477,7 +1481,8 @@ function validateMessagingTopic(topic) {
  * The full node overlay MUST NOT cross the page boundary — it is
  * node-global (identical for every origin), so it would be a cross-origin
  * correlation handle and disclose the node's exact network position. Only
- * the first maxTargetDepth bytes leave as `pssTarget`. The PSS key itself
+ * the first defaultTargetDepth (2) bytes leave as `pssTarget` — the L=16
+ * routing convention, and enough neighborhood prefix to route. The PSS key itself
  * is the node key (the Ant lurker decrypts with it), i.e. bee-wallet mode:
  * origins that need unlinkable messaging identities must wait for
  * app-scoped PSS keys (node support required).
@@ -1497,7 +1502,7 @@ async function handleGetMessagingIdentity(origin) {
     return {
       result: {
         pssPublicKey: identity.pssPublicKey,
-        pssTarget: identity.overlay.slice(0, LIMITS.maxTargetDepth * 2),
+        pssTarget: identity.overlay.slice(0, LIMITS.defaultTargetDepth * 2),
         identityMode: 'bee-wallet',
       },
     };
@@ -1530,13 +1535,17 @@ async function handleSendPss(params, origin) {
   }
 
   const { targets } = params;
+  const targetByteLen = typeof targets === 'string' ? targets.length / 2 : NaN;
   const targetBytesValid =
     typeof targets === 'string' &&
     /^([0-9a-fA-F]{2})+$/.test(targets) &&
-    targets.length / 2 <= LIMITS.maxTargetDepth;
+    targetByteLen >= LIMITS.minTargetDepth &&
+    targetByteLen <= LIMITS.maxTargetDepth;
   if (!targetBytesValid) {
+    // Floor is the storability depth (a 1-byte target is too shallow to
+    // be retained by any storer); cap is the mining-cost ceiling.
     return invalidParams(
-      `targets must be hex encoding 1-${LIMITS.maxTargetDepth} whole bytes`,
+      `targets must be hex encoding ${LIMITS.minTargetDepth}-${LIMITS.maxTargetDepth} whole bytes`,
       'invalid_target'
     );
   }

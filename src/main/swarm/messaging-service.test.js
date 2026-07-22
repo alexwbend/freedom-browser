@@ -80,6 +80,7 @@ const {
   openSubscriptionSocket,
   MAX_MESSAGE_BYTES,
   MAX_TARGET_DEPTH,
+  DEFAULT_TARGET_DEPTH,
   _resetGsocCache,
 } = require('./messaging-service');
 
@@ -99,6 +100,7 @@ describe('limits', () => {
   test('match the Ant node constants', () => {
     expect(MAX_MESSAGE_BYTES).toBe(4000); // 4096 - 3*32
     expect(MAX_TARGET_DEPTH).toBe(3);
+    expect(DEFAULT_TARGET_DEPTH).toBe(2); // L=16 convention, ≥ storability floor
   });
 });
 

@@ -46,8 +46,19 @@ const GSOC_PROXIMITY = 12; // bee-js default; ~4k keccak attempts worst case
 // (ant-crypto MAX_PAYLOAD_SIZE). We relay payloads unframed, so the
 // provider-facing limit is the same.
 const MAX_MESSAGE_BYTES = 4000;
-// Ant enforces targets of at most 3 bytes (ant-crypto MAX_TARGET_LEN).
+// PSS mining-prefix depth, in bytes. Two bounds, per the messaging SWIP's
+// "PSS mining depth" section:
+//  - MAX (3): Ant's hard cap (ant-crypto MAX_TARGET_LEN) — sender mining is
+//    ~2^(8·depth) hashes, so 3 bytes caps the work.
+//  - DEFAULT (2, = L=16): the network interop convention. Ant's receiver
+//    (PSS_MINED_PREFIX_BITS = 16) assumes senders mine 2 bytes; a deeper
+//    prefix would cost the sender ~256× per extra byte with no benefit at
+//    light-node residency, so directed sends target 2 bytes.
+//  - MIN (2): also the storability floor — below the network storage depth
+//    (~12 bits) a trojan is not retained by any storer, so 1-byte targets
+//    are rejected.
 const MAX_TARGET_DEPTH = 3;
+const DEFAULT_TARGET_DEPTH = 2;
 
 // A subscription is "established" if the socket stays open this long —
 // the node refuses (close 1013) quickly after the upgrade when the
@@ -309,5 +320,6 @@ module.exports = {
   openSubscriptionSocket,
   MAX_MESSAGE_BYTES,
   MAX_TARGET_DEPTH,
+  DEFAULT_TARGET_DEPTH,
   _resetGsocCache,
 };

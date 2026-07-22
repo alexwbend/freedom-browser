@@ -42,6 +42,7 @@ jest.mock('./messaging-service', () => ({
   openSubscriptionSocket: mockOpenSubscriptionSocket,
   MAX_MESSAGE_BYTES: 4000,
   MAX_TARGET_DEPTH: 3,
+  DEFAULT_TARGET_DEPTH: 2,
 }));
 
 const mockRegistrySubscribe = jest.fn();
@@ -2014,7 +2015,7 @@ describe('swarm-provider-ipc', () => {
 
         const result = await invokeProvider('swarm_getMessagingIdentity', {}, ORIGIN);
         expect(result.result.pssPublicKey).toBe(RECIPIENT);
-        expect(result.result.pssTarget).toBe('ffffff'); // 3 bytes, not 32
+        expect(result.result.pssTarget).toBe('ffff'); // 2 bytes (L=16 convention), not 32
         expect(result.result.identityMode).toBe('bee-wallet');
         expect(JSON.stringify(result.result)).not.toContain('ff'.repeat(32));
       });
@@ -2028,10 +2029,22 @@ describe('swarm-provider-ipc', () => {
         expect(result.error.data.reason).toBe('invalid_recipient');
       });
 
-      test('requires targets (1-3 whole bytes of hex)', async () => {
-        for (const targets of [undefined, '', 'a', 'aabbccdd']) {
+      test('requires targets (2-3 whole bytes of hex)', async () => {
+        // undefined/empty, odd hex, 1-byte (below the storability floor),
+        // and 4-byte (over the mining cap) are all invalid_target.
+        for (const targets of [undefined, '', 'a', 'aa', 'aabbccdd']) {
           const result = await invokeProvider('swarm_sendPss', { ...validParams, targets }, ORIGIN);
           expect(result.error.data.reason).toBe('invalid_target');
+        }
+      });
+
+      test('accepts 2-byte and 3-byte targets', async () => {
+        mockMessagingGranted();
+        mockSendPss.mockResolvedValue();
+        for (const targets of ['aabb', 'aabbcc']) {
+          mockSendPreFlightOk(); // preflight fetches are one-shot per send
+          const result = await invokeProvider('swarm_sendPss', { ...validParams, targets }, ORIGIN);
+          expect(result.result).toEqual({ sent: true });
         }
       });
 
