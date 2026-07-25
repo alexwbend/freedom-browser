@@ -70,13 +70,21 @@ function isAbortError(err) {
   return err && (err.name === 'AbortError' || err.code === 'ABORT_ERR');
 }
 
+// A double-dot path segment in any of the forms WHATWG URL normalizes:
+// `..`, `.%2e`, `%2e.`, `%2e%2e` (case-insensitive).
+const DOUBLE_DOT_SEGMENT_RE = /^(\.|%2e){2}$/i;
+
 // Normalize the optional probe path so the HEAD target mirrors the resource
 // the navigation will load. Only origin-relative paths are accepted; the
 // query/fragment are dropped (the gateway's manifest lookup ignores them)
-// and anything malformed degrades to the bare-hash probe.
+// and anything malformed degrades to the bare-hash probe. Double-dot
+// segments are rejected too: fetch normalizes them before sending, so a
+// `..` could aim the probe at Bee API endpoints outside /bzz/*.
 function normalizeProbePath(path) {
   if (typeof path !== 'string' || !path.startsWith('/')) return '';
-  return path.split(/[?#]/, 1)[0];
+  const clean = path.split(/[?#]/, 1)[0];
+  if (clean.split('/').some((segment) => DOUBLE_DOT_SEGMENT_RE.test(segment))) return '';
+  return clean;
 }
 
 /**

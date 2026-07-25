@@ -202,4 +202,32 @@ describe('swarm-probe', () => {
       expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:1633/bzz/${VALID_HASH}`);
     }
   });
+
+  test('rejects double-dot segments that would escape /bzz/*', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(makeResponse(200));
+    // fetch normalizes `..` (and its percent-encoded forms) before sending,
+    // which would let a path aim the HEAD at other Bee API endpoints.
+    for (const path of [
+      '/..',
+      '/../health',
+      '/a/../../health',
+      '/%2e%2e/health',
+      '/.%2e/health',
+      '/%2E./health',
+    ]) {
+      fetchImpl.mockClear();
+      const { promise } = startProbe(VALID_HASH, { fetchImpl, sleep: noSleep, path });
+      await expect(promise).resolves.toEqual({ ok: true });
+      expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:1633/bzz/${VALID_HASH}`);
+    }
+    // A single-dot segment is harmless — it normalizes away within /bzz/*.
+    fetchImpl.mockClear();
+    const { promise } = startProbe(VALID_HASH, {
+      fetchImpl,
+      sleep: noSleep,
+      path: '/./index.html',
+    });
+    await expect(promise).resolves.toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:1633/bzz/${VALID_HASH}/./index.html`);
+  });
 });
