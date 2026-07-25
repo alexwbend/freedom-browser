@@ -166,4 +166,40 @@ describe('swarm-probe', () => {
     await expect(promise).resolves.toEqual({ ok: true });
     expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:1633/bzz/${encHash}`);
   });
+
+  test('appends the in-manifest path so index-less manifests probe correctly (#172)', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(makeResponse(200));
+    const { promise } = startProbe(VALID_HASH, {
+      fetchImpl,
+      sleep: noSleep,
+      path: '/index.html',
+    });
+    await expect(promise).resolves.toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `http://127.0.0.1:1633/bzz/${VALID_HASH}/index.html`
+    );
+  });
+
+  test('drops query/fragment from the probe path', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(makeResponse(200));
+    const { promise } = startProbe(VALID_HASH, {
+      fetchImpl,
+      sleep: noSleep,
+      path: '/app/index.html?tab=1#top',
+    });
+    await expect(promise).resolves.toEqual({ ok: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `http://127.0.0.1:1633/bzz/${VALID_HASH}/app/index.html`
+    );
+  });
+
+  test('degrades malformed paths to the bare-hash probe', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(makeResponse(200));
+    for (const path of ['index.html', 42, null, undefined, '']) {
+      fetchImpl.mockClear();
+      const { promise } = startProbe(VALID_HASH, { fetchImpl, sleep: noSleep, path });
+      await expect(promise).resolves.toEqual({ ok: true });
+      expect(fetchImpl.mock.calls[0][0]).toBe(`http://127.0.0.1:1633/bzz/${VALID_HASH}`);
+    }
+  });
 });

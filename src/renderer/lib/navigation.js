@@ -101,6 +101,22 @@ const extractBzzHash = (gatewayUrl) => {
   return match ? match[1] : null;
 };
 
+// Extract the in-manifest path (sans query/fragment) that follows the bzz
+// reference in a Bee gateway URL, e.g. `<bee-api>/bzz/<hash>/index.html?q`
+// → `/index.html`. Returns '' when the URL targets the manifest root. The
+// probe must HEAD the exact resource the navigation will load: a manifest
+// with no root index document 404s on the bare hash forever, which the
+// probe can't tell apart from a still-warming node (see swarm-probe.js).
+const extractBzzPath = (gatewayUrl) => {
+  try {
+    const parsed = new URL(gatewayUrl || '');
+    const match = /^\/bzz\/[a-fA-F0-9]{64}(?:[a-fA-F0-9]{64})?(\/.*)?$/.exec(parsed.pathname);
+    return (match && match[1]) || '';
+  } catch {
+    return '';
+  }
+};
+
 // Convert a Bee gateway URL (<bee-api>/bzz/<hash>/path?q#h) into
 // the `bzz://<hash>/path?q#h` form that Chromium routes through the custom
 // protocol handler. Falls back to the gateway URL if the shape doesn't match.
@@ -791,6 +807,11 @@ const handleEthereumUri = (value) => {
 const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   const gatewayUrl = target.targetUrl;
   const hash = target.swarmHash || extractBzzHash(gatewayUrl);
+  // Probe the same in-manifest path the navigation will load. The gateway
+  // URL carries the full path in both the direct-hash and ENS-host cases
+  // (the ENS resolution feeds `bzz://<hash><suffix>` back through
+  // formatBzzUrl), so extracting it here covers both.
+  const probePath = extractBzzPath(gatewayUrl);
   const errorDisplayUrl = displayUrl || target.displayValue || gatewayUrl;
 
   if (!hash || !electronAPI?.startSwarmProbe) {
@@ -821,7 +842,7 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   pushDebug(`[Swarm] Probing ${gatewayUrl} before navigating`);
 
   electronAPI
-    .startSwarmProbe(hash)
+    .startSwarmProbe(hash, probePath)
     .then((startResult) => {
       if (!startResult || startResult.success === false) {
         const message = startResult?.error?.message || 'failed to start probe';
