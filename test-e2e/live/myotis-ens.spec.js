@@ -32,7 +32,9 @@ test.describe('myotis live ENS resolution', () => {
     for (;;) {
       // eslint-disable-next-line no-empty-pattern
       status = await electronApp.evaluate(({}, p) => {
-        const m = require(p);
+        // Playwright's evaluate sandbox has no `require` global; go through
+        // the main process's own module system instead.
+        const m = process.mainModule.require(p);
         return { ready: m.isReady(), status: m.getStatus() };
       }, managerPath);
       if (status.ready) break;
@@ -48,7 +50,7 @@ test.describe('myotis live ENS resolution', () => {
     const resolverPath = path.join(repoRoot, 'src', 'main', 'ens-resolver.js');
     // eslint-disable-next-line no-empty-pattern
     const result = await electronApp.evaluate(async ({}, p) => {
-      const { resolveEnsContent } = require(p);
+      const { resolveEnsContent } = process.mainModule.require(p);
       return resolveEnsContent('vitalik.eth');
     }, resolverPath);
     console.log('[myotis-e2e] resolution:', JSON.stringify(result).slice(0, 400));
