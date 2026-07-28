@@ -1,0 +1,136 @@
+// EXPERIMENTAL (spike): Myotis — a fully peer-to-peer Ethereum light client
+// (devp2p + beacon light client; every read Merkle-proven against a
+// sync-committee-anchored state root). Runs invisibly like the ant/IPFS
+// nodes, via a napi-rs native addon over the myotis-engine C ABI.
+//
+// Gated on MYOTIS_NODE_PATH (absolute path to myotis-node.node). Absent the
+// env var this module is inert and Freedom behaves exactly as before. The
+// addon's blocking verified reads run on the libuv thread pool and surface
+// as Promises, so the main process event loop never blocks.
+const log = require('../logger');
+const path = require('path');
+
+// The engine ABI version this manager was written against. The addon's
+// init() must return exactly this or we refuse to start (a stale addon
+// would otherwise fail confusingly deep inside a resolve).
+const EXPECTED_ABI = 19;
+
+// Poll/log-drain cadence while the node runs.
+const LOG_DRAIN_MS = 15000;
+
+let addon = null;
+let handle = -1;
+let drainTimer = null;
+let lastStatus = null;
+let startedAt = 0;
+
+function isEnabled() {
+  return Boolean(process.env.MYOTIS_NODE_PATH);
+}
+
+function defaultDataDir() {
+  if (process.env.MYOTIS_DATA_DIR) return process.env.MYOTIS_DATA_DIR;
+  // Lazy require so plain-Node harnesses (no electron) can use MYOTIS_DATA_DIR.
+  const { app } = require('electron');
+  return path.join(app.getPath('userData'), 'myotis');
+}
+
+function startMyotis({ dataDir } = {}) {
+  if (!isEnabled() || handle >= 1) return handle >= 1;
+  try {
+    addon = require(process.env.MYOTIS_NODE_PATH);
+  } catch (err) {
+    log.warn(`[myotis] addon load failed (${process.env.MYOTIS_NODE_PATH}): ${err.message}`);
+    return false;
+  }
+  const abi = addon.init();
+  if (abi !== EXPECTED_ABI) {
+    log.warn(`[myotis] ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI} — not starting`);
+    addon = null;
+    return false;
+  }
+  const dir = dataDir || defaultDataDir();
+  handle = addon.create('mainnet', dir);
+  if (handle < 1) {
+    log.warn(`[myotis] create failed: ${handle}`);
+    return false;
+  }
+  if (!addon.start(handle)) {
+    log.warn('[myotis] start failed');
+    handle = -1;
+    return false;
+  }
+  startedAt = Date.now();
+  log.info(`[myotis] node started (mainnet, dataDir=${dir})`);
+  drainTimer = setInterval(drainEngineLogs, LOG_DRAIN_MS);
+  if (drainTimer.unref) drainTimer.unref();
+  return true;
+}
+
+function drainEngineLogs() {
+  if (!addon) return;
+  const batch = addon.drainLogs(200);
+  if (!batch) return;
+  for (const line of batch.split('\n')) {
+    if (/ERROR/.test(line)) log.warn(`[myotis-engine] ${line}`);
+    else if (/WARN/.test(line)) log.info(`[myotis-engine] ${line}`);
+  }
+}
+
+function getStatus() {
+  if (!addon || handle < 1) return null;
+  try {
+    lastStatus = JSON.parse(addon.statusJson(handle));
+  } catch {
+    return lastStatus;
+  }
+  return lastStatus;
+}
+
+// Ready = the verified read path can actually serve: beacon SYNCED, the EL
+// reader up, and at least one snap-capable peer held. Callers treat not-ready
+// as "skip myotis, use the next tier" — never as an error.
+function isReady() {
+  const s = getStatus();
+  return Boolean(s && s.beaconState === 'SYNCED' && s.elReaderAvailable && s.snapPeers > 0);
+}
+
+// --- Verified reads (Promise<parsed JSON>) --------------------------------
+
+async function resolveContenthash(name) {
+  const raw = await addon.ensRecordJson(handle, JSON.stringify({ method: 'contenthash', name }));
+  return JSON.parse(raw);
+}
+
+async function resolveAddress(name) {
+  return JSON.parse(await addon.resolveEnsJson(handle, name));
+}
+
+async function getAccount(address) {
+  return JSON.parse(await addon.requestAccountJson(handle, address));
+}
+
+function stopMyotis() {
+  if (drainTimer) clearInterval(drainTimer);
+  drainTimer = null;
+  if (addon && handle >= 1) {
+    try {
+      addon.stop(handle);
+      log.info(`[myotis] node stopped (uptime ${Math.round((Date.now() - startedAt) / 1000)}s)`);
+    } catch (err) {
+      log.warn(`[myotis] stop failed: ${err.message}`);
+    }
+  }
+  handle = -1;
+}
+
+module.exports = {
+  isEnabled,
+  startMyotis,
+  stopMyotis,
+  isReady,
+  getStatus,
+  resolveContenthash,
+  resolveAddress,
+  getAccount,
+};

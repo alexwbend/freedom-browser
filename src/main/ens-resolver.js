@@ -6,6 +6,7 @@ const IPC = require('../shared/ipc-channels');
 const { cidV1BytesToBase32 } = require('../shared/cid-utils');
 const registry = require('./networks/network-registry');
 const { prefetchGatewayUrl, NOOP_HANDLE: NOOP_PREFETCH } = require('./ens-prefetch');
+const myotisManager = require('./myotis/myotis-manager');
 
 // Canonical ENS Universal Resolver — a DAO-owned proxy that delegates to
 // the current implementation, so future UR upgrades don't require a code
@@ -957,6 +958,67 @@ function classifyNoAgreement({ results }) {
   return { kind: 'conflict' };
 }
 
+// EXPERIMENTAL Myotis path: resolve via the local fully-P2P light client.
+// The engine returns the *decoded* record (contenthash multicodec bytes),
+// so we re-encode to the ABI-wrapped `bytes` shape every other path yields —
+// the shared decode pipeline in doResolveEnsContent stays unchanged.
+//
+// Returns null to skip (node not synced yet, non-content call, or a CCIP
+// offchain record — the ethers-based paths drive the CCIP round instead);
+// throws on real engine errors so the orchestrator logs the fallback.
+async function tryMyotisPath(name, callData, nameSystem) {
+  if (!myotisManager.isReady()) return null;
+  const selector = String(callData).slice(0, 10).toLowerCase();
+  if (selector !== CONTENTHASH_SELECTOR) return null;
+
+  const rec = await myotisManager.resolveContenthash(name);
+  if (rec.error) throw new Error(rec.error);
+  if (rec.status === 'offchain') return null;
+  if (rec.status === 'noRecord') {
+    // Verified absence: emit an empty ABI-wrapped bytes value so the decode
+    // path lands on EMPTY_CONTENTHASH — identical semantics to a quorum
+    // wave agreeing on an empty record.
+    return {
+      outcome: 'data',
+      resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(['bytes'], ['0x']),
+      resolverAddress: null,
+      trust: buildMyotisTrust(rec, nameSystem),
+      block: rec.blockNumber ?? null,
+    };
+  }
+  if (rec.status !== 'ok' || !rec.dataHex) {
+    throw new Error(`unexpected record shape: ${JSON.stringify(rec).slice(0, 200)}`);
+  }
+  return {
+    outcome: 'data',
+    resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(['bytes'], [rec.dataHex]),
+    resolverAddress: null,
+    trust: buildMyotisTrust(rec, nameSystem),
+    block: rec.blockNumber ?? null,
+  };
+}
+
+// `verified` on the engine result means the resolution ran against the
+// beacon-FINALIZED state root (BLS sync-committee anchored). The engine's
+// AUTO mode falls back to a peer-head root only when the finalized state has
+// no record — that answer is peer-claimed, so it is honestly 'unverified'.
+function buildMyotisTrust(rec, nameSystem = NAME_SYSTEMS.ens) {
+  const verified = rec.verified === true;
+  return {
+    level: verified ? 'verified' : 'unverified',
+    system: nameSystem.id,
+    method: 'myotis',
+    proof: verified
+      ? 'P2P light client (beacon-finalized, sync-committee proof)'
+      : 'P2P light client (peer-head state, not beacon-anchored)',
+    block: rec.blockNumber ?? null,
+    agreed: ['myotis-p2p'],
+    dissented: [],
+    queried: ['myotis-p2p'],
+    quorum: { k: 1, m: 1, achieved: verified },
+  };
+}
+
 // Colibri primary path: a single cryptographically-verified eth_call against
 // the Universal Resolver via @corpus-core/colibri-stateless. The verifier
 // runs the EVM locally against proven storage, so a successful return is
@@ -1197,6 +1259,24 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
   const strategy = network.verification.primary;
   const callResolver = options.callResolver || universalResolverCall;
   const nameSystem = options.nameSystem || NAME_SYSTEMS.ens;
+
+  // EXPERIMENTAL Myotis tier (spike, gated on MYOTIS_NODE_PATH): a fully
+  // P2P light client — no prover service, no RPC pool; reads are Merkle-
+  // proven against a beacon-anchored state root by a local devp2p node.
+  // ENS-only (WNS/GNS are NameNFT contracts Myotis doesn't know) and
+  // content-kind only for the spike. Not-ready/unsupported returns null
+  // (silent skip — the node syncs for minutes after launch); real failures
+  // fall through loudly, same contract as colibri-fallback below.
+  if (nameSystem === NAME_SYSTEMS.ens && myotisManager.isEnabled()) {
+    try {
+      const viaMyotis = await tryMyotisPath(normalizedName, callData, nameSystem);
+      if (viaMyotis) return viaMyotis;
+    } catch (err) {
+      log.warn(
+        `[ens] myotis-fallback name=${normalizedName} kind=${kind} error=${err.message}`
+      );
+    }
+  }
 
   // Colibri primary: cryptographic verification via the sync committee
   // (or zk sync proof). On verification failure or network/prover error

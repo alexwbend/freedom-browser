@@ -158,6 +158,7 @@ const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const myotisManager = require('./myotis/myotis-manager');
 const {
   registerAntIpc,
   createAntLifecycle,
@@ -377,6 +378,12 @@ async function bootstrap() {
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
     }
+    // EXPERIMENTAL: Myotis P2P light client (spike) — inert without
+    // MYOTIS_NODE_PATH; syncs in the background and the ENS resolver
+    // starts preferring it once the node reports SYNCED.
+    if (myotisManager.isEnabled()) {
+      myotisManager.startMyotis();
+    }
   }
 
   // Initialize auto-updater (pass menu update callback). Skipped in
@@ -454,6 +461,7 @@ app.on('before-quit', async (event) => {
   cleanupTempDirs();
 
   log.info('[App] Waiting for Ant, IPFS, and Radicle to stop...');
+  myotisManager.stopMyotis();
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
   log.info('[App] All processes stopped, quitting...');
 

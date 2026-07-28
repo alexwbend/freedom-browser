@@ -121,6 +121,18 @@ jest.mock('./ens/colibri-resolver', () => ({
   resolveReverseViaColibri: (...args) => mockResolveReverseViaColibri(...args),
 }));
 
+// Myotis manager (experimental P2P light-client tier). Defaults to disabled
+// so every pre-existing test sees the resolver exactly as before; the
+// myotis-path suite flips these per test.
+const mockMyotisIsEnabled = jest.fn(() => false);
+const mockMyotisIsReady = jest.fn(() => false);
+const mockMyotisResolveContenthash = jest.fn();
+jest.mock('./myotis/myotis-manager', () => ({
+  isEnabled: (...args) => mockMyotisIsEnabled(...args),
+  isReady: (...args) => mockMyotisIsReady(...args),
+  resolveContenthash: (...args) => mockMyotisResolveContenthash(...args),
+}));
+
 // Mock ethers with controllable provider and resolver behavior.
 // `mockUrResolve` is shared across all Contract instances — this is fine
 // for tests that use `mockResolvedValue(X)` (every quorum leg returns X
@@ -1160,6 +1172,128 @@ describe('ens-resolver', () => {
   // exist in the legacy single-provider flow: conflict, degraded K=1
   // unverified, user-configured fast-path labelling, block pinning.
   // --------------------------------------------------------------------
+  describe('experimental myotis path', () => {
+    const IPFS_V0 = 'QmW81r84Aihiqqi2Jw6nM1LnpeMfRCenRxtjwHNkXVkZYa';
+
+    const myotisUp = () => {
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => true);
+    };
+
+    afterEach(() => {
+      mockMyotisIsEnabled.mockImplementation(() => false);
+      mockMyotisIsReady.mockImplementation(() => false);
+    });
+
+    test('serves verified contenthash from the local P2P node without touching RPC or colibri', async () => {
+      myotisUp();
+      mockMyotisResolveContenthash.mockResolvedValue({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456789,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+
+      const result = await resolveEnsContent('myotis-ok.eth');
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        codec: 'ipfs-ns',
+        protocol: 'ipfs',
+        uri: `ipfs://${IPFS_V0}`,
+      });
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+        block: 23456789,
+      });
+      expect(mockMyotisResolveContenthash).toHaveBeenCalledWith('myotis-ok.eth');
+      expect(mockUrResolve).not.toHaveBeenCalled();
+      expect(mockResolveViaColibri).not.toHaveBeenCalled();
+    });
+
+    test('peer-head answers (verified=false) are honestly labelled unverified', async () => {
+      myotisUp();
+      mockMyotisResolveContenthash.mockResolvedValue({
+        status: 'ok',
+        verified: false,
+        blockNumber: 23456790,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+
+      const result = await resolveEnsContent('myotis-peerhead.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.trust).toMatchObject({ level: 'unverified', method: 'myotis' });
+    });
+
+    test('verified absence maps to EMPTY_CONTENTHASH', async () => {
+      myotisUp();
+      mockMyotisResolveContenthash.mockResolvedValue({
+        status: 'noRecord',
+        verified: true,
+        blockNumber: 23456791,
+      });
+
+      const result = await resolveEnsContent('myotis-norecord.eth');
+
+      expect(result).toMatchObject({ type: 'not_found', reason: 'EMPTY_CONTENTHASH' });
+      expect(result.trust).toMatchObject({ level: 'verified', method: 'myotis' });
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('node not synced yet: silent fall-through to the quorum path', async () => {
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => false);
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('myotis-notready.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.trust.method).not.toBe('myotis');
+      expect(mockMyotisResolveContenthash).not.toHaveBeenCalled();
+      expect(mockUrResolve).toHaveBeenCalled();
+    });
+
+    test('engine failure falls through to the quorum path', async () => {
+      myotisUp();
+      mockMyotisResolveContenthash.mockRejectedValue(new Error('no snap peer'));
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('myotis-enginefail.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.trust.method).not.toBe('myotis');
+      expect(mockUrResolve).toHaveBeenCalled();
+    });
+
+    test('CCIP offchain records defer to the ethers-based paths', async () => {
+      myotisUp();
+      mockMyotisResolveContenthash.mockResolvedValue({
+        status: 'offchain',
+        verified: true,
+        blockNumber: 23456792,
+      });
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('myotis-offchain.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.trust.method).not.toBe('myotis');
+      expect(mockUrResolve).toHaveBeenCalled();
+    });
+
+    test('non-ENS name systems bypass myotis entirely', async () => {
+      myotisUp();
+      mockWnsContenthash.mockResolvedValue(ipfsContenthashFor(IPFS_V0));
+
+      const result = await resolveEnsContent('myotis-bypass.wei');
+
+      expect(result).toMatchObject({ type: 'ok', system: 'wns' });
+      expect(mockMyotisResolveContenthash).not.toHaveBeenCalled();
+    });
+  });
+
   describe('consensus quorum', () => {
     const IPFS_HASH = 'QmW81r84Aihiqqi2Jw6nM1LnpeMfRCenRxtjwHNkXVkZYa';
 
