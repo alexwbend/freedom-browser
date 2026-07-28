@@ -135,11 +135,17 @@ function restoreHostNativeDeps() {
   const afterBuild = fs.existsSync(BS3_BINARY) ? fs.readFileSync(BS3_BINARY) : null;
   if (isHostNativeBinary(afterBuild)) return;
   if (bs3Snapshot) {
-    fs.writeFileSync(BS3_BINARY, bs3Snapshot);
-    console.log('\n→ Restored host better-sqlite3 binary (was replaced by cross-build)\n');
-    return;
+    // try/catch so a failed write-back (e.g. build/Release wiped by a failed
+    // cross-build) can't mask the original build error thrown past the finally.
+    try {
+      fs.writeFileSync(BS3_BINARY, bs3Snapshot);
+      console.log('\n→ Restored host better-sqlite3 binary (was replaced by cross-build)\n');
+      return;
+    } catch (err) {
+      console.error(`Warning: could not write back the snapshotted binary (${err.message})`);
+    }
   }
-  console.log('\n→ Rebuilding native deps for the host platform (no snapshot to restore)\n');
+  console.log('\n→ Rebuilding native deps for the host platform\n');
   try {
     // Same command as our postinstall; electron-builder is a declared devDependency.
     execSync('npx electron-builder install-app-deps', { stdio: 'inherit' });
