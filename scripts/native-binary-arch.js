@@ -97,7 +97,8 @@ function isHostNativeBinary(buffer, platform = process.platform, arch = process.
   if (!buffer || buffer.length < 4) return false;
   if (platform === 'darwin') return machoArchs(buffer).includes(arch);
   if (platform === 'linux') return elfArch(buffer) === arch;
-  return peArch(buffer) === arch; // Windows
+  if (platform === 'win32') return peArch(buffer) === arch;
+  return false;
 }
 
 module.exports = { isHostNativeBinary, machoArchs, elfArch, peArch };

@@ -137,6 +137,11 @@ describe('isHostNativeBinary (edge cases)', () => {
     expect(isHostNativeBinary(Buffer.from('not a binary at all'), 'linux', 'x64')).toBe(false);
     expect(isHostNativeBinary(Buffer.from('not a binary at all'), 'win32', 'x64')).toBe(false);
   });
+
+  test('rejects unrecognized platforms even with a valid binary', () => {
+    expect(isHostNativeBinary(pe(IMAGE_FILE_MACHINE_ARM64), 'freebsd', 'arm64')).toBe(false);
+    expect(isHostNativeBinary(machoThin(CPU_TYPE_ARM64), 'aix', 'arm64')).toBe(false);
+  });
 });
 
 // --- Lower-level parsers --------------------------------------------------

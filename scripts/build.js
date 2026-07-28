@@ -139,14 +139,16 @@ function restoreHostNativeDeps() {
     console.log('\n→ Restored host better-sqlite3 binary (was replaced by cross-build)\n');
     return;
   }
-  console.log('\n→ Rebuilding better-sqlite3 for the host platform (no snapshot to restore)\n');
+  console.log('\n→ Rebuilding native deps for the host platform (no snapshot to restore)\n');
   try {
-    execSync('npx electron-rebuild -f -w better-sqlite3', { stdio: 'inherit' });
+    // Same command as our postinstall; electron-builder is a declared devDependency.
+    execSync('npx electron-builder install-app-deps', { stdio: 'inherit' });
   } catch {
     console.error(
-      'Warning: could not restore host better-sqlite3 binary. ' +
-        'Run `npx electron-rebuild -f -w better-sqlite3` before using local dev.'
+      '\nERROR: could not restore host better-sqlite3 binary after cross-build. ' +
+        'Local dev is broken until you run `npx electron-builder install-app-deps`.\n'
     );
+    process.exitCode = 1;
   }
 }
 
