@@ -435,11 +435,14 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 
 // Get context information when right-clicking.
 //
-// Runs in the capture phase so page handlers cannot starve the interceptor
-// with stopPropagation(); the send is deferred with setTimeout so the
-// defaultPrevented check happens after the full dispatch, honoring only a
-// genuine preventDefault() from the page (standard browser semantics).
-document.addEventListener(
+// Registered on window in the capture phase: window is the first node in the
+// capture path and the preload runs before any page script, so no page
+// handler (not even a window-level capture listener calling
+// stopPropagation()) can starve the interceptor. The send is deferred with
+// setTimeout so the defaultPrevented check happens after the full dispatch,
+// honoring only a genuine preventDefault() from the page (standard browser
+// semantics).
+window.addEventListener(
   'contextmenu',
   (event) => {
     const context = {

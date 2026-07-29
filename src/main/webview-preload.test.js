@@ -77,10 +77,15 @@ function loadWebviewPreloadModule(options = {}) {
 
   global.document = document;
   const windowFetch = options.fetch || jest.fn();
+  const windowCaptureHandlers = {};
   global.window = {
     location,
     getSelection: jest.fn(() => selection),
-    addEventListener: jest.fn(),
+    addEventListener: jest.fn((event, handler, useCapture) => {
+      if (useCapture === true) {
+        windowCaptureHandlers[event] = handler;
+      }
+    }),
     fetch: windowFetch,
   };
   global.location = location;
@@ -101,6 +106,7 @@ function loadWebviewPreloadModule(options = {}) {
     document,
     documentHandlers,
     documentCaptureHandlers,
+    windowCaptureHandlers,
     exposures: contextBridge.exposedValues,
     ipcRenderer,
     location,
@@ -334,7 +340,7 @@ describe('webview-preload', () => {
   });
 
   test('collects rich context menu data and forwards it to the host renderer', async () => {
-    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       selectionText: 'Selected text',
       title: 'Article Title',
       location: {
@@ -369,7 +375,7 @@ describe('webview-preload', () => {
 
     // Registered in the capture phase so page-level stopPropagation()
     // cannot starve the interceptor.
-    documentCaptureHandlers.contextmenu(event);
+    windowCaptureHandlers.contextmenu(event);
     await flushTimers();
 
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('context-menu', {
@@ -388,7 +394,7 @@ describe('webview-preload', () => {
   });
 
   test('skips the native context menu when the page calls preventDefault', async () => {
-    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'https://example.com/dapp',
         protocol: 'https:',
@@ -402,7 +408,7 @@ describe('webview-preload', () => {
       defaultPrevented: false,
     };
 
-    documentCaptureHandlers.contextmenu(event);
+    windowCaptureHandlers.contextmenu(event);
     // A page handler runs after the capture-phase interceptor and
     // suppresses the menu; the deferred check must honor it.
     event.defaultPrevented = true;
@@ -412,6 +418,19 @@ describe('webview-preload', () => {
       'context-menu',
       expect.anything()
     );
+  });
+
+  test('registers the contextmenu interceptor on window in the capture phase', () => {
+    const { windowCaptureHandlers, document } = loadWebviewPreloadModule();
+
+    // window-capture is the only spot no page handler can run before: the
+    // preload registers before any page script, and window is the first node
+    // in the capture path. A document-level or bubble-phase listener could be
+    // starved by a page calling stopPropagation() without preventDefault().
+    expect(typeof windowCaptureHandlers.contextmenu).toBe('function');
+    expect(
+      document.addEventListener.mock.calls.filter(([event]) => event === 'contextmenu')
+    ).toHaveLength(0);
   });
 
   test('intercepts ipfs/ipns anchor clicks before Chromium lowercases the host', () => {
@@ -572,7 +591,7 @@ describe('webview-preload', () => {
   });
 
   test('context menu preserves raw dweb href before anchor.href normalisation', async () => {
-    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'file:///app/pages/links.html',
         protocol: 'file:',
@@ -589,7 +608,7 @@ describe('webview-preload', () => {
       parentElement: global.document.body,
     };
 
-    documentCaptureHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: anchor,
@@ -607,7 +626,7 @@ describe('webview-preload', () => {
   });
 
   test('detects video and audio media sources in the context menu handler', async () => {
-    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'https://example.com/media',
         protocol: 'https:',
@@ -630,7 +649,7 @@ describe('webview-preload', () => {
       parentElement: body,
     };
 
-    documentCaptureHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: video,
@@ -645,7 +664,7 @@ describe('webview-preload', () => {
       })
     );
 
-    documentCaptureHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 3,
       clientY: 4,
       target: audio,
