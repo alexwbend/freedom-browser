@@ -206,7 +206,9 @@ describe('swarm-probe', () => {
   test('rejects double-dot segments that would escape /bzz/*', async () => {
     const fetchImpl = jest.fn().mockResolvedValue(makeResponse(200));
     // fetch normalizes `..` (and its percent-encoded forms) before sending,
-    // which would let a path aim the HEAD at other Bee API endpoints.
+    // which would let a path aim the HEAD at other Bee API endpoints. It
+    // also treats `\` as a path separator in http URLs, so backslash-
+    // delimited double-dot segments must be caught too.
     for (const path of [
       '/..',
       '/../health',
@@ -214,6 +216,9 @@ describe('swarm-probe', () => {
       '/%2e%2e/health',
       '/.%2e/health',
       '/%2E./health',
+      '/..\\..\\health',
+      '/a\\..\\../health',
+      '/%2e%2e\\health',
     ]) {
       fetchImpl.mockClear();
       const { promise } = startProbe(VALID_HASH, { fetchImpl, sleep: noSleep, path });

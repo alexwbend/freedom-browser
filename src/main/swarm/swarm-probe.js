@@ -79,11 +79,13 @@ const DOUBLE_DOT_SEGMENT_RE = /^(\.|%2e){2}$/i;
 // query/fragment are dropped (the gateway's manifest lookup ignores them)
 // and anything malformed degrades to the bare-hash probe. Double-dot
 // segments are rejected too: fetch normalizes them before sending, so a
-// `..` could aim the probe at Bee API endpoints outside /bzz/*.
+// `..` could aim the probe at Bee API endpoints outside /bzz/*. The segment
+// split treats `\` as a separator because WHATWG URL parsing does the same
+// for http URLs — `/..\..\health` normalizes to `/health`.
 function normalizeProbePath(path) {
   if (typeof path !== 'string' || !path.startsWith('/')) return '';
   const clean = path.split(/[?#]/, 1)[0];
-  if (clean.split('/').some((segment) => DOUBLE_DOT_SEGMENT_RE.test(segment))) return '';
+  if (clean.split(/[/\\]/).some((segment) => DOUBLE_DOT_SEGMENT_RE.test(segment))) return '';
   return clean;
 }
 
