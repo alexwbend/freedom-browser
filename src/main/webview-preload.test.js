@@ -25,6 +25,10 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+// The context-menu interceptor defers its send with setTimeout(0) so the
+// defaultPrevented check runs after the full event dispatch.
+const flushTimers = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function loadWebviewPreloadModule(options = {}) {
   jest.resetModules();
 
@@ -329,8 +333,8 @@ describe('webview-preload', () => {
     );
   });
 
-  test('collects rich context menu data and forwards it to the host renderer', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('collects rich context menu data and forwards it to the host renderer', async () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       selectionText: 'Selected text',
       title: 'Article Title',
       location: {
@@ -360,12 +364,14 @@ describe('webview-preload', () => {
       clientX: 12,
       clientY: 34,
       target: image,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     };
 
-    documentHandlers.contextmenu(event);
+    // Registered in the capture phase so page-level stopPropagation()
+    // cannot starve the interceptor.
+    documentCaptureHandlers.contextmenu(event);
+    await flushTimers();
 
-    expect(event.preventDefault).toHaveBeenCalled();
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('context-menu', {
       x: 12,
       y: 34,
@@ -379,6 +385,33 @@ describe('webview-preload', () => {
       isEditable: true,
       mediaType: 'image',
     });
+  });
+
+  test('skips the native context menu when the page calls preventDefault', async () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://example.com/dapp',
+        protocol: 'https:',
+        pathname: '/dapp',
+      },
+    });
+    const event = {
+      clientX: 5,
+      clientY: 6,
+      target: global.document.body,
+      defaultPrevented: false,
+    };
+
+    documentCaptureHandlers.contextmenu(event);
+    // A page handler runs after the capture-phase interceptor and
+    // suppresses the menu; the deferred check must honor it.
+    event.defaultPrevented = true;
+    await flushTimers();
+
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'context-menu',
+      expect.anything()
+    );
   });
 
   test('intercepts ipfs/ipns anchor clicks before Chromium lowercases the host', () => {
@@ -538,8 +571,8 @@ describe('webview-preload', () => {
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
   });
 
-  test('context menu preserves raw dweb href before anchor.href normalisation', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('context menu preserves raw dweb href before anchor.href normalisation', async () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'file:///app/pages/links.html',
         protocol: 'file:',
@@ -556,12 +589,13 @@ describe('webview-preload', () => {
       parentElement: global.document.body,
     };
 
-    documentHandlers.contextmenu({
+    documentCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: anchor,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
 
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith(
       'context-menu',
@@ -572,8 +606,8 @@ describe('webview-preload', () => {
     );
   });
 
-  test('detects video and audio media sources in the context menu handler', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('detects video and audio media sources in the context menu handler', async () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'https://example.com/media',
         protocol: 'https:',
@@ -596,12 +630,13 @@ describe('webview-preload', () => {
       parentElement: body,
     };
 
-    documentHandlers.contextmenu({
+    documentCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: video,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
     expect(ipcRenderer.sendToHost).toHaveBeenLastCalledWith(
       'context-menu',
       expect.objectContaining({
@@ -610,12 +645,13 @@ describe('webview-preload', () => {
       })
     );
 
-    documentHandlers.contextmenu({
+    documentCaptureHandlers.contextmenu({
       clientX: 3,
       clientY: 4,
       target: audio,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
     expect(ipcRenderer.sendToHost).toHaveBeenLastCalledWith(
       'context-menu',
       expect.objectContaining({
