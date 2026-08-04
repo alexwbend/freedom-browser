@@ -13,7 +13,7 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const MYOTIS_ENABLED = Boolean(process.env.MYOTIS_NODE_PATH);
 
 // Cold sync can take many minutes; a warm data dir reaches ready in ~10-30 s.
-// Budget for warm-plus-margin — cold runs should pre-warm via smoke.mjs.
+// Budget for warm-plus-margin — cold runs should pre-warm via smoke-myotis.js.
 const READY_TIMEOUT_MS = 5 * 60 * 1000;
 
 test.describe('myotis live ENS resolution', () => {
@@ -25,25 +25,42 @@ test.describe('myotis live ENS resolution', () => {
   }) => {
     test.setTimeout(READY_TIMEOUT_MS + 120_000);
 
-    // 1. Wait (in the app's main process) for the node to report ready.
+    // 1. Wait (in the app's main process) for the node to report ready and
+    //    prove that a verified read is actually servable. A warm restart can
+    //    briefly restore a SYNCED beacon snapshot before the live peer context
+    //    needed by ENS reads has settled, so status alone is not sufficient.
     const managerPath = path.join(repoRoot, 'src', 'main', 'myotis', 'myotis-manager.js');
     const deadline = Date.now() + READY_TIMEOUT_MS;
     let status;
     for (;;) {
       // eslint-disable-next-line no-empty-pattern
-      status = await electronApp.evaluate(({}, p) => {
+      status = await electronApp.evaluate(async ({}, p) => {
         // Playwright's evaluate sandbox has no `require` global; go through
         // the main process's own module system instead.
         const m = process.mainModule.require(p);
-        return { ready: m.isReady(), status: m.getStatus() };
+        const ready = m.isReady();
+        let probe = null;
+        if (ready) {
+          try {
+            probe = await m.resolveContenthash('vitalik.eth');
+          } catch (err) {
+            probe = { error: err.message };
+          }
+        }
+        return { ready, probe, status: m.getStatus() };
       }, managerPath);
-      if (status.ready) break;
+      if (status.ready && status.probe?.status === 'ok' && status.probe.verified === true) break;
       if (Date.now() > deadline) {
-        throw new Error(`myotis never reached ready; last status: ${JSON.stringify(status.status)}`);
+        throw new Error(
+          `myotis never served a verified read; last state: ${JSON.stringify(status)}`
+        );
       }
       await new Promise((r) => setTimeout(r, 5000));
     }
-    console.log('[myotis-e2e] node ready:', JSON.stringify(status.status));
+    console.log(
+      '[myotis-e2e] node ready and direct read verified:',
+      JSON.stringify({ status: status.status, probe: status.probe }).slice(0, 1000)
+    );
 
     // 2. Resolve through the REAL resolver pipeline in the main process and
     //    assert the myotis tier carried the answer. The first read after
