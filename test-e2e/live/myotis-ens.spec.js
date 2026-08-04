@@ -91,21 +91,64 @@ test.describe('myotis live ENS resolution', () => {
 
     // 3. Exercise the other production integration surfaces through the same
     //    resolver module: ENS addr + forward-verified reverse, then WNS/GNS
-    //    NameNFT calls through Myotis's generic local EVM executor.
+    //    NameNFT calls through Myotis's generic local EVM executor. Finally,
+    //    restore the default verified-answer preference and prove it promotes
+    //    Colibri over Myotis's optimistic WNS/GNS answers.
+    const registryPath = path.join(
+      repoRoot,
+      'src',
+      'main',
+      'networks',
+      'network-registry.js'
+    );
     const integration = await electronApp.evaluate(
       // eslint-disable-next-line no-empty-pattern
-      async ({}, { p, vitalik }) => {
+      async ({}, { p, registryPath: networkRegistryPath, vitalik }) => {
         const resolver = process.mainModule.require(p);
+        const registry = process.mainModule.require(networkRegistryPath);
         resolver.clearEnsResolutionCaches();
-        return {
+        const ens = {
           address: await resolver.resolveEnsAddress('vitalik.eth'),
           reverse: await resolver.resolveEnsReverse(vitalik),
-          wns: await resolver.resolveEnsContent('meinhard.wei'),
-          gns: await resolver.resolveEnsContent('apoorv.gwei'),
+        };
+
+        registry.updateNetwork(1, {
+          verification: {
+            primary: 'colibri',
+            order: ['myotis', 'colibri', 'quorum'],
+            preferVerified: false,
+          },
+        });
+        resolver.clearEnsResolutionCaches();
+        let myotis;
+        try {
+          myotis = {
+            wns: await resolver.resolveEnsContent('meinhard.wei'),
+            gns: await resolver.resolveEnsContent('apoorv.gwei'),
+          };
+        } finally {
+          registry.updateNetwork(1, {
+            verification: {
+              primary: 'colibri',
+              order: ['myotis', 'colibri', 'quorum'],
+              preferVerified: true,
+            },
+          });
+          resolver.clearEnsResolutionCaches();
+        }
+
+        return {
+          ...ens,
+          myotis,
+          preferred: {
+            wns: await resolver.resolveEnsContent('meinhard.wei'),
+            gns: await resolver.resolveEnsContent('apoorv.gwei'),
+          },
         };
       },
       {
         p: resolverPath,
+        registryPath,
         vitalik: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
       }
     );
@@ -125,15 +168,25 @@ test.describe('myotis live ENS resolution', () => {
       system: 'ens',
       trust: { method: 'myotis', level: 'verified' },
     });
-    expect(integration.wns).toMatchObject({
+    expect(integration.myotis.wns).toMatchObject({
       type: 'ok',
       system: 'wns',
       trust: { method: 'myotis', level: 'unverified' },
     });
-    expect(integration.gns).toMatchObject({
+    expect(integration.myotis.gns).toMatchObject({
       type: 'ok',
       system: 'gns',
       trust: { method: 'myotis', level: 'unverified' },
+    });
+    expect(integration.preferred.wns).toMatchObject({
+      type: 'ok',
+      system: 'wns',
+      trust: { method: 'colibri', level: 'verified' },
+    });
+    expect(integration.preferred.gns).toMatchObject({
+      type: 'ok',
+      system: 'gns',
+      trust: { method: 'colibri', level: 'verified' },
     });
 
     // 4. Drive the UI: navigate to the name and let the page render through
