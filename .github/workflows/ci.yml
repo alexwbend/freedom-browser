@@ -131,6 +131,117 @@ jobs:
           FREEDOM_IPFS_NATIVE_SMOKE_LIVE: '0'
           FREEDOM_IPFS_NATIVE_SMOKE_ISSUE_102: '1'
 
+  # Real Myotis release-addon + Freedom resolver E2E on every operating
+  # system we ship. The native smoke cold-syncs over libp2p/devp2p and proves
+  # finalized-root ENS address/contenthash reads before Playwright launches
+  # the production app and navigates through the same Myotis resolver tier.
+  #
+  # Cold sync can take 30-40 minutes. Cache restore/save are split so a timed
+  # out first attempt still preserves its cleanly-stopped partial sync; a
+  # re-run continues from that snapshot instead of starting from zero.
+  myotis-native-e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: darwin-arm64
+            addon: myotis-bin/mac-arm64/myotis-node.node
+          - os: ubuntu-latest
+            target: linux-x64
+            addon: myotis-bin/linux-x64/myotis-node.node
+          - os: windows-latest
+            target: win32-x64
+            addon: myotis-bin/win-x64/myotis-node.node
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 110
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright system dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install-deps
+
+      - name: Download Myotis release addons
+        run: npm run myotis:download
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Assert native-addon target
+        run: node -e "const actual=process.platform+'-'+process.arch; const expected=process.env.EXPECTED_TARGET; if(actual!==expected) throw new Error('expected '+expected+', got '+actual); console.log(actual);"
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+
+      - name: Restore Myotis sync snapshot
+        id: myotis-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/myotis-data
+          key: myotis-v0.1.3-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            myotis-v0.1.3-${{ matrix.target }}-
+
+      - name: Start Myotis and resolve verified ENS records
+        id: myotis-smoke
+        continue-on-error: true
+        run: npm run myotis:smoke
+        env:
+          MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data
+          MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
+          MYOTIS_SMOKE_TIMEOUT_MIN: '75'
+
+      - name: Save Myotis sync snapshot
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/myotis-data
+          key: myotis-v0.1.3-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Fail when native smoke did not resolve
+        if: steps.myotis-smoke.outcome != 'success'
+        shell: bash
+        run: exit 1
+
+      - name: Download IPFS native addon
+        run: npm run ipfs:download
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Run Freedom Myotis resolver E2E
+        shell: bash
+        env:
+          MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data
+          MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
+          FREEDOM_TEST_HIDE_WINDOW: '1'
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a npm run test:e2e:live -- test-e2e/live/myotis-ens.spec.js
+          else
+            npm run test:e2e:live -- test-e2e/live/myotis-ens.spec.js
+          fi
+
+      - name: Upload Playwright traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myotis-native-e2e-${{ matrix.target }}-traces
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Onboarding wizard must create node identities while a real Swarm node (now
   # antd) is running. Drives the full password wizard end-to-end against a real
   # antd spawn across all three desktop platforms — the cross-platform proof
