@@ -36,7 +36,11 @@ const dataDir = path.resolve(
 );
 const syncTimeoutMinutes = Number(process.env.MYOTIS_SMOKE_TIMEOUT_MIN) || 75;
 const syncTimeoutMs = syncTimeoutMinutes * 60 * 1000;
+const syncStallMinutes = Number(process.env.MYOTIS_SMOKE_STALL_MIN) || 10;
+const syncStallMs = syncStallMinutes * 60 * 1000;
 const queryAttempts = Number(process.env.MYOTIS_SMOKE_QUERY_ATTEMPTS) || 8;
+const readRecoveryAttempts = Number(process.env.MYOTIS_SMOKE_RECOVERY_ATTEMPTS) || 3;
+const syncRecoveryAttempts = Number(process.env.MYOTIS_SMOKE_SYNC_RECOVERY_ATTEMPTS) || 3;
 
 let addon = null;
 let handle = -1;
@@ -143,6 +147,65 @@ async function verifiedReads() {
   throw lastError || new Error('verified reads failed');
 }
 
+async function waitUntilReady(deadline) {
+  let lastSummary = '';
+  let lastPeriod = -1;
+  let lastProgressAt = Date.now();
+  let recoveries = 0;
+  for (;;) {
+    const status = JSON.parse(addon.statusJson(handle));
+    const summary =
+      `beacon=${status.beaconState} peers=${status.peerCount} snapPeers=${status.snapPeers} ` +
+      `period=${status.currentPeriod}/${status.targetPeriod} ` +
+      `el=${status.elReaderAvailable} hunting=${status.elHunting}`;
+    if (summary !== lastSummary) {
+      log(summary);
+      lastSummary = summary;
+    }
+    drainLogs();
+
+    if (status.currentPeriod > lastPeriod) {
+      lastPeriod = status.currentPeriod;
+      lastProgressAt = Date.now();
+    }
+
+    const ready =
+      status.beaconState === 'SYNCED' &&
+      status.elReaderAvailable === true &&
+      status.elHunting !== true &&
+      status.snapPeers > 0;
+    if (ready) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Myotis did not become ready within ${syncTimeoutMinutes} minutes; last status: ` +
+          JSON.stringify(status)
+      );
+    }
+    if (
+      Date.now() - lastProgressAt >= syncStallMs &&
+      recoveries < syncRecoveryAttempts &&
+      (status.lcHunting === true || status.peerCount === 0)
+    ) {
+      recoveries += 1;
+      await recoverPeerPool(
+        `beacon catch-up stalled at period ${status.currentPeriod} for ${syncStallMinutes} minutes ` +
+          `(recovery ${recoveries}/${syncRecoveryAttempts})`
+      );
+      lastProgressAt = Date.now();
+      lastSummary = '';
+      continue;
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+}
+
+async function recoverPeerPool(reason) {
+  log(`${reason}; performing a warm network restart`);
+  if (!addon.pause(handle)) throw new Error('Myotis pause failed during peer-pool recovery');
+  await delay(1000);
+  if (!addon.resume(handle)) throw new Error('Myotis resume failed during peer-pool recovery');
+}
+
 async function main() {
   if (!fs.existsSync(addonPath)) throw new Error(`Myotis addon not found: ${addonPath}`);
   fs.mkdirSync(dataDir, { recursive: true });
@@ -160,37 +223,19 @@ async function main() {
   log(`started handle ${handle}; data dir ${dataDir}`);
 
   const deadline = Date.now() + syncTimeoutMs;
-  let lastSummary = '';
-  for (;;) {
-    const status = JSON.parse(addon.statusJson(handle));
-    const summary =
-      `beacon=${status.beaconState} peers=${status.peerCount} snapPeers=${status.snapPeers} ` +
-      `period=${status.currentPeriod}/${status.targetPeriod} ` +
-      `el=${status.elReaderAvailable} hunting=${status.elHunting}`;
-    if (summary !== lastSummary) {
-      log(summary);
-      lastSummary = summary;
+  for (let recovery = 0; recovery <= readRecoveryAttempts; recovery++) {
+    await waitUntilReady(deadline);
+    log('node ready; performing finalized-root ENS reads');
+    try {
+      await verifiedReads();
+      log('PASS: released addon started and resolved verified ENS records');
+      return;
+    } catch (err) {
+      if (recovery >= readRecoveryAttempts) throw err;
+      log(`verified reads failed after peer-pool attempt ${recovery + 1}: ${err.message}`);
+      await recoverPeerPool('verified reads exhausted the current execution peer pool');
     }
-    drainLogs();
-
-    const ready =
-      status.beaconState === 'SYNCED' &&
-      status.elReaderAvailable === true &&
-      status.elHunting !== true &&
-      status.snapPeers > 0;
-    if (ready) break;
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `Myotis did not become ready within ${syncTimeoutMinutes} minutes; last status: ` +
-          JSON.stringify(status)
-      );
-    }
-    await delay(POLL_INTERVAL_MS);
   }
-
-  log('node ready; performing finalized-root ENS reads');
-  await verifiedReads();
-  log('PASS: released addon started and resolved verified ENS records');
 }
 
 main()
