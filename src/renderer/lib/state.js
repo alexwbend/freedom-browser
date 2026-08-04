@@ -21,6 +21,13 @@ export const state = {
       statusMessage: null,
       tempMessage: null,
     },
+    myotis: {
+      api: null,
+      gateway: null,
+      mode: 'none',
+      statusMessage: null,
+      tempMessage: null,
+    },
     ant: {
       api: null,
       gateway: null,

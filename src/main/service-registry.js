@@ -1,5 +1,5 @@
 /**
- * Service Registry - Central tracking of IPFS and Swarm node state
+ * Service Registry - Central tracking of managed node state
  *
  * This module provides a port-agnostic way for Freedom to access nodes.
  * All URL rewriting resolves through this registry.
@@ -20,6 +20,14 @@ const MODE = {
 // Registry state
 const registry = {
   ipfs: {
+    api: null,
+    gateway: null,
+    mode: MODE.NONE,
+    statusMessage: null,
+    tempMessage: null,
+    tempMessageTimeout: null,
+  },
+  myotis: {
     api: null,
     gateway: null,
     mode: MODE.NONE,
@@ -73,6 +81,7 @@ function getService(service) {
 function getRegistry() {
   return {
     ipfs: { ...registry.ipfs },
+    myotis: { ...registry.myotis },
     ant: { ...registry.ant },
     radicle: { ...registry.radicle },
   };

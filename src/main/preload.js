@@ -293,7 +293,15 @@ contextBridge.exposeInMainWorld('ant', {
 });
 
 contextBridge.exposeInMainWorld('myotis', {
+  start: () => ipcRenderer.invoke('myotis:start'),
+  stop: () => ipcRenderer.invoke('myotis:stop'),
   getStatus: () => ipcRenderer.invoke('myotis:getStatus'),
+  onStatusUpdate: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('myotis:statusUpdate', handler);
+    ipcRenderer.invoke('myotis:getStatus').then(callback);
+    return () => ipcRenderer.removeListener('myotis:statusUpdate', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('ipfs', {

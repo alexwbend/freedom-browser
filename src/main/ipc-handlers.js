@@ -156,6 +156,7 @@ function serializeActiveProfile() {
     serialized.nodes = {
       bee: metadata.nodes.bee ? { ...metadata.nodes.bee } : null,
       ipfs: metadata.nodes.ipfs ? { ...metadata.nodes.ipfs } : null,
+      myotis: metadata.nodes.myotis ? { ...metadata.nodes.myotis } : null,
       radicle: metadata.nodes.radicle ? { ...metadata.nodes.radicle } : null,
     };
   }
@@ -208,11 +209,13 @@ function serializeProfileMutationResult(result) {
 const PROFILE_NODE_MODES = {
   bee: new Set(['managed', 'external', 'disabled']),
   ipfs: new Set(['managed', 'disabled']),
+  myotis: new Set(['managed', 'disabled']),
   radicle: new Set(['managed', 'external', 'disabled']),
 };
 const PROFILE_NODE_FIELDS = {
   bee: ['mode', 'externalApi'],
   ipfs: ['mode'],
+  myotis: ['mode'],
   radicle: ['mode', 'externalHttp'],
 };
 const EXTERNAL_FIELDS = {
@@ -331,6 +334,14 @@ function updateProfileNodeConfigFromIpc(protocol, patch) {
     }
     const profile = serializeActiveProfile();
     broadcastProfileUpdated(profile);
+    if (protocol === 'myotis') {
+      const myotisManager = require('./myotis/myotis-manager');
+      if (validation.sanitized.mode === 'disabled') {
+        myotisManager.stopMyotis();
+      } else {
+        myotisManager.refreshMyotisStatus();
+      }
+    }
     return success({ profile });
   } catch (err) {
     log.error('[profile] Failed to update node config:', err);

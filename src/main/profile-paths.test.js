@@ -49,6 +49,7 @@ describe('profile paths', () => {
     expect(paths.getAntDataDir()).toBe(path.join(userDataDir, 'ant-data'));
     expect(paths.getBeeDataDir()).toBe(path.join(userDataDir, 'bee-data'));
     expect(paths.getIpfsDataDir()).toBe(path.join(userDataDir, 'ipfs-data'));
+    expect(paths.getMyotisDataDir()).toBe(path.join(userDataDir, 'myotis'));
     expect(paths.getRadicleDataDir()).toBe(path.join(userDataDir, 'radicle-data'));
     expect(paths.getProfileTempDir()).toBe(path.join(userDataDir, 'tmp'));
     expect(paths.getQuickUnlockCredentialPath()).toBe(
@@ -71,17 +72,31 @@ describe('profile paths', () => {
     expect(fs.existsSync(tempDir)).toBe(true);
   });
 
+  test('isolates Myotis data between browser profiles', () => {
+    const firstProfile = track(createTempUserDataDir());
+    const secondProfile = track(createTempUserDataDir());
+
+    const firstPath = loadPaths(firstProfile).getMyotisDataDir();
+    const secondPath = loadPaths(secondProfile).getMyotisDataDir();
+
+    expect(firstPath).toBe(path.join(firstProfile, 'myotis'));
+    expect(secondPath).toBe(path.join(secondProfile, 'myotis'));
+    expect(firstPath).not.toBe(secondPath);
+  });
+
   test('honors explicit data directory overrides', () => {
     const userDataDir = track(createTempUserDataDir());
     const identityDir = track(createTempUserDataDir());
     const antDir = track(createTempUserDataDir());
     const beeDir = track(createTempUserDataDir());
     const ipfsDir = track(createTempUserDataDir());
+    const myotisDir = track(createTempUserDataDir());
     const radicleDir = track(createTempUserDataDir());
     process.env.FREEDOM_IDENTITY_DATA = identityDir;
     process.env.FREEDOM_ANT_DATA = antDir;
     process.env.FREEDOM_BEE_DATA = beeDir;
     process.env.FREEDOM_IPFS_DATA = ipfsDir;
+    process.env.MYOTIS_DATA_DIR = myotisDir;
     process.env.FREEDOM_RADICLE_DATA = radicleDir;
 
     const paths = loadPaths(userDataDir);
@@ -90,6 +105,7 @@ describe('profile paths', () => {
     expect(paths.getAntDataDir()).toBe(antDir);
     expect(paths.getBeeDataDir()).toBe(beeDir);
     expect(paths.getIpfsDataDir()).toBe(ipfsDir);
+    expect(paths.getMyotisDataDir()).toBe(myotisDir);
     expect(paths.getRadicleDataDir()).toBe(radicleDir);
   });
 

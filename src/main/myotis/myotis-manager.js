@@ -3,12 +3,14 @@
 // sync-committee-anchored state root). Runs invisibly like the ant/IPFS
 // nodes, via a napi-rs native addon over the myotis-engine C ABI.
 //
-// Gated on MYOTIS_NODE_PATH (absolute path to myotis-node.node). Absent the
-// env var this module is inert and Freedom behaves exactly as before. The
-// addon's blocking verified reads run on the libuv thread pool and surface
+// Available through an explicit MYOTIS_NODE_PATH, the development download,
+// or the packaged resource. Profile configuration can disable it; otherwise
+// the profile-local autostart preference or Nodes UI controls its lifecycle.
+// The addon's blocking verified reads run on the libuv thread pool and surface
 // as Promises, so the main process event loop never blocks.
 const log = require('../logger');
 const path = require('path');
+const { getMyotisDataDir } = require('../profile-paths');
 
 // The engine ABI version this manager was written against. The addon's
 // init() must return exactly this or we refuse to start (a stale addon
@@ -25,6 +27,7 @@ let handle = -1;
 let drainTimer = null;
 let lastStatus = null;
 let startedAt = 0;
+let lastError = null;
 let readyWatchTimer = null;
 let wasReady = false;
 const readyListeners = new Set();
@@ -60,45 +63,134 @@ function addonPath() {
 }
 
 function isEnabled() {
-  return Boolean(addonPath());
+  return Boolean(addonPath()) && !isDisabledMyotisConfig();
 }
 
-function defaultDataDir() {
-  if (process.env.MYOTIS_DATA_DIR) return process.env.MYOTIS_DATA_DIR;
-  // Lazy require so plain-Node harnesses (no electron) can use MYOTIS_DATA_DIR.
-  const { app } = require('electron');
-  return path.join(app.getPath('userData'), 'myotis');
+function getProfileMyotisConfig() {
+  return require('../profile-resolver').getActiveProfile()?.metadata?.nodes?.myotis || null;
+}
+
+function isDisabledMyotisConfig(config = getProfileMyotisConfig()) {
+  return config?.mode === 'disabled';
+}
+
+function getMyotisDataPath() {
+  return getMyotisDataDir();
+}
+
+function broadcastStatus(status = publicStatus()) {
+  try {
+    const { BrowserWindow } = require('electron');
+    const IPC = require('../../shared/ipc-channels');
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(IPC.MYOTIS_STATUS_UPDATE, status);
+    }
+  } catch {
+    // Electron may be unavailable in plain-Node tests and tooling.
+  }
+}
+
+function registryMessage(status) {
+  if (status.state === 'disabled') return 'Disabled';
+  if (status.state === 'unavailable') return 'Native addon unavailable';
+  if (status.state === 'error') return `Error: ${status.error}`;
+  if (status.state === 'off') return 'Not running';
+  if (status.state === 'ready') return 'Ready: verified Ethereum reads available';
+  return `Syncing: ${status.peerCount ?? 0} peers`;
+}
+
+function publishStatus(status = publicStatus()) {
+  try {
+    const { MODE, updateService } = require('../service-registry');
+    updateService('myotis', {
+      mode:
+        status.state === 'disabled'
+          ? MODE.DISABLED
+          : status.running
+            ? MODE.BUNDLED
+            : MODE.NONE,
+      statusMessage: registryMessage(status),
+    });
+  } catch {
+    // The service registry is unavailable in plain-Node tooling.
+  }
+  broadcastStatus(status);
+  return status;
 }
 
 function startMyotis({ dataDir } = {}) {
   if (handle >= 1) return true;
+  if (isDisabledMyotisConfig()) {
+    publishStatus();
+    return false;
+  }
   const addonFile = addonPath();
-  if (!addonFile) return false;
+  if (!addonFile) {
+    publishStatus();
+    return false;
+  }
   try {
     addon = require(addonFile);
   } catch (err) {
+    lastError = err.message;
     log.warn(`[myotis] addon load failed (${addonFile}): ${err.message}`);
+    publishStatus();
     return false;
   }
-  const abi = addon.init();
+  let abi;
+  try {
+    abi = addon.init();
+  } catch (err) {
+    lastError = err.message;
+    log.warn(`[myotis] init failed: ${err.message}`);
+    addon = null;
+    publishStatus();
+    return false;
+  }
   if (abi !== EXPECTED_ABI) {
+    lastError = `ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI}`;
     log.warn(`[myotis] ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI} — not starting`);
     addon = null;
+    publishStatus();
     return false;
   }
-  const dir = dataDir || defaultDataDir();
-  handle = addon.create('mainnet', dir);
+  const dir = dataDir || getMyotisDataPath();
+  try {
+    handle = addon.create('mainnet', dir);
+  } catch (err) {
+    lastError = err.message;
+    log.warn(`[myotis] create failed: ${err.message}`);
+    publishStatus();
+    return false;
+  }
   if (handle < 1) {
+    lastError = `Native create returned handle ${handle}`;
     log.warn(`[myotis] create failed: ${handle}`);
+    publishStatus();
     return false;
   }
-  if (!addon.start(handle)) {
+  let started;
+  try {
+    started = addon.start(handle);
+  } catch (err) {
+    lastError = err.message;
+    log.warn(`[myotis] start failed: ${err.message}`);
+    handle = -1;
+    publishStatus();
+    return false;
+  }
+  if (!started) {
+    lastError = 'Native client refused to start';
     log.warn('[myotis] start failed');
     handle = -1;
+    publishStatus();
     return false;
   }
   startedAt = Date.now();
+  lastStatus = null;
+  lastError = null;
   log.info(`[myotis] node started (mainnet, dataDir=${dir})`);
+  publishStatus();
   drainTimer = setInterval(drainEngineLogs, LOG_DRAIN_MS);
   if (drainTimer.unref) drainTimer.unref();
   wasReady = false;
@@ -115,6 +207,7 @@ function startMyotis({ dataDir } = {}) {
       }
     }
     wasReady = ready;
+    publishStatus();
   }, 10000);
   if (readyWatchTimer.unref) readyWatchTimer.unref();
   return true;
@@ -182,6 +275,10 @@ function stopMyotis() {
     }
   }
   handle = -1;
+  lastStatus = null;
+  startedAt = 0;
+  lastError = null;
+  publishStatus();
 }
 
 // Targets the upstream release publishes addons for (win-arm64 notably
@@ -199,14 +296,20 @@ function isSupportedTarget() {
   return SUPPORTED_TARGETS.has(`${process.platform}-${process.arch}`);
 }
 
-// Renderer-facing status snapshot (settings page's ENS section). One flat
+// Renderer-facing status snapshot (Nodes UI and settings ENS section). One flat
 // object; `state` is the one-word summary the UI keys copy on. `supported`
 // lets the UI distinguish "this platform can never run Myotis" (hide the
 // controls) from "addon merely not installed" (disable with a hint).
 function publicStatus() {
   const supported = isSupportedTarget();
   const available = Boolean(addonPath());
+  if (isDisabledMyotisConfig()) {
+    return { supported, available, running: false, state: 'disabled' };
+  }
   if (!available) return { supported, available: false, running: false, state: 'unavailable' };
+  if (lastError) {
+    return { supported, available: true, running: false, state: 'error', error: lastError };
+  }
   if (handle < 1) return { supported, available: true, running: false, state: 'off' };
   const s = getStatus() || {};
   const ready = isReady();
@@ -230,17 +333,33 @@ function registerMyotisIpc() {
   // require keeps the module loadable from plain-Node harnesses.
   const { ipcMain } = require('electron');
   const IPC = require('../../shared/ipc-channels');
+  ipcMain.handle(IPC.MYOTIS_START, () => {
+    startMyotis();
+    return publicStatus();
+  });
+  ipcMain.handle(IPC.MYOTIS_STOP, () => {
+    stopMyotis();
+    return publicStatus();
+  });
   ipcMain.handle(IPC.MYOTIS_GET_STATUS, () => publicStatus());
+  publishStatus();
+}
+
+function refreshMyotisStatus() {
+  return publishStatus();
 }
 
 module.exports = {
   isEnabled,
+  isDisabledMyotisConfig,
+  getMyotisDataPath,
   startMyotis,
   stopMyotis,
   isReady,
   getStatus,
   publicStatus,
   registerMyotisIpc,
+  refreshMyotisStatus,
   onReadyTransition,
   resolveContenthash,
   resolveAddress,

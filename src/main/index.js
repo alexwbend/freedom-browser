@@ -466,7 +466,7 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, and Radicle to stop...');
+  log.info('[App] Waiting for Ant, IPFS, Myotis, and Radicle to stop...');
   myotisManager.stopMyotis();
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
   log.info('[App] All processes stopped, quitting...');

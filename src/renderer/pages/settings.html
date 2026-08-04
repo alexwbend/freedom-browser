@@ -1173,12 +1173,14 @@
       const EDITABLE_NODE_MODES = {
         bee: ['managed', 'external', 'disabled'],
         ipfs: ['managed', 'disabled'],
+        myotis: ['managed', 'disabled'],
         radicle: ['managed', 'external', 'disabled'],
       };
 
       const SERVICE_LABELS = {
         bee: 'Swarm',
         ipfs: 'IPFS',
+        myotis: 'Myotis',
         radicle: 'Radicle',
       };
 
@@ -1203,6 +1205,9 @@
         if (protocol === 'ipfs') {
           return ['Embedded freedom-ipfs native node'];
         }
+        if (protocol === 'myotis') {
+          return ['Embedded Myotis native client'];
+        }
         return [
           config?.externalHttp ||
             service?.api ||
@@ -1214,7 +1219,7 @@
         if (protocol === 'bee') {
           return [{ key: 'externalApi', label: 'API', value: config?.externalApi }];
         }
-        if (protocol === 'ipfs') {
+        if (protocol === 'ipfs' || protocol === 'myotis') {
           return [];
         }
         return [{ key: 'externalHttp', label: 'HTTP', value: config?.externalHttp }];
@@ -1271,7 +1276,7 @@
 
       const renderProfileNodes = (profile, registry) => {
         const nodes = profile?.nodes || {};
-        const services = ['bee', 'ipfs', 'radicle'];
+        const services = ['bee', 'ipfs', 'myotis', 'radicle'];
         const rows = services.map((protocol) => {
           const config = nodes[protocol] || {};
           const service = registry?.[protocol] || {};
@@ -2222,7 +2227,9 @@
 
         const describe = (s) => {
           if (!s || s.state === 'unavailable') return null;
+          if (s.state === 'disabled') return 'Disabled for this profile';
           if (s.state === 'off') return 'Off — enable under Automatic Startup';
+          if (s.state === 'error') return `Error — ${s.error || 'client failed to start'}`;
           if (s.state === 'ready') {
             const block = s.finalizedBlockNumber
               ? ` — verified to block ${s.finalizedBlockNumber}`
@@ -2247,11 +2254,14 @@
           if (!launchRow || !launchToggle) return;
           const supported = s ? s.supported !== false : true;
           const available = Boolean(s && s.available);
+          const disabled = s?.state === 'disabled';
           launchRow.hidden = !supported;
-          launchToggle.disabled = supported && !available;
+          launchToggle.disabled = supported && (!available || disabled);
           if (launchHelp) {
             launchHelp.textContent =
-              supported && !available
+              disabled
+                ? 'Disabled for this profile under Profiles → Node endpoints.'
+                : supported && !available
                 ? 'Addon not installed — run "npm run myotis:download" and restart.'
                 : defaultLaunchHelp;
           }

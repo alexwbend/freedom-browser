@@ -4,7 +4,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
 Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, and ENS as first-class protocols.
-It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
+It ships with integrated Swarm, IPFS, Radicle, and experimental Myotis nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
 
 ---
 
@@ -24,6 +24,7 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm run ant:download
    npm run ipfs:download
    npm run radicle:download
+   npm run myotis:download
    ```
 
 4. **Launch the app:**
@@ -32,13 +33,13 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm start
    ```
 
-5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei` domain in the address bar.
+5. Swarm and IPFS nodes start automatically by default. Myotis is an opt-in embedded Ethereum light client under **Settings → Automatic Startup**. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei` domain in the address bar.
 
 ---
 
 ## Architecture
 
-Freedom Browser is an Electron application. Protocol logic lives in the main process; the renderer is a modular UI layer that talks to it over IPC (channels defined in `src/shared/ipc-channels.js`). The main process manages node lifecycles (`ant-manager.js`, `ipfs-manager.js`, `radicle-manager.js`), URL rewriting (`request-rewriter.js`), and persistent data (settings, bookmarks, history). A central `service-registry.js` tracks node endpoints, modes, and status, and broadcasts state to all windows — both node managers and the request rewriter read from it.
+Freedom Browser is an Electron application. Protocol logic lives in the main process; the renderer is a modular UI layer that talks to it over IPC (channels defined in `src/shared/ipc-channels.js`). The main process manages node lifecycles (`ant-manager.js`, `ipfs-manager.js`, `myotis/myotis-manager.js`, `radicle-manager.js`), URL rewriting (`request-rewriter.js`), and persistent data (settings, bookmarks, history). A central `service-registry.js` tracks node endpoints, modes, and status, and broadcasts state to all windows — both node managers and the request rewriter read from it.
 
 When a user enters a `bzz://`, `ipfs://`, `ipns://`, `rad://`, or ENS URL, the main process either dispatches to a custom protocol handler (`bzz`, `ipfs`, `ipns`) that proxies to the local node, or rewrites the URL to the active gateway URL via the registry (`rad`). `rad://` handling is gated by the Radicle integration setting. `bzz://` navigation is additionally gated by a cold-start probe (see next section). `ipfs://` / `ipns://` navigation goes straight to the native IPFS protocol handler, so no renderer warm-up probe is needed.
 
@@ -176,28 +177,24 @@ Don't hardcode `http://localhost:8080` — Freedom no longer exposes a desktop I
 
 ## Features
 
-### Triple Node Architecture
+### Integrated Node Architecture
 
-Freedom runs Swarm, IPFS, and Radicle nodes, giving you access to three major decentralized networks from a single interface.
+Freedom runs Swarm, IPFS, Radicle, and an experimental Myotis Ethereum light client from a single interface.
 
-|                      | Swarm          | IPFS                                  | Radicle                        |
-| -------------------- | -------------- | ------------------------------------- | ------------------------------ |
-| **Protocol**         | `bzz://`       | `ipfs://`, `ipns://`                  | `rad://`                       |
-| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | radicle-node + radicle-httpd   |
-| **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)         |
-| **Managed Gateway Port** | 11633+     | internal native handler               | 18780+                         |
-| **Managed API Port** | 11633+         | internal native handler               | 18780+                         |
-| **Managed P2P Port** | 12633+         | internal native handler               | 18776+                         |
-| **Route Prefix**     | `/bzz/{hash}/` | `/ipfs/{cid}/`, `/ipns/{name}/`       | `/api/v1/repos/{rid}/`         |
-| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | profile-scoped short Radicle home |
-| **Binary Directory** | `ant-bin/`     | `native/freedom-ipfs-node/`           | `radicle-bin/`                 |
+|                      | Swarm          | IPFS                                  | Myotis                         | Radicle                        |
+| -------------------- | -------------- | ------------------------------------- | ------------------------------ | ------------------------------ |
+| **Protocol role**    | `bzz://`       | `ipfs://`, `ipns://`                  | Verified ENS reads             | `rad://`                       |
+| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | Myotis native addon            | radicle-node + radicle-httpd   |
+| **Managed ports**    | API 11633+, P2P 12633+ | none; embedded native handler | none; embedded native client | HTTP 18780+, P2P 18776+        |
+| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | `<profile>/myotis/`       | profile-scoped short Radicle home |
+| **Binary Directory** | `ant-bin/`     | `native/freedom-ipfs-node/`           | `myotis-bin/`                  | `radicle-bin/`                 |
 
 ### Smart Node Connection
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, and Radicle data directories. Ant and Radicle use profile-specific non-default ports; IPFS uses the embedded native handler without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints in profile settings. External node identity and storage are shared outside that profile. IPFS always uses the embedded `freedom-ipfs` native node.
+1. **Independent Managed Nodes**: Every profile owns separate Ant, native IPFS, Myotis, and Radicle data. Ant and Radicle use profile-specific non-default ports; IPFS and Myotis are embedded native clients without loopback API or gateway ports.
+2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints in profile settings. External node identity and storage are shared outside that profile. IPFS and Myotis always use their embedded native clients.
 3. **Port Conflict Handling**: If a managed Ant or Radicle profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
@@ -223,6 +220,13 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Independent Toggle**: Start and stop IPFS separately from Swarm.
 - **Native Transport**: Uses the embedded `freedom-ipfs` native addon instead of a loopback Kubo process.
 - **Live Diagnostics**: View native gateway stats and request progress while IPFS/IPNS pages load.
+
+### Integrated Myotis Ethereum Light Client (Experimental)
+
+- **Per-profile client**: Each profile uses its own `<profile>/myotis/` state and never reuses a separately installed Myotis application.
+- **Native transport**: Runs in-process through the Myotis native addon, with no HTTP API or managed port.
+- **Profile controls**: Managed/disabled mode, optional autostart, and runtime start/stop controls are available in Settings and the Nodes panel.
+- **Verified ENS reads**: Once synced, ENS content records are verified against finalized Ethereum state before Freedom falls back to configured RPC verification.
 
 ### Integrated Radicle Node (macOS & Linux)
 
@@ -350,7 +354,7 @@ Access built-in browser pages using the `freedom://` protocol:
 ### Settings & UI
 
 - **Theme**: Light, Dark, or System (follows OS preference).
-- **Node Auto-start**: Toggle whether Swarm and IPFS nodes start automatically at launch (enabled by default).
+- **Node Auto-start**: Toggle whether Swarm, IPFS, and experimental Myotis start automatically at launch. Myotis remains off by default.
 - **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
@@ -373,9 +377,10 @@ Freedom automatically manages node connections per profile. The default profile'
 
 - **Swarm Ant**: `http://127.0.0.1:11633`
 - **IPFS**: embedded native `freedom-ipfs` handler; no desktop loopback gateway/API port is started
+- **Myotis**: embedded native Ethereum light client; no desktop loopback API or managed port is started
 - **Radicle httpd**: `http://127.0.0.1:18780`
 
-Named profiles use the next profile slot for Ant and Radicle (`11634`, `18781`, and so on). The ecosystem default Swarm/Radicle ports (`1633`, `8780`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS is native-only and does not expose or reuse Kubo API/gateway ports.
+Named profiles use the next profile slot for Ant and Radicle (`11634`, `18781`, and so on). The ecosystem default Swarm/Radicle ports (`1633`, `8780`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS and Myotis are native-only and do not expose or reuse external daemon ports.
 
 If Freedom detects a compatible Swarm or Radicle daemon on an ecosystem default port for a protocol that would start at launch, it asks whether that profile should use the existing external node or keep an independent managed node.
 
@@ -467,12 +472,12 @@ profile-managed dev data.
 
 | Directory             | Contents                                                                                                                  |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `src/main/`           | Electron main process — node managers (Ant, IPFS, Radicle), ENS resolver, IPC, settings, history, bookmarks, auto-updater |
+| `src/main/`           | Electron main process — node managers (Ant, IPFS, Myotis, Radicle), ENS resolver, IPC, settings, history, bookmarks, auto-updater |
 | `src/renderer/`       | UI — tabs, navigation, address bar, menus, context menus, bookmarks bar, debug console, settings modal                    |
 | `src/renderer/pages/` | Internal pages (home, history, error, links, protocol-test, rad-browser)                                                  |
 | `src/shared/`         | Constants shared between main and renderer                                                                                |
 | `config/`             | Ant config template, default bookmarks, macOS entitlements                                                                |
-| `scripts/`            | Build and setup helpers (binary downloads, Ant/IPFS/Radicle init)                                                         |
+| `scripts/`            | Build and setup helpers (binary/addon downloads, Ant/IPFS/Myotis/Radicle init)                                          |
 | `assets/`             | App icons                                                                                                                 |
 
 ---
@@ -491,7 +496,7 @@ npm test
 
 The suite covers most of `src/main/` and `src/renderer/lib/` — see `src/**/*.test.js` for the full list. Notable areas include:
 
-- **Networking & protocols**: `bzz-protocol`, `swarm-probe`, `swarm-service`, `swarm-provider-ipc`, `request-rewriter`, `ens-resolver`, `ipfs-manager`, `radicle-manager`, `ant-manager`, `service-registry`
+- **Networking & protocols**: `bzz-protocol`, `swarm-probe`, `swarm-service`, `swarm-provider-ipc`, `request-rewriter`, `ens-resolver`, `ipfs-manager`, `myotis-manager`, `radicle-manager`, `ant-manager`, `service-registry`
 - **Renderer navigation & UI**: `navigation`, `navigation-utils`, `tabs`, `tabs-ui`, `bookmarks-ui`, `autocomplete`, `menus`, `page-context-menu`, `settings-ui`, `wallet/*`
 - **Identity, vault & wallet**: `identity/derivation`, `identity/vault`, `identity/formats`, `wallet/dapp-permissions`, `wallet/transaction-service`
 - **Parsing & utilities**: `url-utils`, `cid-utils`, `origin-utils`, `ethereum-uri`, `page-urls`, `brand`
@@ -708,7 +713,7 @@ npm run start:test-updater
 - **Context Isolation**: Uses `contextIsolation: true` and `nodeIntegration: false`.
 - **Remote Module Disabled**: The remote module is not available.
 - **Minimal API Surface**: Only necessary IPC methods are exposed to the renderer. The `freedomAPI` (history, bookmarks, etc.) is restricted to internal `freedom://` pages — external websites cannot call it.
-- **Local Nodes**: Ant, IPFS, and Radicle run locally; no external services required for basic operation.
+- **Local Nodes**: Ant, IPFS, Myotis, and Radicle run locally; no external services are required for their native P2P operation.
 - **Permission Handling**: Pointer lock and fullscreen permissions are granted for better UX in Swarm/IPFS apps.
 - **Public RPC Fallback**: ENS resolution uses public RPCs by default. For trustless verification, use a local Helios client.
 

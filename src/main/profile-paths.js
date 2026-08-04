@@ -85,6 +85,13 @@ function getIpfsDataDir() {
   return resolveDir('FREEDOM_IPFS_DATA', 'ipfs-data');
 }
 
+function getMyotisDataDir() {
+  // MYOTIS_DATA_DIR predates profile integration and remains an explicit
+  // development/test escape hatch. Normal launches resolve under the active
+  // profile's userData directory, which keeps every embedded client isolated.
+  return resolveDir('MYOTIS_DATA_DIR', 'myotis');
+}
+
 function getRadicleDataDir() {
   const override = process.env.FREEDOM_RADICLE_DATA;
   if (override) {
@@ -161,6 +168,7 @@ module.exports = {
   getBeeDataDir,
   getIdentityDataDir,
   getIpfsDataDir,
+  getMyotisDataDir,
   getProfileCrashDir,
   getProfileTempDir,
   getProfileUserDataDir,
