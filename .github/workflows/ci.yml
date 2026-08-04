@@ -133,8 +133,9 @@ jobs:
 
   # Real Myotis release-addon + Freedom resolver E2E on every operating
   # system we ship. The native smoke cold-syncs over libp2p/devp2p and proves
-  # finalized-root ENS address/contenthash reads before Playwright launches
-  # the production app and navigates through the same Myotis resolver tier.
+  # finalized-root ENS address/contenthash/reverse reads before Playwright
+  # launches the production app and proves ENS plus WNS/GNS integration through
+  # the same Myotis resolver tier.
   #
   # Cold sync can take 30-40 minutes. Cache restore/save are split so a timed
   # out first attempt still preserves its cleanly-stopped partial sync; a

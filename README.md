@@ -226,7 +226,8 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Per-profile client**: Each profile uses its own `<profile>/myotis/` state and never reuses a separately installed Myotis application.
 - **Native transport**: Runs in-process through the Myotis native addon, with no HTTP API or managed port.
 - **Profile controls**: Managed/disabled mode, optional autostart, and runtime start/stop controls are available in Settings and the Nodes panel.
-- **Verified ENS reads**: Once synced, ENS content records are verified against finalized Ethereum state before Freedom falls back to configured RPC verification.
+- **Verified ENS reads**: Once synced, ENS content, address, and forward-verified reverse records are resolved against finalized Ethereum state before Freedom falls back to its configured verification method. ERC-3668/CCIP-Read records use their declared gateway only to retrieve the callback payload; Myotis verifies the callback against the same chain state.
+- **WNS/GNS adapters**: Freedom executes the existing WNS and GNS NameNFT calls through Myotis's local EVM path. Myotis v0.1.3 serves generic contract calls from the beacon optimistic head without a finalized verdict, so the UI labels those answers unverified rather than overstating their trust.
 
 ### Integrated Radicle Node (macOS & Linux)
 

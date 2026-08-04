@@ -19,7 +19,7 @@ const READY_TIMEOUT_MS = 5 * 60 * 1000;
 test.describe('myotis live ENS resolution', () => {
   test.skip(!MYOTIS_ENABLED, 'MYOTIS_NODE_PATH not set — myotis spike disabled');
 
-  test('P2P node reaches ready; resolver serves vitalik.eth with myotis trust; page renders', async ({
+  test('P2P node serves ENS and NameNFT records through Freedom; page renders', async ({
     electronApp,
     window: win,
   }) => {
@@ -89,7 +89,54 @@ test.describe('myotis live ENS resolution', () => {
     expect(result.trust.level).toBe('verified');
     expect(result.protocol).toBe('ipfs');
 
-    // 3. Drive the UI: navigate to the name and let the page render through
+    // 3. Exercise the other production integration surfaces through the same
+    //    resolver module: ENS addr + forward-verified reverse, then WNS/GNS
+    //    NameNFT calls through Myotis's generic local EVM executor.
+    const integration = await electronApp.evaluate(
+      // eslint-disable-next-line no-empty-pattern
+      async ({}, { p, vitalik }) => {
+        const resolver = process.mainModule.require(p);
+        resolver.clearEnsResolutionCaches();
+        return {
+          address: await resolver.resolveEnsAddress('vitalik.eth'),
+          reverse: await resolver.resolveEnsReverse(vitalik),
+          wns: await resolver.resolveEnsContent('meinhard.wei'),
+          gns: await resolver.resolveEnsContent('apoorv.gwei'),
+        };
+      },
+      {
+        p: resolverPath,
+        vitalik: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      }
+    );
+    console.log('[myotis-e2e] integrated record reads:', JSON.stringify(integration).slice(0, 1500));
+
+    expect(integration.address).toMatchObject({
+      success: true,
+      system: 'ens',
+      trust: { method: 'myotis', level: 'verified' },
+    });
+    expect(integration.address.address.toLowerCase()).toBe(
+      '0xd8da6bf26964af9d7eed9e03e53415d37aa96045'
+    );
+    expect(integration.reverse).toMatchObject({
+      success: true,
+      name: 'vitalik.eth',
+      system: 'ens',
+      trust: { method: 'myotis', level: 'verified' },
+    });
+    expect(integration.wns).toMatchObject({
+      type: 'ok',
+      system: 'wns',
+      trust: { method: 'myotis', level: 'unverified' },
+    });
+    expect(integration.gns).toMatchObject({
+      type: 'ok',
+      system: 'gns',
+      trust: { method: 'myotis', level: 'unverified' },
+    });
+
+    // 4. Drive the UI: navigate to the name and let the page render through
     //    the local IPFS gateway (same assertion style as eth-sites.spec.js).
     await win.fill('[data-test="address-input"]', 'vitalik.eth');
     await win.press('[data-test="address-input"]', 'Enter');

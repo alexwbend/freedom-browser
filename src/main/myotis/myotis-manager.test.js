@@ -49,6 +49,7 @@ describe('myotis-manager', () => {
       statusJson: jest.fn(() => JSON.stringify(status)),
       ensRecordJson: jest.fn(),
       resolveEnsJson: jest.fn(),
+      ethCallJson: jest.fn(),
       requestAccountJson: jest.fn(),
     };
     const activeProfile = {
@@ -153,5 +154,67 @@ describe('myotis-manager', () => {
       state: 'error',
       error: 'ABI mismatch: engine 20, expected 21',
     });
+  });
+
+  test('dispatches generic ENS records, convenience reads, and reverse lookups', async () => {
+    const ctx = loadManager();
+    ctx.mod.startMyotis();
+    ctx.addon.ensRecordJson
+      .mockResolvedValueOnce(JSON.stringify({ status: 'ok', value: 'https://example' }))
+      .mockResolvedValueOnce(JSON.stringify({ status: 'ok', dataHex: '0x1234' }))
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          status: 'ok',
+          addressHex: '0x1111111111111111111111111111111111111111',
+        })
+      )
+      .mockResolvedValueOnce(JSON.stringify({ status: 'ok', name: 'alice.eth' }));
+
+    await expect(
+      ctx.mod.resolveEnsRecord({ method: 'text', name: 'alice.eth', key: 'url' })
+    ).resolves.toMatchObject({ status: 'ok', value: 'https://example' });
+    await expect(ctx.mod.resolveContenthash('alice.eth')).resolves.toMatchObject({
+      status: 'ok',
+      dataHex: '0x1234',
+    });
+    await expect(ctx.mod.resolveAddress('alice.eth')).resolves.toMatchObject({
+      status: 'ok',
+      addressHex: '0x1111111111111111111111111111111111111111',
+    });
+    await expect(
+      ctx.mod.resolveReverse('0x1111111111111111111111111111111111111111')
+    ).resolves.toMatchObject({ status: 'ok', name: 'alice.eth' });
+
+    expect(ctx.addon.ensRecordJson.mock.calls.map(([, json]) => JSON.parse(json))).toEqual([
+      { method: 'text', name: 'alice.eth', key: 'url' },
+      { method: 'contenthash', name: 'alice.eth' },
+      { method: 'addr', name: 'alice.eth' },
+      { method: 'reverse', addressHex: '0x1111111111111111111111111111111111111111' },
+    ]);
+    expect(ctx.addon.resolveEnsJson).not.toHaveBeenCalled();
+  });
+
+  test('dispatches verified generic contract calls through the native addon', async () => {
+    const ctx = loadManager();
+    ctx.mod.startMyotis();
+    ctx.addon.ethCallJson.mockResolvedValue(
+      JSON.stringify({ status: 'ok', resultHex: '0xdeadbeef' })
+    );
+
+    await expect(
+      ctx.mod.ethCall({
+        to: '0x1111111111111111111111111111111111111111',
+        data: '0x1234',
+        block: 'latest',
+      })
+    ).resolves.toEqual({ status: 'ok', resultHex: '0xdeadbeef' });
+    expect(ctx.addon.ethCallJson).toHaveBeenCalledWith(
+      7,
+      '',
+      '0x1111111111111111111111111111111111111111',
+      '0x1234',
+      '0',
+      'latest'
+    );
   });
 });

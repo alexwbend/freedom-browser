@@ -126,14 +126,18 @@ jest.mock('./ens/colibri-resolver', () => ({
 // myotis-path suite flips these per test.
 const mockMyotisIsEnabled = jest.fn(() => false);
 const mockMyotisIsReady = jest.fn(() => false);
-const mockMyotisResolveContenthash = jest.fn();
+const mockMyotisResolveEnsRecord = jest.fn();
+const mockMyotisEthCall = jest.fn();
+const mockMyotisGetStatus = jest.fn(() => ({ optimisticBlockNumber: 23456800 }));
 // Captures the resolver's module-load registration so tests can fire the
 // not-ready → ready transition (the fallback-cache sweep).
 const mockMyotisReadyListeners = [];
 jest.mock('./myotis/myotis-manager', () => ({
   isEnabled: (...args) => mockMyotisIsEnabled(...args),
   isReady: (...args) => mockMyotisIsReady(...args),
-  resolveContenthash: (...args) => mockMyotisResolveContenthash(...args),
+  resolveEnsRecord: (...args) => mockMyotisResolveEnsRecord(...args),
+  ethCall: (...args) => mockMyotisEthCall(...args),
+  getStatus: (...args) => mockMyotisGetStatus(...args),
   onReadyTransition: (cb) => mockMyotisReadyListeners.push(cb),
 }));
 
@@ -174,6 +178,7 @@ let mockProviderAnchorMap = null;
 
 const WNS_ADDRESS = '0x0000000000696760e15f265e828db644a0c242eb';
 const GNS_ADDRESS = '0x9d51d507bc7264d4fe8ad1cf7fe191933a0a81d6';
+const ADDR_SELECTOR = '0x3b3b57de';
 
 jest.mock('ethers', () => {
   const actual = jest.requireActual('ethers').ethers;
@@ -249,6 +254,7 @@ jest.mock('ethers', () => {
       decodeBase58: actual.decodeBase58,
       getBytes: actual.getBytes,
       ZeroAddress: actual.ZeroAddress,
+      Interface: actual.Interface,
     },
   };
 });
@@ -1191,7 +1197,7 @@ describe('ens-resolver', () => {
 
     test('serves verified contenthash from the local P2P node without touching RPC or colibri', async () => {
       myotisUp();
-      mockMyotisResolveContenthash.mockResolvedValue({
+      mockMyotisResolveEnsRecord.mockResolvedValue({
         status: 'ok',
         verified: true,
         blockNumber: 23456789,
@@ -1211,14 +1217,71 @@ describe('ens-resolver', () => {
         method: 'myotis',
         block: 23456789,
       });
-      expect(mockMyotisResolveContenthash).toHaveBeenCalledWith('myotis-ok.eth');
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalledWith({
+        method: 'contenthash',
+        name: 'myotis-ok.eth',
+        root: 'auto',
+      });
       expect(mockUrResolve).not.toHaveBeenCalled();
       expect(mockResolveViaColibri).not.toHaveBeenCalled();
     });
 
+    test('serves verified ENS addr records through the same Myotis tier', async () => {
+      myotisUp();
+      const address = '0x1111111111111111111111111111111111111111';
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456789,
+        addressHex: address,
+      });
+
+      const result = await resolveEnsAddress('myotis-addr.eth');
+
+      expect(result).toMatchObject({
+        success: true,
+        name: 'myotis-addr.eth',
+        address,
+        trust: { level: 'verified', method: 'myotis', block: 23456789 },
+      });
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalledWith({
+        method: 'addr',
+        name: 'myotis-addr.eth',
+        root: 'auto',
+      });
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('serves forward-verified ENS reverse records through Myotis', async () => {
+      myotisUp();
+      const address = '0x0000000000000000000000000000000000001201';
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456789,
+        name: 'reverse-myotis.eth',
+      });
+
+      const result = await resolveEnsReverse(address);
+
+      expect(result).toMatchObject({
+        success: true,
+        address,
+        name: 'reverse-myotis.eth',
+        system: 'ens',
+        trust: { level: 'verified', method: 'myotis' },
+      });
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalledWith({
+        method: 'reverse',
+        addressHex: address,
+        root: 'auto',
+      });
+      expect(mockUrReverse).not.toHaveBeenCalled();
+    });
+
     test('peer-head answers (verified=false) are honestly labelled unverified', async () => {
       myotisUp();
-      mockMyotisResolveContenthash.mockResolvedValue({
+      mockMyotisResolveEnsRecord.mockResolvedValue({
         status: 'ok',
         verified: false,
         blockNumber: 23456790,
@@ -1233,7 +1296,7 @@ describe('ens-resolver', () => {
 
     test('verified absence maps to EMPTY_CONTENTHASH', async () => {
       myotisUp();
-      mockMyotisResolveContenthash.mockResolvedValue({
+      mockMyotisResolveEnsRecord.mockResolvedValue({
         status: 'noRecord',
         verified: true,
         blockNumber: 23456791,
@@ -1255,13 +1318,13 @@ describe('ens-resolver', () => {
 
       expect(result.type).toBe('ok');
       expect(result.trust.method).not.toBe('myotis');
-      expect(mockMyotisResolveContenthash).not.toHaveBeenCalled();
+      expect(mockMyotisResolveEnsRecord).not.toHaveBeenCalled();
       expect(mockUrResolve).toHaveBeenCalled();
     });
 
     test('engine failure falls through to the quorum path', async () => {
       myotisUp();
-      mockMyotisResolveContenthash.mockRejectedValue(new Error('no snap peer'));
+      mockMyotisResolveEnsRecord.mockRejectedValue(new Error('no snap peer'));
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
 
       const result = await resolveEnsContent('myotis-enginefail.eth');
@@ -1271,9 +1334,9 @@ describe('ens-resolver', () => {
       expect(mockUrResolve).toHaveBeenCalled();
     });
 
-    test('CCIP offchain records defer to the ethers-based paths', async () => {
+    test('malformed CCIP offchain envelopes fall back to the configured resolver', async () => {
       myotisUp();
-      mockMyotisResolveContenthash.mockResolvedValue({
+      mockMyotisResolveEnsRecord.mockResolvedValue({
         status: 'offchain',
         verified: true,
         blockNumber: 23456792,
@@ -1287,40 +1350,327 @@ describe('ens-resolver', () => {
       expect(mockUrResolve).toHaveBeenCalled();
     });
 
-    test('ready transition sweeps cached fallback answers so the tier can overtake', async () => {
-      // 1. Node syncing: quorum serves and caches (verified, 15-min TTL).
-      mockMyotisIsEnabled.mockImplementation(() => true);
-      mockMyotisIsReady.mockImplementation(() => false);
-      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
-      const first = await resolveEnsContent('myotis-overtake.eth');
-      expect(first.trust.method).not.toBe('myotis');
-
-      // 2. Node becomes ready — but the cached quorum answer would win…
-      mockMyotisIsReady.mockImplementation(() => true);
-      mockMyotisResolveContenthash.mockResolvedValue({
-        status: 'ok',
-        verified: true,
-        blockNumber: 23456799,
-        dataHex: ipfsContenthashFor(IPFS_V0),
+    test('completes a CCIP-Read gateway round and verifies the callback in Myotis', async () => {
+      myotisUp();
+      const originalFetch = global.fetch;
+      const gatewayData = '0xabcdef';
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: jest.fn(() => null) },
+        text: jest.fn().mockResolvedValue(JSON.stringify({ data: gatewayData })),
       });
-      const cached = await resolveEnsContent('myotis-overtake.eth');
-      expect(cached.trust.method).not.toBe('myotis');
+      mockMyotisResolveEnsRecord
+        .mockResolvedValueOnce({
+          status: 'offchain',
+          verified: true,
+          blockNumber: 23456792,
+          senderHex: '0x1111111111111111111111111111111111111111',
+          urls: ['https://ccip.example/{sender}/{data}.json'],
+          callDataHex: '0x1234',
+          callbackFunctionHex: '0xaabbccdd',
+          extraDataHex: '0x5678',
+          wrapped: true,
+        })
+        .mockResolvedValueOnce({
+          status: 'ok',
+          verified: true,
+          blockNumber: 23456792,
+          dataHex: ipfsContenthashFor(IPFS_V0),
+        });
 
-      // 3. …until the ready transition fires the content-cache sweep.
-      expect(mockMyotisReadyListeners.length).toBeGreaterThan(0);
-      for (const cb of mockMyotisReadyListeners) cb();
-      const after = await resolveEnsContent('myotis-overtake.eth');
-      expect(after.trust).toMatchObject({ level: 'verified', method: 'myotis' });
+      try {
+        const result = await resolveEnsContent('myotis-ccip.box');
+
+        expect(result).toMatchObject({
+          type: 'ok',
+          uri: `ipfs://${IPFS_V0}`,
+          trust: { level: 'verified', method: 'myotis' },
+        });
+        expect(global.fetch).toHaveBeenCalledWith(
+          'https://ccip.example/0x1111111111111111111111111111111111111111/0x1234.json',
+          expect.objectContaining({ method: 'GET' })
+        );
+        expect(mockMyotisResolveEnsRecord).toHaveBeenNthCalledWith(2, {
+          method: 'ccipCallback',
+          name: 'myotis-ccip.box',
+          root: 'auto',
+          queryMethod: 'contenthash',
+          senderHex: '0x1111111111111111111111111111111111111111',
+          callbackFunctionHex: '0xaabbccdd',
+          responseHex: gatewayData,
+          extraDataHex: '0x5678',
+          wrapped: true,
+          finalized: true,
+        });
+        expect(mockUrResolve).not.toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+      }
     });
 
-    test('non-ENS name systems bypass myotis entirely', async () => {
+    test('uses POST CCIP gateways and tries the next URL after a bad response', async () => {
       myotisUp();
-      mockWnsContenthash.mockResolvedValue(ipfsContenthashFor(IPFS_V0));
+      const originalFetch = global.fetch;
+      global.fetch = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: { get: jest.fn(() => null) },
+          text: jest.fn().mockResolvedValue('{"notData":"0x"}'),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          headers: { get: jest.fn(() => null) },
+          text: jest.fn().mockResolvedValue('{"data":"0xcafe"}'),
+        });
+      mockMyotisResolveEnsRecord
+        .mockResolvedValueOnce({
+          status: 'offchain',
+          verified: false,
+          blockNumber: 23456793,
+          senderHex: '0x2222222222222222222222222222222222222222',
+          urls: ['https://bad.example/query', 'https://good.example/query'],
+          callDataHex: '0xbeef',
+          callbackFunctionHex: '0x01020304',
+          extraDataHex: '0x',
+          wrapped: false,
+        })
+        .mockResolvedValueOnce({
+          status: 'noRecord',
+          verified: false,
+          blockNumber: 23456793,
+        });
 
-      const result = await resolveEnsContent('myotis-bypass.wei');
+      try {
+        const result = await resolveEnsContent('myotis-ccip-post.box');
 
-      expect(result).toMatchObject({ type: 'ok', system: 'wns' });
-      expect(mockMyotisResolveContenthash).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+          type: 'not_found',
+          reason: 'EMPTY_CONTENTHASH',
+          trust: { level: 'unverified', method: 'myotis' },
+        });
+        expect(global.fetch).toHaveBeenCalledTimes(2);
+        expect(global.fetch.mock.calls[1][1]).toMatchObject({
+          method: 'POST',
+          body: JSON.stringify({
+            sender: '0x2222222222222222222222222222222222222222',
+            data: '0xbeef',
+          }),
+        });
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('caps recursive CCIP-Read at one gateway round and falls back safely', async () => {
+      myotisUp();
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: jest.fn(() => null) },
+        text: jest.fn().mockResolvedValue('{"data":"0xcafe"}'),
+      });
+      const offchain = {
+        status: 'offchain',
+        verified: true,
+        blockNumber: 23456793,
+        senderHex: '0x2222222222222222222222222222222222222222',
+        urls: ['https://recursive.example/{data}'],
+        callDataHex: '0xbeef',
+        callbackFunctionHex: '0x01020304',
+        extraDataHex: '0x',
+        wrapped: false,
+      };
+      mockMyotisResolveEnsRecord.mockResolvedValue(offchain);
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      try {
+        const result = await resolveEnsContent('myotis-recursive.box');
+
+        expect(result.type).toBe('ok');
+        expect(result.trust.method).not.toBe('myotis');
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(mockMyotisResolveEnsRecord).toHaveBeenCalledTimes(2);
+        expect(mockUrResolve).toHaveBeenCalled();
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
+    test('ready transition sweeps cached content, address, and reverse fallback answers', async () => {
+      // 1. Node syncing: RPC paths serve and cache every lookup kind.
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => false);
+      const address = '0x0000000000000000000000000000000000001203';
+      mockUrResolve.mockImplementation((_name, callData) =>
+        String(callData).startsWith(ADDR_SELECTOR)
+          ? urReturnsAddress(address)
+          : urReturnsBytes(ipfsContenthashFor(IPFS_V0))
+      );
+      mockUrReverse.mockResolvedValue(['myotis-overtake-reverse.eth']);
+      const firstContent = await resolveEnsContent('myotis-overtake.eth');
+      const firstAddress = await resolveEnsAddress('myotis-overtake-addr.eth');
+      const firstReverse = await resolveEnsReverse(address);
+      expect(firstContent.trust.method).not.toBe('myotis');
+      expect(firstAddress.trust.method).not.toBe('myotis');
+      expect(firstReverse.trust).toBeUndefined();
+
+      // 2. Node becomes ready — but the cached fallback answers still win…
+      mockMyotisIsReady.mockImplementation(() => true);
+      mockMyotisResolveEnsRecord.mockImplementation(async (params) => {
+        if (params.method === 'contenthash') {
+          return {
+            status: 'ok',
+            verified: true,
+            blockNumber: 23456799,
+            dataHex: ipfsContenthashFor(IPFS_V0),
+          };
+        }
+        if (params.method === 'addr') {
+          return { status: 'ok', verified: true, blockNumber: 23456799, addressHex: address };
+        }
+        return {
+          status: 'ok',
+          verified: true,
+          blockNumber: 23456799,
+          name: 'myotis-overtake-reverse.eth',
+        };
+      });
+      expect((await resolveEnsContent('myotis-overtake.eth')).trust.method).not.toBe('myotis');
+      expect((await resolveEnsAddress('myotis-overtake-addr.eth')).trust.method).not.toBe('myotis');
+      expect((await resolveEnsReverse(address)).trust).toBeUndefined();
+
+      // 3. …until the ready transition sweeps all three caches.
+      expect(mockMyotisReadyListeners.length).toBeGreaterThan(0);
+      for (const cb of mockMyotisReadyListeners) cb();
+      expect((await resolveEnsContent('myotis-overtake.eth')).trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+      });
+      expect((await resolveEnsAddress('myotis-overtake-addr.eth')).trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+      });
+      expect((await resolveEnsReverse(address)).trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+      });
+    });
+
+    test('resolves WNS content through Myotis generic verified eth_call', async () => {
+      myotisUp();
+      mockMyotisEthCall.mockResolvedValue({
+        status: 'ok',
+        resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(
+          ['bytes'],
+          [ipfsContenthashFor(IPFS_V0)]
+        ),
+      });
+
+      const result = await resolveEnsContent('myotis-wns.wei');
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        system: 'wns',
+        uri: `ipfs://${IPFS_V0}`,
+        trust: { level: 'unverified', method: 'myotis', system: 'wns' },
+      });
+      expect(mockMyotisEthCall.mock.calls[0][0].to.toLowerCase()).toBe(WNS_ADDRESS);
+      expect(mockMyotisEthCall.mock.calls[0][0].block).toBe('latest');
+      expect(mockWnsContenthash).not.toHaveBeenCalled();
+    });
+
+    test('resolves GNS addr records through Myotis generic verified eth_call', async () => {
+      myotisUp();
+      const address = '0x3333333333333333333333333333333333333333';
+      mockMyotisEthCall.mockResolvedValue({
+        status: 'ok',
+        resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['address'], [address]),
+      });
+
+      const result = await resolveEnsAddress('myotis-gns.gwei');
+
+      expect(result).toMatchObject({
+        success: true,
+        system: 'gns',
+        address,
+        trust: { level: 'unverified', method: 'myotis', system: 'gns' },
+      });
+      expect(mockMyotisEthCall.mock.calls[0][0].to.toLowerCase()).toBe(GNS_ADDRESS);
+      expect(mockMyotisEthCall.mock.calls[0][0].block).toBe('latest');
+      expect(mockGnsAddr).not.toHaveBeenCalled();
+    });
+
+    test('forward-verifies WNS reverse claims through Myotis contract calls', async () => {
+      myotisUp();
+      const address = '0x0000000000000000000000000000000000001202';
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'noRecord',
+        verified: true,
+        blockNumber: 23456794,
+      });
+      mockMyotisEthCall
+        .mockResolvedValueOnce({
+          status: 'ok',
+          resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['alice.wei']),
+        })
+        .mockResolvedValueOnce({
+          status: 'ok',
+          resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['address'], [address]),
+        });
+
+      const result = await resolveEnsReverse(address);
+
+      expect(result).toMatchObject({
+        success: true,
+        name: 'alice.wei',
+        system: 'wns',
+        trust: { level: 'unverified', method: 'myotis', system: 'wns' },
+      });
+      expect(mockMyotisEthCall).toHaveBeenCalledTimes(2);
+      expect(mockUrReverse).not.toHaveBeenCalled();
+      expect(mockWnsReverseResolve).not.toHaveBeenCalled();
+    });
+
+    test('rejects a WNS reverse claim that does not forward-resolve through Myotis', async () => {
+      myotisUp();
+      const address = '0x0000000000000000000000000000000000001204';
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'noRecord',
+        verified: true,
+        blockNumber: 23456795,
+      });
+      mockMyotisEthCall
+        .mockResolvedValueOnce({
+          status: 'ok',
+          resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['spoof.wei']),
+        })
+        .mockResolvedValueOnce({
+          status: 'ok',
+          resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(
+            ['address'],
+            ['0x9999999999999999999999999999999999999999']
+          ),
+        })
+        .mockResolvedValueOnce({
+          status: 'ok',
+          resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['']),
+        });
+
+      const result = await resolveEnsReverse(address);
+
+      expect(result).toMatchObject({
+        success: false,
+        reason: 'UNVERIFIED',
+        claimedName: 'spoof.wei',
+        system: 'wns',
+        trust: { level: 'unverified', method: 'myotis' },
+      });
+      expect(mockUrReverse).not.toHaveBeenCalled();
     });
   });
 

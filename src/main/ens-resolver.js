@@ -30,6 +30,7 @@ const NAME_NFT_ABI = [
   'function addr(bytes32 node) view returns (address)',
   'function reverseResolve(address addr) view returns (string)',
 ];
+const NAME_NFT_INTERFACE = new ethers.Interface(NAME_NFT_ABI);
 
 const NAME_SYSTEMS = {
   ens: { id: 'ens', label: 'ENS' },
@@ -59,6 +60,14 @@ function nameSystemForName(name) {
 const CONTENTHASH_SELECTOR = '0xbc1c58d1';
 // bytes4(keccak256("addr(bytes32)"))
 const ADDR_SELECTOR = '0x3b3b57de';
+
+// Myotis's native ENS API returns ERC-3668 OffchainLookup envelopes to the
+// host. Freedom drives one bounded gateway round and re-enters the engine so
+// the callback executes against the same beacon-anchored state root.
+const MYOTIS_CCIP_MAX_ROUNDS = 1;
+const MYOTIS_CCIP_TIMEOUT_MS = 15000;
+const MYOTIS_CCIP_MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const CCIP_HTTP_ERROR_SELECTOR = 'ca7a4e75';
 
 // SLIP-0044 coin type for Ethereum mainnet, used by UR.reverse.
 const ETH_COIN_TYPE = 60n;
@@ -471,13 +480,14 @@ const ensReverseCache = new Map();
 
 // Fallback answers cached while the Myotis node was still syncing would
 // outlive readiness by up to their 15-minute TTL — the P2P tier could never
-// overtake a name the user already visited. One content-cache sweep on the
-// not-ready → ready transition lets the next navigation re-resolve through
-// Myotis. Content only: addr/reverse lookups aren't Myotis-served yet.
+// overtake a name or address the user already visited. Sweep every resolution
+// cache on the not-ready → ready transition so the next lookup uses Myotis.
 myotisManager.onReadyTransition(() => {
-  const swept = ensResultCache.size;
+  const swept = ensResultCache.size + ensAddressCache.size + ensReverseCache.size;
   ensResultCache.clear();
-  log.info(`[ens] myotis ready — swept ${swept} cached content result(s) so the P2P tier can serve`);
+  ensAddressCache.clear();
+  ensReverseCache.clear();
+  log.info(`[ens] myotis ready — swept ${swept} cached resolution result(s) so the P2P tier can serve`);
 });
 
 // Get a working provider, trying each in sequence with fallback
@@ -969,44 +979,202 @@ function classifyNoAgreement({ results }) {
   return { kind: 'conflict' };
 }
 
-// EXPERIMENTAL Myotis path: resolve via the local fully-P2P light client.
-// The engine returns the *decoded* record (contenthash multicodec bytes),
-// so we re-encode to the ABI-wrapped `bytes` shape every other path yields —
-// the shared decode pipeline in doResolveEnsContent stays unchanged.
-//
-// Returns null to skip (node not synced yet, non-content call, or a CCIP
-// offchain record — the ethers-based paths drive the CCIP round instead);
-// throws on real engine errors so the orchestrator logs the fallback.
-async function tryMyotisPath(name, callData, nameSystem) {
-  if (!myotisManager.isReady()) return null;
-  const selector = String(callData).slice(0, 10).toLowerCase();
-  if (selector !== CONTENTHASH_SELECTOR) return null;
+async function readMyotisCcipBody(response) {
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > MYOTIS_CCIP_MAX_RESPONSE_BYTES) {
+    throw new Error(`response exceeds ${MYOTIS_CCIP_MAX_RESPONSE_BYTES} bytes`);
+  }
 
-  const rec = await myotisManager.resolveContenthash(name);
+  if (!response.body?.getReader) {
+    const body = await response.text();
+    if (Buffer.byteLength(body) > MYOTIS_CCIP_MAX_RESPONSE_BYTES) {
+      throw new Error(`response exceeds ${MYOTIS_CCIP_MAX_RESPONSE_BYTES} bytes`);
+    }
+    return body;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytes = 0;
+  let body = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > MYOTIS_CCIP_MAX_RESPONSE_BYTES) {
+      try { await reader.cancel(); } catch { /* best-effort response teardown */ }
+      throw new Error(`response exceeds ${MYOTIS_CCIP_MAX_RESPONSE_BYTES} bytes`);
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+  return body + decoder.decode();
+}
+
+function containsCcipHttpError(dataHex) {
+  const bare = String(dataHex).replace(/^0x/i, '').toLowerCase();
+  for (let i = 0; i + CCIP_HTTP_ERROR_SELECTOR.length <= bare.length; i += 2) {
+    if (bare.slice(i, i + CCIP_HTTP_ERROR_SELECTOR.length) === CCIP_HTTP_ERROR_SELECTOR) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function fetchMyotisCcipResponse(rec) {
+  const senderHex = rec.senderHex;
+  const callDataHex = rec.callDataHex;
+  const urls = Array.isArray(rec.urls) ? rec.urls.filter((url) => typeof url === 'string') : [];
+  if (!senderHex || !callDataHex || urls.length === 0) {
+    throw new Error('CCIP-Read OffchainLookup did not include an actionable gateway tuple');
+  }
+
+  const reasons = [];
+  for (const template of urls) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), MYOTIS_CCIP_TIMEOUT_MS);
+    try {
+      const useGet = template.includes('{data}');
+      const url = template.replaceAll('{sender}', senderHex).replaceAll('{data}', callDataHex);
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        throw new Error(`unsupported gateway protocol ${parsed.protocol}`);
+      }
+      const response = await fetch(url, {
+        method: useGet ? 'GET' : 'POST',
+        headers: useGet
+          ? { Accept: 'application/json' }
+          : { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: useGet ? undefined : JSON.stringify({ sender: senderHex, data: callDataHex }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await readMyotisCcipBody(response);
+      const dataHex = body.match(/"data"\s*:\s*"(0x[0-9a-fA-F]*)"/)?.[1];
+      if (!dataHex) throw new Error('response has no hex data field');
+      if ((dataHex.length - 2) % 2 !== 0) throw new Error('response data has odd-length hex');
+      if (containsCcipHttpError(dataHex)) throw new Error('gateway returned HttpError');
+      return dataHex;
+    } catch (err) {
+      reasons.push(`${template.slice(0, 200)}: ${err.message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  throw new Error(`CCIP-Read gateway failed: ${reasons.join('; ')}`);
+}
+
+// Drive the host half of ERC-3668 for the native engine. Myotis performs the
+// resolver walk and verified callback execution; Freedom only fetches the
+// gateway payload carried by the on-chain OffchainLookup tuple. One round is
+// allowed, matching the upstream host driver and preventing recursive fetches.
+async function resolveMyotisEnsRecord(params) {
+  const original = { ...params, root: params.root || 'auto' };
+  let rec = await myotisManager.resolveEnsRecord(original);
   if (rec.error) throw new Error(rec.error);
-  if (rec.status === 'offchain') return null;
+
+  for (let round = 0; rec.status === 'offchain'; round++) {
+    if (round >= MYOTIS_CCIP_MAX_ROUNDS) {
+      throw new Error(`CCIP-Read recursion exceeds ${MYOTIS_CCIP_MAX_ROUNDS} round`);
+    }
+    const responseHex = await fetchMyotisCcipResponse(rec);
+    rec = await myotisManager.resolveEnsRecord({
+      ...original,
+      method: 'ccipCallback',
+      queryMethod: original.method,
+      senderHex: rec.senderHex,
+      callbackFunctionHex: rec.callbackFunctionHex,
+      responseHex,
+      extraDataHex: rec.extraDataHex,
+      wrapped: rec.wrapped === true,
+      finalized: rec.verified === true,
+    });
+    if (rec.error) throw new Error(rec.error);
+  }
+  return rec;
+}
+
+// The specialized ENS record API can pin to finalized state and reports that
+// fact explicitly. Re-encode its decoded values to the raw ABI return shape
+// shared by Colibri and RPC quorum so downstream decoders remain unchanged.
+async function tryMyotisEnsPath(name, callData, nameSystem) {
+  const selector = String(callData).slice(0, 10).toLowerCase();
+  const method =
+    selector === CONTENTHASH_SELECTOR
+      ? 'contenthash'
+      : selector === ADDR_SELECTOR
+        ? 'addr'
+        : null;
+  if (!method) return null;
+
+  const rec = await resolveMyotisEnsRecord({ method, name });
+  const trust = buildMyotisTrust(rec, nameSystem);
   if (rec.status === 'noRecord') {
-    // Verified absence: emit an empty ABI-wrapped bytes value so the decode
-    // path lands on EMPTY_CONTENTHASH — identical semantics to a quorum
-    // wave agreeing on an empty record.
     return {
       outcome: 'data',
-      resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(['bytes'], ['0x']),
+      resolvedData:
+        method === 'contenthash'
+          ? ethers.AbiCoder.defaultAbiCoder().encode(['bytes'], ['0x'])
+          : ethers.AbiCoder.defaultAbiCoder().encode(['address'], [ethers.ZeroAddress]),
       resolverAddress: null,
-      trust: buildMyotisTrust(rec, nameSystem),
+      trust,
       block: rec.blockNumber ?? null,
     };
   }
-  if (rec.status !== 'ok' || !rec.dataHex) {
-    throw new Error(`unexpected record shape: ${JSON.stringify(rec).slice(0, 200)}`);
+  if (rec.status !== 'ok') {
+    throw new Error(`unexpected ${method} record shape: ${JSON.stringify(rec).slice(0, 200)}`);
+  }
+  const value = method === 'contenthash' ? rec.dataHex : rec.addressHex;
+  if (!value) {
+    throw new Error(`missing ${method} value: ${JSON.stringify(rec).slice(0, 200)}`);
   }
   return {
     outcome: 'data',
-    resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(['bytes'], [rec.dataHex]),
+    resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(
+      [method === 'contenthash' ? 'bytes' : 'address'],
+      [value]
+    ),
     resolverAddress: null,
-    trust: buildMyotisTrust(rec, nameSystem),
+    trust,
     block: rec.blockNumber ?? null,
   };
+}
+
+// WNS and GNS are separate NameNFT contracts, not ENS registries. Myotis's
+// generic verified eth_call can execute their existing calldata locally. The
+// current v0.1.3 addon pins generic calls to the beacon optimistic head and
+// does not return a finalized verdict, so these results are conservatively
+// labelled unverified even though their state proofs are beacon-anchored.
+async function tryMyotisContractPath(callData, nameSystem) {
+  const rec = await myotisManager.ethCall({
+    to: nameSystem.contractAddress,
+    data: callData,
+    block: 'latest',
+  });
+  if (rec.error) throw new Error(rec.error);
+  if (rec.status !== 'ok' || typeof rec.resultHex !== 'string') {
+    throw new Error(`Myotis contract call unavailable: ${rec.reason || rec.status || 'unknown'}`);
+  }
+  const status = myotisManager.getStatus() || {};
+  const blockNumber = status.optimisticBlockNumber ?? null;
+  const trust = buildMyotisTrust({ verified: false, blockNumber }, nameSystem);
+  return {
+    outcome: 'data',
+    resolvedData: rec.resultHex,
+    resolverAddress: nameSystem.contractAddress,
+    trust,
+    block: blockNumber,
+  };
+}
+
+// Returns null only while the node cannot serve or when the requested selector
+// is outside Freedom's current content/address surface. Real read failures
+// throw so the orchestrator logs the handoff to the configured fallback.
+async function tryMyotisPath(name, callData, nameSystem) {
+  if (!myotisManager.isReady()) return null;
+  if (nameSystem.contractAddress) {
+    return tryMyotisContractPath(callData, nameSystem);
+  }
+  return tryMyotisEnsPath(name, callData, nameSystem);
 }
 
 // `verified` on the engine result means the resolution ran against the
@@ -1277,11 +1445,12 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
   // EXPERIMENTAL Myotis tier (spike, gated on MYOTIS_NODE_PATH): a fully
   // P2P light client — no prover service, no RPC pool; reads are Merkle-
   // proven against a beacon-anchored state root by a local devp2p node.
-  // ENS-only (WNS/GNS are NameNFT contracts Myotis doesn't know) and
-  // content-kind only for the spike. Not-ready/unsupported returns null
-  // (silent skip — the node syncs for minutes after launch); real failures
-  // fall through loudly, same contract as colibri-fallback below.
-  if (nameSystem === NAME_SYSTEMS.ens && myotisManager.isEnabled()) {
+  // ENS records use Myotis's root-aware resolver (including host-driven
+  // CCIP-Read); WNS/GNS use its generic verified eth_call against their
+  // NameNFT contracts. Not-ready/unsupported returns null (silent skip — the
+  // node syncs for minutes after launch); real failures fall through loudly,
+  // same contract as colibri-fallback below.
+  if (myotisManager.isEnabled()) {
     try {
       const viaMyotis = await tryMyotisPath(normalizedName, callData, nameSystem);
       if (viaMyotis) return viaMyotis;
@@ -2072,8 +2241,115 @@ async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
   }
 }
 
+async function tryMyotisReverse(normalizedAddress) {
+  if (!myotisManager.isReady()) return null;
+
+  const ensRec = await resolveMyotisEnsRecord({
+    method: 'reverse',
+    addressHex: normalizedAddress,
+  });
+  const ensTrust = buildMyotisTrust(ensRec, NAME_SYSTEMS.ens);
+  if (ensRec.status === 'ok' && ensRec.name) {
+    return {
+      success: true,
+      address: normalizedAddress,
+      name: ensRec.name,
+      system: 'ens',
+      trust: ensTrust,
+    };
+  }
+  if (ensRec.status !== 'noRecord') {
+    throw new Error(`unexpected reverse record shape: ${JSON.stringify(ensRec).slice(0, 200)}`);
+  }
+
+  // WNS/GNS reverse records live on their NameNFT contracts. Query each over
+  // Myotis and forward-check any claim through the same local verified-call
+  // path before presenting it as a name.
+  let firstUnverified = null;
+  let lastTrust = ensTrust;
+  for (const nameSystem of CONTRACT_BACKED_REVERSE_SYSTEMS) {
+    const reverseCall = NAME_NFT_INTERFACE.encodeFunctionData('reverseResolve', [
+      normalizedAddress,
+    ]);
+    const reverseOutcome = await tryMyotisContractPath(reverseCall, nameSystem);
+    lastTrust = reverseOutcome.trust;
+    let claimedName;
+    try {
+      [claimedName] = NAME_NFT_INTERFACE.decodeFunctionResult(
+        'reverseResolve',
+        reverseOutcome.resolvedData
+      );
+    } catch (err) {
+      throw new Error(`invalid ${nameSystem.label} reverse response: ${err.message}`, {
+        cause: err,
+      });
+    }
+    if (!claimedName) continue;
+
+    const claimedSystem = nameSystemForName(claimedName);
+    if (claimedSystem.id !== nameSystem.id) {
+      const invalid = unverifiedReverseResult(
+        normalizedAddress,
+        nameSystem,
+        claimedName,
+        `Reverse record for ${normalizedAddress} claims a non-${nameSystem.label} name`,
+        reverseOutcome.trust
+      );
+      if (!firstUnverified) firstUnverified = invalid;
+      continue;
+    }
+
+    let forwardOutcome;
+    try {
+      const normalizedClaim = fastNormalize(String(claimedName).trim());
+      const forwardCall = ADDR_SELECTOR + ethers.namehash(normalizedClaim).slice(2);
+      forwardOutcome = await tryMyotisContractPath(forwardCall, nameSystem);
+      const [forwardAddress] = ethers.AbiCoder.defaultAbiCoder().decode(
+        ['address'],
+        forwardOutcome.resolvedData
+      );
+      if (String(forwardAddress).toLowerCase() === normalizedAddress) {
+        return {
+          success: true,
+          address: normalizedAddress,
+          name: normalizedClaim,
+          system: nameSystem.id,
+          trust: forwardOutcome.trust,
+        };
+      }
+    } catch (err) {
+      log.info(
+        `[${nameSystem.id}] myotis forward verification failed for ${normalizedAddress}: ${err.message}`
+      );
+    }
+
+    const invalid = unverifiedReverseResult(
+      normalizedAddress,
+      nameSystem,
+      claimedName,
+      `Reverse record for ${normalizedAddress} does not forward-verify`,
+      forwardOutcome?.trust || reverseOutcome.trust
+    );
+    if (!firstUnverified) firstUnverified = invalid;
+  }
+
+  return firstUnverified || {
+    ...noReverseResult(normalizedAddress),
+    trust: lastTrust,
+  };
+}
+
 async function doResolveEnsReverse(normalizedAddress) {
   const strategy = registry.getNetwork(1).verification.primary;
+
+  if (myotisManager.isEnabled()) {
+    try {
+      const viaMyotis = await tryMyotisReverse(normalizedAddress);
+      if (viaMyotis) return cacheReverseResult(normalizedAddress, viaMyotis);
+    } catch (err) {
+      log.warn(`[ens] myotis-fallback reverse address=${normalizedAddress} error=${err.message}`);
+    }
+  }
 
   if (strategy === 'colibri') {
     try {

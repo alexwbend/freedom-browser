@@ -248,13 +248,26 @@ function isReady() {
 
 // --- Verified reads (Promise<parsed JSON>) --------------------------------
 
-async function resolveContenthash(name) {
-  const raw = await addon.ensRecordJson(handle, JSON.stringify({ method: 'contenthash', name }));
+async function resolveEnsRecord(params) {
+  const raw = await addon.ensRecordJson(handle, JSON.stringify(params));
   return JSON.parse(raw);
 }
 
+async function resolveContenthash(name) {
+  return resolveEnsRecord({ method: 'contenthash', name });
+}
+
 async function resolveAddress(name) {
-  return JSON.parse(await addon.resolveEnsJson(handle, name));
+  return resolveEnsRecord({ method: 'addr', name });
+}
+
+async function resolveReverse(addressHex) {
+  return resolveEnsRecord({ method: 'reverse', addressHex });
+}
+
+async function ethCall({ from = '', to, data = '0x', value = '0', block = 'latest' }) {
+  const raw = await addon.ethCallJson(handle, from, to, data, value, block);
+  return JSON.parse(raw);
 }
 
 async function getAccount(address) {
@@ -362,7 +375,10 @@ module.exports = {
   registerMyotisIpc,
   refreshMyotisStatus,
   onReadyTransition,
+  resolveEnsRecord,
   resolveContenthash,
   resolveAddress,
+  resolveReverse,
+  ethCall,
   getAccount,
 };

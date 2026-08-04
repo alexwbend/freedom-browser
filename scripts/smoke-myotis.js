@@ -108,20 +108,42 @@ async function verifiedReads() {
   for (let attempt = 1; attempt <= queryAttempts; attempt++) {
     try {
       const address = JSON.parse(
-        await withTimeout(addon.resolveEnsJson(handle, 'vitalik.eth'), 'ENS address read')
+        await withTimeout(
+          addon.ensRecordJson(
+            handle,
+            JSON.stringify({ method: 'addr', name: 'vitalik.eth', root: 'finalized' })
+          ),
+          'ENS address read'
+        )
       );
       const contenthash = JSON.parse(
         await withTimeout(
           addon.ensRecordJson(
             handle,
-            JSON.stringify({ method: 'contenthash', name: 'vitalik.eth' })
+            JSON.stringify({ method: 'contenthash', name: 'vitalik.eth', root: 'finalized' })
           ),
           'ENS contenthash read'
         )
       );
-      log(`verified read attempt ${attempt}:`, JSON.stringify({ address, contenthash }));
+      const reverse = JSON.parse(
+        await withTimeout(
+          addon.ensRecordJson(
+            handle,
+            JSON.stringify({
+              method: 'reverse',
+              addressHex: VITALIK_ADDRESS,
+              root: 'finalized',
+            })
+          ),
+          'ENS reverse read'
+        )
+      );
+      log(`verified read attempt ${attempt}:`, JSON.stringify({ address, contenthash, reverse }));
 
       if (address.error) throw new Error(`address read: ${address.error}`);
+      if (address.status !== 'ok' || address.verified !== true) {
+        throw new Error(`address was not finalized-root verified: ${JSON.stringify(address)}`);
+      }
       if (address.addressHex?.toLowerCase() !== VITALIK_ADDRESS.toLowerCase()) {
         throw new Error(`address mismatch: ${address.addressHex || JSON.stringify(address)}`);
       }
@@ -133,6 +155,13 @@ async function verifiedReads() {
         throw new Error(
           `contenthash was not finalized-root verified: ${JSON.stringify(contenthash)}`
         );
+      }
+      if (reverse.error) throw new Error(`reverse read: ${reverse.error}`);
+      if (reverse.status !== 'ok' || reverse.verified !== true) {
+        throw new Error(`reverse was not finalized-root verified: ${JSON.stringify(reverse)}`);
+      }
+      if (reverse.name?.toLowerCase() !== 'vitalik.eth') {
+        throw new Error(`reverse mismatch: ${reverse.name || JSON.stringify(reverse)}`);
       }
       return;
     } catch (err) {
@@ -231,7 +260,7 @@ async function main() {
     log('node ready; performing finalized-root ENS reads');
     try {
       await verifiedReads();
-      log('PASS: released addon started and resolved verified ENS records');
+      log('PASS: released addon started and resolved verified ENS address/content/reverse records');
       return;
     } catch (err) {
       if (recovery >= readRecoveryAttempts) throw err;
