@@ -9,7 +9,9 @@
     "logo": "ethereum.png",
     "builtin": true,
     "verification": {
-      "primary": "colibri"
+      "primary": "colibri",
+      "order": ["myotis", "colibri", "quorum"],
+      "preferVerified": true
     },
     "quorum": {
       "k": 3,

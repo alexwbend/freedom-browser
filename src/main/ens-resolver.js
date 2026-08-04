@@ -1436,68 +1436,10 @@ function getDirectRpcCandidate(chainId) {
 //   { outcome: 'not_found',  reason,                         trust, block }
 //   { outcome: 'conflict',   groups,                         trust, block }
 // Throws when there are no providers or both waves all-errored.
-async function consensusResolve(normalizedName, callData, kind = 'content', options = {}) {
+async function resolveViaQuorum(normalizedName, callData, kind = 'content', options = {}) {
   const network = registry.getNetwork(1);
-  const strategy = network.verification.primary;
   const callResolver = options.callResolver || universalResolverCall;
   const nameSystem = options.nameSystem || NAME_SYSTEMS.ens;
-
-  // EXPERIMENTAL Myotis tier (spike, gated on MYOTIS_NODE_PATH): a fully
-  // P2P light client — no prover service, no RPC pool; reads are Merkle-
-  // proven against a beacon-anchored state root by a local devp2p node.
-  // ENS records use Myotis's root-aware resolver (including host-driven
-  // CCIP-Read); WNS/GNS use its generic verified eth_call against their
-  // NameNFT contracts. Not-ready/unsupported returns null (silent skip — the
-  // node syncs for minutes after launch); real failures fall through loudly,
-  // same contract as colibri-fallback below.
-  if (myotisManager.isEnabled()) {
-    try {
-      const viaMyotis = await tryMyotisPath(normalizedName, callData, nameSystem);
-      if (viaMyotis) return viaMyotis;
-    } catch (err) {
-      log.warn(
-        `[ens] myotis-fallback name=${normalizedName} kind=${kind} error=${err.message}`
-      );
-    }
-  }
-
-  // Colibri primary: cryptographic verification via the sync committee
-  // (or zk sync proof). On verification failure or network/prover error
-  // we log loudly and fall through to the quorum path below — fallback to
-  // quorum is structural and always-on. Loud-fallback is load-bearing: a
-  // silent fall-through would hide both prover health regressions and the
-  // (rare) "active attack" signal.
-  if (strategy === 'colibri') {
-    try {
-      return await tryColibriPath(normalizedName, callData, callResolver, nameSystem);
-    } catch (err) {
-      log.warn(
-        `[ens] colibri-fallback name=${normalizedName} kind=${kind} ` +
-        `error=${err.message}`
-      );
-    }
-  }
-
-  // Direct strategy: a single trusted endpoint (typically the user's own
-  // node). Try it first, fall back to public quorum on any failure so a
-  // misbehaving own-node still resolves. User-added sources sort ahead of
-  // builtins, so directUrl is the user's own endpoint when one exists —
-  // only then is the answer honestly 'user-configured'; with no custom
-  // endpoint added, `direct` is just an unverified builtin public RPC.
-  if (strategy === 'direct') {
-    const direct = getDirectRpcCandidate(1);
-    if (direct.url) {
-      const directResult = await tryDirectResolve(
-        direct.url,
-        normalizedName,
-        callData,
-        direct.userConfigured,
-        callResolver,
-        nameSystem,
-      );
-      if (directResult) return directResult;
-    }
-  }
 
   const { quorum } = network;
   const desiredK = Math.max(1, Math.min(Number(quorum.k) || 3, 9));
@@ -1709,6 +1651,94 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
     trust: trustFor('conflict', [], wave.queried),
     block,
   };
+}
+
+const RESOLUTION_METHOD_IDS = new Set(['myotis', 'colibri', 'quorum', 'direct']);
+
+function resolutionPolicy(network) {
+  const verification = network?.verification || {};
+  const configured = Array.isArray(verification.order)
+    ? verification.order.filter((method, index, all) =>
+        RESOLUTION_METHOD_IDS.has(method) && all.indexOf(method) === index
+      )
+    : [];
+  if (configured.length > 0) {
+    return {
+      order: configured,
+      preferVerified: verification.preferVerified === true,
+    };
+  }
+
+  // Legacy network-config.json files only have `primary`. Preserve their old
+  // behavior until the user saves the new policy: Myotis first when enabled,
+  // the selected remote strategy next, and quorum as Colibri/direct fallback.
+  const primary = ['colibri', 'quorum', 'direct'].includes(verification.primary)
+    ? verification.primary
+    : 'colibri';
+  return {
+    order: [...new Set(['myotis', primary, ...(primary === 'quorum' ? [] : ['quorum'])])],
+    preferVerified: false,
+  };
+}
+
+function isProvisionalResolution(result) {
+  return result?.trust?.level === 'unverified';
+}
+
+// Execute the user's unified resolution order. An unverified answer can be
+// retained provisionally while later methods get a chance to produce a
+// verified result; conflicts and user-configured/verified answers always stop.
+async function consensusResolve(normalizedName, callData, kind = 'content', options = {}) {
+  const network = registry.getNetwork(1);
+  const callResolver = options.callResolver || universalResolverCall;
+  const nameSystem = options.nameSystem || NAME_SYSTEMS.ens;
+  const { order, preferVerified } = resolutionPolicy(network);
+  let provisional = null;
+  let lastError = null;
+
+  for (const method of order) {
+    let result = null;
+    try {
+      if (method === 'myotis') {
+        if (myotisManager.isEnabled()) {
+          result = await tryMyotisPath(normalizedName, callData, nameSystem);
+        }
+      } else if (method === 'colibri') {
+        result = await tryColibriPath(normalizedName, callData, callResolver, nameSystem);
+      } else if (method === 'direct') {
+        const direct = getDirectRpcCandidate(1);
+        if (direct.url) {
+          result = await tryDirectResolve(
+            direct.url,
+            normalizedName,
+            callData,
+            direct.userConfigured,
+            callResolver,
+            nameSystem,
+          );
+        }
+      } else if (method === 'quorum') {
+        result = await resolveViaQuorum(normalizedName, callData, kind, options);
+      }
+    } catch (err) {
+      lastError = err;
+      log.warn(
+        `[ens] ${method}-fallback name=${normalizedName} kind=${kind} error=${err.message}`
+      );
+      continue;
+    }
+
+    if (!result) continue;
+    if (preferVerified && isProvisionalResolution(result)) {
+      provisional ||= result;
+      continue;
+    }
+    return result;
+  }
+
+  if (provisional) return provisional;
+  if (lastError) throw lastError;
+  throw new Error(`No enabled name-resolution method could resolve ${normalizedName}`);
 }
 
 async function resolveEnsContent(name) {
@@ -2339,32 +2369,7 @@ async function tryMyotisReverse(normalizedAddress) {
   };
 }
 
-async function doResolveEnsReverse(normalizedAddress) {
-  const strategy = registry.getNetwork(1).verification.primary;
-
-  if (myotisManager.isEnabled()) {
-    try {
-      const viaMyotis = await tryMyotisReverse(normalizedAddress);
-      if (viaMyotis) return cacheReverseResult(normalizedAddress, viaMyotis);
-    } catch (err) {
-      log.warn(`[ens] myotis-fallback reverse address=${normalizedAddress} error=${err.message}`);
-    }
-  }
-
-  if (strategy === 'colibri') {
-    try {
-      const ensResult = await tryColibriReverse(normalizedAddress);
-      return cacheReverseResult(
-        normalizedAddress,
-        await withContractBackedReverseFallback(normalizedAddress, ensResult)
-      );
-    } catch (err) {
-      log.warn(
-        `[ens] colibri-fallback reverse address=${normalizedAddress} error=${err.message}`
-      );
-    }
-  }
-
+async function resolveReverseViaRpc(normalizedAddress) {
   const provider = await getWorkingProvider();
   const ur = new ethers.Contract(UNIVERSAL_RESOLVER_ADDRESS, UR_ABI, provider);
   const addrBytes = ethers.getBytes(normalizedAddress);
@@ -2376,44 +2381,91 @@ async function doResolveEnsReverse(normalizedAddress) {
   } catch (err) {
     if (isProviderError(err)) throw err;
     if (isResolverNotFoundError(err)) {
-      return cacheReverseResult(
+      return withContractBackedReverseFallback(
         normalizedAddress,
-        await withContractBackedReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
+        noReverseResult(normalizedAddress)
       );
     }
     if (isReverseAddressMismatchError(err)) {
-      return cacheReverseResult(normalizedAddress, {
+      return {
         success: false,
         address: normalizedAddress,
         system: 'ens',
         reason: 'UNVERIFIED',
         claimedName: decodeReverseMismatchClaimedName(err),
         error: `Reverse record for ${normalizedAddress} does not forward-verify`,
-      });
+      };
     }
     log.info(`[ens] UR reverse failed for ${normalizedAddress}: ${err.message}`);
-    return cacheReverseResult(normalizedAddress, {
+    return {
       success: false,
       address: normalizedAddress,
       system: 'ens',
       reason: 'RESOLUTION_ERROR',
       error: err.message,
-    });
+    };
   }
 
   if (!claimedName) {
-    return cacheReverseResult(
+    return withContractBackedReverseFallback(
       normalizedAddress,
-      await withContractBackedReverseFallback(normalizedAddress, noReverseResult(normalizedAddress))
+      noReverseResult(normalizedAddress)
     );
   }
 
-  return cacheReverseResult(normalizedAddress, {
+  return {
     success: true,
     address: normalizedAddress,
     name: claimedName,
     system: 'ens',
-  });
+  };
+}
+
+function isProvisionalReverse(result) {
+  return result?.trust?.level === 'unverified' || result?.reason === 'UNVERIFIED';
+}
+
+async function doResolveEnsReverse(normalizedAddress) {
+  const network = registry.getNetwork(1);
+  const { order, preferVerified } = resolutionPolicy(network);
+  let provisional = null;
+  let lastError = null;
+  let rpcAttempted = false;
+
+  for (const method of order) {
+    let result = null;
+    try {
+      if (method === 'myotis') {
+        if (myotisManager.isEnabled()) result = await tryMyotisReverse(normalizedAddress);
+      } else if (method === 'colibri') {
+        const ensResult = await tryColibriReverse(normalizedAddress);
+        result = await withContractBackedReverseFallback(normalizedAddress, ensResult);
+      } else if ((method === 'quorum' || method === 'direct') && !rpcAttempted) {
+        // Reverse resolution retains the Universal Resolver's internal forward
+        // verification and mismatch decoding. Both RPC policies currently use
+        // that shared provider path; the order still controls when it runs.
+        rpcAttempted = true;
+        result = await resolveReverseViaRpc(normalizedAddress);
+      }
+    } catch (err) {
+      lastError = err;
+      log.warn(
+        `[ens] ${method}-fallback reverse address=${normalizedAddress} error=${err.message}`
+      );
+      continue;
+    }
+
+    if (!result) continue;
+    if (preferVerified && isProvisionalReverse(result)) {
+      provisional ||= result;
+      continue;
+    }
+    return cacheReverseResult(normalizedAddress, result);
+  }
+
+  if (provisional) return cacheReverseResult(normalizedAddress, provisional);
+  if (lastError) throw lastError;
+  throw new Error(`No enabled name-resolution method could reverse-resolve ${normalizedAddress}`);
 }
 
 function noReverseResult(normalizedAddress) {

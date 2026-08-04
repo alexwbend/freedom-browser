@@ -73,7 +73,13 @@ jest.mock('./networks/network-registry', () => {
       return {
         chainId: 1,
         name: 'Ethereum',
-        verification: { primary },
+        verification: {
+          primary,
+          ...(Array.isArray(s.ensResolutionOrder) ? { order: s.ensResolutionOrder } : {}),
+          ...(typeof s.ensPreferVerified === 'boolean'
+            ? { preferVerified: s.ensPreferVerified }
+            : {}),
+        },
         quorum: {
           k: s.ensQuorumK ?? 3,
           m: s.ensQuorumM ?? 2,
@@ -1279,6 +1285,34 @@ describe('ens-resolver', () => {
       expect(mockUrReverse).not.toHaveBeenCalled();
     });
 
+    test('applies verified-answer preference to reverse resolution order', async () => {
+      myotisUp();
+      const address = '0x0000000000000000000000000000000000001210';
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionMethod: 'colibri',
+        ensResolutionOrder: ['myotis', 'colibri', 'quorum'],
+        ensPreferVerified: true,
+      });
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: false,
+        blockNumber: 23456790,
+        name: 'optimistic.eth',
+      });
+      mockResolveReverseViaColibri.mockResolvedValue({ name: 'verified.eth' });
+
+      const result = await resolveEnsReverse(address);
+
+      expect(result).toMatchObject({
+        success: true,
+        name: 'verified.eth',
+        trust: { level: 'verified', method: 'colibri' },
+      });
+      expect(mockResolveReverseViaColibri).toHaveBeenCalled();
+      expect(mockUrReverse).not.toHaveBeenCalled();
+    });
+
     test('peer-head answers (verified=false) are honestly labelled unverified', async () => {
       myotisUp();
       mockMyotisResolveEnsRecord.mockResolvedValue({
@@ -1292,6 +1326,88 @@ describe('ens-resolver', () => {
 
       expect(result.type).toBe('ok');
       expect(result.trust).toMatchObject({ level: 'unverified', method: 'myotis' });
+    });
+
+    test('continues past an optimistic Myotis answer when verified answers are preferred', async () => {
+      myotisUp();
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionMethod: 'colibri',
+        ensResolutionOrder: ['myotis', 'colibri', 'quorum'],
+        ensPreferVerified: true,
+      });
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: false,
+        blockNumber: 23456790,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+      const [resolvedData, resolverAddress] = urReturnsBytes(ipfsContenthashFor(IPFS_V0));
+      mockResolveViaColibri.mockResolvedValue({ resolvedData, resolverAddress });
+
+      const result = await resolveEnsContent('prefer-verified.eth');
+
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalled();
+      expect(mockResolveViaColibri).toHaveBeenCalled();
+      expect(result.trust).toMatchObject({ level: 'verified', method: 'colibri' });
+    });
+
+    test('honors custom method order and does not invoke lower-priority methods after success', async () => {
+      myotisUp();
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionMethod: 'colibri',
+        ensResolutionOrder: ['colibri', 'myotis', 'quorum'],
+        ensPreferVerified: true,
+      });
+      const [resolvedData, resolverAddress] = urReturnsBytes(ipfsContenthashFor(IPFS_V0));
+      mockResolveViaColibri.mockResolvedValue({ resolvedData, resolverAddress });
+
+      const result = await resolveEnsContent('colibri-first.eth');
+
+      expect(result.trust).toMatchObject({ level: 'verified', method: 'colibri' });
+      expect(mockMyotisResolveEnsRecord).not.toHaveBeenCalled();
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('keeps the first optimistic answer when no later method verifies it', async () => {
+      myotisUp();
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionMethod: 'colibri',
+        ensResolutionOrder: ['myotis', 'colibri'],
+        ensPreferVerified: true,
+      });
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: false,
+        blockNumber: 23456790,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+      mockResolveViaColibri.mockRejectedValue(new Error('prover unavailable'));
+
+      const result = await resolveEnsContent('provisional-fallback.eth');
+
+      expect(result.type).toBe('ok');
+      expect(result.trust).toMatchObject({ level: 'unverified', method: 'myotis' });
+      expect(mockUrResolve).not.toHaveBeenCalled();
+    });
+
+    test('excludes disabled methods from resolution entirely', async () => {
+      myotisUp();
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionOrder: ['quorum'],
+        ensPreferVerified: true,
+      });
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      const result = await resolveEnsContent('quorum-only.eth');
+
+      expect(result.type).toBe('ok');
+      expect(mockMyotisResolveEnsRecord).not.toHaveBeenCalled();
+      expect(mockResolveViaColibri).not.toHaveBeenCalled();
+      expect(mockUrResolve).toHaveBeenCalled();
     });
 
     test('verified absence maps to EMPTY_CONTENTHASH', async () => {

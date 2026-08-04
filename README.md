@@ -263,6 +263,8 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Resolution**: `.eth`, `.box`, `.wei`, and `.gwei` domains resolve to their Swarm, IPFS, or IPNS content. `.eth` and `.box` use ENS; `.wei` uses Wei Name Service (WNS); `.gwei` uses Gwei Name Service (GNS).
 - **CCIP-Read Support**: `.box` domains resolve via offchain CCIP-Read (EIP-3668) through 3dns.xyz.
+- **Ordered Resolution Policy**: Settings → Name Resolution presents Myotis, Colibri, RPC quorum, and direct RPC as one ordered list. Methods can be enabled, disabled, and reprioritized per profile. By default Freedom tries Myotis, then Colibri, then RPC quorum; direct RPC is disabled.
+- **Verified-Answer Preference**: An unverified result can be held provisionally while later enabled methods try to produce a verified answer. If none succeeds, Freedom uses the provisional result and applies the configured warning behavior.
 - **Protocol Detection**: Automatically detects and routes to Swarm (`bzz://`), IPFS (`ipfs://`), or IPNS (`ipns://`) content.
 - **Transport-Aware Address Bar**: After resolution, the address bar shows the resolved transport with the name as the host — e.g. `vitalik.eth` resolves and displays as `ipfs://vitalik.eth`, a Swarm-backed `mysite.eth` displays as `bzz://mysite.eth`, a WNS-backed `alice.wei` displays as `ipfs://alice.wei`, and a GNS-backed `apoorv.gwei` displays as `ipfs://apoorv.gwei`. The legacy `ens://` form is still accepted as input (and stored bookmarks keep working) but is no longer the canonical display.
 - **Typed Scheme Is an Assertion**: Typing `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, or the equivalent `.wei`/`.gwei` forms only resolves if the contenthash matches the typed transport. Mismatches surface as a "resolves to X, not Y" message rather than silently switching transports — same rule the `bzz://` protocol handler enforces for subresource fetches. Bare names and the legacy `ens://` form make no assertion and accept any supported transport.
@@ -400,7 +402,7 @@ Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, and `rad://` URLs always resolve
 
 ### Ethereum Name Resolution
 
-ENS, WNS, and GNS domains are resolved using Ethereum JSON-RPC. ENS uses the ENS Universal Resolver; WNS reads the Wei Name Service contract directly; GNS reads the Gwei Name Service contract directly. The browser tries multiple public RPC providers in sequence (see `src/main/ens-resolver.js` for the current list). You can prepend your own endpoint by setting the `ETH_RPC` environment variable.
+ENS, WNS, and GNS domains share an ordered, per-profile resolution policy. Myotis resolves through the embedded P2P light client, Colibri verifies remote proofs locally, RPC quorum requires byte-identical responses from independent providers, and direct RPC trusts one configured endpoint. ENS uses the ENS Universal Resolver; WNS reads the Wei Name Service contract directly; GNS reads the Gwei Name Service contract directly. Configure method order under **Settings → Name Resolution** and RPC endpoints under **Settings → Chains**.
 
 **Recommended: Helios Light Client**
 

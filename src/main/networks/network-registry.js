@@ -139,6 +139,12 @@ function validateEndpointSourceForPersist(source) {
 
 let cache = null;
 
+function legacyMainnetResolutionOrder(primary) {
+  if (primary === 'direct') return ['myotis', 'direct', 'quorum'];
+  if (primary === 'quorum') return ['myotis', 'quorum'];
+  return ['myotis', 'colibri', 'quorum'];
+}
+
 // The user-layer config. When network-config.json is absent but a legacy
 // settings.json exists, run the one-shot migration and persist the result.
 // Idempotent: once network-config.json is on disk, later loads just read it;
@@ -204,10 +210,22 @@ function load() {
   const networks = {};
   for (const [cid, net] of Object.entries({ ...builtinNetworks, ...customChains })) {
     const override = userConfig.networks?.[cid] || {};
+    const verification = { primary: 'direct', ...net.verification, ...override.verification };
+    // A network-config.json written by the previous settings UI contains only
+    // `verification.primary`. Without this compatibility bridge, mainnet's new
+    // builtin order would silently override that explicit older choice.
+    if (
+      cid === '1' &&
+      Object.prototype.hasOwnProperty.call(override.verification || {}, 'primary') &&
+      !Object.prototype.hasOwnProperty.call(override.verification || {}, 'order')
+    ) {
+      verification.order = legacyMainnetResolutionOrder(override.verification.primary);
+      verification.preferVerified = true;
+    }
     networks[cid] = {
       ...net,
       ...override,
-      verification: { primary: 'direct', ...net.verification, ...override.verification },
+      verification,
       quorum: { ...net.quorum, ...override.quorum },
     };
     // rpcUrls (custom chains only) is capability data — it is surfaced as

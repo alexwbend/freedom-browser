@@ -108,7 +108,14 @@ function migrateLegacyConfig({ settings = {}, builtinSources = {} } = {}) {
   // builtin chains.json defaults mainnet to 'colibri' — only record a
   // deviation so an unmigrated user's network-config stays minimal.
   if (method !== 'colibri') {
-    net1.verification = { primary: method };
+    net1.verification = {
+      primary: method,
+      order:
+        method === 'direct'
+          ? ['myotis', 'direct', 'quorum']
+          : ['myotis', 'quorum'],
+      preferVerified: true,
+    };
   }
   const quorum = resolveQuorum(settings);
   if (quorum) {

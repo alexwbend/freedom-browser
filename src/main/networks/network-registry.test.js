@@ -94,6 +94,29 @@ describe('getNetwork / getAllNetworks', () => {
     setFiles({ custom: { '777': { chainId: 777, name: 'CustomNet' } } });
     expect(registry.getNetwork(777).verification.primary).toBe('direct');
   });
+
+  test('preserves a primary-only mainnet choice from the previous settings model', () => {
+    setFiles({
+      chains: {
+        ...CHAINS,
+        '1': {
+          ...CHAINS['1'],
+          verification: {
+            primary: 'colibri',
+            order: ['myotis', 'colibri', 'quorum'],
+            preferVerified: true,
+          },
+        },
+      },
+      userConfig: { networks: { '1': { verification: { primary: 'quorum' } } } },
+    });
+
+    expect(registry.getNetwork(1).verification).toMatchObject({
+      primary: 'quorum',
+      order: ['myotis', 'quorum'],
+      preferVerified: true,
+    });
+  });
 });
 
 describe('getEndpoints — resolution', () => {
@@ -252,6 +275,22 @@ describe('mutation layer', () => {
     expect(registry.getNetwork(1).verification.primary).toBe('quorum');
     const written = mockWriteFileSync.mock.calls.find(([p]) => String(p).endsWith('network-config.json'));
     expect(written).toBeDefined();
+  });
+
+  test('updateNetwork persists ordered name-resolution policy fields', () => {
+    registry.updateNetwork(1, {
+      verification: {
+        primary: 'colibri',
+        order: ['myotis', 'colibri', 'quorum'],
+        preferVerified: true,
+      },
+    });
+
+    expect(registry.getNetwork(1).verification).toMatchObject({
+      primary: 'colibri',
+      order: ['myotis', 'colibri', 'quorum'],
+      preferVerified: true,
+    });
   });
 
   test('updateNetwork merges a partial quorum patch, keeping the rest', () => {
