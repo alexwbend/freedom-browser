@@ -184,15 +184,34 @@ function stopMyotis() {
   handle = -1;
 }
 
+// Targets the upstream release publishes addons for (win-arm64 notably
+// absent). Keys are process.platform-process.arch. Mirrors the matrix in
+// scripts/fetch-myotis.js / check-binaries.js.
+const SUPPORTED_TARGETS = new Set([
+  'darwin-x64',
+  'darwin-arm64',
+  'linux-x64',
+  'linux-arm64',
+  'win32-x64',
+]);
+
+function isSupportedTarget() {
+  return SUPPORTED_TARGETS.has(`${process.platform}-${process.arch}`);
+}
+
 // Renderer-facing status snapshot (settings page's ENS section). One flat
-// object; `state` is the one-word summary the UI keys copy on.
+// object; `state` is the one-word summary the UI keys copy on. `supported`
+// lets the UI distinguish "this platform can never run Myotis" (hide the
+// controls) from "addon merely not installed" (disable with a hint).
 function publicStatus() {
+  const supported = isSupportedTarget();
   const available = Boolean(addonPath());
-  if (!available) return { available: false, running: false, state: 'unavailable' };
-  if (handle < 1) return { available: true, running: false, state: 'off' };
+  if (!available) return { supported, available: false, running: false, state: 'unavailable' };
+  if (handle < 1) return { supported, available: true, running: false, state: 'off' };
   const s = getStatus() || {};
   const ready = isReady();
   return {
+    supported,
     available: true,
     running: true,
     state: ready ? 'ready' : 'syncing',

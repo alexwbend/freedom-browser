@@ -22,23 +22,18 @@ const PINNED_SHA256SUMS_DIGEST =
   'f83d10fa6d5d359ac4a174d50d2927d6be71b1af13b0cf440e55704cfc23678e';
 const MYOTIS_RELEASE_TAG = process.env.MYOTIS_RELEASE_TAG || PINNED_RELEASE_TAG;
 
-// process.platform/arch → release asset name (matrix in myotis'
-// node-binding.yml; naming is part of the release contract).
-function assetNameForPlatform() {
-  const key = `${process.platform}-${process.arch}`;
-  const map = {
-    'linux-x64': 'myotis-node.linux-x64-gnu.node',
-    'linux-arm64': 'myotis-node.linux-arm64-gnu.node',
-    'darwin-x64': 'myotis-node.darwin-x64.node',
-    'darwin-arm64': 'myotis-node.darwin-arm64.node',
-    'win32-x64': 'myotis-node.win32-x64-msvc.node',
-  };
-  const name = map[key];
-  if (!name) {
-    throw new Error(`No Myotis addon published for platform ${key}`);
-  }
-  return name;
-}
+// Every target the release publishes, installed in one run (fetch-ant.js
+// convention — cross-target dist builds and the Docker recipes then need no
+// --target flags). Dir names are electron-builder's ${os}-${arch}. Windows
+// ARM64 is deliberately absent: no upstream artifact, and check-binaries.js
+// skips it — the app degrades to Colibri/quorum there.
+const TARGETS = [
+  { dir: 'mac-arm64', asset: 'myotis-node.darwin-arm64.node' },
+  { dir: 'mac-x64', asset: 'myotis-node.darwin-x64.node' },
+  { dir: 'linux-x64', asset: 'myotis-node.linux-x64-gnu.node' },
+  { dir: 'linux-arm64', asset: 'myotis-node.linux-arm64-gnu.node' },
+  { dir: 'win-x64', asset: 'myotis-node.win32-x64-msvc.node' },
+];
 
 const REQUEST_TIMEOUT_MS = 60000;
 
@@ -130,7 +125,6 @@ function parseChecksums(text) {
 
 async function main() {
   try {
-    const assetName = assetNameForPlatform();
     console.log(`Fetching Myotis release info from ${MYOTIS_REPO} @ ${MYOTIS_RELEASE_TAG}...`);
     const releasePath =
       MYOTIS_RELEASE_TAG === 'latest'
@@ -169,33 +163,36 @@ async function main() {
     }
     const checksums = parseChecksums(fs.readFileSync(sumsPath, 'utf8'));
 
-    const asset = assets.find((a) => a.name === assetName);
-    if (!asset) {
-      throw new Error(`Release ${release.tag_name} has no asset ${assetName}`);
-    }
-    // Stable install name under an electron-builder-style ${os}-${arch} dir
-    // (mac/linux/win) — packaging copies myotis-bin/<os>-<arch>/ into
-    // resources/myotis-node/, and myotis-manager loads the dev path directly.
-    const osDir = { darwin: 'mac', linux: 'linux', win32: 'win' }[process.platform];
-    const platformDir = path.join(OUTPUT_DIR, `${osDir}-${process.arch}`);
-    if (!fs.existsSync(platformDir)) fs.mkdirSync(platformDir, { recursive: true });
-    const destPath = path.join(platformDir, 'myotis-node.node');
-    await withRetries('Addon download', () =>
-      downloadFileOnce(asset.browser_download_url, destPath)
-    );
-
-    const expected = checksums[assetName];
-    if (!expected) {
-      throw new Error(`${assetName} missing from myotis-node.SHA256SUMS`);
-    }
-    const actual = sha256File(destPath);
-    if (actual !== expected) {
-      fs.unlinkSync(destPath);
-      throw new Error(
-        `Checksum mismatch for ${assetName}: expected ${expected}, got ${actual} — deleted.`
+    // Stable install name under an electron-builder-style ${os}-${arch} dir —
+    // packaging copies myotis-bin/<os>-<arch>/ into resources/myotis-node/,
+    // and myotis-manager loads the dev path directly.
+    for (const target of TARGETS) {
+      const asset = assets.find((a) => a.name === target.asset);
+      if (!asset) {
+        throw new Error(
+          `Release ${release.tag_name} has no asset ${target.asset} — refusing to produce an incomplete install.`
+        );
+      }
+      const platformDir = path.join(OUTPUT_DIR, target.dir);
+      if (!fs.existsSync(platformDir)) fs.mkdirSync(platformDir, { recursive: true });
+      const destPath = path.join(platformDir, 'myotis-node.node');
+      await withRetries('Addon download', () =>
+        downloadFileOnce(asset.browser_download_url, destPath)
       );
+
+      const expected = checksums[target.asset];
+      if (!expected) {
+        throw new Error(`${target.asset} missing from myotis-node.SHA256SUMS`);
+      }
+      const actual = sha256File(destPath);
+      if (actual !== expected) {
+        fs.unlinkSync(destPath);
+        throw new Error(
+          `Checksum mismatch for ${target.asset}: expected ${expected}, got ${actual} — deleted.`
+        );
+      }
+      console.log(`Verified and installed ${target.asset} → ${destPath}`);
     }
-    console.log(`Verified and installed ${assetName} → ${destPath}`);
   } catch (err) {
     console.error(`fetch-myotis failed: ${err.message}`);
     process.exit(1);

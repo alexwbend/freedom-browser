@@ -860,7 +860,7 @@
                 </label>
               </div>
             </div>
-            <div class="row">
+            <div class="row" id="myotis-launch-row">
               <div class="row-body">
                 <p class="row-label">Start Ethereum light client (Myotis)</p>
                 <p class="row-help" id="myotis-launch-help">
@@ -2234,9 +2234,33 @@
           return `Syncing${period}… (${s.peerCount ?? 0} peers)`;
         };
 
+        const launchRow = $('myotis-launch-row');
+        const launchToggle = $('start-myotis-at-launch');
+        const launchHelp = $('myotis-launch-help');
+        const defaultLaunchHelp = launchHelp ? launchHelp.textContent : '';
+
+        // Capability-gate the startup toggle: a target the release publishes
+        // no addon for hides the row entirely (a toggle that can never work
+        // is worse than none — matches the Radicle precedent); a supported
+        // target without the addon installed disables it with a hint.
+        const gateLaunchRow = (s) => {
+          if (!launchRow || !launchToggle) return;
+          const supported = s ? s.supported !== false : true;
+          const available = Boolean(s && s.available);
+          launchRow.hidden = !supported;
+          launchToggle.disabled = supported && !available;
+          if (launchHelp) {
+            launchHelp.textContent =
+              supported && !available
+                ? 'Addon not installed — run "npm run myotis:download" and restart.'
+                : defaultLaunchHelp;
+          }
+        };
+
         const tick = async () => {
           try {
             const status = await window.myotis.getStatus();
+            gateLaunchRow(status);
             const line = describe(status);
             row.hidden = line === null;
             if (line !== null) text.textContent = line;
