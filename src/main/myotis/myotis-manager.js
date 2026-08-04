@@ -25,6 +25,18 @@ let handle = -1;
 let drainTimer = null;
 let lastStatus = null;
 let startedAt = 0;
+let readyWatchTimer = null;
+let wasReady = false;
+const readyListeners = new Set();
+
+// Fires callbacks on every not-ready → ready transition (initial sync
+// completing, or recovery after a peer-loss regression). The ENS resolver
+// uses this to sweep fallback-tier cache entries that would otherwise
+// outlive readiness by their TTL. Callback-based to avoid a require cycle
+// (ens-resolver already requires this module).
+function onReadyTransition(cb) {
+  readyListeners.add(cb);
+}
 
 // Addon discovery, mirroring freedom-ipfs-native-binding: env override
 // (spike/testing) → dev fetch dir (scripts/fetch-myotis.js, per-platform
@@ -89,6 +101,22 @@ function startMyotis({ dataDir } = {}) {
   log.info(`[myotis] node started (mainnet, dataDir=${dir})`);
   drainTimer = setInterval(drainEngineLogs, LOG_DRAIN_MS);
   if (drainTimer.unref) drainTimer.unref();
+  wasReady = false;
+  readyWatchTimer = setInterval(() => {
+    const ready = isReady();
+    if (ready && !wasReady) {
+      log.info('[myotis] node ready — verified reads available');
+      for (const cb of readyListeners) {
+        try {
+          cb();
+        } catch (err) {
+          log.warn(`[myotis] ready listener failed: ${err.message}`);
+        }
+      }
+    }
+    wasReady = ready;
+  }, 10000);
+  if (readyWatchTimer.unref) readyWatchTimer.unref();
   return true;
 }
 
@@ -142,6 +170,9 @@ async function getAccount(address) {
 function stopMyotis() {
   if (drainTimer) clearInterval(drainTimer);
   drainTimer = null;
+  if (readyWatchTimer) clearInterval(readyWatchTimer);
+  readyWatchTimer = null;
+  wasReady = false;
   if (addon && handle >= 1) {
     try {
       addon.stop(handle);
@@ -191,6 +222,7 @@ module.exports = {
   getStatus,
   publicStatus,
   registerMyotisIpc,
+  onReadyTransition,
   resolveContenthash,
   resolveAddress,
   getAccount,

@@ -127,10 +127,14 @@ jest.mock('./ens/colibri-resolver', () => ({
 const mockMyotisIsEnabled = jest.fn(() => false);
 const mockMyotisIsReady = jest.fn(() => false);
 const mockMyotisResolveContenthash = jest.fn();
+// Captures the resolver's module-load registration so tests can fire the
+// not-ready → ready transition (the fallback-cache sweep).
+const mockMyotisReadyListeners = [];
 jest.mock('./myotis/myotis-manager', () => ({
   isEnabled: (...args) => mockMyotisIsEnabled(...args),
   isReady: (...args) => mockMyotisIsReady(...args),
   resolveContenthash: (...args) => mockMyotisResolveContenthash(...args),
+  onReadyTransition: (cb) => mockMyotisReadyListeners.push(cb),
 }));
 
 // Mock ethers with controllable provider and resolver behavior.
@@ -1281,6 +1285,32 @@ describe('ens-resolver', () => {
       expect(result.type).toBe('ok');
       expect(result.trust.method).not.toBe('myotis');
       expect(mockUrResolve).toHaveBeenCalled();
+    });
+
+    test('ready transition sweeps cached fallback answers so the tier can overtake', async () => {
+      // 1. Node syncing: quorum serves and caches (verified, 15-min TTL).
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => false);
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+      const first = await resolveEnsContent('myotis-overtake.eth');
+      expect(first.trust.method).not.toBe('myotis');
+
+      // 2. Node becomes ready — but the cached quorum answer would win…
+      mockMyotisIsReady.mockImplementation(() => true);
+      mockMyotisResolveContenthash.mockResolvedValue({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456799,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+      const cached = await resolveEnsContent('myotis-overtake.eth');
+      expect(cached.trust.method).not.toBe('myotis');
+
+      // 3. …until the ready transition fires the content-cache sweep.
+      expect(mockMyotisReadyListeners.length).toBeGreaterThan(0);
+      for (const cb of mockMyotisReadyListeners) cb();
+      const after = await resolveEnsContent('myotis-overtake.eth');
+      expect(after.trust).toMatchObject({ level: 'verified', method: 'myotis' });
     });
 
     test('non-ENS name systems bypass myotis entirely', async () => {

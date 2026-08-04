@@ -469,6 +469,17 @@ const ensAddressCache = new Map();
 // Address (lowercased 0x) → { result, expiresAt } for reverse lookups.
 const ensReverseCache = new Map();
 
+// Fallback answers cached while the Myotis node was still syncing would
+// outlive readiness by up to their 15-minute TTL — the P2P tier could never
+// overtake a name the user already visited. One content-cache sweep on the
+// not-ready → ready transition lets the next navigation re-resolve through
+// Myotis. Content only: addr/reverse lookups aren't Myotis-served yet.
+myotisManager.onReadyTransition(() => {
+  const swept = ensResultCache.size;
+  ensResultCache.clear();
+  log.info(`[ens] myotis ready — swept ${swept} cached content result(s) so the P2P tier can serve`);
+});
+
 // Get a working provider, trying each in sequence with fallback
 async function getWorkingProvider() {
   // If the cached provider's URL no longer matches the current settings, invalidate it
@@ -999,9 +1010,12 @@ async function tryMyotisPath(name, callData, nameSystem) {
 }
 
 // `verified` on the engine result means the resolution ran against the
-// beacon-FINALIZED state root (BLS sync-committee anchored). The engine's
-// AUTO mode falls back to a peer-head root only when the finalized state has
-// no record — that answer is peer-claimed, so it is honestly 'unverified'.
+// beacon-FINALIZED state root. The engine's AUTO mode falls back to the
+// beacon OPTIMISTIC root (attested by the sync committee but not yet
+// finalized — see myotis host.rs: "finalized first, optimistic fallback")
+// only when the finalized state has no record. Optimistic is still
+// beacon-anchored, but reorgable — we keep the conservative 'unverified'
+// level and let the proof text say precisely what it is.
 function buildMyotisTrust(rec, nameSystem = NAME_SYSTEMS.ens) {
   const verified = rec.verified === true;
   return {
@@ -1010,7 +1024,7 @@ function buildMyotisTrust(rec, nameSystem = NAME_SYSTEMS.ens) {
     method: 'myotis',
     proof: verified
       ? 'P2P light client (beacon-finalized, sync-committee proof)'
-      : 'P2P light client (peer-head state, not beacon-anchored)',
+      : 'P2P light client (optimistic beacon root — attested, not finalized)',
     block: rec.blockNumber ?? null,
     agreed: ['myotis-p2p'],
     dissented: [],
