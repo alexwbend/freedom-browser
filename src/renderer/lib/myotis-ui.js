@@ -8,6 +8,7 @@ let infoPanel = null;
 let stateText = null;
 let peersCount = null;
 let finalizedBlock = null;
+let versionText = null;
 let latestStatus = null;
 let desiredRunning = null;
 let reconciling = false;
@@ -56,6 +57,9 @@ const updateControls = (status) => {
   if (stateText) stateText.textContent = stateLabel(status);
   if (peersCount) peersCount.textContent = String(status?.peerCount ?? 0);
   if (finalizedBlock) finalizedBlock.textContent = status?.finalizedBlockNumber || '--';
+  if (versionText) {
+    versionText.textContent = status?.version ? `Myotis v${status.version}` : 'Myotis';
+  }
 };
 
 const refreshStatus = async () => {
@@ -109,6 +113,7 @@ export const initMyotisUi = () => {
   stateText = document.getElementById('myotis-state-text');
   peersCount = document.getElementById('myotis-peers-count');
   finalizedBlock = document.getElementById('myotis-finalized-block');
+  versionText = document.getElementById('myotis-version-text');
 
   if (listenersAttached) return;
   listenersAttached = true;

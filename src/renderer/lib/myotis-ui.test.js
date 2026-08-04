@@ -17,6 +17,7 @@ async function loadMyotisUi(options = {}) {
     state: createElement('span'),
     peers: createElement('span'),
     block: createElement('span'),
+    version: createElement('span'),
   };
   const document = createDocument({
     elementsById: {
@@ -26,6 +27,7 @@ async function loadMyotisUi(options = {}) {
       'myotis-state-text': elements.state,
       'myotis-peers-count': elements.peers,
       'myotis-finalized-block': elements.block,
+      'myotis-version-text': elements.version,
     },
   });
   let statusHandler;
@@ -80,12 +82,14 @@ describe('myotis-ui', () => {
       state: 'ready',
       peerCount: 7,
       finalizedBlockNumber: '2345',
+      version: '0.1.3',
     });
     expect(ctx.elements.toggle.classList.contains('running')).toBe(true);
     expect(ctx.elements.info.classList.contains('visible')).toBe(true);
     expect(ctx.elements.state.textContent).toBe('Ready');
     expect(ctx.elements.peers.textContent).toBe('7');
     expect(ctx.elements.block.textContent).toBe('2345');
+    expect(ctx.elements.version.textContent).toBe('Myotis v0.1.3');
 
     ctx.elements.button.dispatch('click');
     await flushMicrotasks();

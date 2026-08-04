@@ -18,6 +18,7 @@ const { getMyotisDataDir } = require('../profile-paths');
 // v19 → v21 (myotis v0.1.3 release): additive only — v20 Tor toggle,
 // v21 opt-in eth_getLogs watch-list index. No shape we call changed.
 const EXPECTED_ABI = 21;
+const MYOTIS_VERSION = '0.1.3';
 
 // Poll/log-drain cadence while the node runs.
 const LOG_DRAIN_MS = 15000;
@@ -303,19 +304,19 @@ function isSupportedTarget() {
 function publicStatus() {
   const supported = isSupportedTarget();
   const available = Boolean(addonPath());
+  const base = { supported, available, version: MYOTIS_VERSION };
   if (isDisabledMyotisConfig()) {
-    return { supported, available, running: false, state: 'disabled' };
+    return { ...base, running: false, state: 'disabled' };
   }
-  if (!available) return { supported, available: false, running: false, state: 'unavailable' };
+  if (!available) return { ...base, running: false, state: 'unavailable' };
   if (lastError) {
-    return { supported, available: true, running: false, state: 'error', error: lastError };
+    return { ...base, running: false, state: 'error', error: lastError };
   }
-  if (handle < 1) return { supported, available: true, running: false, state: 'off' };
+  if (handle < 1) return { ...base, running: false, state: 'off' };
   const s = getStatus() || {};
   const ready = isReady();
   return {
-    supported,
-    available: true,
+    ...base,
     running: true,
     state: ready ? 'ready' : 'syncing',
     beaconState: s.beaconState,
