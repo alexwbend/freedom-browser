@@ -200,10 +200,13 @@ async function waitUntilReady(deadline) {
 }
 
 async function recoverPeerPool(reason) {
-  log(`${reason}; performing a warm network restart`);
-  if (!addon.pause(handle)) throw new Error('Myotis pause failed during peer-pool recovery');
+  log(`${reason}; recreating the native handle from the warm snapshot`);
+  addon.stop(handle);
+  handle = -1;
   await delay(1000);
-  if (!addon.resume(handle)) throw new Error('Myotis resume failed during peer-pool recovery');
+  handle = addon.create('mainnet', dataDir);
+  if (handle < 1) throw new Error(`Myotis recreate failed with handle ${handle}`);
+  if (!addon.start(handle)) throw new Error('Myotis restart failed during peer-pool recovery');
 }
 
 async function main() {
