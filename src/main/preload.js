@@ -292,6 +292,10 @@ contextBridge.exposeInMainWorld('ant', {
   },
 });
 
+contextBridge.exposeInMainWorld('myotis', {
+  getStatus: () => ipcRenderer.invoke('myotis:getStatus'),
+});
+
 contextBridge.exposeInMainWorld('ipfs', {
   start: () => ipcRenderer.invoke('ipfs:start'),
   stop: () => ipcRenderer.invoke('ipfs:stop'),

@@ -22,6 +22,9 @@ module.exports = {
   IPFS_STATUS_UPDATE: 'ipfs:statusUpdate',
   IPFS_CHECK_BINARY: 'ipfs:checkBinary',
 
+  // Myotis P2P Ethereum light client (experimental)
+  MYOTIS_GET_STATUS: 'myotis:getStatus',
+
   // Radicle node management
   RADICLE_START: 'radicle:start',
   RADICLE_STOP: 'radicle:stop',

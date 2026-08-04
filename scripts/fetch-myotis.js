@@ -173,8 +173,13 @@ async function main() {
     if (!asset) {
       throw new Error(`Release ${release.tag_name} has no asset ${assetName}`);
     }
-    // Stable install name — myotis-manager loads myotis-bin/myotis-node.node.
-    const destPath = path.join(OUTPUT_DIR, 'myotis-node.node');
+    // Stable install name under an electron-builder-style ${os}-${arch} dir
+    // (mac/linux/win) — packaging copies myotis-bin/<os>-<arch>/ into
+    // resources/myotis-node/, and myotis-manager loads the dev path directly.
+    const osDir = { darwin: 'mac', linux: 'linux', win32: 'win' }[process.platform];
+    const platformDir = path.join(OUTPUT_DIR, `${osDir}-${process.arch}`);
+    if (!fs.existsSync(platformDir)) fs.mkdirSync(platformDir, { recursive: true });
+    const destPath = path.join(platformDir, 'myotis-node.node');
     await withRetries('Addon download', () =>
       downloadFileOnce(asset.browser_download_url, destPath)
     );

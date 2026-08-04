@@ -136,6 +136,7 @@ export const buildTrustRows = ({
 } = {}) => {
   const method = trust.method;
   const isColibri = level === 'verified' && method === 'colibri';
+  const isMyotis = level === 'verified' && method === 'myotis';
   const statusKey = isColibri ? 'verified-colibri' : level;
   const status = getTrustStatusSentence(statusKey, trust);
 
@@ -150,6 +151,23 @@ export const buildTrustRows = ({
   // design — the cryptographic verification *replaces* the M-of-K heuristic,
   // it doesn't run alongside it. Surface method/proof/server details instead
   // of the degenerate quorum row.
+  // Myotis results come from the local P2P light client — no prover, no RPC:
+  // proofs are checked in-process against a beacon-anchored state root. Like
+  // Colibri, the cryptographic verification replaces the M-of-K heuristic, so
+  // surface method/proof (and the pinned block) instead of a quorum row. The
+  // "no server" row is the point — nothing external answered this query.
+  if (isMyotis) {
+    trustRows.push({ label: 'Method', display: 'Myotis (P2P light client)', copy: '' });
+    if (trust.proof) {
+      trustRows.push({ label: 'Proof', display: trust.proof, copy: '' });
+    }
+    trustRows.push({ label: 'Server', display: 'None — resolved peer-to-peer', copy: '' });
+    if (typeof trust.block === 'number') {
+      trustRows.push({ label: 'Block', display: String(trust.block), copy: '' });
+    }
+    return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+  }
+
   if (isColibri) {
     trustRows.push({ label: 'Method', display: 'Colibri', copy: '' });
     if (trust.proof) {

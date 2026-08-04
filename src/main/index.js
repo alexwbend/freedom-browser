@@ -261,6 +261,7 @@ async function bootstrap() {
   registerEnsIpc();
   registerAntIpc();
   registerIpfsIpc();
+  myotisManager.registerMyotisIpc();
   registerRadicleIpc();
   registerGithubBridgeIpc();
   registerServiceRegistryIpc();
@@ -378,10 +379,15 @@ async function bootstrap() {
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
     }
-    // EXPERIMENTAL: Myotis P2P light client (spike) — inert without
-    // MYOTIS_NODE_PATH; syncs in the background and the ENS resolver
-    // starts preferring it once the node reports SYNCED.
-    if (myotisManager.isEnabled()) {
+    // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
+    // (requires the addon — myotis:download or packaged resource); the
+    // MYOTIS_NODE_PATH env var force-starts regardless (spike/e2e harness).
+    // Syncs invisibly in the background; the ENS resolver starts preferring
+    // it once the node reports ready.
+    if (
+      myotisManager.isEnabled() &&
+      (settings.startMyotisAtLaunch || process.env.MYOTIS_NODE_PATH)
+    ) {
       myotisManager.startMyotis();
     }
   }

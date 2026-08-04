@@ -162,6 +162,13 @@
         ]
       },
       {
+        "from": "myotis-bin/${os}-${arch}/",
+        "to": "myotis-node",
+        "filter": [
+          "myotis-node.node"
+        ]
+      },
+      {
         "from": "assets/",
         "to": "assets",
         "filter": [

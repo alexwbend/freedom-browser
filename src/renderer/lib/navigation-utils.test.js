@@ -422,6 +422,36 @@ describe('navigation-utils', () => {
       ]);
     });
 
+    test('myotis-verified: local P2P method/proof/no-server/block rows, no quorum', async () => {
+      const { buildTrustRows } = await loadNavigationUtils();
+
+      const result = buildTrustRows({
+        level: 'verified',
+        trust: {
+          method: 'myotis',
+          proof: 'P2P light client (beacon-finalized, sync-committee proof)',
+          block: 25633314,
+          agreed: ['myotis-p2p'],
+          queried: ['myotis-p2p'],
+        },
+        uri: 'ipfs://QmPSYsfe8CVrBMrbh3q8qjzQYnAmDX8H4xkERzvFBaYkMS',
+      });
+
+      expect(result.status).toBe('ENS resolution verified');
+      // No RPC Quorum / per-RPC rows — nothing external answered this query.
+      expect(result.trustRows).toEqual([
+        { label: 'Method', display: 'Myotis (P2P light client)', copy: '' },
+        {
+          label: 'Proof',
+          display: 'P2P light client (beacon-finalized, sync-committee proof)',
+          copy: '',
+        },
+        { label: 'Server', display: 'None — resolved peer-to-peer', copy: '' },
+        { label: 'Block', display: '25633314', copy: '' },
+      ]);
+      expect(result.contentRows[0]).toEqual({ label: 'Network', display: 'IPFS', copy: '' });
+    });
+
     test('colibri-verified: shows neutral status with method/proof/server rows', async () => {
       const { buildTrustRows } = await loadNavigationUtils();
 

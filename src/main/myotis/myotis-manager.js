@@ -27,12 +27,15 @@ let lastStatus = null;
 let startedAt = 0;
 
 // Addon discovery, mirroring freedom-ipfs-native-binding: env override
-// (spike/testing) → dev fetch dir (scripts/fetch-myotis.js) → packaged
-// resources. Enabled iff one of them exists.
+// (spike/testing) → dev fetch dir (scripts/fetch-myotis.js, per-platform
+// subdir) → packaged resources. Enabled iff one of them exists.
 function addonPath() {
+  const osDir = { darwin: 'mac', linux: 'linux', win32: 'win' }[process.platform];
   const candidates = [
     process.env.MYOTIS_NODE_PATH,
-    path.join(__dirname, '..', '..', '..', 'myotis-bin', 'myotis-node.node'),
+    path.join(
+      __dirname, '..', '..', '..', 'myotis-bin', `${osDir}-${process.arch}`, 'myotis-node.node'
+    ),
     process.resourcesPath && path.join(process.resourcesPath, 'myotis-node', 'myotis-node.node'),
   ].filter(Boolean);
   return candidates.find((p) => {
@@ -150,12 +153,44 @@ function stopMyotis() {
   handle = -1;
 }
 
+// Renderer-facing status snapshot (settings page's ENS section). One flat
+// object; `state` is the one-word summary the UI keys copy on.
+function publicStatus() {
+  const available = Boolean(addonPath());
+  if (!available) return { available: false, running: false, state: 'unavailable' };
+  if (handle < 1) return { available: true, running: false, state: 'off' };
+  const s = getStatus() || {};
+  const ready = isReady();
+  return {
+    available: true,
+    running: true,
+    state: ready ? 'ready' : 'syncing',
+    beaconState: s.beaconState,
+    currentPeriod: s.currentPeriod,
+    targetPeriod: s.targetPeriod,
+    peerCount: s.peerCount,
+    snapPeers: s.snapPeers,
+    finalizedBlockNumber: s.finalizedBlockNumber,
+    uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+  };
+}
+
+function registerMyotisIpc() {
+  // Self-contained like the other register*Ipc() functions; lazy electron
+  // require keeps the module loadable from plain-Node harnesses.
+  const { ipcMain } = require('electron');
+  const IPC = require('../../shared/ipc-channels');
+  ipcMain.handle(IPC.MYOTIS_GET_STATUS, () => publicStatus());
+}
+
 module.exports = {
   isEnabled,
   startMyotis,
   stopMyotis,
   isReady,
   getStatus,
+  publicStatus,
+  registerMyotisIpc,
   resolveContenthash,
   resolveAddress,
   getAccount,

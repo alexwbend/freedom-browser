@@ -860,6 +860,22 @@
                 </label>
               </div>
             </div>
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Start Ethereum light client (Myotis)</p>
+                <p class="row-help" id="myotis-launch-help">
+                  Experimental: a fully peer-to-peer Ethereum node — name resolution
+                  verified against the chain itself, no RPC provider involved.
+                  Takes effect on next launch.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-myotis-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -884,6 +900,18 @@
             endpoints under <a href="#chains">Chains settings</a>.
           </p>
           <div class="card">
+            <div class="row" id="myotis-status-row" hidden>
+              <div class="row-body">
+                <p class="row-label">P2P light client (Myotis)</p>
+                <p class="row-help" id="myotis-status-help">
+                  When the local node is synced, names resolve fully peer-to-peer —
+                  verified against the chain, ahead of the method below.
+                </p>
+              </div>
+              <div class="row-control">
+                <span id="myotis-status-text" class="rpc-status">—</span>
+              </div>
+            </div>
             <div class="row">
               <div class="row-body">
                 <p class="row-label">Verification method</p>
@@ -1029,6 +1057,7 @@
         tabsInTitlebar: $('tabs-in-titlebar'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
+        startMyotis: $('start-myotis-at-launch'),
         blockUnverifiedEns: $('block-unverified-ens'),
         enableRadicle: $('enable-radicle-integration'),
         startRadicleRow: $('start-radicle-row'),
@@ -1421,6 +1450,7 @@
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
+        startMyotisAtLaunch: fields.startMyotis.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
         startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
@@ -1435,6 +1465,7 @@
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
+        fields.startMyotis.checked = settings.startMyotisAtLaunch === true;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableIdentity.checked = settings.enableIdentityWallet === true;
@@ -1542,6 +1573,7 @@
       $('tabs-titlebar-restart').addEventListener('click', () => freedomAPI.relaunchApp());
       fields.startAnt.addEventListener('change', save);
       fields.startIpfs.addEventListener('change', save);
+      fields.startMyotis.addEventListener('change', save);
       fields.enableRadicle.addEventListener('change', () => {
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         save();
@@ -2178,6 +2210,43 @@
         });
 
         reload();
+      })();
+
+      // ── Myotis P2P light-client status (experimental) ───────────────
+      // Shows the local node's state in the #ens section. Hidden entirely
+      // when the addon isn't installed; polls only while the page is open.
+      (() => {
+        const row = $('myotis-status-row');
+        const text = $('myotis-status-text');
+        if (!row || !text || !window.myotis?.getStatus) return;
+
+        const describe = (s) => {
+          if (!s || s.state === 'unavailable') return null;
+          if (s.state === 'off') return 'Off — enable under Automatic Startup';
+          if (s.state === 'ready') {
+            const block = s.finalizedBlockNumber
+              ? ` — verified to block ${s.finalizedBlockNumber}`
+              : '';
+            return `Ready${block} (${s.snapPeers ?? 0} state peers)`;
+          }
+          const period =
+            s.currentPeriod && s.targetPeriod ? ` ${s.currentPeriod}/${s.targetPeriod}` : '';
+          return `Syncing${period}… (${s.peerCount ?? 0} peers)`;
+        };
+
+        const tick = async () => {
+          try {
+            const status = await window.myotis.getStatus();
+            const line = describe(status);
+            row.hidden = line === null;
+            if (line !== null) text.textContent = line;
+          } catch {
+            row.hidden = true;
+          }
+        };
+        tick();
+        const myotisTimer = setInterval(tick, 5000);
+        window.addEventListener('beforeunload', () => clearInterval(myotisTimer));
       })();
 
       // ── Name Resolution lens ────────────────────────────────────────
