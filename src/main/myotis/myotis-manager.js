@@ -13,7 +13,9 @@ const path = require('path');
 // The engine ABI version this manager was written against. The addon's
 // init() must return exactly this or we refuse to start (a stale addon
 // would otherwise fail confusingly deep inside a resolve).
-const EXPECTED_ABI = 19;
+// v19 → v21 (myotis v0.1.3 release): additive only — v20 Tor toggle,
+// v21 opt-in eth_getLogs watch-list index. No shape we call changed.
+const EXPECTED_ABI = 21;
 
 // Poll/log-drain cadence while the node runs.
 const LOG_DRAIN_MS = 15000;
@@ -24,8 +26,26 @@ let drainTimer = null;
 let lastStatus = null;
 let startedAt = 0;
 
+// Addon discovery, mirroring freedom-ipfs-native-binding: env override
+// (spike/testing) → dev fetch dir (scripts/fetch-myotis.js) → packaged
+// resources. Enabled iff one of them exists.
+function addonPath() {
+  const candidates = [
+    process.env.MYOTIS_NODE_PATH,
+    path.join(__dirname, '..', '..', '..', 'myotis-bin', 'myotis-node.node'),
+    process.resourcesPath && path.join(process.resourcesPath, 'myotis-node', 'myotis-node.node'),
+  ].filter(Boolean);
+  return candidates.find((p) => {
+    try {
+      return require('fs').existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+}
+
 function isEnabled() {
-  return Boolean(process.env.MYOTIS_NODE_PATH);
+  return Boolean(addonPath());
 }
 
 function defaultDataDir() {
@@ -36,11 +56,13 @@ function defaultDataDir() {
 }
 
 function startMyotis({ dataDir } = {}) {
-  if (!isEnabled() || handle >= 1) return handle >= 1;
+  if (handle >= 1) return true;
+  const addonFile = addonPath();
+  if (!addonFile) return false;
   try {
-    addon = require(process.env.MYOTIS_NODE_PATH);
+    addon = require(addonFile);
   } catch (err) {
-    log.warn(`[myotis] addon load failed (${process.env.MYOTIS_NODE_PATH}): ${err.message}`);
+    log.warn(`[myotis] addon load failed (${addonFile}): ${err.message}`);
     return false;
   }
   const abi = addon.init();
