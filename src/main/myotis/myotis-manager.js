@@ -110,11 +110,15 @@ function getStatus() {
 }
 
 // Ready = the verified read path can actually serve: beacon SYNCED, the EL
-// reader up, and at least one snap-capable peer held. Callers treat not-ready
-// as "skip myotis, use the next tier" — never as an error.
+// reader up (and not hunting for a servable head context — first reads
+// during a hunt fail on the cold context), and at least one snap-capable
+// peer held. Callers treat not-ready as "skip myotis, use the next tier" —
+// never as an error.
 function isReady() {
   const s = getStatus();
-  return Boolean(s && s.beaconState === 'SYNCED' && s.elReaderAvailable && s.snapPeers > 0);
+  return Boolean(
+    s && s.beaconState === 'SYNCED' && s.elReaderAvailable && !s.elHunting && s.snapPeers > 0
+  );
 }
 
 // --- Verified reads (Promise<parsed JSON>) --------------------------------

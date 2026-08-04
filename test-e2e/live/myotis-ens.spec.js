@@ -46,14 +46,26 @@ test.describe('myotis live ENS resolution', () => {
     console.log('[myotis-e2e] node ready:', JSON.stringify(status.status));
 
     // 2. Resolve through the REAL resolver pipeline in the main process and
-    //    assert the myotis tier carried the answer.
+    //    assert the myotis tier carried the answer. The first read after
+    //    readiness can still fail on a cold head context (the tier then
+    //    falls through to colibri by design and the answer caches), so
+    //    retry with cache invalidation until myotis carries it.
     const resolverPath = path.join(repoRoot, 'src', 'main', 'ens-resolver.js');
-    // eslint-disable-next-line no-empty-pattern
-    const result = await electronApp.evaluate(async ({}, p) => {
-      const { resolveEnsContent } = process.mainModule.require(p);
-      return resolveEnsContent('vitalik.eth');
-    }, resolverPath);
-    console.log('[myotis-e2e] resolution:', JSON.stringify(result).slice(0, 400));
+    let result;
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      // eslint-disable-next-line no-empty-pattern
+      result = await electronApp.evaluate(async ({}, p) => {
+        const resolver = process.mainModule.require(p);
+        resolver.invalidateEnsContent('vitalik.eth');
+        return resolver.resolveEnsContent('vitalik.eth');
+      }, resolverPath);
+      console.log(
+        `[myotis-e2e] resolution attempt ${attempt}: method=${result?.trust?.method} ` +
+          JSON.stringify(result).slice(0, 300)
+      );
+      if (result?.trust?.method === 'myotis') break;
+      await new Promise((r) => setTimeout(r, 15000));
+    }
 
     expect(result.type).toBe('ok');
     expect(result.trust.method).toBe('myotis');
