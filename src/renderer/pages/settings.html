@@ -200,15 +200,60 @@
 
       .resolver-method {
         display: grid;
-        grid-template-columns: 28px minmax(0, 1fr) auto;
+        grid-template-columns: 24px 28px minmax(0, 1fr) auto;
         align-items: center;
         gap: 12px;
         padding: 16px 18px;
         border-bottom: 1px solid var(--border);
+        transition:
+          opacity 0.12s,
+          box-shadow 0.12s,
+          background 0.12s;
       }
 
       .resolver-method.disabled {
         opacity: 0.58;
+      }
+
+      .resolver-method.dragging {
+        opacity: 0.35;
+      }
+
+      .resolver-method.drop-before {
+        box-shadow: inset 0 2px var(--accent);
+        background: var(--accent-muted);
+      }
+
+      .resolver-method.drop-after {
+        box-shadow: inset 0 -2px var(--accent);
+        background: var(--accent-muted);
+      }
+
+      .resolver-drag-handle {
+        width: 24px;
+        height: 32px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--text-subtle);
+        font: inherit;
+        font-size: 17px;
+        line-height: 1;
+        cursor: grab;
+      }
+
+      .resolver-drag-handle:hover:not(:disabled),
+      .resolver-drag-handle:focus-visible {
+        color: var(--text);
+      }
+
+      .resolver-drag-handle:active {
+        cursor: grabbing;
+      }
+
+      .resolver-drag-handle:disabled {
+        cursor: default;
+        opacity: 0.25;
       }
 
       .resolver-rank {
@@ -264,37 +309,8 @@
         gap: 8px;
       }
 
-      .resolver-order-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .resolver-order-btn {
-        width: 25px;
-        height: 20px;
-        padding: 0;
-        border: 1px solid var(--border);
-        border-radius: 4px;
-        background: var(--bg-elev);
-        color: var(--text-muted);
-        cursor: pointer;
-        font: inherit;
-        line-height: 1;
-      }
-
-      .resolver-order-btn:hover:not(:disabled) {
-        color: var(--text);
-        border-color: var(--border-strong);
-      }
-
-      .resolver-order-btn:disabled {
-        cursor: default;
-        opacity: 0.3;
-      }
-
       .resolver-config {
-        padding: 14px 18px 14px 58px;
+        padding: 14px 18px 14px 94px;
         border-bottom: 1px solid var(--border);
         background: rgba(22, 27, 34, 0.6);
       }
@@ -303,6 +319,19 @@
         display: flex;
         align-items: center;
         gap: 14px;
+      }
+
+      .resolver-quorum-fields {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .resolver-quorum-fields select {
+        min-width: 62px;
       }
 
       .resolver-status {
@@ -1018,7 +1047,8 @@
           </p>
           <h3 class="row-label" style="margin: 0 0 8px 0">Resolution order</h3>
           <p class="row-help" style="margin: 0 0 12px 0">
-            Freedom tries enabled methods from top to bottom. Use the arrows to change priority.
+            Freedom tries enabled methods from top to bottom. Drag the handle to change priority;
+            with the handle focused, the arrow keys work too.
           </p>
           <div class="card" id="ens-method-card">
             <div id="ens-method-list" class="resolver-list"></div>
@@ -2317,7 +2347,7 @@
       // ── Ordered Ethereum name-resolution policy ─────────────────────
       // The policy belongs to Ethereum's existing network configuration.
       // This controller only renders/mutates that policy; resolver execution
-      // remains in the main process and node lifecycle remains under Profile.
+      // remains in the main process and node lifecycle remains under Nodes.
       (() => {
         const list = $('ens-method-list');
         const preferVerified = $('ens-prefer-verified');
@@ -2329,7 +2359,7 @@
             id: 'myotis',
             label: 'Myotis light client',
             help: 'Local P2P resolution. ENS uses finalized state; WNS/GNS currently use the optimistic beacon head.',
-            link: '#profile',
+            link: '#nodes',
             linkLabel: 'Node settings →',
           },
           {
@@ -2356,10 +2386,14 @@
 
         let config = { networks: {}, sources: [] };
         let enabledOrder = ['myotis', 'colibri', 'quorum'];
+        let currentQuorum = { k: 3, m: 2 };
         let currentProverUrl = '';
         let proverId = 'colibri-corpus';
         let myotisStatus = null;
         let policySave = Promise.resolve();
+        let quorumSave = Promise.resolve();
+        let draggedMethod = null;
+        let dropPlacement = null;
 
         const setPolicyStatus = (message, kind = '') => {
           policyStatus.textContent = message || '';
@@ -2390,14 +2424,14 @@
         };
 
         const updateMethodStatuses = () => {
-          const ethereum = config.networks?.['1'] || {};
-          const quorum = ethereum.quorum || {};
           const rpcSources = activeSources('rpc');
           const customRpc = rpcSources.find(
             (source) => source.builtin === false && source.keyed === false
           );
 
-          if (!myotisStatus || myotisStatus.state === 'unavailable') {
+          if (!myotisStatus) {
+            setBadge('myotis', 'Status unknown', 'warning');
+          } else if (myotisStatus.state === 'unavailable') {
             setBadge('myotis', 'Unavailable');
           } else if (myotisStatus.state === 'disabled') {
             setBadge('myotis', 'Profile disabled', 'warning');
@@ -2415,8 +2449,8 @@
           setBadge('colibri', hasProver ? 'Verified' : 'No prover', hasProver ? 'verified' : 'warning');
           setBadge(
             'quorum',
-            `${Number(quorum.m) || 2} of ${Number(quorum.k) || 3}`,
-            rpcSources.length >= 3 ? 'verified' : 'warning'
+            `${currentQuorum.m} of ${currentQuorum.k}`,
+            rpcSources.length >= currentQuorum.k ? 'verified' : 'warning'
           );
           setBadge(
             'direct',
@@ -2424,6 +2458,14 @@
             'warning'
           );
         };
+
+        const numberOptions = (min, max, selected) =>
+          Array.from({ length: max - min + 1 }, (_, offset) => min + offset)
+            .map(
+              (value) =>
+                `<option value="${value}"${value === selected ? ' selected' : ''}>${value}</option>`
+            )
+            .join('');
 
         const render = () => {
           const visibleOrder = [
@@ -2438,9 +2480,9 @@
               const link = method.link
                 ? `<a class="row-help" href="${method.link}">${method.linkLabel}</a>`
                 : '';
-              const configRow =
-                id === 'colibri' && enabled
-                  ? `<div class="resolver-config" data-method-config="colibri">
+              let configRow = '';
+              if (id === 'colibri' && enabled) {
+                configRow = `<div class="resolver-config" data-method-config="colibri">
                       <div class="resolver-config-line">
                         <div class="row-body">
                           <p class="row-label">Prover endpoint</p>
@@ -2449,10 +2491,35 @@
                         <input type="text" id="ens-prover-url" class="rpc-input"
                           placeholder="https://mainnet1.colibri-proof.tech" spellcheck="false" />
                       </div>
-                    </div>`
-                  : '';
+                    </div>`;
+              } else if (id === 'quorum' && enabled) {
+                configRow = `<div class="resolver-config" data-method-config="quorum">
+                      <div class="resolver-config-line">
+                        <div class="row-body">
+                          <p class="row-label">Agreement threshold</p>
+                          <p class="row-help">Require matching responses from independently configured RPC providers. ${activeSources('rpc').length} currently available.</p>
+                        </div>
+                        <div class="resolver-quorum-fields">
+                          Require
+                          <select data-quorum-field="m" aria-label="Required matching RPC answers">
+                            ${numberOptions(2, currentQuorum.k, currentQuorum.m)}
+                          </select>
+                          out of
+                          <select data-quorum-field="k" aria-label="RPC providers queried">
+                            ${numberOptions(3, 9, currentQuorum.k)}
+                          </select>
+                        </div>
+                      </div>
+                    </div>`;
+              }
               return `
                 <div class="resolver-method${enabled ? '' : ' disabled'}" data-method="${id}">
+                  <button class="resolver-drag-handle" type="button"
+                    data-drag-handle="${id}" draggable="${enabled}"
+                    aria-label="Reorder ${method.label}. Drag, or use the up and down arrow keys."
+                    title="Drag to reorder" ${enabled ? '' : 'disabled'}>
+                    <span aria-hidden="true">⠿</span>
+                  </button>
                   <span class="resolver-rank">${enabled ? index + 1 : '–'}</span>
                   <div class="row-body">
                     <div class="resolver-title-line">
@@ -2463,14 +2530,6 @@
                     ${link}
                   </div>
                   <div class="resolver-controls">
-                    <div class="resolver-order-buttons">
-                      <button class="resolver-order-btn" type="button" data-move="up"
-                        data-method-id="${id}" aria-label="Move ${method.label} up"
-                        ${!enabled || index === 0 ? 'disabled' : ''}>↑</button>
-                      <button class="resolver-order-btn" type="button" data-move="down"
-                        data-method-id="${id}" aria-label="Move ${method.label} down"
-                        ${!enabled || index === enabledOrder.length - 1 ? 'disabled' : ''}>↓</button>
-                    </div>
                     <label class="toggle" aria-label="Enable ${method.label}">
                       <input type="checkbox" data-method-enabled="${id}" ${enabled ? 'checked' : ''} />
                       <span class="slider"></span>
@@ -2505,6 +2564,55 @@
           return policySave;
         };
 
+        const persistQuorum = () => {
+          const quorum = { ...currentQuorum };
+          quorumSave = quorumSave.catch(() => {}).then(async () => {
+            const result = await freedomAPI.updateNetwork('1', { quorum });
+            if (result?.success === false) throw new Error(result.error || 'Quorum was not saved');
+            config.networks['1'].quorum = {
+              ...(config.networks['1'].quorum || {}),
+              ...quorum,
+            };
+            setPolicyStatus('RPC quorum saved.', 'success');
+          });
+          return quorumSave;
+        };
+
+        const clearDragState = () => {
+          list
+            .querySelectorAll('.dragging, .drop-before, .drop-after')
+            .forEach((row) => row.classList.remove('dragging', 'drop-before', 'drop-after'));
+          draggedMethod = null;
+          dropPlacement = null;
+        };
+
+        const reorderMethod = async (id, targetIndex) => {
+          const currentIndex = enabledOrder.indexOf(id);
+          if (
+            currentIndex < 0 ||
+            targetIndex < 0 ||
+            targetIndex >= enabledOrder.length ||
+            currentIndex === targetIndex
+          ) {
+            clearDragState();
+            return;
+          }
+          enabledOrder.splice(currentIndex, 1);
+          enabledOrder.splice(targetIndex, 0, id);
+          const restoreHandleFocus = document.activeElement?.dataset?.dragHandle === id;
+          clearDragState();
+          render();
+          if (restoreHandleFocus) {
+            list.querySelector(`[data-drag-handle="${id}"]`)?.focus();
+          }
+          try {
+            await persistPolicy();
+          } catch (err) {
+            setPolicyStatus(err?.message || 'Failed to reorder methods.', 'error');
+            refresh();
+          }
+        };
+
         const refresh = async () => {
           try {
             const res = await freedomAPI.getNetworkConfig();
@@ -2521,6 +2629,10 @@
               ? configured
               : legacyOrder(verification.primary || 'colibri');
             preferVerified.checked = verification.preferVerified !== false;
+            const quorum = config.networks?.['1']?.quorum || {};
+            const k = Math.max(3, Math.min(Number(quorum.k) || 3, 9));
+            const m = Math.max(2, Math.min(Number(quorum.m) || 2, k));
+            currentQuorum = { k, m };
 
             const prover = (config.sources || []).find(
               (source) =>
@@ -2535,24 +2647,79 @@
           }
         };
 
-        list.addEventListener('click', async (event) => {
-          const button = event.target.closest?.('[data-move]');
-          if (!button) return;
-          const id = button.dataset.methodId;
-          const index = enabledOrder.indexOf(id);
-          const target = button.dataset.move === 'up' ? index - 1 : index + 1;
-          if (index < 0 || target < 0 || target >= enabledOrder.length) return;
-          [enabledOrder[index], enabledOrder[target]] = [enabledOrder[target], enabledOrder[index]];
-          render();
-          try {
-            await persistPolicy();
-          } catch (err) {
-            setPolicyStatus(err?.message || 'Failed to reorder methods.', 'error');
-            refresh();
-          }
+        list.addEventListener('keydown', (event) => {
+          const handle = event.target.closest?.('[data-drag-handle]');
+          if (!handle || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+          event.preventDefault();
+          const id = handle.dataset.dragHandle;
+          const currentIndex = enabledOrder.indexOf(id);
+          const targetIndex = currentIndex + (event.key === 'ArrowUp' ? -1 : 1);
+          reorderMethod(id, targetIndex);
         });
 
+        list.addEventListener('dragstart', (event) => {
+          const handle = event.target.closest?.('[data-drag-handle]');
+          const id = handle?.dataset.dragHandle;
+          if (!id || !enabledOrder.includes(id)) {
+            event.preventDefault();
+            return;
+          }
+          draggedMethod = id;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', id);
+          handle.closest('[data-method]')?.classList.add('dragging');
+        });
+
+        list.addEventListener('dragover', (event) => {
+          if (!draggedMethod) return;
+          const row = event.target.closest?.('[data-method]');
+          const targetId = row?.dataset.method;
+          if (!row || targetId === draggedMethod || !enabledOrder.includes(targetId)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          list
+            .querySelectorAll('.drop-before, .drop-after')
+            .forEach((candidate) => candidate.classList.remove('drop-before', 'drop-after'));
+          const bounds = row.getBoundingClientRect();
+          const after = event.clientY >= bounds.top + bounds.height / 2;
+          row.classList.add(after ? 'drop-after' : 'drop-before');
+          dropPlacement = { targetId, after };
+        });
+
+        list.addEventListener('drop', (event) => {
+          if (!draggedMethod || !dropPlacement) {
+            clearDragState();
+            return;
+          }
+          event.preventDefault();
+          const id = draggedMethod;
+          const currentIndex = enabledOrder.indexOf(id);
+          const targetIndex = enabledOrder.indexOf(dropPlacement.targetId);
+          let insertionIndex = targetIndex + (dropPlacement.after ? 1 : 0);
+          if (currentIndex < insertionIndex) insertionIndex -= 1;
+          reorderMethod(id, insertionIndex);
+        });
+
+        list.addEventListener('dragend', clearDragState);
+
         list.addEventListener('change', async (event) => {
+          const quorumField = event.target.closest?.('[data-quorum-field]');
+          if (quorumField) {
+            const kInput = list.querySelector('[data-quorum-field="k"]');
+            const mInput = list.querySelector('[data-quorum-field="m"]');
+            const k = Math.max(3, Math.min(Number(kInput?.value) || 3, 9));
+            const m = Math.max(2, Math.min(Number(mInput?.value) || 2, k));
+            currentQuorum = { k, m };
+            render();
+            try {
+              await persistQuorum();
+            } catch (err) {
+              setPolicyStatus(err?.message || 'Failed to update the RPC quorum.', 'error');
+              refresh();
+            }
+            return;
+          }
+
           const toggle = event.target.closest?.('[data-method-enabled]');
           if (!toggle) return;
           const id = toggle.dataset.methodEnabled;
@@ -2609,22 +2776,24 @@
 
         const updateMyotis = async () => {
           try {
-            myotisStatus = await window.myotis?.getStatus?.();
+            myotisStatus = await freedomAPI.getMyotisStatus();
           } catch {
             myotisStatus = null;
           }
           if (launchRow && launchToggle) {
             const supported = myotisStatus?.supported !== false;
-            const available = Boolean(myotisStatus?.available);
+            const available = myotisStatus ? Boolean(myotisStatus.available) : true;
             const disabled = myotisStatus?.state === 'disabled';
             launchRow.hidden = !supported;
-            launchToggle.disabled = supported && (!available || disabled);
+            launchToggle.disabled = Boolean(myotisStatus) && supported && (!available || disabled);
             if (launchHelp) {
-              launchHelp.textContent = disabled
-                ? 'Disabled for this profile under Profiles → Node endpoints.'
-                : supported && !available
-                  ? 'Addon not installed — run "npm run myotis:download" and restart.'
-                  : defaultLaunchHelp;
+              launchHelp.textContent = !myotisStatus
+                ? 'Myotis status could not be read. The startup preference can still be saved.'
+                : disabled
+                  ? 'Disabled for this profile under Settings → Nodes.'
+                  : supported && !available
+                    ? 'Addon not installed — run "npm run myotis:download" and restart.'
+                    : defaultLaunchHelp;
             }
           }
           updateMethodStatuses();

@@ -246,7 +246,7 @@ function overrideProbeIpc() {
   });
 }
 
-// Bee / IPFS / Radicle managers are still loaded so their `getStatus`
+// Bee / IPFS / Myotis / Radicle managers are still loaded so their `getStatus`
 // handlers respond, but we replace start/stop with no-ops so a stray
 // click in a spec can't spawn the real binaries against the test
 // `userData` directory. The fake status is also tracked in-memory so
@@ -258,6 +258,17 @@ function overrideProbeIpc() {
 // — the renderer destructures these fields directly
 // (`src/renderer/lib/bee-ui.js`, `src/renderer/lib/ipfs-ui.js`).
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
+const stubMyotisStatus = {
+  supported: true,
+  available: true,
+  version: '0.1.3',
+  running: true,
+  state: 'ready',
+  beaconState: 'SYNCED',
+  peerCount: 2,
+  snapPeers: 1,
+  finalizedBlockNumber: 25684159,
+};
 
 function overrideNodeIpc() {
   const setStatus = (service, status) => {
@@ -290,6 +301,18 @@ function overrideNodeIpc() {
     status: stubNodeStatus.ipfs,
     error: null,
   }));
+
+  replaceHandler(IPC.MYOTIS_START, async () => {
+    log.info('[test-harness] ignored myotis:start (test mode)');
+    Object.assign(stubMyotisStatus, { running: true, state: 'ready' });
+    return { ...stubMyotisStatus };
+  });
+  replaceHandler(IPC.MYOTIS_STOP, async () => {
+    log.info('[test-harness] ignored myotis:stop (test mode)');
+    Object.assign(stubMyotisStatus, { running: false, state: 'off' });
+    return { ...stubMyotisStatus };
+  });
+  replaceHandler(IPC.MYOTIS_GET_STATUS, async () => ({ ...stubMyotisStatus }));
 
   replaceHandler(IPC.RADICLE_START, async () => {
     log.info('[test-harness] ignored radicle:start (test mode)');

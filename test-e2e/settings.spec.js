@@ -49,6 +49,7 @@ test('name resolution methods can be reordered, enabled, and persisted as one po
   window,
 }) => {
   await window.evaluate(() => document.getElementById('settings-btn')?.click());
+  await settingsEval(window, `location.hash = 'ens'`);
   await expect
     .poll(() => settingsEval(window, `document.querySelectorAll('[data-method]').length`))
     .toBe(4);
@@ -58,19 +59,80 @@ test('name resolution methods can be reordered, enabled, and persisted as one po
     `({
       order: [...document.querySelectorAll('[data-method]')].map((row) => row.dataset.method),
       direct: document.querySelector('[data-method-enabled="direct"]').checked,
-      preferVerified: document.getElementById('ens-prefer-verified').checked
+      preferVerified: document.getElementById('ens-prefer-verified').checked,
+      draggable: document.querySelector('[data-drag-handle="colibri"]').draggable,
+      moveButtons: document.querySelectorAll('[data-move]').length,
+      myotisNodeSettings: document.querySelector('[data-method="myotis"] a').getAttribute('href')
     })`
   );
   expect(initial).toEqual({
     order: ['myotis', 'colibri', 'quorum', 'direct'],
     direct: false,
     preferVerified: true,
+    draggable: true,
+    moveButtons: 0,
+    myotisNodeSettings: '#nodes',
   });
+
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `({
+          badge: document.querySelector('[data-method-status="myotis"]').textContent,
+          startupDisabled: document.getElementById('start-myotis-at-launch').disabled,
+          startupHelp: document.getElementById('myotis-launch-help').textContent
+        })`
+      )
+    )
+    .toMatchObject({
+      badge: 'Ready',
+      startupDisabled: false,
+    });
+  const startupHelp = await settingsEval(
+    window,
+    `document.getElementById('myotis-launch-help').textContent`
+  );
+  expect(startupHelp).not.toContain('Addon not installed');
+
+  const nodeSettingsHash = await settingsEval(
+    window,
+    `(() => {
+      document.querySelector('[data-method="myotis"] a').click();
+      return location.hash;
+    })()`
+  );
+  expect(nodeSettingsHash).toBe('#nodes');
+  await settingsEval(window, `location.hash = 'ens'`);
 
   await settingsEval(
     window,
     `(() => {
-      document.querySelector('[data-method-id="colibri"][data-move="down"]').click();
+      const transfer = new DataTransfer();
+      const handle = document.querySelector('[data-drag-handle="colibri"]');
+      const target = document.querySelector('[data-method="quorum"]');
+      const bounds = target.getBoundingClientRect();
+      handle.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+      target.dispatchEvent(new DragEvent('dragover', {
+        bubbles: true,
+        cancelable: true,
+        clientY: bounds.bottom - 1,
+        dataTransfer: transfer
+      }));
+      target.dispatchEvent(new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        clientY: bounds.bottom - 1,
+        dataTransfer: transfer
+      }));
+
+      const quorumK = document.querySelector('[data-quorum-field="k"]');
+      quorumK.value = '5';
+      quorumK.dispatchEvent(new Event('change', { bubbles: true }));
+      const quorumM = document.querySelector('[data-quorum-field="m"]');
+      quorumM.value = '3';
+      quorumM.dispatchEvent(new Event('change', { bubbles: true }));
+
       const direct = document.querySelector('[data-method-enabled="direct"]');
       direct.checked = true;
       direct.dispatchEvent(new Event('change', { bubbles: true }));
@@ -91,6 +153,7 @@ test('name resolution methods can be reordered, enabled, and persisted as one po
         `Promise.all([window.freedomAPI.getNetworkConfig(), window.freedomAPI.getSettings()])
           .then(([network, settings]) => ({
             verification: network.networks['1'].verification,
+            quorum: network.networks['1'].quorum,
             blockUnverifiedEns: settings.blockUnverifiedEns
           }))`
       )
@@ -100,6 +163,10 @@ test('name resolution methods can be reordered, enabled, and persisted as one po
         primary: 'quorum',
         order: ['myotis', 'quorum', 'colibri', 'direct'],
         preferVerified: false,
+      },
+      quorum: {
+        k: 5,
+        m: 3,
       },
       blockUnverifiedEns: false,
     });
