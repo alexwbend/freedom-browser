@@ -171,3 +171,83 @@ test('name resolution methods can be reordered, enabled, and persisted as one po
       blockUnverifiedEns: false,
     });
 });
+
+test('Ethereum and Gnosis expose verified chain sources and independent Myotis startup', async ({
+  window,
+}) => {
+  await window.evaluate(() => document.getElementById('settings-btn')?.click());
+  await expect
+    .poll(() => settingsEval(window, `location.hash = 'chains/100'; location.hash`))
+    .toBe('#chains/100');
+
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `([...document.querySelectorAll('[data-access-kind="read"]')].map((row) => ({
+          source: row.dataset.accessSource,
+          status: row.querySelector('.resolver-badge').textContent
+        })))`
+      )
+    )
+    .toEqual([
+      { source: 'myotis', status: 'Off' },
+      { source: 'colibri', status: 'Available' },
+      { source: 'quorum', status: '2 of 3 · 4 available' },
+      { source: 'direct', status: '4 available' },
+    ]);
+
+  const gnosis = await settingsEval(
+    window,
+    `({
+      prover: document.querySelector('[data-chain-prover="100"]').value,
+      broadcast: [...document.querySelectorAll('[data-access-kind="broadcast"]')]
+        .map((row) => row.dataset.accessSource),
+      startupDisabled: document.getElementById('start-myotis-gnosis-at-launch').disabled
+    })`
+  );
+  expect(gnosis).toEqual({
+    prover: 'https://gnosis.colibri-proof.tech',
+    broadcast: ['myotis', 'direct'],
+    startupDisabled: false,
+  });
+
+  await settingsEval(
+    window,
+    `(() => {
+      const toggle = document.getElementById('start-myotis-gnosis-at-launch');
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`
+  );
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `window.freedomAPI.getSettings().then((settings) => settings.startMyotisGnosisAtLaunch)`
+      )
+    )
+    .toBe(true);
+
+  await settingsEval(
+    window,
+    `(() => {
+      const transfer = new DataTransfer();
+      const direct = document.querySelector('[data-access-kind="read"][data-access-source="direct"]');
+      const myotis = document.querySelector('[data-access-kind="read"][data-access-source="myotis"]');
+      direct.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+      myotis.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      myotis.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    })()`
+  );
+
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `window.freedomAPI.getNetworkConfig().then((result) =>
+          result.networks['100'].access.readOrder)`
+      )
+    )
+    .toEqual(['direct', 'myotis', 'colibri', 'quorum']);
+});

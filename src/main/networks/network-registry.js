@@ -226,6 +226,7 @@ function load() {
       ...net,
       ...override,
       verification,
+      access: { ...net.access, ...override.access },
       quorum: { ...net.quorum, ...override.quorum },
     };
     // rpcUrls (custom chains only) is capability data — it is surfaced as
@@ -292,11 +293,14 @@ function getAllNetworks() {
   return out;
 }
 
-// Whether the registry can resolve at least one rpc endpoint for a chain
-// — a keyless builtin RPC, a user-added RPC, or a keyed provider with a
-// configured API key. A chain with no usable endpoint can't be used.
+// Whether the registry has at least one usable chain-data source. A Colibri
+// prover is sufficient for verified reads even when every direct RPC is
+// disabled.
 function isChainAvailable(chainId) {
-  return getEndpoints(chainId, 'rpc').length > 0;
+  return (
+    getEndpoints(chainId, 'rpc').length > 0 ||
+    getEndpoints(chainId, 'prover').length > 0
+  );
 }
 
 function getAvailableChains() {
@@ -440,6 +444,9 @@ function updateNetwork(chainId, patch) {
   }
   if (patch.quorum) {
     networks[cid].quorum = { ...current.quorum, ...patch.quorum };
+  }
+  if (patch.access) {
+    networks[cid].access = { ...current.access, ...patch.access };
   }
   writeUserConfig({ ...config, networks });
 }

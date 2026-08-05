@@ -12,16 +12,14 @@ const { universalResolverCall, universalResolverReverse, hostOf } = require('../
 // to the prover); pinning rather than exposing as a toggle keeps the
 // threat model legible.
 const PRIVACY_MODE = 'basic';
-const CHAIN_ID = 1;
 const MAX_LATEST_AGE_SECONDS = 60;
 
-let cachedClient = null;
-let cachedClientKey = null;
-let cachedProvider = null;
-let inFlightBuild = null;
+const clients = new Map();
+const providers = new Map();
+const inFlightBuilds = new Map();
 let storageRegistration = null;
 let storageRegistered = false;
-let buildGeneration = 0;
+const buildGenerations = new Map();
 
 // Disk-backed storage adapter for Colibri's verifier state (sync committee
 // pubkeys, current head witness, etc — keys like "states_1" / "sync_1_<slot>").
@@ -66,14 +64,14 @@ function destroyClient(client) {
   }
 }
 
-async function buildClient({ key, proverUrl, zkProof, generation }) {
+async function buildClient({ chainId, key, proverUrl, zkProof, generation }) {
   // Storage adapter is registered exactly once per process: on the very
   // first construction. Later settings-change rebuilds reuse it — the
   // adapter is keyless and the Colibri runtime expects a single global.
   await ensureStorageRegistered();
 
   const client = new Colibri({
-    chainId: CHAIN_ID,
+    chainId,
     prover: [proverUrl],
     zk_proof: zkProof,
     privacy_mode: PRIVACY_MODE,
@@ -81,17 +79,16 @@ async function buildClient({ key, proverUrl, zkProof, generation }) {
     max_latest_age_seconds: MAX_LATEST_AGE_SECONDS,
   });
 
-  if (generation !== buildGeneration) {
+  if (generation !== buildGenerations.get(chainId)) {
     destroyClient(client);
-    return getClient();
+    return getClient(chainId);
   }
 
-  const previousClient = cachedClient;
-  cachedClient = client;
-  cachedClientKey = key;
-  cachedProvider = new ethers.BrowserProvider(client);
+  const previousClient = clients.get(chainId)?.client;
+  clients.set(chainId, { client, key });
+  providers.set(chainId, new ethers.BrowserProvider(client));
   destroyClient(previousClient);
-  log.info(`[ens-colibri] client ready (prover=${hostOf(proverUrl)}, zk=${zkProof})`);
+  log.info(`[colibri] chain ${chainId} client ready (prover=${hostOf(proverUrl)}, zk=${zkProof})`);
   return client;
 }
 
@@ -101,25 +98,32 @@ async function buildClient({ key, proverUrl, zkProof, generation }) {
 // on first use, not module load. `inFlightBuild` collapses concurrent
 // first-call lookups onto a single construction. The generation counter
 // prevents a slower old-settings build from replacing a newer client.
-async function getClient() {
-  const [proverUrl] = registry.getEndpoints(CHAIN_ID, 'prover');
+async function getClient(chainId = 1) {
+  const id = Number(chainId);
+  const [proverUrl] = registry.getEndpoints(id, 'prover');
   if (!proverUrl) {
-    throw new Error(`No Colibri prover configured for chain ${CHAIN_ID}`);
+    throw new Error(`No Colibri prover configured for chain ${id}`);
   }
-  const zkProof = registry.getNetwork(CHAIN_ID).zkProof !== false;
+  const zkProof = registry.getNetwork(id)?.zkProof !== false;
   const key = `${proverUrl}|${zkProof}`;
-  if (cachedClient && cachedClientKey === key) {
-    if (inFlightBuild && inFlightBuild.key !== key) buildGeneration += 1;
-    return cachedClient;
+  const cached = clients.get(id);
+  const inFlight = inFlightBuilds.get(id);
+  if (cached?.client && cached.key === key) {
+    if (inFlight && inFlight.key !== key) {
+      buildGenerations.set(id, (buildGenerations.get(id) || 0) + 1);
+    }
+    return cached.client;
   }
-  if (inFlightBuild && inFlightBuild.key === key) return inFlightBuild.promise;
+  if (inFlight && inFlight.key === key) return inFlight.promise;
 
-  const generation = buildGeneration + 1;
-  buildGeneration = generation;
-  const promise = buildClient({ key, proverUrl, zkProof, generation });
-  inFlightBuild = { key, promise, generation };
+  const generation = (buildGenerations.get(id) || 0) + 1;
+  buildGenerations.set(id, generation);
+  const promise = buildClient({ chainId: id, key, proverUrl, zkProof, generation });
+  inFlightBuilds.set(id, { key, promise, generation });
   try { return await promise; }
-  finally { if (inFlightBuild && inFlightBuild.promise === promise) inFlightBuild = null; }
+  finally {
+    if (inFlightBuilds.get(id)?.promise === promise) inFlightBuilds.delete(id);
+  }
 }
 
 // Drop-in for what a single `consensusResolve` leg does today, but the
@@ -128,8 +132,8 @@ async function getClient() {
 // pins to head − 1 by construction (sync committee signatures for block N
 // live in block N+1).
 async function resolveCallViaColibri(name, callData, callResolver = universalResolverCall) {
-  await getClient();
-  return callResolver(cachedProvider, name, callData);
+  await getClient(1);
+  return callResolver(providers.get(1), name, callData);
 }
 
 async function resolveViaColibri(name, callData) {
@@ -141,24 +145,35 @@ async function resolveViaColibri(name, callData) {
 // Throws on revert (UR's ResolverNotFound / ReverseAddressMismatch) or
 // network/verification failure — the orchestrator classifies.
 async function resolveReverseViaColibri(addressBytes) {
-  await getClient();
-  return universalResolverReverse(cachedProvider, addressBytes);
+  await getClient(1);
+  return universalResolverReverse(providers.get(1), addressBytes);
+}
+
+async function requestViaColibri(chainId, method, params = []) {
+  const client = await getClient(chainId);
+  return client.request({ method, params });
 }
 
 function clearColibriClientForTest() {
-  destroyClient(cachedClient);
-  cachedClient = null;
-  cachedClientKey = null;
-  cachedProvider = null;
-  inFlightBuild = null;
+  for (const { client } of clients.values()) destroyClient(client);
+  for (const chainId of new Set([
+    ...clients.keys(),
+    ...inFlightBuilds.keys(),
+    ...buildGenerations.keys(),
+  ])) {
+    buildGenerations.set(chainId, (buildGenerations.get(chainId) || 0) + 1);
+  }
+  clients.clear();
+  providers.clear();
+  inFlightBuilds.clear();
   storageRegistration = null;
   storageRegistered = false;
-  buildGeneration += 1;
 }
 
 module.exports = {
   resolveCallViaColibri,
   resolveViaColibri,
   resolveReverseViaColibri,
+  requestViaColibri,
   clearColibriClientForTest,
 };

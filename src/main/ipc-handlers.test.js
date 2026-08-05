@@ -159,7 +159,7 @@ function loadIpcHandlersModule(options = {}) {
   const requestProfileQuitAsync = options.requestProfileQuitAsync || jest.fn(() => ({ ok: true }));
   const isProfileLocked = options.isProfileLocked || jest.fn(() => false);
   const myotisManager = options.myotisManager || {
-    stopMyotis: jest.fn(),
+    stopAllMyotis: jest.fn(),
     refreshMyotisStatus: jest.fn(),
   };
 
@@ -1011,7 +1011,7 @@ describe('ipc-handlers', () => {
     expect(ctx.updateActiveProfileNodeConfig).toHaveBeenCalledWith('myotis', {
       mode: 'disabled',
     });
-    expect(ctx.myotisManager.stopMyotis).toHaveBeenCalled();
+    expect(ctx.myotisManager.stopAllMyotis).toHaveBeenCalled();
 
     expect(ctx.mod.validateProfileNodeConfigUpdate('myotis', { mode: 'external' })).toEqual({
       ok: false,

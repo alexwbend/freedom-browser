@@ -258,17 +258,18 @@ function overrideProbeIpc() {
 // — the renderer destructures these fields directly
 // (`src/renderer/lib/bee-ui.js`, `src/renderer/lib/ipfs-ui.js`).
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
-const stubMyotisStatus = {
-  supported: true,
-  available: true,
-  version: '0.1.3',
-  running: true,
-  state: 'ready',
-  beaconState: 'SYNCED',
-  peerCount: 2,
-  snapPeers: 1,
-  finalizedBlockNumber: 25684159,
-};
+const stubMyotisStatuses = new Map([
+  [1, {
+    supported: true, available: true, version: '0.1.3', chainId: 1,
+    network: 'mainnet', displayName: 'Ethereum', running: true, state: 'ready',
+    beaconState: 'SYNCED', peerCount: 2, snapPeers: 1, finalizedBlockNumber: 25684159,
+  }],
+  [100, {
+    supported: true, available: true, version: '0.1.3', chainId: 100,
+    network: 'gnosis', displayName: 'Gnosis', running: false, state: 'off',
+    beaconState: 'STARTING', peerCount: 0, snapPeers: 0, finalizedBlockNumber: 0,
+  }],
+]);
 
 function overrideNodeIpc() {
   const setStatus = (service, status) => {
@@ -302,17 +303,21 @@ function overrideNodeIpc() {
     error: null,
   }));
 
-  replaceHandler(IPC.MYOTIS_START, async () => {
+  replaceHandler(IPC.MYOTIS_START, async (_event, chainId = 1) => {
     log.info('[test-harness] ignored myotis:start (test mode)');
-    Object.assign(stubMyotisStatus, { running: true, state: 'ready' });
-    return { ...stubMyotisStatus };
+    const status = stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1);
+    Object.assign(status, { running: true, state: 'ready' });
+    return { ...status };
   });
-  replaceHandler(IPC.MYOTIS_STOP, async () => {
+  replaceHandler(IPC.MYOTIS_STOP, async (_event, chainId = 1) => {
     log.info('[test-harness] ignored myotis:stop (test mode)');
-    Object.assign(stubMyotisStatus, { running: false, state: 'off' });
-    return { ...stubMyotisStatus };
+    const status = stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1);
+    Object.assign(status, { running: false, state: 'off' });
+    return { ...status };
   });
-  replaceHandler(IPC.MYOTIS_GET_STATUS, async () => ({ ...stubMyotisStatus }));
+  replaceHandler(IPC.MYOTIS_GET_STATUS, async (_event, chainId = 1) => ({
+    ...(stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1)),
+  }));
 
   replaceHandler(IPC.RADICLE_START, async () => {
     log.info('[test-harness] ignored radicle:start (test mode)');

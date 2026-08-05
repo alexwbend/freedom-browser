@@ -1022,6 +1022,21 @@
                 </label>
               </div>
             </div>
+            <div class="row" id="myotis-gnosis-launch-row">
+              <div class="row-body">
+                <p class="row-label">Start Gnosis light client (Myotis)</p>
+                <p class="row-help" id="myotis-gnosis-launch-help">
+                  Starts the independent Gnosis P2P client for verified wallet,
+                  transaction, and dapp reads. Takes effect on next launch.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-myotis-gnosis-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1185,6 +1200,7 @@
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
         startMyotis: $('start-myotis-at-launch'),
+        startMyotisGnosis: $('start-myotis-gnosis-at-launch'),
         unverifiedEnsAction: $('unverified-ens-action'),
         enableRadicle: $('enable-radicle-integration'),
         startRadicleRow: $('start-radicle-row'),
@@ -1333,7 +1349,7 @@
           return ['Embedded freedom-ipfs native node'];
         }
         if (protocol === 'myotis') {
-          return ['Embedded Myotis native client'];
+          return ['Embedded Myotis clients for Ethereum and Gnosis'];
         }
         return [
           config?.externalHttp ||
@@ -1583,6 +1599,7 @@
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
         startMyotisAtLaunch: fields.startMyotis.checked,
+        startMyotisGnosisAtLaunch: fields.startMyotisGnosis.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
         startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
@@ -1598,6 +1615,7 @@
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
         fields.startMyotis.checked = settings.startMyotisAtLaunch === true;
+        fields.startMyotisGnosis.checked = settings.startMyotisGnosisAtLaunch === true;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableIdentity.checked = settings.enableIdentityWallet === true;
@@ -1706,6 +1724,7 @@
       fields.startAnt.addEventListener('change', save);
       fields.startIpfs.addEventListener('change', save);
       fields.startMyotis.addEventListener('change', save);
+      fields.startMyotisGnosis.addEventListener('change', save);
       fields.enableRadicle.addEventListener('change', () => {
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         save();
@@ -1789,6 +1808,7 @@
           );
 
         let config = { networks: {}, sources: [] };
+        let myotisStatuses = {};
         let endpointForm = null; // null | { mode, id, url } — chain is the open detail; role is always rpc
         let addState = null; // null | { mode: 'search'|'manual', results, picked } — the add-chain flow
 
@@ -2011,11 +2031,81 @@
             </div>`;
         };
 
-        // --- detail: one chain's RPC endpoints -----------------------
-        // Three priority tiers, each its own section: your own RPCs, then
-        // keyed commercial providers, then builtin public RPCs — the
-        // order getEndpoints resolves them in. Verification strategy is
-        // not shown — only ENS (mainnet) consumes it, via the ENS lens.
+        const accessMeta = {
+          myotis: {
+            label: 'Myotis P2P light client',
+            help: 'Verified locally against the chain; no RPC endpoint involved.',
+          },
+          colibri: {
+            label: 'Colibri cryptographic verification',
+            help: 'Verifies prover responses against the chain consensus.',
+          },
+          quorum: {
+            label: 'RPC quorum',
+            help: 'Requires matching responses from independently configured RPC endpoints.',
+          },
+          direct: {
+            label: 'Direct RPC',
+            help: 'Compatibility fallback using the first working configured endpoint.',
+          },
+        };
+
+        const sourceStatus = (source, cid) => {
+          if (source === 'myotis') {
+            if (cid !== '1' && cid !== '100') return 'Unsupported';
+            const status = myotisStatuses[cid];
+            if (!status) return 'Status unknown';
+            if (status.state === 'ready') return 'Ready';
+            if (status.state === 'syncing') return 'Syncing';
+            if (status.state === 'off') return 'Off';
+            if (status.state === 'disabled') return 'Profile disabled';
+            return 'Unavailable';
+          }
+          if (source === 'colibri') {
+            return config.sources.some(
+              (entry) => entry.role === 'prover' && entry.coverage?.[cid] && !entry.removed
+            )
+              ? 'Available'
+              : 'No prover';
+          }
+          const count = config.sources.filter(
+            (entry) =>
+              entry.role === 'rpc' &&
+              entry.coverage?.[cid] &&
+              !entry.removed &&
+              (!entry.keyed || entry.hasKey)
+          ).length;
+          if (source === 'quorum') {
+            const quorum = config.networks[cid]?.quorum || { k: 3, m: 2 };
+            return `${quorum.m || 2} of ${quorum.k || 3} · ${count} available`;
+          }
+          return count ? `${count} available` : 'No endpoint';
+        };
+
+        const accessRows = (cid, kind, order) =>
+          order
+            .map((source, index) => {
+              const meta = accessMeta[source];
+              if (!meta) return '';
+              return `<div class="resolver-method" draggable="true" tabindex="0"
+                    data-access-kind="${kind}" data-access-source="${source}">
+                  <span class="resolver-drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+                  <span class="resolver-rank">${index + 1}</span>
+                  <div class="row-body">
+                    <div class="resolver-title-line">
+                      <p class="row-label">${meta.label}</p>
+                      <span class="resolver-badge">${esc(sourceStatus(source, cid))}</span>
+                    </div>
+                    <p class="row-help">${meta.help}</p>
+                  </div>
+                </div>`;
+            })
+            .join('');
+
+        // --- detail: one chain's access policy + endpoints ------------
+        // Verified/local sources are ordered first; RPC inventory remains
+        // grouped into the same custom/commercial/public priority tiers that
+        // network-registry resolves for quorum and direct fallbacks.
         const renderDetail = (cid) => {
           const isCustom = config.networks[cid]?.builtin === false;
           const rpcs = config.sources.filter(
@@ -2028,6 +2118,30 @@
           // primary = the first usable endpoint walking the tier order.
           const usable = (s) => !s.removed && (s.keyed ? !!s.hasKey : true);
           const primary = [...mine, ...commercial, ...publicRpcs].find(usable);
+          const supportsVerifiedSources = cid === '1' || cid === '100';
+          const defaultReadOrder = supportsVerifiedSources
+            ? ['myotis', 'colibri', 'quorum', 'direct']
+            : ['quorum', 'direct'];
+          const defaultBroadcastOrder = supportsVerifiedSources
+            ? ['myotis', 'direct']
+            : ['direct'];
+          const readOrder = config.networks[cid]?.access?.readOrder || defaultReadOrder;
+          const broadcastOrder =
+            config.networks[cid]?.access?.broadcastOrder || defaultBroadcastOrder;
+          const proverSource = config.sources.find(
+            (entry) => entry.role === 'prover' && entry.coverage?.[cid] && !entry.removed
+          );
+          const proverConfig = supportsVerifiedSources
+            ? `<div class="card" style="margin-top: 12px">
+                <div class="rpc-block" style="border-top: none">
+                  <p class="row-label" style="margin-bottom: 8px">Colibri prover endpoint</p>
+                  <input class="rpc-input" data-chain-prover="${esc(cid)}"
+                    data-source-id="${esc(proverSource?.id || 'colibri-corpus')}"
+                    value="${esc(proverSource?.coverage?.[cid] || '')}"
+                    placeholder="https://…" spellcheck="false" />
+                </div>
+              </div>`
+            : '';
 
           const section = (title, help, list, emptyHint) => `
             <h2 class="section-title" style="margin-top: 20px">${title}</h2>
@@ -2044,10 +2158,19 @@
             <p class="row-help" style="margin-bottom: 16px">chain ${esc(cid)}${isCustom ? ' · custom chain' : ''}</p>
 
             <p class="row-help" style="margin-bottom: 4px">
-              Freedom reaches this chain through these endpoints — for
-              wallet balances, transactions, and dapp requests. They are
-              tried in priority order; the first working one is primary.
+              Freedom routes wallet, transaction, and compatible dapp requests
+              through the sources below. Unsupported methods automatically continue
+              to the next source.
             </p>
+
+            <h2 class="section-title" style="margin-top: 20px">Read and verification order</h2>
+            <p class="row-help" style="margin-bottom: 12px">Drag sources into priority order.</p>
+            <div class="card">${accessRows(cid, 'read', readOrder)}</div>
+            ${proverConfig}
+
+            <h2 class="section-title" style="margin-top: 20px">Transaction broadcast</h2>
+            <p class="row-help" style="margin-bottom: 12px">Signed transactions use P2P first, with RPC as the compatibility fallback.</p>
+            <div class="card">${accessRows(cid, 'broadcast', broadcastOrder)}</div>
 
             ${section('Your RPCs', 'Endpoints you added — tried first.', mine, 'No custom RPCs yet.')}
             ${cardButton('+ Add a custom RPC', 'add-endpoint')}
@@ -2090,12 +2213,17 @@
 
         const reload = async () => {
           try {
-            const res = await freedomAPI.getNetworkConfig();
+            const [res, ethereumMyotis, gnosisMyotis] = await Promise.all([
+              freedomAPI.getNetworkConfig(),
+              freedomAPI.getMyotisStatus(1).catch(() => null),
+              freedomAPI.getMyotisStatus(100).catch(() => null),
+            ]);
             if (!res || !res.success) {
               setStatus('Failed to load network configuration', 'error');
               return;
             }
             config = { networks: res.networks || {}, sources: res.sources || [] };
+            myotisStatuses = { 1: ethereumMyotis, 100: gnosisMyotis };
             render();
           } catch {
             setStatus('Failed to load network configuration', 'error');
@@ -2121,6 +2249,23 @@
         // the search input keeps focus while the user types.
         let searchTimer = null;
         let searchSeq = 0;
+        let draggedAccess = null;
+
+        const reorderAccess = async (kind, source, target, direction = 0) => {
+          const cid = openChainId();
+          if (!cid) return;
+          const network = config.networks[cid] || {};
+          const key = kind === 'broadcast' ? 'broadcastOrder' : 'readOrder';
+          const order = [...(network.access?.[key] || [])];
+          const from = order.indexOf(source);
+          let to = target ? order.indexOf(target) : from + direction;
+          if (from < 0 || to < 0 || to >= order.length || from === to) return;
+          order.splice(from, 1);
+          order.splice(to, 0, source);
+          await mutate(() => freedomAPI.updateNetwork(cid, {
+            access: { ...(network.access || {}), [key]: order },
+          }));
+        };
         const runChainSearch = async (query) => {
           const seq = ++searchSeq;
           try {
@@ -2166,6 +2311,68 @@
           const id = el.dataset.id;
           mutate(() =>
             el.checked ? freedomAPI.restoreEndpointSource(id) : freedomAPI.removeEndpointSource(id)
+          );
+        });
+
+        section.addEventListener('focusout', async (e) => {
+          const input = e.target.closest('[data-chain-prover]');
+          if (!input) return;
+          const cid = input.dataset.chainProver;
+          const url = input.value.trim();
+          if (!url) {
+            setStatus('A Colibri prover URL is required', 'error');
+            return;
+          }
+          const id = input.dataset.sourceId || 'colibri-corpus';
+          const current = config.sources.find((source) => source.id === id);
+          if (current?.coverage?.[cid] === url) return;
+          await mutate(() => freedomAPI.upsertEndpointSource(id, {
+            role: 'prover',
+            keyed: false,
+            name: current?.name || 'Colibri (corpus.core)',
+            coverage: { ...(current?.coverage || {}), [cid]: url },
+          }));
+        });
+
+        section.addEventListener('dragstart', (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row) return;
+          draggedAccess = { kind: row.dataset.accessKind, source: row.dataset.accessSource };
+          row.classList.add('dragging');
+          e.dataTransfer?.setData('text/plain', row.dataset.accessSource);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        });
+
+        section.addEventListener('dragover', (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || !draggedAccess || row.dataset.accessKind !== draggedAccess.kind) return;
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        });
+
+        section.addEventListener('drop', async (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || !draggedAccess || row.dataset.accessKind !== draggedAccess.kind) return;
+          e.preventDefault();
+          const { kind, source } = draggedAccess;
+          draggedAccess = null;
+          await reorderAccess(kind, source, row.dataset.accessSource);
+        });
+
+        section.addEventListener('dragend', () => {
+          draggedAccess = null;
+          section.querySelectorAll('.dragging').forEach((row) => row.classList.remove('dragging'));
+        });
+
+        section.addEventListener('keydown', async (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          await reorderAccess(
+            row.dataset.accessKind,
+            row.dataset.accessSource,
+            null,
+            e.key === 'ArrowUp' ? -1 : 1
           );
         });
 
@@ -2390,6 +2597,7 @@
         let currentProverUrl = '';
         let proverId = 'colibri-corpus';
         let myotisStatus = null;
+        let myotisGnosisStatus = null;
         let policySave = Promise.resolve();
         let quorumSave = Promise.resolve();
         let draggedMethod = null;
@@ -2750,7 +2958,10 @@
               ? await freedomAPI.upsertEndpointSource(proverId, {
                   role: 'prover',
                   keyed: false,
-                  coverage: { 1: url },
+                  coverage: {
+                    ...(config.sources.find((source) => source.id === proverId)?.coverage || {}),
+                    1: url,
+                  },
                 })
               : await freedomAPI.removeEndpointSource(proverId);
             if (result?.success === false) throw new Error(result.error || 'Prover was not saved');
@@ -2773,12 +2984,20 @@
         const launchToggle = $('start-myotis-at-launch');
         const launchHelp = $('myotis-launch-help');
         const defaultLaunchHelp = launchHelp?.textContent || '';
+        const gnosisLaunchRow = $('myotis-gnosis-launch-row');
+        const gnosisLaunchToggle = $('start-myotis-gnosis-at-launch');
+        const gnosisLaunchHelp = $('myotis-gnosis-launch-help');
+        const defaultGnosisLaunchHelp = gnosisLaunchHelp?.textContent || '';
 
         const updateMyotis = async () => {
           try {
-            myotisStatus = await freedomAPI.getMyotisStatus();
+            [myotisStatus, myotisGnosisStatus] = await Promise.all([
+              freedomAPI.getMyotisStatus(1),
+              freedomAPI.getMyotisStatus(100),
+            ]);
           } catch {
             myotisStatus = null;
+            myotisGnosisStatus = null;
           }
           if (launchRow && launchToggle) {
             const supported = myotisStatus?.supported !== false;
@@ -2794,6 +3013,25 @@
                   : supported && !available
                     ? 'Addon not installed — run "npm run myotis:download" and restart.'
                     : defaultLaunchHelp;
+            }
+          }
+          if (gnosisLaunchRow && gnosisLaunchToggle) {
+            const supported = myotisGnosisStatus?.supported !== false;
+            const available = myotisGnosisStatus
+              ? Boolean(myotisGnosisStatus.available)
+              : true;
+            const disabled = myotisGnosisStatus?.state === 'disabled';
+            gnosisLaunchRow.hidden = !supported;
+            gnosisLaunchToggle.disabled =
+              Boolean(myotisGnosisStatus) && supported && (!available || disabled);
+            if (gnosisLaunchHelp) {
+              gnosisLaunchHelp.textContent = !myotisGnosisStatus
+                ? 'Myotis status could not be read. The startup preference can still be saved.'
+                : disabled
+                  ? 'Disabled for this profile under Settings → Nodes.'
+                  : supported && !available
+                    ? 'Addon not installed — run "npm run myotis:download" and restart.'
+                    : defaultGnosisLaunchHelp;
             }
           }
           updateMethodStatuses();

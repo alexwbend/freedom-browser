@@ -23,15 +23,38 @@ const MYOTIS_VERSION = '0.1.3';
 // Poll/log-drain cadence while the node runs.
 const LOG_DRAIN_MS = 15000;
 
+const NETWORKS = new Map([
+  [1, { chainId: 1, name: 'mainnet', displayName: 'Ethereum' }],
+  [100, { chainId: 100, name: 'gnosis', displayName: 'Gnosis' }],
+]);
+
 let addon = null;
-let handle = -1;
 let drainTimer = null;
-let lastStatus = null;
-let startedAt = 0;
-let lastError = null;
 let readyWatchTimer = null;
-let wasReady = false;
+let addonError = null;
+const instances = new Map();
 const readyListeners = new Set();
+
+function normalizeChainId(chainId = 1) {
+  const numeric = Number(chainId);
+  if (!NETWORKS.has(numeric)) throw new Error(`Unsupported Myotis chain ID: ${chainId}`);
+  return numeric;
+}
+
+function instanceFor(chainId = 1) {
+  const id = normalizeChainId(chainId);
+  if (!instances.has(id)) {
+    instances.set(id, {
+      ...NETWORKS.get(id),
+      handle: -1,
+      lastStatus: null,
+      startedAt: 0,
+      lastError: null,
+      wasReady: false,
+    });
+  }
+  return instances.get(id);
+}
 
 // Fires callbacks on every not-ready → ready transition (initial sync
 // completing, or recovery after a peer-loss regression). The ENS resolver
@@ -75,8 +98,8 @@ function isDisabledMyotisConfig(config = getProfileMyotisConfig()) {
   return config?.mode === 'disabled';
 }
 
-function getMyotisDataPath() {
-  return getMyotisDataDir();
+function getMyotisDataPath(chainId = 1) {
+  return getMyotisDataDir(instanceFor(chainId).name);
 }
 
 function broadcastStatus(status = publicStatus()) {
@@ -96,21 +119,26 @@ function registryMessage(status) {
   if (status.state === 'unavailable') return 'Native addon unavailable';
   if (status.state === 'error') return `Error: ${status.error}`;
   if (status.state === 'off') return 'Not running';
-  if (status.state === 'ready') return 'Ready: verified Ethereum reads available';
+  if (status.state === 'ready') return `Ready: verified ${status.displayName} reads available`;
   return `Syncing: ${status.peerCount ?? 0} peers`;
 }
 
 function publishStatus(status = publicStatus()) {
   try {
     const { MODE, updateService } = require('../service-registry');
+    const statuses = [...NETWORKS.keys()].map((chainId) => publicStatus(chainId));
+    const running = statuses.filter((entry) => entry.running);
+    const ready = running.filter((entry) => entry.state === 'ready');
     updateService('myotis', {
       mode:
         status.state === 'disabled'
           ? MODE.DISABLED
-          : status.running
+          : running.length
             ? MODE.BUNDLED
             : MODE.NONE,
-      statusMessage: registryMessage(status),
+      statusMessage: ready.length
+        ? `${ready.map((entry) => entry.displayName).join(' + ')} ready`
+        : registryMessage(status),
     });
   } catch {
     // The service registry is unavailable in plain-Node tooling.
@@ -119,98 +147,116 @@ function publishStatus(status = publicStatus()) {
   return status;
 }
 
-function startMyotis({ dataDir } = {}) {
-  if (handle >= 1) return true;
+function loadAddon() {
+  if (addon) return true;
   if (isDisabledMyotisConfig()) {
-    publishStatus();
     return false;
   }
   const addonFile = addonPath();
   if (!addonFile) {
-    publishStatus();
     return false;
   }
   try {
     addon = require(addonFile);
   } catch (err) {
-    lastError = err.message;
+    addonError = err.message;
     log.warn(`[myotis] addon load failed (${addonFile}): ${err.message}`);
-    publishStatus();
     return false;
   }
   let abi;
   try {
     abi = addon.init();
   } catch (err) {
-    lastError = err.message;
+    addonError = err.message;
     log.warn(`[myotis] init failed: ${err.message}`);
     addon = null;
-    publishStatus();
     return false;
   }
   if (abi !== EXPECTED_ABI) {
-    lastError = `ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI}`;
+    addonError = `ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI}`;
     log.warn(`[myotis] ABI mismatch: engine ${abi}, expected ${EXPECTED_ABI} — not starting`);
     addon = null;
-    publishStatus();
     return false;
   }
-  const dir = dataDir || getMyotisDataPath();
+  addonError = null;
+  return true;
+}
+
+function ensurePollers() {
+  if (!drainTimer) {
+    drainTimer = setInterval(drainEngineLogs, LOG_DRAIN_MS);
+    if (drainTimer.unref) drainTimer.unref();
+  }
+  if (!readyWatchTimer) {
+    readyWatchTimer = setInterval(() => {
+      for (const chainId of NETWORKS.keys()) {
+        const instance = instanceFor(chainId);
+        if (instance.handle < 1) continue;
+        const ready = isReady(chainId);
+        if (ready && !instance.wasReady) {
+          log.info(`[myotis] ${instance.name} ready — verified reads available`);
+          for (const cb of readyListeners) {
+            try {
+              cb(chainId);
+            } catch (err) {
+              log.warn(`[myotis] ready listener failed: ${err.message}`);
+            }
+          }
+        }
+        instance.wasReady = ready;
+        publishStatus(publicStatus(chainId));
+      }
+    }, 10000);
+    if (readyWatchTimer.unref) readyWatchTimer.unref();
+  }
+}
+
+function startMyotis({ dataDir, chainId = 1 } = {}) {
+  const instance = instanceFor(chainId);
+  if (instance.handle >= 1) return true;
+  if (isDisabledMyotisConfig() || !loadAddon()) {
+    publishStatus(publicStatus(instance.chainId));
+    return false;
+  }
+  const dir = dataDir || getMyotisDataDir(instance.name);
   try {
-    handle = addon.create('mainnet', dir);
+    instance.handle = addon.create(instance.name, dir);
   } catch (err) {
-    lastError = err.message;
-    log.warn(`[myotis] create failed: ${err.message}`);
-    publishStatus();
+    instance.lastError = err.message;
+    log.warn(`[myotis] ${instance.name} create failed: ${err.message}`);
+    publishStatus(publicStatus(instance.chainId));
     return false;
   }
-  if (handle < 1) {
-    lastError = `Native create returned handle ${handle}`;
-    log.warn(`[myotis] create failed: ${handle}`);
-    publishStatus();
+  if (instance.handle < 1) {
+    instance.lastError = `Native create returned handle ${instance.handle}`;
+    log.warn(`[myotis] ${instance.name} create failed: ${instance.handle}`);
+    publishStatus(publicStatus(instance.chainId));
     return false;
   }
   let started;
   try {
-    started = addon.start(handle);
+    started = addon.start(instance.handle);
   } catch (err) {
-    lastError = err.message;
-    log.warn(`[myotis] start failed: ${err.message}`);
-    handle = -1;
-    publishStatus();
+    instance.lastError = err.message;
+    log.warn(`[myotis] ${instance.name} start failed: ${err.message}`);
+    instance.handle = -1;
+    publishStatus(publicStatus(instance.chainId));
     return false;
   }
   if (!started) {
-    lastError = 'Native client refused to start';
-    log.warn('[myotis] start failed');
-    handle = -1;
-    publishStatus();
+    instance.lastError = 'Native client refused to start';
+    log.warn(`[myotis] ${instance.name} start failed`);
+    instance.handle = -1;
+    publishStatus(publicStatus(instance.chainId));
     return false;
   }
-  startedAt = Date.now();
-  lastStatus = null;
-  lastError = null;
-  log.info(`[myotis] node started (mainnet, dataDir=${dir})`);
-  publishStatus();
-  drainTimer = setInterval(drainEngineLogs, LOG_DRAIN_MS);
-  if (drainTimer.unref) drainTimer.unref();
-  wasReady = false;
-  readyWatchTimer = setInterval(() => {
-    const ready = isReady();
-    if (ready && !wasReady) {
-      log.info('[myotis] node ready — verified reads available');
-      for (const cb of readyListeners) {
-        try {
-          cb();
-        } catch (err) {
-          log.warn(`[myotis] ready listener failed: ${err.message}`);
-        }
-      }
-    }
-    wasReady = ready;
-    publishStatus();
-  }, 10000);
-  if (readyWatchTimer.unref) readyWatchTimer.unref();
+  instance.startedAt = Date.now();
+  instance.lastStatus = null;
+  instance.lastError = null;
+  instance.wasReady = false;
+  log.info(`[myotis] node started (${instance.name}, dataDir=${dir})`);
+  publishStatus(publicStatus(instance.chainId));
+  ensurePollers();
   return true;
 }
 
@@ -224,14 +270,15 @@ function drainEngineLogs() {
   }
 }
 
-function getStatus() {
-  if (!addon || handle < 1) return null;
+function getStatus(chainId = 1) {
+  const instance = instanceFor(chainId);
+  if (!addon || instance.handle < 1) return null;
   try {
-    lastStatus = JSON.parse(addon.statusJson(handle));
+    instance.lastStatus = JSON.parse(addon.statusJson(instance.handle));
   } catch {
-    return lastStatus;
+    return instance.lastStatus;
   }
-  return lastStatus;
+  return instance.lastStatus;
 }
 
 // Ready = the verified read path can actually serve: beacon SYNCED, the EL
@@ -239,8 +286,8 @@ function getStatus() {
 // during a hunt fail on the cold context), and at least one snap-capable
 // peer held. Callers treat not-ready as "skip myotis, use the next tier" —
 // never as an error.
-function isReady() {
-  const s = getStatus();
+function isReady(chainId = 1) {
+  const s = getStatus(chainId);
   return Boolean(
     s && s.beaconState === 'SYNCED' && s.elReaderAvailable && !s.elHunting && s.snapPeers > 0
   );
@@ -248,8 +295,15 @@ function isReady() {
 
 // --- Verified reads (Promise<parsed JSON>) --------------------------------
 
-async function resolveEnsRecord(params) {
-  const raw = await addon.ensRecordJson(handle, JSON.stringify(params));
+function runningInstance(chainId = 1) {
+  const instance = instanceFor(chainId);
+  if (!addon || instance.handle < 1) throw new Error(`${instance.displayName} Myotis client is not running`);
+  return instance;
+}
+
+async function resolveEnsRecord(params, chainId = 1) {
+  const instance = runningInstance(chainId);
+  const raw = await addon.ensRecordJson(instance.handle, JSON.stringify(params));
   return JSON.parse(raw);
 }
 
@@ -265,34 +319,58 @@ async function resolveReverse(addressHex) {
   return resolveEnsRecord({ method: 'reverse', addressHex });
 }
 
-async function ethCall({ from = '', to, data = '0x', value = '0', block = 'latest' }) {
-  const raw = await addon.ethCallJson(handle, from, to, data, value, block);
+async function ethCall({ from = '', to, data = '0x', value = '0', block = 'latest', chainId = 1 }) {
+  const instance = runningInstance(chainId);
+  const raw = await addon.ethCallJson(instance.handle, from, to, data, value, block);
   return JSON.parse(raw);
 }
 
-async function getAccount(address) {
-  return JSON.parse(await addon.requestAccountJson(handle, address));
+async function getAccount(address, chainId = 1) {
+  const instance = runningInstance(chainId);
+  return JSON.parse(await addon.requestAccountJson(instance.handle, address));
 }
 
-function stopMyotis() {
-  if (drainTimer) clearInterval(drainTimer);
-  drainTimer = null;
-  if (readyWatchTimer) clearInterval(readyWatchTimer);
-  readyWatchTimer = null;
-  wasReady = false;
-  if (addon && handle >= 1) {
+async function estimateGas({ from = '', to, data = '0x', value = '0', chainId = 1 }) {
+  const instance = runningInstance(chainId);
+  return JSON.parse(await addon.estimateGasJson(instance.handle, from, to, data, value));
+}
+
+async function feeEstimate(chainId = 1) {
+  const instance = runningInstance(chainId);
+  return JSON.parse(await addon.feeEstimateJson(instance.handle));
+}
+
+async function sendRawTransaction(rawTransaction, chainId = 1) {
+  const instance = runningInstance(chainId);
+  return JSON.parse(await addon.sendRawTransactionJson(instance.handle, rawTransaction));
+}
+
+function stopMyotis(chainId = 1) {
+  const instance = instanceFor(chainId);
+  instance.wasReady = false;
+  if (addon && instance.handle >= 1) {
     try {
-      addon.stop(handle);
-      log.info(`[myotis] node stopped (uptime ${Math.round((Date.now() - startedAt) / 1000)}s)`);
+      addon.stop(instance.handle);
+      log.info(`[myotis] ${instance.name} stopped (uptime ${Math.round((Date.now() - instance.startedAt) / 1000)}s)`);
     } catch (err) {
-      log.warn(`[myotis] stop failed: ${err.message}`);
+      log.warn(`[myotis] ${instance.name} stop failed: ${err.message}`);
     }
   }
-  handle = -1;
-  lastStatus = null;
-  startedAt = 0;
-  lastError = null;
-  publishStatus();
+  instance.handle = -1;
+  instance.lastStatus = null;
+  instance.startedAt = 0;
+  instance.lastError = null;
+  if (![...instances.values()].some((entry) => entry.handle >= 1)) {
+    if (drainTimer) clearInterval(drainTimer);
+    drainTimer = null;
+    if (readyWatchTimer) clearInterval(readyWatchTimer);
+    readyWatchTimer = null;
+  }
+  publishStatus(publicStatus(instance.chainId));
+}
+
+function stopAllMyotis() {
+  for (const chainId of NETWORKS.keys()) stopMyotis(chainId);
 }
 
 // Targets the upstream release publishes addons for (win-arm64 notably
@@ -314,20 +392,29 @@ function isSupportedTarget() {
 // object; `state` is the one-word summary the UI keys copy on. `supported`
 // lets the UI distinguish "this platform can never run Myotis" (hide the
 // controls) from "addon merely not installed" (disable with a hint).
-function publicStatus() {
+function publicStatus(chainId = 1) {
+  const instance = instanceFor(chainId);
   const supported = isSupportedTarget();
   const available = Boolean(addonPath());
-  const base = { supported, available, version: MYOTIS_VERSION };
+  const base = {
+    supported,
+    available,
+    version: MYOTIS_VERSION,
+    chainId: instance.chainId,
+    network: instance.name,
+    displayName: instance.displayName,
+  };
   if (isDisabledMyotisConfig()) {
     return { ...base, running: false, state: 'disabled' };
   }
   if (!available) return { ...base, running: false, state: 'unavailable' };
-  if (lastError) {
-    return { ...base, running: false, state: 'error', error: lastError };
+  const error = instance.lastError || addonError;
+  if (error) {
+    return { ...base, running: false, state: 'error', error };
   }
-  if (handle < 1) return { ...base, running: false, state: 'off' };
-  const s = getStatus() || {};
-  const ready = isReady();
+  if (instance.handle < 1) return { ...base, running: false, state: 'off' };
+  const s = getStatus(instance.chainId) || {};
+  const ready = isReady(instance.chainId);
   return {
     ...base,
     running: true,
@@ -338,7 +425,7 @@ function publicStatus() {
     peerCount: s.peerCount,
     snapPeers: s.snapPeers,
     finalizedBlockNumber: s.finalizedBlockNumber,
-    uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+    uptimeSeconds: Math.round((Date.now() - instance.startedAt) / 1000),
   };
 }
 
@@ -347,20 +434,20 @@ function registerMyotisIpc() {
   // require keeps the module loadable from plain-Node harnesses.
   const { ipcMain } = require('electron');
   const IPC = require('../../shared/ipc-channels');
-  ipcMain.handle(IPC.MYOTIS_START, () => {
-    startMyotis();
-    return publicStatus();
+  ipcMain.handle(IPC.MYOTIS_START, (_event, chainId = 1) => {
+    startMyotis({ chainId });
+    return publicStatus(chainId);
   });
-  ipcMain.handle(IPC.MYOTIS_STOP, () => {
-    stopMyotis();
-    return publicStatus();
+  ipcMain.handle(IPC.MYOTIS_STOP, (_event, chainId = 1) => {
+    stopMyotis(chainId);
+    return publicStatus(chainId);
   });
-  ipcMain.handle(IPC.MYOTIS_GET_STATUS, () => publicStatus());
+  ipcMain.handle(IPC.MYOTIS_GET_STATUS, (_event, chainId = 1) => publicStatus(chainId));
   publishStatus();
 }
 
-function refreshMyotisStatus() {
-  return publishStatus();
+function refreshMyotisStatus(chainId = 1) {
+  return publishStatus(publicStatus(chainId));
 }
 
 module.exports = {
@@ -369,6 +456,7 @@ module.exports = {
   getMyotisDataPath,
   startMyotis,
   stopMyotis,
+  stopAllMyotis,
   isReady,
   getStatus,
   publicStatus,
@@ -381,4 +469,8 @@ module.exports = {
   resolveReverse,
   ethCall,
   getAccount,
+  estimateGas,
+  feeEstimate,
+  sendRawTransaction,
+  NETWORKS,
 };

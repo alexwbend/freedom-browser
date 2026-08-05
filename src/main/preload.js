@@ -293,9 +293,15 @@ contextBridge.exposeInMainWorld('ant', {
 });
 
 contextBridge.exposeInMainWorld('myotis', {
-  start: () => ipcRenderer.invoke('myotis:start'),
-  stop: () => ipcRenderer.invoke('myotis:stop'),
-  getStatus: () => ipcRenderer.invoke('myotis:getStatus'),
+  start: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:start')
+    : ipcRenderer.invoke('myotis:start', chainId),
+  stop: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:stop')
+    : ipcRenderer.invoke('myotis:stop', chainId),
+  getStatus: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:getStatus')
+    : ipcRenderer.invoke('myotis:getStatus', chainId),
   onStatusUpdate: (callback) => {
     const handler = (_event, value) => callback(value);
     ipcRenderer.on('myotis:statusUpdate', handler);
@@ -420,6 +426,8 @@ contextBridge.exposeInMainWorld('wallet', {
 
   // RPC proxy (renderer CSP blocks direct fetch to external endpoints)
   proxyRpc: (rpcUrl, method, params) => ipcRenderer.invoke('wallet:proxy-rpc', { rpcUrl, method, params }),
+  requestChain: (chainId, method, params) =>
+    ipcRenderer.invoke('wallet:chain-request', { chainId, method, params }),
 });
 
 contextBridge.exposeInMainWorld('swarmNode', {

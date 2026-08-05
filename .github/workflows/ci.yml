@@ -159,7 +159,7 @@ jobs:
             target: win32-x64
             addon: myotis-bin/win-x64/myotis-node.node
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 110
+    timeout-minutes: 190
 
     steps:
       - name: Check out repository
@@ -206,6 +206,16 @@ jobs:
           MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
           MYOTIS_SMOKE_TIMEOUT_MIN: '75'
 
+      - name: Start Myotis and serve a verified Gnosis account read
+        id: myotis-gnosis-smoke
+        continue-on-error: true
+        run: npm run myotis:smoke
+        env:
+          MYOTIS_NETWORK: gnosis
+          MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data/gnosis
+          MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
+          MYOTIS_SMOKE_TIMEOUT_MIN: '75'
+
       - name: Save Myotis sync snapshot
         if: always()
         uses: actions/cache/save@v4
@@ -214,7 +224,7 @@ jobs:
           key: myotis-v0.1.3-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Fail when native smoke did not resolve
-        if: steps.myotis-smoke.outcome != 'success'
+        if: steps.myotis-smoke.outcome != 'success' || steps.myotis-gnosis-smoke.outcome != 'success'
         shell: bash
         run: exit 1
 

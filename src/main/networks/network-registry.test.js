@@ -377,6 +377,18 @@ describe('isChainAvailable / getAvailableChains', () => {
     expect(registry.isChainAvailable(777)).toBe(false);
   });
 
+  test('a chain with only a Colibri prover remains available for verified reads', () => {
+    setFiles({
+      sources: {
+        'colibri-corpus': {
+          role: 'prover', keyed: false, coverage: { '1': 'https://prover.example' },
+        },
+      },
+    });
+    expect(registry.isChainAvailable(1)).toBe(true);
+    expect(registry.isChainAvailable(100)).toBe(false);
+  });
+
   test('getAvailableChains excludes chains with no endpoint', () => {
     setFiles({ custom: { '777': { chainId: 777, name: 'CustomNet' } } });
     expect(Object.keys(registry.getAvailableChains()).sort()).toEqual(['1', '100']);

@@ -38,6 +38,7 @@ const DEFAULT_SETTINGS = {
   // Off by default — opt-in while the tier is experimental; requires the
   // addon (npm run myotis:download, or the packaged resource).
   startMyotisAtLaunch: false,
+  startMyotisGnosisAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
   // When true, navigating to an Ethereum name that resolved with trust.level =

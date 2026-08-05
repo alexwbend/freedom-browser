@@ -9,6 +9,7 @@ const path = require('path');
 // data directory even when the first cold run needs another attempt.
 const EXPECTED_ABI = 21;
 const VITALIK_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+const network = process.env.MYOTIS_NETWORK || 'mainnet';
 const POLL_INTERVAL_MS = 5000;
 const QUERY_TIMEOUT_MS = 120000;
 
@@ -107,6 +108,23 @@ async function verifiedReads() {
   let lastError = null;
   for (let attempt = 1; attempt <= queryAttempts; attempt++) {
     try {
+      if (network === 'gnosis') {
+        const account = JSON.parse(
+          await withTimeout(
+            addon.requestAccountJson(handle, VITALIK_ADDRESS),
+            'Gnosis account read'
+          )
+        );
+        log(`verified read attempt ${attempt}:`, JSON.stringify({ account }));
+        if (account.error) throw new Error(`account read: ${account.error}`);
+        if (account.peerProofValid !== true || account.beaconChainVerified !== true) {
+          throw new Error(`account was not chain verified: ${JSON.stringify(account)}`);
+        }
+        if (account.balanceWei == null || account.nonce == null) {
+          throw new Error(`account response incomplete: ${JSON.stringify(account)}`);
+        }
+        return;
+      }
       const address = JSON.parse(
         await withTimeout(
           addon.ensRecordJson(
@@ -233,7 +251,7 @@ async function recoverPeerPool(reason) {
   addon.stop(handle);
   handle = -1;
   await delay(1000);
-  handle = addon.create('mainnet', dataDir);
+  handle = addon.create(network, dataDir);
   if (handle < 1) throw new Error(`Myotis recreate failed with handle ${handle}`);
   if (!addon.start(handle)) throw new Error('Myotis restart failed during peer-pool recovery');
 }
@@ -249,7 +267,7 @@ async function main() {
   }
   log(`loaded ${target} addon (ABI ${abi}) from ${addonPath}`);
 
-  handle = addon.create('mainnet', dataDir);
+  handle = addon.create(network, dataDir);
   if (handle < 1) throw new Error(`Myotis create failed with handle ${handle}`);
   if (!addon.start(handle)) throw new Error('Myotis start failed');
   log(`started handle ${handle}; data dir ${dataDir}`);
@@ -257,10 +275,10 @@ async function main() {
   const deadline = Date.now() + syncTimeoutMs;
   for (let recovery = 0; recovery <= readRecoveryAttempts; recovery++) {
     await waitUntilReady(deadline);
-    log('node ready; performing finalized-root ENS reads');
+    log(`node ready; performing verified ${network} reads`);
     try {
       await verifiedReads();
-      log('PASS: released addon started and resolved verified ENS address/content/reverse records');
+      log(`PASS: released addon started and served verified ${network} reads`);
       return;
     } catch (err) {
       if (recovery >= readRecoveryAttempts) throw err;

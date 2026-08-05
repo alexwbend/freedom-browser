@@ -5,8 +5,8 @@
  * Uses the vault's derived keys for signing.
  */
 
-const { parseUnits, formatUnits, Interface, Wallet } = require('ethers');
-const { getProvider, withRetry } = require('./provider-manager');
+const { parseUnits, formatUnits, Interface, Wallet, Transaction } = require('ethers');
+const chainData = require('../networks/chain-data-router');
 const { getTxExplorerUrl } = require('./chains');
 
 // ERC-20 transfer function interface
@@ -25,11 +25,6 @@ const ERC20_INTERFACE = new Interface([
  * @returns {Promise<{gasLimit: string, error?: string}>}
  */
 async function estimateGas({ from, to, value, data, chainId }) {
-  const provider = getProvider(chainId);
-  if (!provider) {
-    throw new Error(`No provider available for chain ${chainId}`);
-  }
-
   try {
     const tx = {
       from,
@@ -41,7 +36,8 @@ async function estimateGas({ from, to, value, data, chainId }) {
       tx.data = data;
     }
 
-    const gasLimit = await withRetry(() => provider.estimateGas(tx), 2, chainId);
+    const { result } = await chainData.request(chainId, 'eth_estimateGas', [tx]);
+    const gasLimit = BigInt(result);
 
     // Add 20% buffer for safety
     const bufferedGas = (gasLimit * 120n) / 100n;
@@ -62,40 +58,27 @@ async function estimateGas({ from, to, value, data, chainId }) {
  * @returns {Promise<Object>} Gas price data
  */
 async function getGasPrices(chainId) {
-  const provider = getProvider(chainId);
-  if (!provider) {
-    throw new Error(`No provider available for chain ${chainId}`);
-  }
-
   try {
-    const [feeData, block] = await withRetry(
-      () => Promise.all([provider.getFeeData(), provider.getBlock('latest')]),
-      2,
-      chainId
-    );
-
-    // For EIP-1559 chains (Ethereum, Gnosis)
-    if (feeData.maxFeePerGas && feeData.maxPriorityFeePerGas) {
-      const baseFee = block?.baseFeePerGas || feeData.gasPrice || 0n;
-
-      // Market: 2x base fee + priority fee (covers 2 blocks of full blocks)
-      const marketMaxFee = baseFee * 2n + feeData.maxPriorityFeePerGas;
-
+    const gasPriceResult = await chainData.request(chainId, 'eth_gasPrice');
+    const gasPrice = BigInt(gasPriceResult.result);
+    let priorityResult;
+    try {
+      priorityResult = await chainData.request(chainId, 'eth_maxPriorityFeePerGas');
+    } catch {
       return {
-        type: 'eip1559',
-        baseFee: baseFee.toString(),
-        maxPriorityFeePerGas: feeData.maxPriorityFeePerGas.toString(),
-        maxFeePerGas: marketMaxFee.toString(),
-        // For display: estimated fee per gas
-        effectiveGasPrice: ((baseFee + feeData.maxPriorityFeePerGas)).toString(),
+        type: 'legacy',
+        gasPrice: gasPrice.toString(),
+        effectiveGasPrice: gasPrice.toString(),
       };
     }
-
-    // Legacy gas price (fallback)
+    const priority = BigInt(priorityResult.result);
+    const baseFee = gasPrice > priority ? gasPrice - priority : 0n;
     return {
-      type: 'legacy',
-      gasPrice: (feeData.gasPrice || 0n).toString(),
-      effectiveGasPrice: (feeData.gasPrice || 0n).toString(),
+      type: 'eip1559',
+      baseFee: baseFee.toString(),
+      maxPriorityFeePerGas: priority.toString(),
+      maxFeePerGas: gasPrice.toString(),
+      effectiveGasPrice: gasPrice.toString(),
     };
   } catch (err) {
     console.error('[TransactionService] Failed to get gas prices:', err);
@@ -194,17 +177,15 @@ function buildTransaction({
 async function signAndSendTransaction(params, privateKey) {
   const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
 
-  const provider = getProvider(chainId);
-  if (!provider) {
-    throw new Error(`No provider available for chain ${chainId}`);
-  }
-
   try {
-    // Create wallet from private key
-    const wallet = new Wallet(privateKey, provider);
+    const wallet = new Wallet(privateKey);
 
     // Get nonce
-    const nonce = await withRetry(() => provider.getTransactionCount(wallet.address, 'pending'), 2, chainId);
+    const nonceResponse = await chainData.request(chainId, 'eth_getTransactionCount', [
+      wallet.address,
+      'pending',
+    ]);
+    const nonce = Number(BigInt(nonceResponse.result));
 
     // Build transaction
     const tx = buildTransaction({
@@ -227,19 +208,27 @@ async function signAndSendTransaction(params, privateKey) {
       nonce: tx.nonce,
     });
 
-    // Sign and send
-    const txResponse = await wallet.sendTransaction(tx);
+    const signedTransaction = await wallet.signTransaction(tx);
+    const parsedTransaction = Transaction.from(signedTransaction);
+    const broadcast = await chainData.broadcastRawTransaction(chainId, signedTransaction);
+    if (
+      parsedTransaction.hash &&
+      String(broadcast.result).toLowerCase() !== parsedTransaction.hash.toLowerCase()
+    ) {
+      throw new Error('Transaction broadcaster returned a mismatched hash');
+    }
 
-    console.log('[TransactionService] Transaction sent:', txResponse.hash);
+    console.log('[TransactionService] Transaction sent:', broadcast.result);
 
     return {
-      hash: txResponse.hash,
-      nonce: txResponse.nonce,
-      from: txResponse.from,
-      to: txResponse.to,
-      value: txResponse.value?.toString(),
+      hash: broadcast.result,
+      nonce: parsedTransaction.nonce,
+      from: wallet.address,
+      to: parsedTransaction.to,
+      value: parsedTransaction.value?.toString(),
       chainId,
-      explorerUrl: getTxExplorerUrl(chainId, txResponse.hash),
+      broadcastSource: broadcast.source,
+      explorerUrl: getTxExplorerUrl(chainId, broadcast.result),
     };
   } catch (err) {
     console.error('[TransactionService] Transaction failed:', err);
@@ -276,13 +265,8 @@ async function signAndSendTransaction(params, privateKey) {
  * @returns {Promise<Object>} Transaction status
  */
 async function getTransactionStatus(txHash, chainId) {
-  const provider = getProvider(chainId);
-  if (!provider) {
-    throw new Error(`No provider available for chain ${chainId}`);
-  }
-
   try {
-    const receipt = await withRetry(() => provider.getTransactionReceipt(txHash), 2, chainId);
+    const { result: receipt } = await chainData.request(chainId, 'eth_getTransactionReceipt', [txHash]);
 
     if (!receipt) {
       return {
@@ -292,11 +276,13 @@ async function getTransactionStatus(txHash, chainId) {
     }
 
     return {
-      status: receipt.status === 1 ? 'confirmed' : 'failed',
+      status: BigInt(receipt.status || 0) === 1n ? 'confirmed' : 'failed',
       hash: txHash,
-      blockNumber: receipt.blockNumber,
-      gasUsed: receipt.gasUsed?.toString(),
-      effectiveGasPrice: receipt.gasPrice?.toString(),
+      blockNumber: receipt.blockNumber ? Number(BigInt(receipt.blockNumber)) : null,
+      gasUsed: receipt.gasUsed ? BigInt(receipt.gasUsed).toString() : null,
+      effectiveGasPrice: receipt.effectiveGasPrice
+        ? BigInt(receipt.effectiveGasPrice).toString()
+        : null,
       explorerUrl: getTxExplorerUrl(chainId, txHash),
     };
   } catch (err) {
@@ -317,22 +303,19 @@ async function getTransactionStatus(txHash, chainId) {
  * @returns {Promise<Object>} Transaction receipt
  */
 async function waitForTransaction(txHash, chainId, confirmations = 1) {
-  const provider = getProvider(chainId);
-  if (!provider) {
-    throw new Error(`No provider available for chain ${chainId}`);
-  }
-
   try {
-    const receipt = await provider.waitForTransaction(txHash, confirmations, 60000); // 60s timeout
-
-    return {
-      status: receipt.status === 1 ? 'confirmed' : 'failed',
-      hash: txHash,
-      blockNumber: receipt.blockNumber,
-      gasUsed: receipt.gasUsed?.toString(),
-      effectiveGasPrice: receipt.gasPrice?.toString(),
-      explorerUrl: getTxExplorerUrl(chainId, txHash),
-    };
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      const status = await getTransactionStatus(txHash, chainId);
+      if (status.status === 'failed') return status;
+      if (status.status === 'confirmed') {
+        if (confirmations <= 1) return status;
+        const { result: head } = await chainData.request(chainId, 'eth_blockNumber');
+        if (Number(BigInt(head)) - status.blockNumber + 1 >= confirmations) return status;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    throw new Error('Timed out waiting for transaction confirmation');
   } catch (err) {
     console.error('[TransactionService] Wait for transaction failed:', err);
     throw new Error(`Transaction confirmation timeout: ${err.message}`, { cause: err });

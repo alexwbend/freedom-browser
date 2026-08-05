@@ -50,6 +50,7 @@ describe('profile paths', () => {
     expect(paths.getBeeDataDir()).toBe(path.join(userDataDir, 'bee-data'));
     expect(paths.getIpfsDataDir()).toBe(path.join(userDataDir, 'ipfs-data'));
     expect(paths.getMyotisDataDir()).toBe(path.join(userDataDir, 'myotis'));
+    expect(paths.getMyotisDataDir('gnosis')).toBe(path.join(userDataDir, 'myotis', 'gnosis'));
     expect(paths.getRadicleDataDir()).toBe(path.join(userDataDir, 'radicle-data'));
     expect(paths.getProfileTempDir()).toBe(path.join(userDataDir, 'tmp'));
     expect(paths.getQuickUnlockCredentialPath()).toBe(
@@ -106,6 +107,7 @@ describe('profile paths', () => {
     expect(paths.getBeeDataDir()).toBe(beeDir);
     expect(paths.getIpfsDataDir()).toBe(ipfsDir);
     expect(paths.getMyotisDataDir()).toBe(myotisDir);
+    expect(paths.getMyotisDataDir('gnosis')).toBe(path.join(myotisDir, 'gnosis'));
     expect(paths.getRadicleDataDir()).toBe(radicleDir);
   });
 

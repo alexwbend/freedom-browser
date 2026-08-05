@@ -1,5 +1,11 @@
-const { Wallet, verifyMessage, getBytes } = require('ethers');
-const { signPersonalMessage } = require('./transaction-service');
+const { Wallet, Transaction, verifyMessage, getBytes } = require('ethers');
+const mockChainRequest = jest.fn();
+const mockBroadcastRawTransaction = jest.fn();
+jest.mock('../networks/chain-data-router', () => ({
+  request: (...args) => mockChainRequest(...args),
+  broadcastRawTransaction: (...args) => mockBroadcastRawTransaction(...args),
+}));
+const { signPersonalMessage, estimateGas, getGasPrices, signAndSendTransaction } = require('./transaction-service');
 
 // Deterministic test key (not a real wallet)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -67,5 +73,54 @@ describe('signPersonalMessage', () => {
 
     const recovered = verifyMessage(message, signature);
     expect(recovered.toLowerCase()).toBe(testWallet.address.toLowerCase());
+  });
+});
+
+describe('capability-aware transaction routing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test('uses the configured chain source for gas estimation and fee data', async () => {
+    mockChainRequest
+      .mockResolvedValueOnce({ result: '0x5208', source: 'myotis' })
+      .mockResolvedValueOnce({ result: '0x64', source: 'myotis' })
+      .mockResolvedValueOnce({ result: '0x2', source: 'myotis' });
+
+    await expect(
+      estimateGas({ from: testWallet.address, to: testWallet.address, value: '0', chainId: 100 })
+    ).resolves.toEqual({ gasLimit: '25200' });
+    await expect(getGasPrices(100)).resolves.toMatchObject({
+      type: 'eip1559',
+      maxFeePerGas: '100',
+      maxPriorityFeePerGas: '2',
+    });
+  });
+
+  test('signs locally and broadcasts the raw transaction through Myotis', async () => {
+    mockChainRequest.mockResolvedValue({ result: '0x0', source: 'myotis' });
+    mockBroadcastRawTransaction.mockImplementation(async (_chainId, raw) => ({
+      result: Transaction.from(raw).hash,
+      source: 'myotis',
+    }));
+
+    const result = await signAndSendTransaction(
+      {
+        to: testWallet.address,
+        value: '1',
+        gasLimit: '21000',
+        maxFeePerGas: '100',
+        maxPriorityFeePerGas: '2',
+        chainId: 100,
+      },
+      TEST_PRIVATE_KEY
+    );
+
+    expect(mockBroadcastRawTransaction).toHaveBeenCalledWith(
+      100,
+      expect.stringMatching(/^0x/)
+    );
+    expect(result).toMatchObject({ chainId: 100, broadcastSource: 'myotis' });
+    expect(result.hash).toMatch(/^0x[0-9a-f]{64}$/i);
   });
 });

@@ -183,10 +183,10 @@ Freedom runs Swarm, IPFS, Radicle, and an experimental Myotis Ethereum light cli
 
 |                      | Swarm          | IPFS                                  | Myotis                         | Radicle                        |
 | -------------------- | -------------- | ------------------------------------- | ------------------------------ | ------------------------------ |
-| **Protocol role**    | `bzz://`       | `ipfs://`, `ipns://`                  | Verified ENS reads             | `rad://`                       |
+| **Protocol role**    | `bzz://`       | `ipfs://`, `ipns://`                  | Verified Ethereum/Gnosis reads and transaction broadcast | `rad://`                       |
 | **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | Myotis native addon            | radicle-node + radicle-httpd   |
 | **Managed ports**    | API 11633+, P2P 12633+ | none; embedded native handler | none; embedded native client | HTTP 18780+, P2P 18776+        |
-| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | `<profile>/myotis/`       | profile-scoped short Radicle home |
+| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | `<profile>/myotis/` (Ethereum) and `<profile>/myotis/gnosis/` | profile-scoped short Radicle home |
 | **Binary Directory** | `ant-bin/`     | `native/freedom-ipfs-node/`           | `myotis-bin/`                  | `radicle-bin/`                 |
 
 ### Smart Node Connection
@@ -223,9 +223,11 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 
 ### Integrated Myotis Ethereum Light Client (Experimental)
 
-- **Per-profile client**: Each profile uses its own `<profile>/myotis/` state and never reuses a separately installed Myotis application.
+- **Per-profile clients**: Each profile has independent Ethereum and Gnosis runtimes and state, and never reuses a separately installed Myotis application.
 - **Native transport**: Runs in-process through the Myotis native addon, with no HTTP API or managed port.
-- **Profile controls**: Managed/disabled mode, optional autostart, and runtime start/stop controls are available in Settings and the Nodes panel.
+- **Independent controls**: Ethereum and Gnosis have separate autostart, runtime toggle, sync status, peer count, and finalized-block controls.
+- **Chain data routing**: Wallet balances, transaction preparation, signed-transaction broadcast, and compatible dapp reads prefer Myotis, then Colibri verification, RPC quorum, and direct RPC according to each chain's settings. Unsupported methods transparently continue to the next source.
+- **Gnosis verification**: Both Myotis and Colibri are available as verified Gnosis sources; Colibri keeps separate verifier state per chain.
 - **Verified ENS reads**: Once synced, ENS content, address, and forward-verified reverse records are resolved against finalized Ethereum state before Freedom falls back to its configured verification method. ERC-3668/CCIP-Read records use their declared gateway only to retrieve the callback payload; Myotis verifies the callback against the same chain state.
 - **WNS/GNS adapters**: Freedom executes the existing WNS and GNS NameNFT calls through Myotis's local EVM path. Myotis v0.1.3 serves generic contract calls from the beacon optimistic head without a finalized verdict, so the UI labels those answers unverified rather than overstating their trust.
 

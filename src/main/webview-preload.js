@@ -346,8 +346,10 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   getServiceRegistry: guardInternal('getServiceRegistry', () =>
     ipcRenderer.invoke('service-registry:get')
   ),
-  getMyotisStatus: guardInternal('getMyotisStatus', () =>
-    ipcRenderer.invoke('myotis:getStatus')
+  getMyotisStatus: guardInternal('getMyotisStatus', (chainId) =>
+    chainId == null
+      ? ipcRenderer.invoke('myotis:getStatus')
+      : ipcRenderer.invoke('myotis:getStatus', chainId)
   ),
 
   // Opens the sidebar publish-setup checklist in the host window.

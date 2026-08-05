@@ -13,6 +13,10 @@
       "order": ["myotis", "colibri", "quorum"],
       "preferVerified": true
     },
+    "access": {
+      "readOrder": ["myotis", "colibri", "quorum", "direct"],
+      "broadcastOrder": ["myotis", "direct"]
+    },
     "quorum": {
       "k": 3,
       "m": 2,
@@ -32,7 +36,12 @@
     "logo": "gnosis.png",
     "builtin": true,
     "verification": {
-      "primary": "quorum"
+      "primary": "quorum",
+      "order": ["myotis", "colibri", "quorum"]
+    },
+    "access": {
+      "readOrder": ["myotis", "colibri", "quorum", "direct"],
+      "broadcastOrder": ["myotis", "direct"]
     },
     "quorum": {
       "k": 3,
@@ -53,6 +62,10 @@
     "builtin": true,
     "verification": {
       "primary": "quorum"
+    },
+    "access": {
+      "readOrder": ["quorum", "direct"],
+      "broadcastOrder": ["direct"]
     },
     "quorum": {
       "k": 3,

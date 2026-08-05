@@ -18,6 +18,13 @@ async function loadMyotisUi(options = {}) {
     peers: createElement('span'),
     block: createElement('span'),
     version: createElement('span'),
+    gnosisButton: createElement('button'),
+    gnosisToggle: createElement('span'),
+    gnosisInfo: createElement('div', { classes: ['ipfs-info'] }),
+    gnosisState: createElement('span'),
+    gnosisPeers: createElement('span'),
+    gnosisBlock: createElement('span'),
+    gnosisVersion: createElement('span'),
   };
   const document = createDocument({
     elementsById: {
@@ -28,6 +35,13 @@ async function loadMyotisUi(options = {}) {
       'myotis-peers-count': elements.peers,
       'myotis-finalized-block': elements.block,
       'myotis-version-text': elements.version,
+      'myotis-gnosis-toggle-btn': elements.gnosisButton,
+      'myotis-gnosis-toggle-switch': elements.gnosisToggle,
+      'myotis-gnosis-info': elements.gnosisInfo,
+      'myotis-gnosis-state-text': elements.gnosisState,
+      'myotis-gnosis-peers-count': elements.gnosisPeers,
+      'myotis-gnosis-finalized-block': elements.gnosisBlock,
+      'myotis-gnosis-version-text': elements.gnosisVersion,
     },
   });
   let statusHandler;
@@ -46,7 +60,17 @@ async function loadMyotisUi(options = {}) {
       peerCount: 3,
     }),
     stop: jest.fn().mockResolvedValue(initialStatus),
-    getStatus: jest.fn().mockResolvedValue(initialStatus),
+    getStatus: jest.fn((chainId = 1) => Promise.resolve(
+      Number(chainId) === 100
+        ? {
+            supported: true,
+            available: true,
+            running: false,
+            state: 'off',
+            chainId: 100,
+          }
+        : initialStatus
+    )),
     onStatusUpdate: jest.fn((handler) => {
       statusHandler = handler;
       handler(initialStatus);
@@ -112,5 +136,30 @@ describe('myotis-ui', () => {
     ctx.elements.button.dispatch('click');
     await flushMicrotasks();
     expect(ctx.api.start).not.toHaveBeenCalled();
+  });
+
+  test('controls the independent Gnosis light client', async () => {
+    const ctx = await loadMyotisUi();
+    ctx.mod.initMyotisUi();
+    await flushMicrotasks();
+
+    ctx.getStatusHandler()({
+      supported: true,
+      available: true,
+      running: true,
+      state: 'ready',
+      chainId: 100,
+      peerCount: 4,
+      finalizedBlockNumber: '9876',
+      version: '0.1.3',
+    });
+    expect(ctx.elements.gnosisToggle.classList.contains('running')).toBe(true);
+    expect(ctx.elements.gnosisState.textContent).toBe('Ready');
+    expect(ctx.elements.gnosisPeers.textContent).toBe('4');
+    expect(ctx.elements.gnosisBlock.textContent).toBe('9876');
+
+    ctx.elements.gnosisButton.dispatch('click');
+    await flushMicrotasks();
+    expect(ctx.api.stop).toHaveBeenCalledWith(100);
   });
 });

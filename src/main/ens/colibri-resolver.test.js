@@ -25,6 +25,7 @@ jest.mock('@corpus-core/colibri-stateless', () => {
       mockColibriCtor(config);
       this.config = config;
       this.destroy = jest.fn();
+      this.request = jest.fn().mockResolvedValue('0x2a');
       mockClientInstances.push(this);
     }
     static register_storage(storage) { return mockRegisterStorage(storage); }
@@ -68,6 +69,7 @@ jest.mock('../ens-resolver', () => ({
 const {
   resolveViaColibri,
   resolveReverseViaColibri,
+  requestViaColibri,
   clearColibriClientForTest,
 } = require('./colibri-resolver');
 
@@ -253,6 +255,24 @@ describe('resolveReverseViaColibri', () => {
     const err = Object.assign(new Error('ReverseAddressMismatch'), { data: '0xef9c03ce' });
     mockUniversalResolverReverse.mockRejectedValue(err);
     await expect(resolveReverseViaColibri(ADDR_BYTES)).rejects.toBe(err);
+  });
+});
+
+describe('requestViaColibri', () => {
+  test('creates and reuses an independent Gnosis client', async () => {
+    mockLoadSettings.mockReturnValue({ ...DEFAULTS });
+    await expect(
+      requestViaColibri(100, 'eth_getBalance', ['0xabc', 'latest'])
+    ).resolves.toBe('0x2a');
+    const gnosisClient = mockClientInstances[0];
+    expect(mockColibriCtor).toHaveBeenCalledWith(expect.objectContaining({ chainId: 100 }));
+    expect(gnosisClient.request).toHaveBeenCalledWith({
+      method: 'eth_getBalance',
+      params: ['0xabc', 'latest'],
+    });
+
+    await requestViaColibri(1, 'eth_blockNumber');
+    expect(mockColibriCtor).toHaveBeenCalledTimes(2);
   });
 });
 

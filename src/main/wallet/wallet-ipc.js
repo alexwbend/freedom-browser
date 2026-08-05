@@ -23,6 +23,7 @@ const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
 const { withVaultPrivateKey } = require('./vault-access');
+const chainData = require('../networks/chain-data-router');
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -311,7 +312,24 @@ function registerWalletIpc() {
     }
   });
 
-  // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
+  // Capability-aware chain request. Myotis and Colibri are attempted before
+  // quorum/direct RPC according to the selected chain's access policy.
+  ipcMain.handle('wallet:chain-request', async (_event, { chainId, method, params }) => {
+    try {
+      if (!chainData.isReadMethod(method)) {
+        return { success: false, error: { code: 4200, message: 'Method not supported' } };
+      }
+      const response = await chainData.request(chainId, method, params || []);
+      return { success: true, ...response };
+    } catch (err) {
+      return {
+        success: false,
+        error: { code: err.code || -32603, message: err.message, data: err.data },
+      };
+    }
+  });
+
+  // Legacy endpoint-specific proxy retained for existing internal callers.
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {
       if (!isAllowedRpcUrl(rpcUrl)) {

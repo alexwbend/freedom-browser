@@ -390,6 +390,9 @@ async function bootstrap() {
     ) {
       myotisManager.startMyotis();
     }
+    if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
+      myotisManager.startMyotis({ chainId: 100 });
+    }
   }
 
   // Initialize auto-updater (pass menu update callback). Skipped in
@@ -467,7 +470,7 @@ app.on('before-quit', async (event) => {
   cleanupTempDirs();
 
   log.info('[App] Waiting for Ant, IPFS, Myotis, and Radicle to stop...');
-  myotisManager.stopMyotis();
+  myotisManager.stopAllMyotis();
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
   log.info('[App] All processes stopped, quitting...');
 

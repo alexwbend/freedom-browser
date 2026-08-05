@@ -482,7 +482,8 @@ const ensReverseCache = new Map();
 // outlive readiness by up to their 15-minute TTL — the P2P tier could never
 // overtake a name or address the user already visited. Sweep every resolution
 // cache on the not-ready → ready transition so the next lookup uses Myotis.
-myotisManager.onReadyTransition(() => {
+myotisManager.onReadyTransition((chainId) => {
+  if (chainId != null && Number(chainId) !== 1) return;
   const swept = ensResultCache.size + ensAddressCache.size + ensReverseCache.size;
   ensResultCache.clear();
   ensAddressCache.clear();

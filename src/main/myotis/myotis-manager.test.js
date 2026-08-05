@@ -51,6 +51,9 @@ describe('myotis-manager', () => {
       resolveEnsJson: jest.fn(),
       ethCallJson: jest.fn(),
       requestAccountJson: jest.fn(),
+      estimateGasJson: jest.fn(),
+      feeEstimateJson: jest.fn(),
+      sendRawTransactionJson: jest.fn(),
     };
     const activeProfile = {
       metadata: {
@@ -71,7 +74,9 @@ describe('myotis-manager', () => {
         [addonPath]: () => addon,
         [require.resolve('../logger')]: () => ({ info: jest.fn(), warn: jest.fn() }),
         [require.resolve('../profile-paths')]: () => ({
-          getMyotisDataDir: jest.fn(() => dataDir),
+          getMyotisDataDir: jest.fn((network) =>
+            network === 'gnosis' ? path.join(dataDir, 'gnosis') : dataDir
+          ),
         }),
         [require.resolve('../profile-resolver')]: () => ({
           getActiveProfile: jest.fn(() => activeProfile),
@@ -107,6 +112,23 @@ describe('myotis-manager', () => {
 
     ctx.mod.stopMyotis();
     expect(ctx.addon.stop).toHaveBeenCalledWith(7);
+  });
+
+  test('runs Ethereum and Gnosis as independent native handles and data directories', () => {
+    const ctx = loadManager();
+    ctx.addon.create.mockReturnValueOnce(7).mockReturnValueOnce(8);
+
+    expect(ctx.mod.startMyotis()).toBe(true);
+    expect(ctx.mod.startMyotis({ chainId: 100 })).toBe(true);
+    expect(ctx.addon.create).toHaveBeenNthCalledWith(1, 'mainnet', ctx.dataDir);
+    expect(ctx.addon.create).toHaveBeenNthCalledWith(2, 'gnosis', path.join(ctx.dataDir, 'gnosis'));
+    expect(ctx.mod.publicStatus(1)).toMatchObject({ chainId: 1, network: 'mainnet', running: true });
+    expect(ctx.mod.publicStatus(100)).toMatchObject({ chainId: 100, network: 'gnosis', running: true });
+
+    ctx.mod.stopMyotis(100);
+    expect(ctx.addon.stop).toHaveBeenCalledWith(8);
+    expect(ctx.mod.publicStatus(1).running).toBe(true);
+    expect(ctx.mod.publicStatus(100).running).toBe(false);
   });
 
   test('does not load or start the addon when the profile disables Myotis', () => {
@@ -216,5 +238,22 @@ describe('myotis-manager', () => {
       '0',
       'latest'
     );
+  });
+
+  test('exposes Gnosis account, gas, fee, and P2P broadcast operations', async () => {
+    const ctx = loadManager();
+    ctx.mod.startMyotis({ chainId: 100 });
+    ctx.addon.requestAccountJson.mockResolvedValue(JSON.stringify({ balanceWei: '42', nonce: 2 }));
+    ctx.addon.estimateGasJson.mockResolvedValue(JSON.stringify({ gasLimit: 21000 }));
+    ctx.addon.feeEstimateJson.mockResolvedValue(JSON.stringify({ gasPriceWei: '3' }));
+    ctx.addon.sendRawTransactionJson.mockResolvedValue(JSON.stringify({ txHash: '0x1234' }));
+
+    await expect(ctx.mod.getAccount('0xabc', 100)).resolves.toMatchObject({ balanceWei: '42' });
+    await expect(ctx.mod.estimateGas({ chainId: 100, from: '0xabc', to: '0xdef' }))
+      .resolves.toMatchObject({ gasLimit: 21000 });
+    await expect(ctx.mod.feeEstimate(100)).resolves.toMatchObject({ gasPriceWei: '3' });
+    await expect(ctx.mod.sendRawTransaction('0xsigned', 100))
+      .resolves.toMatchObject({ txHash: '0x1234' });
+    expect(ctx.addon.sendRawTransactionJson).toHaveBeenCalledWith(7, '0xsigned');
   });
 });

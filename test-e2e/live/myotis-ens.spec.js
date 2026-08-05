@@ -23,7 +23,7 @@ test.describe('myotis live ENS resolution', () => {
     electronApp,
     window: win,
   }) => {
-    test.setTimeout(READY_TIMEOUT_MS + 120_000);
+    test.setTimeout(READY_TIMEOUT_MS * 2 + 120_000);
 
     // 1. Wait (in the app's main process) for the node to report ready and
     //    prove that a verified read is actually servable. A warm restart can
@@ -61,6 +61,50 @@ test.describe('myotis live ENS resolution', () => {
       '[myotis-e2e] node ready and direct read verified:',
       JSON.stringify({ status: status.status, probe: status.probe }).slice(0, 1000)
     );
+
+    // Gnosis uses a second native handle and profile-local state directory.
+    // Prove both the native account path and Freedom's capability router while
+    // the Ethereum client remains running.
+    let gnosis;
+    const gnosisDeadline = Date.now() + READY_TIMEOUT_MS;
+    for (;;) {
+      // eslint-disable-next-line no-empty-pattern
+      gnosis = await electronApp.evaluate(async ({}, { managerPath: p, address }) => {
+        const m = process.mainModule.require(p);
+        m.startMyotis({ chainId: 100 });
+        const ready = m.isReady(100);
+        let account = null;
+        if (ready) {
+          try {
+            account = await m.getAccount(address, 100);
+          } catch (err) {
+            account = { error: err.message };
+          }
+        }
+        return { ready, account, status: m.getStatus(100) };
+      }, { managerPath, address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' });
+      if (
+        gnosis.ready &&
+        gnosis.account?.peerProofValid === true &&
+        gnosis.account?.beaconChainVerified === true
+      ) break;
+      if (Date.now() > gnosisDeadline) {
+        throw new Error(`Gnosis Myotis never served a verified read: ${JSON.stringify(gnosis)}`);
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+
+    const routerPath = path.join(repoRoot, 'src', 'main', 'networks', 'chain-data-router.js');
+    const routedGnosis = await electronApp.evaluate(
+      // eslint-disable-next-line no-empty-pattern
+      async ({}, { p, address }) => {
+        const router = process.mainModule.require(p);
+        return router.request(100, 'eth_getBalance', [address, 'latest']);
+      },
+      { p: routerPath, address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' }
+    );
+    expect(routedGnosis).toMatchObject({ source: 'myotis', verified: true });
+    expect(routedGnosis.result).toMatch(/^0x[0-9a-f]+$/i);
 
     // 2. Resolve through the REAL resolver pipeline in the main process and
     //    assert the myotis tier carried the answer. The first read after
