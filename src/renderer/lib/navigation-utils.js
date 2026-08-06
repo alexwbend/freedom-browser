@@ -160,16 +160,15 @@ export const buildTrustRows = ({
   // server row to show.
   if (isMyotis) {
     trustRows.push({
-      label: level === 'verified' ? 'Verified by' : 'Resolved by',
+      label: 'Verified by',
       display: 'Myotis light client',
       copy: '',
     });
     trustRows.push({
       label: 'Evidence',
-      display:
-        level === 'verified'
-          ? 'Beacon-finalized proof'
-          : 'Optimistic beacon proof (not finalized)',
+      display: trust.finality === 'optimistic'
+        ? 'Optimistic beacon proof (not finalized)'
+        : 'Beacon-finalized proof',
       copy: '',
     });
     pushBlockRow();

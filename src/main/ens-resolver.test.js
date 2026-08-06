@@ -1340,7 +1340,7 @@ describe('ens-resolver', () => {
       expect(mockUrReverse).not.toHaveBeenCalled();
     });
 
-    test('applies verified-answer preference to reverse resolution order', async () => {
+    test('accepts an optimistic beacon-verified reverse answer without duplicate fallback', async () => {
       myotisUp();
       const address = '0x0000000000000000000000000000000000001210';
       mockLoadSettings.mockReturnValue({
@@ -1361,14 +1361,47 @@ describe('ens-resolver', () => {
 
       expect(result).toMatchObject({
         success: true,
-        name: 'verified.eth',
-        trust: { level: 'verified', method: 'colibri' },
+        name: 'optimistic.eth',
+        trust: { level: 'verified', method: 'myotis', finality: 'optimistic' },
       });
-      expect(mockResolveReverseViaColibri).toHaveBeenCalled();
+      expect(mockResolveReverseViaColibri).not.toHaveBeenCalled();
       expect(mockUrReverse).not.toHaveBeenCalled();
     });
 
-    test('peer-head answers (verified=false) are honestly labelled unverified', async () => {
+    test('accepts a complete optimistic Myotis reverse miss without repeating ENS remotely', async () => {
+      myotisUp();
+      const address = '0x0000000000000000000000000000000000001211';
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        ensResolutionMethod: 'colibri',
+        ensResolutionOrder: ['myotis', 'colibri', 'quorum'],
+        ensPreferVerified: true,
+      });
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'noRecord',
+        verified: false,
+        blockNumber: 23456791,
+      });
+      mockMyotisEthCall.mockResolvedValue({
+        status: 'ok',
+        resultHex: actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['']),
+      });
+
+      const result = await resolveEnsReverse(address);
+
+      expect(result).toMatchObject({
+        success: false,
+        reason: 'NO_REVERSE',
+        trust: { level: 'verified', method: 'myotis', finality: 'optimistic' },
+      });
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalledTimes(1);
+      expect(mockMyotisEthCall).toHaveBeenCalledTimes(2);
+      expect(mockResolveReverseViaColibri).not.toHaveBeenCalled();
+      expect(mockResolveViaColibri).not.toHaveBeenCalled();
+      expect(mockUrReverse).not.toHaveBeenCalled();
+    });
+
+    test('optimistic answers are verified while remaining explicitly non-finalized', async () => {
       myotisUp();
       mockMyotisResolveEnsRecord.mockResolvedValue({
         status: 'ok',
@@ -1380,10 +1413,14 @@ describe('ens-resolver', () => {
       const result = await resolveEnsContent('myotis-peerhead.eth');
 
       expect(result.type).toBe('ok');
-      expect(result.trust).toMatchObject({ level: 'unverified', method: 'myotis' });
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+      });
     });
 
-    test('continues past an optimistic Myotis answer when verified answers are preferred', async () => {
+    test('does not repeat an optimistic Myotis answer through Colibri', async () => {
       myotisUp();
       mockLoadSettings.mockReturnValue({
         ...mockLoadSettings(),
@@ -1397,14 +1434,15 @@ describe('ens-resolver', () => {
         blockNumber: 23456790,
         dataHex: ipfsContenthashFor(IPFS_V0),
       });
-      const [resolvedData, resolverAddress] = urReturnsBytes(ipfsContenthashFor(IPFS_V0));
-      mockResolveViaColibri.mockResolvedValue({ resolvedData, resolverAddress });
-
       const result = await resolveEnsContent('prefer-verified.eth');
 
       expect(mockMyotisResolveEnsRecord).toHaveBeenCalled();
-      expect(mockResolveViaColibri).toHaveBeenCalled();
-      expect(result.trust).toMatchObject({ level: 'verified', method: 'colibri' });
+      expect(mockResolveViaColibri).not.toHaveBeenCalled();
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+      });
     });
 
     test('honors custom method order and does not invoke lower-priority methods after success', async () => {
@@ -1425,7 +1463,7 @@ describe('ens-resolver', () => {
       expect(mockUrResolve).not.toHaveBeenCalled();
     });
 
-    test('keeps the first optimistic answer when no later method verifies it', async () => {
+    test('does not consult a later method after an optimistic verified answer', async () => {
       myotisUp();
       mockLoadSettings.mockReturnValue({
         ...mockLoadSettings(),
@@ -1439,12 +1477,15 @@ describe('ens-resolver', () => {
         blockNumber: 23456790,
         dataHex: ipfsContenthashFor(IPFS_V0),
       });
-      mockResolveViaColibri.mockRejectedValue(new Error('prover unavailable'));
-
       const result = await resolveEnsContent('provisional-fallback.eth');
 
       expect(result.type).toBe('ok');
-      expect(result.trust).toMatchObject({ level: 'unverified', method: 'myotis' });
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+      });
+      expect(mockResolveViaColibri).not.toHaveBeenCalled();
       expect(mockUrResolve).not.toHaveBeenCalled();
     });
 
@@ -1621,7 +1662,7 @@ describe('ens-resolver', () => {
         expect(result).toMatchObject({
           type: 'not_found',
           reason: 'EMPTY_CONTENTHASH',
-          trust: { level: 'unverified', method: 'myotis' },
+          trust: { level: 'verified', method: 'myotis', finality: 'optimistic' },
         });
         expect(global.fetch).toHaveBeenCalledTimes(2);
         expect(global.fetch.mock.calls[1][1]).toMatchObject({
@@ -1751,7 +1792,12 @@ describe('ens-resolver', () => {
         type: 'ok',
         system: 'wns',
         uri: `ipfs://${IPFS_V0}`,
-        trust: { level: 'unverified', method: 'myotis', system: 'wns' },
+        trust: {
+          level: 'verified',
+          method: 'myotis',
+          system: 'wns',
+          finality: 'optimistic',
+        },
       });
       expect(mockMyotisEthCall.mock.calls[0][0].to.toLowerCase()).toBe(WNS_ADDRESS);
       expect(mockMyotisEthCall.mock.calls[0][0].block).toBe('latest');
@@ -1772,7 +1818,12 @@ describe('ens-resolver', () => {
         success: true,
         system: 'gns',
         address,
-        trust: { level: 'unverified', method: 'myotis', system: 'gns' },
+        trust: {
+          level: 'verified',
+          method: 'myotis',
+          system: 'gns',
+          finality: 'optimistic',
+        },
       });
       expect(mockMyotisEthCall.mock.calls[0][0].to.toLowerCase()).toBe(GNS_ADDRESS);
       expect(mockMyotisEthCall.mock.calls[0][0].block).toBe('latest');
@@ -1803,7 +1854,12 @@ describe('ens-resolver', () => {
         success: true,
         name: 'alice.wei',
         system: 'wns',
-        trust: { level: 'unverified', method: 'myotis', system: 'wns' },
+        trust: {
+          level: 'verified',
+          method: 'myotis',
+          system: 'wns',
+          finality: 'optimistic',
+        },
       });
       expect(mockMyotisEthCall).toHaveBeenCalledTimes(2);
       expect(mockUrReverse).not.toHaveBeenCalled();
@@ -1842,7 +1898,7 @@ describe('ens-resolver', () => {
         reason: 'UNVERIFIED',
         claimedName: 'spoof.wei',
         system: 'wns',
-        trust: { level: 'unverified', method: 'myotis' },
+        trust: { level: 'verified', method: 'myotis', finality: 'optimistic' },
       });
       expect(mockUrReverse).not.toHaveBeenCalled();
     });

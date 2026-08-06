@@ -447,6 +447,7 @@ describe('navigation-utils', () => {
         level: 'verified',
         trust: {
           method: 'myotis',
+          finality: 'finalized',
           proof: 'P2P light client (beacon-finalized, sync-committee proof)',
           block: 25633314,
           agreed: ['myotis-p2p'],
@@ -464,13 +465,14 @@ describe('navigation-utils', () => {
       expect(result.contentRows[0]).toEqual({ label: 'Network', display: 'IPFS', copy: '' });
     });
 
-    test('myotis-unverified: labels an optimistic beacon result as resolved, not verified', async () => {
+    test('myotis optimistic: shows verified evidence while disclosing non-finality', async () => {
       const { buildTrustRows } = await loadNavigationUtils();
 
       const result = buildTrustRows({
-        level: 'unverified',
+        level: 'verified',
         trust: {
           method: 'myotis',
+          finality: 'optimistic',
           proof: 'P2P light client (optimistic beacon root — attested, not finalized)',
           block: 25633315,
           agreed: ['myotis-p2p'],
@@ -479,9 +481,9 @@ describe('navigation-utils', () => {
         uri: 'bzz://abc123',
       });
 
-      expect(result.status).toBe('ENS resolution not verified');
+      expect(result.status).toBe('ENS resolution verified');
       expect(result.trustRows).toEqual([
-        { label: 'Resolved by', display: 'Myotis light client', copy: '' },
+        { label: 'Verified by', display: 'Myotis light client', copy: '' },
         {
           label: 'Evidence',
           display: 'Optimistic beacon proof (not finalized)',

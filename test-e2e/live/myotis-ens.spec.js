@@ -215,22 +215,22 @@ test.describe('myotis live ENS resolution', () => {
     expect(integration.myotis.wns).toMatchObject({
       type: 'ok',
       system: 'wns',
-      trust: { method: 'myotis', level: 'unverified' },
+      trust: { method: 'myotis', level: 'verified', finality: 'optimistic' },
     });
     expect(integration.myotis.gns).toMatchObject({
       type: 'ok',
       system: 'gns',
-      trust: { method: 'myotis', level: 'unverified' },
+      trust: { method: 'myotis', level: 'verified', finality: 'optimistic' },
     });
     expect(integration.preferred.wns).toMatchObject({
       type: 'ok',
       system: 'wns',
-      trust: { method: 'colibri', level: 'verified' },
+      trust: { method: 'myotis', level: 'verified', finality: 'optimistic' },
     });
     expect(integration.preferred.gns).toMatchObject({
       type: 'ok',
       system: 'gns',
-      trust: { method: 'colibri', level: 'verified' },
+      trust: { method: 'myotis', level: 'verified', finality: 'optimistic' },
     });
 
     // 4. Drive the UI: navigate to the name and let the page render through

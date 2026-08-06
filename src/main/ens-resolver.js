@@ -1149,9 +1149,10 @@ async function tryMyotisEnsPath(name, callData, nameSystem) {
 
 // WNS and GNS are separate NameNFT contracts, not ENS registries. Myotis's
 // generic verified eth_call can execute their existing calldata locally. The
-// current v0.1.3 addon pins generic calls to the beacon optimistic head and
-// does not return a finalized verdict, so these results are conservatively
-// labelled unverified even though their state proofs are beacon-anchored.
+// current v0.1.3 addon pins generic calls to the beacon optimistic head. Every
+// state fetch is MPT-verified against that root and the root is authenticated
+// by the light client's sync committee; `ok` therefore means cryptographically
+// verified, while the trust metadata still states that it is not finalized.
 async function tryMyotisContractPath(callData, nameSystem) {
   const rec = await myotisManager.ethCall({
     to: nameSystem.contractAddress,
@@ -1185,27 +1186,27 @@ async function tryMyotisPath(name, callData, nameSystem) {
   return tryMyotisEnsPath(name, callData, nameSystem);
 }
 
-// `verified` on the engine result means the resolution ran against the
-// beacon-FINALIZED state root. The engine's AUTO mode falls back to the
-// beacon OPTIMISTIC root (attested by the sync committee but not yet
-// finalized — see myotis host.rs: "finalized first, optimistic fallback")
-// only when the finalized state has no record. Optimistic is still
-// beacon-anchored, but reorgable — we keep the conservative 'unverified'
-// level and let the proof text say precisely what it is.
+// `verified` on the engine result is a FINALITY flag: true means the query ran
+// against the beacon-finalized root; false means the sync-committee-attested
+// optimistic root. Both paths cryptographically verify state and fail closed.
+// Keep the distinction in `finality` and proof copy instead of mislabelling an
+// authenticated optimistic result as an unverified RPC response. This matches
+// Colibri, whose verified proof also targets a recent sync-committee head.
 function buildMyotisTrust(rec, nameSystem = NAME_SYSTEMS.ens) {
-  const verified = rec.verified === true;
+  const finalized = rec.verified === true;
   return {
-    level: verified ? 'verified' : 'unverified',
+    level: 'verified',
     system: nameSystem.id,
     method: 'myotis',
-    proof: verified
+    finality: finalized ? 'finalized' : 'optimistic',
+    proof: finalized
       ? 'P2P light client (beacon-finalized, sync-committee proof)'
       : 'P2P light client (optimistic beacon root — attested, not finalized)',
     block: rec.blockNumber ?? null,
     agreed: ['myotis-p2p'],
     dissented: [],
     queried: ['myotis-p2p'],
-    quorum: { k: 1, m: 1, achieved: verified },
+    quorum: { k: 1, m: 1, achieved: true },
   };
 }
 
