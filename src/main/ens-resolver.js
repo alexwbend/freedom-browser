@@ -90,8 +90,7 @@ const SWARM_CONTENTHASH_RE = /^0xe40101fa011b20(?<swarmHash>[0-9a-f]{64})$/;
 
 // ---------------------------------------------------------------------------
 // Session-shuffled public-RPC pool with per-provider quarantine. Backs the
-// `consensusResolve` primitive defined later; the one remaining caller of
-// the older `getWorkingProvider` path is reverse resolution.
+// quorum strategy for forward and reverse resolution.
 // ---------------------------------------------------------------------------
 
 // Per-provider sticky failure with exponential cooldown. In-memory only,
@@ -415,15 +414,11 @@ function withTimeout(promise, ms, onTimeout) {
   });
 }
 
-let cachedProvider = null;
-let cachedProviderUrl = null;
-
 // Outcome-specific TTLs. Indexed by trust.level; the default fallback
-// applies to legacy code paths (e.g. reverse resolution) that don't carry
-// a trust field. Verified/user-configured outcomes are stable enough for
-// 15min; unverified answers expire in 60s so transient public-RPC noise
-// doesn't pin the user-facing result for long; conflict outcomes are
-// negative-cached for 10s purely to avoid re-entry storms on repeated
+// applies to results that don't carry a trust field. Verified/user-configured
+// outcomes are stable enough for 15min; unverified answers expire in 60s so
+// transient public-RPC noise doesn't pin the user-facing result for long;
+// conflict outcomes are negative-cached for 10s purely to avoid re-entry storms on repeated
 // navigation attempts during an active lie.
 const TTL_BY_LEVEL = {
   verified: 15 * 60 * 1000,
@@ -491,81 +486,13 @@ myotisManager.onReadyTransition((chainId) => {
   log.info(`[ens] myotis ready — swept ${swept} cached resolution result(s) so the P2P tier can serve`);
 });
 
-// Get a working provider, trying each in sequence with fallback
-async function getWorkingProvider() {
-  // If the cached provider's URL no longer matches the current settings, invalidate it
-  if (cachedProvider && cachedProviderUrl) {
-    const providers = getEffectiveRpcEndpoints();
-    if (providers[0] !== cachedProviderUrl) {
-      log.info(`[ens] Settings changed, invalidating cached provider: ${cachedProviderUrl}`);
-      cachedProvider.destroy();
-      cachedProvider = null;
-      cachedProviderUrl = null;
-    }
-  }
-
-  // Return cached provider if still working
-  if (cachedProvider && cachedProviderUrl) {
-    try {
-      await cachedProvider.getBlockNumber();
-      log.info(`[ens] Reusing cached provider: ${cachedProviderUrl}`);
-      return cachedProvider;
-    } catch {
-      log.warn(`[ens] Cached provider ${cachedProviderUrl} failed, trying fallbacks...`);
-      cachedProvider.destroy();
-      cachedProvider = null;
-      cachedProviderUrl = null;
-    }
-  }
-
-  // Try each provider in sequence
-  const providers = getEffectiveRpcEndpoints();
-  const total = providers.length;
-  for (let i = 0; i < total; i++) {
-    const rpcUrl = providers[i];
-    const providerNum = `${i + 1}/${total}`;
-    let provider;
-    try {
-      log.info(`[ens] Trying provider ${providerNum}: ${rpcUrl}`);
-      provider = new ethers.JsonRpcProvider(rpcUrl);
-      await provider.getBlockNumber(); // Health check
-      log.info(`[ens] Using provider ${providerNum}: ${rpcUrl}`);
-      cachedProvider = provider;
-      cachedProviderUrl = rpcUrl;
-      return provider;
-    } catch (err) {
-      log.warn(`[ens] Provider ${providerNum} failed: ${err.message}`);
-      if (provider) {
-        provider.destroy();
-      }
-    }
-  }
-
-  throw new Error('All RPC providers failed. Check your network connection.');
-}
-
-// Drop the cached single-provider used by getWorkingProvider. Cheap reset
-// for the legacy retry loop — keeps quorum-path state (shuffled order,
-// quarantine memory, pinned block anchor) intact, so a transient flake
-// during reverse resolution doesn't make the next quorum wave pay an
-// extra anchor RTT.
-function dropCachedProvider() {
-  if (cachedProvider) {
-    log.info(`[ens] Invalidating cached provider: ${cachedProviderUrl}`);
-    cachedProvider.destroy();
-    cachedProvider = null;
-    cachedProviderUrl = null;
-  }
-}
-
-// Full reset: drop the legacy cached provider, wipe the quorum pool
-// (shuffled order, quarantine, pinned block), AND flush the per-name
-// resolution caches. External callers use this after a settings edit:
+// Full reset: wipe the quorum pool (shuffled order, quarantine, pinned block),
+// AND flush the per-name resolution caches. External callers use this after
+// a settings edit:
 // the resolution caches store each name's trust level, which is derived
 // from the verification method — so a method change must drop them or
 // stale results keep their old trust until their TTL expires.
 function invalidateCachedProvider() {
-  dropCachedProvider();
   invalidateProviderPool();
   clearEnsResolutionCaches();
   registry.invalidate();
@@ -599,9 +526,6 @@ function isProviderError(err) {
 
   return false;
 }
-
-// Maximum retries for provider errors during resolution
-const MAX_RESOLUTION_RETRIES = 3;
 
 // Canonical UR custom errors we classify. ethers v6 surfaces the 4-byte
 // selector via err.data on CALL_EXCEPTION; some wrappers (JSON-RPC
@@ -750,6 +674,89 @@ async function universalResolverReverse(provider, addressBytes, overrides = {}) 
     ...overrides,
   });
   return { name };
+}
+
+// Reverse calls need to participate in the same byte-agreement machinery as
+// forward records. Encode every semantic UR outcome as deterministic bytes so
+// quorum can compare successful names, empty records, mismatches, and verified
+// contract errors without collapsing them into the forward resolver's generic
+// NO_CONTENTHASH bucket.
+const REVERSE_OUTCOME = Object.freeze({
+  noRecord: 0,
+  name: 1,
+  mismatch: 2,
+  error: 3,
+});
+
+function encodeReverseOutcome(status, detail = '') {
+  return ethers.AbiCoder.defaultAbiCoder().encode(['uint8', 'string'], [status, detail]);
+}
+
+function decodeReverseOutcome(resolvedData) {
+  const [status, detail] = ethers.AbiCoder.defaultAbiCoder().decode(
+    ['uint8', 'string'],
+    resolvedData
+  );
+  return { status: Number(status), detail: String(detail || '') };
+}
+
+async function universalResolverReverseCall(provider, normalizedAddress, _callData, overrides = {}) {
+  try {
+    const { name } = await universalResolverReverse(
+      provider,
+      ethers.getBytes(normalizedAddress),
+      overrides
+    );
+    return {
+      resolvedData: encodeReverseOutcome(
+        name ? REVERSE_OUTCOME.name : REVERSE_OUTCOME.noRecord,
+        name || ''
+      ),
+      resolverAddress: UNIVERSAL_RESOLVER_ADDRESS,
+    };
+  } catch (err) {
+    if (isProviderError(err)) throw err;
+    if (isResolverNotFoundError(err)) {
+      return {
+        resolvedData: encodeReverseOutcome(REVERSE_OUTCOME.noRecord),
+        resolverAddress: UNIVERSAL_RESOLVER_ADDRESS,
+      };
+    }
+    if (isReverseAddressMismatchError(err)) {
+      return {
+        resolvedData: encodeReverseOutcome(
+          REVERSE_OUTCOME.mismatch,
+          decodeReverseMismatchClaimedName(err) || ''
+        ),
+        resolverAddress: UNIVERSAL_RESOLVER_ADDRESS,
+      };
+    }
+    return {
+      resolvedData: encodeReverseOutcome(REVERSE_OUTCOME.error, err.message),
+      resolverAddress: UNIVERSAL_RESOLVER_ADDRESS,
+    };
+  }
+}
+
+// NameNFT reverseResolve(address) adapter. `name` is a synthetic value with
+// the target system's suffix, allowing the existing NameNFT routing helper to
+// select the correct contract while quorum compares ABI-identical strings.
+async function nameNftReverseResolverCall(provider, name, callData, overrides = {}) {
+  const nameSystem = nameSystemForName(name);
+  if (!nameSystem.contractAddress) {
+    throw new Error(`No NameNFT contract configured for ${nameSystem.label}`);
+  }
+  const [address] = NAME_NFT_INTERFACE.decodeFunctionData('reverseResolve', callData);
+  const registryContract = new ethers.Contract(
+    nameSystem.contractAddress,
+    NAME_NFT_ABI,
+    provider
+  );
+  const claimedName = await registryContract.reverseResolve(address, overrides);
+  return {
+    resolvedData: ethers.AbiCoder.defaultAbiCoder().encode(['string'], [claimedName || '']),
+    resolverAddress: nameSystem.contractAddress,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1211,7 +1218,7 @@ function buildMyotisTrust(rec, nameSystem = NAME_SYSTEMS.ens) {
 // block N lives in block N+1).
 //
 // Throws on proof-verification failure / network error / prover outage so
-// the orchestrator can fall through to the always-on quorum fallback.
+// the orchestrator can fall through to the next configured method.
 async function tryColibriPath(
   name,
   callData,
@@ -1292,7 +1299,7 @@ function buildColibriTrust(proverHost, nameSystem = NAME_SYSTEMS.ens) {
 // honest trust basis: true when the endpoint is a user-added source
 // (trust='user-configured'), false when `direct` was chosen without a
 // custom endpoint so it's just an unverified builtin public RPC. On any
-// failure, return null so the caller falls back to the public quorum path.
+// failure, return null so the caller can try the next configured method.
 // Pinned block is fetched from the same RPC — we don't want to send
 // user-node requests to public RPCs behind their back.
 async function tryDirectResolve(
@@ -1686,6 +1693,38 @@ function isProvisionalResolution(result) {
   return result?.trust?.level === 'unverified';
 }
 
+// Execute exactly one configured method. Keeping this separate from the
+// fallback loop is important for reverse records: a WNS/GNS reverse claim
+// must be forward-verified through the same source that produced the claim.
+async function resolveWithMethod(method, normalizedName, callData, kind, options = {}) {
+  const callResolver = options.callResolver || universalResolverCall;
+  const nameSystem = options.nameSystem || NAME_SYSTEMS.ens;
+
+  if (method === 'myotis') {
+    if (!myotisManager.isEnabled()) return null;
+    return tryMyotisPath(normalizedName, callData, nameSystem);
+  }
+  if (method === 'colibri') {
+    return tryColibriPath(normalizedName, callData, callResolver, nameSystem);
+  }
+  if (method === 'direct') {
+    const direct = getDirectRpcCandidate(1);
+    if (!direct.url) return null;
+    return tryDirectResolve(
+      direct.url,
+      normalizedName,
+      callData,
+      direct.userConfigured,
+      callResolver,
+      nameSystem,
+    );
+  }
+  if (method === 'quorum') {
+    return resolveViaQuorum(normalizedName, callData, kind, options);
+  }
+  return null;
+}
+
 // Execute the user's unified resolution order. An unverified answer can be
 // retained provisionally while later methods get a chance to produce a
 // verified result; conflicts and user-configured/verified answers always stop.
@@ -1698,29 +1737,13 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
   let lastError = null;
 
   for (const method of order) {
-    let result = null;
+    let result;
     try {
-      if (method === 'myotis') {
-        if (myotisManager.isEnabled()) {
-          result = await tryMyotisPath(normalizedName, callData, nameSystem);
-        }
-      } else if (method === 'colibri') {
-        result = await tryColibriPath(normalizedName, callData, callResolver, nameSystem);
-      } else if (method === 'direct') {
-        const direct = getDirectRpcCandidate(1);
-        if (direct.url) {
-          result = await tryDirectResolve(
-            direct.url,
-            normalizedName,
-            callData,
-            direct.userConfigured,
-            callResolver,
-            nameSystem,
-          );
-        }
-      } else if (method === 'quorum') {
-        result = await resolveViaQuorum(normalizedName, callData, kind, options);
-      }
+      result = await resolveWithMethod(method, normalizedName, callData, kind, {
+        ...options,
+        callResolver,
+        nameSystem,
+      });
     } catch (err) {
       lastError = err;
       log.warn(
@@ -1932,10 +1955,9 @@ async function resolveEnsAddress(name) {
 // selectors and need independent caches.
 const inFlightResolves = new Map();
 
-// Shared validation + cache wrapper for the content-hash and addr lookup
-// paths. The consensusResolve primitive handles provider-error escalation
-// internally via its second-wave logic, so no outer retry loop is needed
-// for the new path. Legacy reverse-resolution uses its own retry below.
+// Shared validation + cache wrapper for content-hash, addr, and reverse
+// lookups. Each strategy handles provider fallback internally, so this layer
+// only normalizes, caches, and deduplicates concurrent work.
 //
 // Normalization goes through @adraffy/ens-normalize (UTS-46 / ENSIP-15),
 // not a bare .toLowerCase(). That's correct for unicode ENS names
@@ -1977,32 +1999,7 @@ async function resolveWithCache(name, cache, doResolve, label) {
     return existing;
   }
 
-  // consensusResolve (content/addr paths) handles provider-error escalation
-  // internally via its second-wave logic, so the outer retry loop only runs
-  // for the legacy reverse-resolution path.
-  const needsLegacyRetry = label === 'reverse';
-
-  const promise = (async () => {
-    if (!needsLegacyRetry) return doResolve(normalized);
-
-    let lastError;
-    for (let attempt = 1; attempt <= MAX_RESOLUTION_RETRIES; attempt++) {
-      try {
-        return await doResolve(normalized);
-      } catch (err) {
-        lastError = err;
-        if (isProviderError(err) && attempt < MAX_RESOLUTION_RETRIES) {
-          log.warn(
-            `[ens] ${label} provider error on attempt ${attempt}/${MAX_RESOLUTION_RETRIES}: ${err.message}`
-          );
-          dropCachedProvider();
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw lastError;
-  })().finally(() => {
+  const promise = doResolve(normalized).finally(() => {
     inFlightResolves.delete(dedupKey);
   });
 
@@ -2143,7 +2140,7 @@ async function resolveEnsReverse(address) {
 }
 
 // Colibri reverse path: cryptographically-verified `ur.reverse`. Returns
-// the same result shape as the legacy path, plus a `trust` object so the
+// the common reverse-result shape plus a `trust` object so the
 // renderer can surface a "verified" indicator. ReverseAddressMismatch
 // surfaces as UNVERIFIED — the proof was valid but the contract reverted,
 // which is the spoofed-reverse-record signal.
@@ -2189,87 +2186,6 @@ function unverifiedReverseResult(normalizedAddress, nameSystem, claimedName, det
     error: detail || `Reverse record for ${normalizedAddress} does not forward-verify`,
     ...(trust ? { trust } : {}),
   };
-}
-
-async function verifyContractBackedReverseName(normalizedAddress, nameSystem, claimedName) {
-  if (!claimedName) return null;
-  const claimedSystem = nameSystemForName(claimedName);
-  if (claimedSystem.id !== nameSystem.id) {
-    return unverifiedReverseResult(
-      normalizedAddress,
-      nameSystem,
-      claimedName,
-      `Reverse record for ${normalizedAddress} claims a non-${nameSystem.label} name`
-    );
-  }
-
-  let forwardResult;
-  try {
-    forwardResult = await resolveEnsAddress(claimedName);
-  } catch (err) {
-    return unverifiedReverseResult(
-      normalizedAddress,
-      nameSystem,
-      claimedName,
-      `Reverse record for ${normalizedAddress} could not be forward-verified: ${err.message}`
-    );
-  }
-
-  const forwardAddress = String(forwardResult?.address || '').toLowerCase();
-  if (forwardResult?.success && forwardAddress === normalizedAddress) {
-    return {
-      success: true,
-      address: normalizedAddress,
-      name: forwardResult.name || claimedName,
-      system: nameSystem.id,
-      trust: forwardResult.trust,
-    };
-  }
-
-  return unverifiedReverseResult(
-    normalizedAddress,
-    nameSystem,
-    claimedName,
-    `Reverse record for ${normalizedAddress} does not forward-verify`,
-    forwardResult?.trust
-  );
-}
-
-async function withContractBackedReverseFallback(normalizedAddress, ensResult) {
-  if (ensResult?.reason !== 'NO_REVERSE') return ensResult;
-
-  let provider;
-  try {
-    provider = await getWorkingProvider();
-    // Return the first forward-verified name across systems. A claim that
-    // doesn't forward-verify shouldn't stop us from checking the next system
-    // (an address can have a stale/spoofed .wei record but a valid .gwei
-    // primary), so keep the first unverified claim only as a fallback so its
-    // warning still surfaces when no system verifies.
-    let firstUnverified = null;
-    for (const nameSystem of CONTRACT_BACKED_REVERSE_SYSTEMS) {
-      try {
-        const registryContract = new ethers.Contract(
-          nameSystem.contractAddress,
-          NAME_NFT_ABI,
-          provider
-        );
-        const name = await registryContract.reverseResolve(normalizedAddress);
-        if (!name) continue;
-        const verified = await verifyContractBackedReverseName(normalizedAddress, nameSystem, name);
-        if (verified?.success) return verified;
-        if (!firstUnverified) firstUnverified = verified;
-      } catch (err) {
-        if (isProviderError(err)) throw err;
-        log.info(`[${nameSystem.id}] reverse failed for ${normalizedAddress}: ${err.message}`);
-      }
-    }
-    return firstUnverified || ensResult;
-  } catch (err) {
-    if (isProviderError(err)) throw err;
-    log.info(`[ens] contract-backed reverse fallback failed for ${normalizedAddress}: ${err.message}`);
-    return ensResult;
-  }
 }
 
 async function tryMyotisReverse(normalizedAddress) {
@@ -2370,55 +2286,158 @@ async function tryMyotisReverse(normalizedAddress) {
   };
 }
 
-async function resolveReverseViaRpc(normalizedAddress) {
-  const provider = await getWorkingProvider();
-  const ur = new ethers.Contract(UNIVERSAL_RESOLVER_ADDRESS, UR_ABI, provider);
-  const addrBytes = ethers.getBytes(normalizedAddress);
+function reverseConflictResult(normalizedAddress, nameSystem, outcome) {
+  return {
+    success: false,
+    address: normalizedAddress,
+    system: nameSystem.id,
+    reason: 'CONFLICT',
+    error: `Providers disagreed about the reverse record for ${normalizedAddress}`,
+    trust: outcome.trust,
+    groups: outcome.groups,
+  };
+}
 
-  let claimedName;
-  try {
-    const [name] = await ur.reverse(addrBytes, ETH_COIN_TYPE, { enableCcipRead: true });
-    claimedName = name;
-  } catch (err) {
-    if (isProviderError(err)) throw err;
-    if (isResolverNotFoundError(err)) {
-      return withContractBackedReverseFallback(
-        normalizedAddress,
-        noReverseResult(normalizedAddress)
-      );
-    }
-    if (isReverseAddressMismatchError(err)) {
-      return {
-        success: false,
-        address: normalizedAddress,
-        system: 'ens',
-        reason: 'UNVERIFIED',
-        claimedName: decodeReverseMismatchClaimedName(err),
-        error: `Reverse record for ${normalizedAddress} does not forward-verify`,
-      };
-    }
-    log.info(`[ens] UR reverse failed for ${normalizedAddress}: ${err.message}`);
+async function resolveEnsReverseWithMethod(method, normalizedAddress) {
+  if (method === 'colibri') return tryColibriReverse(normalizedAddress);
+
+  const outcome = await resolveWithMethod(method, normalizedAddress, '0x', 'reverse-ens', {
+    callResolver: universalResolverReverseCall,
+    nameSystem: NAME_SYSTEMS.ens,
+  });
+  if (!outcome) return null;
+  if (outcome.outcome === 'conflict') {
+    return reverseConflictResult(normalizedAddress, NAME_SYSTEMS.ens, outcome);
+  }
+  if (outcome.outcome === 'not_found') {
+    return { ...noReverseResult(normalizedAddress), trust: outcome.trust };
+  }
+
+  const decoded = decodeReverseOutcome(outcome.resolvedData);
+  if (decoded.status === REVERSE_OUTCOME.name) {
+    return {
+      success: true,
+      address: normalizedAddress,
+      name: decoded.detail,
+      system: 'ens',
+      trust: outcome.trust,
+    };
+  }
+  if (decoded.status === REVERSE_OUTCOME.mismatch) {
+    return unverifiedReverseResult(
+      normalizedAddress,
+      NAME_SYSTEMS.ens,
+      decoded.detail || null,
+      `Reverse record for ${normalizedAddress} does not forward-verify`,
+      outcome.trust
+    );
+  }
+  if (decoded.status === REVERSE_OUTCOME.error) {
     return {
       success: false,
       address: normalizedAddress,
       system: 'ens',
       reason: 'RESOLUTION_ERROR',
-      error: err.message,
+      error: decoded.detail,
+      trust: outcome.trust,
     };
   }
+  return { ...noReverseResult(normalizedAddress), trust: outcome.trust };
+}
 
-  if (!claimedName) {
-    return withContractBackedReverseFallback(
+async function resolveContractBackedReverseWithMethod(method, normalizedAddress, ensResult) {
+  if (ensResult?.reason !== 'NO_REVERSE') return ensResult;
+
+  let firstUnverified = null;
+  let lastTrust = ensResult.trust;
+  for (const nameSystem of CONTRACT_BACKED_REVERSE_SYSTEMS) {
+    const reverseCall = NAME_NFT_INTERFACE.encodeFunctionData('reverseResolve', [
       normalizedAddress,
-      noReverseResult(normalizedAddress)
+    ]);
+    const syntheticName = `reverse${nameSystem.suffix}`;
+    const reverseOutcome = await resolveWithMethod(
+      method,
+      syntheticName,
+      reverseCall,
+      `reverse-${nameSystem.id}`,
+      { callResolver: nameNftReverseResolverCall, nameSystem }
+    );
+    if (!reverseOutcome) return null;
+    lastTrust = reverseOutcome.trust || lastTrust;
+    if (reverseOutcome.outcome === 'conflict') {
+      return reverseConflictResult(normalizedAddress, nameSystem, reverseOutcome);
+    }
+    if (reverseOutcome.outcome === 'not_found') continue;
+
+    let claimedName;
+    try {
+      [claimedName] = ethers.AbiCoder.defaultAbiCoder().decode(
+        ['string'],
+        reverseOutcome.resolvedData
+      );
+    } catch (err) {
+      throw new Error(`invalid ${nameSystem.label} reverse response: ${err.message}`, {
+        cause: err,
+      });
+    }
+    if (!claimedName) continue;
+
+    const claimedSystem = nameSystemForName(claimedName);
+    if (claimedSystem.id !== nameSystem.id) {
+      firstUnverified ||= unverifiedReverseResult(
+        normalizedAddress,
+        nameSystem,
+        claimedName,
+        `Reverse record for ${normalizedAddress} claims a non-${nameSystem.label} name`,
+        reverseOutcome.trust
+      );
+      continue;
+    }
+
+    let forwardOutcome;
+    try {
+      const normalizedClaim = fastNormalize(String(claimedName).trim());
+      const forwardCall = ADDR_SELECTOR + ethers.namehash(normalizedClaim).slice(2);
+      forwardOutcome = await resolveWithMethod(
+        method,
+        normalizedClaim,
+        forwardCall,
+        `reverse-forward-${nameSystem.id}`,
+        { callResolver: nameNftResolverCall, nameSystem }
+      );
+      if (forwardOutcome?.outcome === 'data') {
+        const [forwardAddress] = ethers.AbiCoder.defaultAbiCoder().decode(
+          ['address'],
+          forwardOutcome.resolvedData
+        );
+        if (String(forwardAddress).toLowerCase() === normalizedAddress) {
+          return {
+            success: true,
+            address: normalizedAddress,
+            name: normalizedClaim,
+            system: nameSystem.id,
+            trust: forwardOutcome.trust,
+          };
+        }
+      }
+    } catch (err) {
+      log.info(
+        `[${nameSystem.id}] ${method} forward verification failed for ${normalizedAddress}: ${err.message}`
+      );
+    }
+
+    firstUnverified ||= unverifiedReverseResult(
+      normalizedAddress,
+      nameSystem,
+      claimedName,
+      `Reverse record for ${normalizedAddress} does not forward-verify`,
+      forwardOutcome?.trust || reverseOutcome.trust
     );
   }
 
-  return {
-    success: true,
-    address: normalizedAddress,
-    name: claimedName,
-    system: 'ens',
+  return firstUnverified || {
+    ...noReverseResult(normalizedAddress),
+    trust: lastTrust,
   };
 }
 
@@ -2431,22 +2450,19 @@ async function doResolveEnsReverse(normalizedAddress) {
   const { order, preferVerified } = resolutionPolicy(network);
   let provisional = null;
   let lastError = null;
-  let rpcAttempted = false;
 
   for (const method of order) {
     let result = null;
     try {
       if (method === 'myotis') {
         if (myotisManager.isEnabled()) result = await tryMyotisReverse(normalizedAddress);
-      } else if (method === 'colibri') {
-        const ensResult = await tryColibriReverse(normalizedAddress);
-        result = await withContractBackedReverseFallback(normalizedAddress, ensResult);
-      } else if ((method === 'quorum' || method === 'direct') && !rpcAttempted) {
-        // Reverse resolution retains the Universal Resolver's internal forward
-        // verification and mismatch decoding. Both RPC policies currently use
-        // that shared provider path; the order still controls when it runs.
-        rpcAttempted = true;
-        result = await resolveReverseViaRpc(normalizedAddress);
+      } else {
+        const ensResult = await resolveEnsReverseWithMethod(method, normalizedAddress);
+        result = await resolveContractBackedReverseWithMethod(
+          method,
+          normalizedAddress,
+          ensResult
+        );
       }
     } catch (err) {
       lastError = err;
@@ -2474,7 +2490,7 @@ function noReverseResult(normalizedAddress) {
     success: false,
     address: normalizedAddress,
     reason: 'NO_REVERSE',
-    error: `No primary ENS name set for ${normalizedAddress}`,
+    error: `No primary name set for ${normalizedAddress}`,
   };
 }
 

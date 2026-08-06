@@ -296,6 +296,10 @@ beforeEach(() => {
   mockGnsContenthash.mockResolvedValue('0x');
   mockGnsAddr.mockResolvedValue('0x0000000000000000000000000000000000000000');
   mockGnsReverseResolve.mockResolvedValue('');
+  mockResolveViaColibri.mockResolvedValue({
+    resolvedData: actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['']),
+    resolverAddress: WNS_ADDRESS,
+  });
   mockLoadSettings.mockReturnValue({
     enableEnsCustomRpc: false,
     ensRpcUrl: '',
@@ -864,12 +868,41 @@ describe('ens-resolver', () => {
 
       const result = await resolveEnsReverse(input);
 
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         success: true,
         address: input.toLowerCase(),
         name: 'verified1.eth',
         system: 'ens',
+        trust: {
+          level: 'verified',
+          system: 'ens',
+          quorum: { k: 3, m: 2, achieved: true },
+        },
       });
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
+    });
+
+    test('surfaces conflicting reverse names when the RPC quorum disagrees', async () => {
+      const input = addr('1014');
+      mockUrReverse
+        .mockResolvedValueOnce(['alice.eth', RESOLVER, RESOLVER])
+        .mockResolvedValueOnce(['bob.eth', RESOLVER, RESOLVER])
+        .mockResolvedValueOnce(['carol.eth', RESOLVER, RESOLVER]);
+
+      const result = await resolveEnsReverse(input);
+
+      expect(result).toMatchObject({
+        success: false,
+        address: input.toLowerCase(),
+        system: 'ens',
+        reason: 'CONFLICT',
+        trust: {
+          level: 'conflict',
+          quorum: { k: 3, m: 2, achieved: false },
+        },
+      });
+      expect(result.groups).toHaveLength(3);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
     });
 
     test('falls back to WNS reverse when ENS has no primary name', async () => {
@@ -887,8 +920,8 @@ describe('ens-resolver', () => {
         system: 'wns',
       });
       expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
-      expect(mockUrReverse).toHaveBeenCalledTimes(1);
-      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
+      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(3);
       expect(mockWnsAddr).toHaveBeenCalledTimes(3);
     });
 
@@ -908,9 +941,9 @@ describe('ens-resolver', () => {
         system: 'gns',
       });
       expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
-      expect(mockUrReverse).toHaveBeenCalledTimes(1);
-      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
-      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
+      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(3);
+      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(3);
       expect(mockGnsAddr).toHaveBeenCalledTimes(3);
     });
 
@@ -931,7 +964,7 @@ describe('ens-resolver', () => {
       });
       expect(result.name).toBeUndefined();
       expect(result.trust).toMatchObject({ level: 'verified', system: 'wns' });
-      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockWnsReverseResolve).toHaveBeenCalledTimes(3);
       expect(mockWnsAddr).toHaveBeenCalledTimes(3);
     });
 
@@ -953,7 +986,7 @@ describe('ens-resolver', () => {
       });
       expect(result.name).toBeUndefined();
       expect(result.trust).toMatchObject({ level: 'verified', system: 'gns' });
-      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(1);
+      expect(mockGnsReverseResolve).toHaveBeenCalledTimes(3);
       expect(mockGnsAddr).toHaveBeenCalledTimes(3);
     });
 
@@ -968,12 +1001,12 @@ describe('ens-resolver', () => {
       try {
         await resolveEnsReverse(input);
         await resolveEnsReverse(input);
-        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(1);
+        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(3);
 
         now.mockReturnValue(1_061_000);
         await resolveEnsReverse(input);
 
-        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(2);
+        expect(mockWnsReverseResolve).toHaveBeenCalledTimes(6);
       } finally {
         now.mockRestore();
       }
@@ -1039,13 +1072,13 @@ describe('ens-resolver', () => {
 
       mockUrReverse
         .mockRejectedValueOnce(providerError)
-        .mockResolvedValueOnce(['retry-reverse.eth', RESOLVER, RESOLVER]);
+        .mockResolvedValue(['retry-reverse.eth', RESOLVER, RESOLVER]);
 
       const result = await resolveEnsReverse(input);
 
       expect(result.success).toBe(true);
       expect(result.name).toBe('retry-reverse.eth');
-      expect(mockUrReverse).toHaveBeenCalledTimes(2);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
     });
 
     test('caches successful verified results', async () => {
@@ -1055,7 +1088,7 @@ describe('ens-resolver', () => {
       await resolveEnsReverse(input);
       await resolveEnsReverse(input);
 
-      expect(mockUrReverse).toHaveBeenCalledTimes(1);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
     });
 
     test('caches NO_REVERSE negative results too', async () => {
@@ -1065,7 +1098,7 @@ describe('ens-resolver', () => {
       await resolveEnsReverse(input);
       await resolveEnsReverse(input);
 
-      expect(mockUrReverse).toHaveBeenCalledTimes(1);
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
     });
 
     test('normalizes input address to lowercase for caching', async () => {
@@ -1076,7 +1109,28 @@ describe('ens-resolver', () => {
       await resolveEnsReverse(input.toLowerCase());
 
       // Second call hits the cache keyed on lowercase form.
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
+    });
+
+    test('direct reverse resolution only queries the selected custom RPC', async () => {
+      const input = addr('1013');
+      mockLoadSettings.mockReturnValue({
+        ...mockLoadSettings(),
+        enableEnsCustomRpc: true,
+        ensRpcUrl: 'https://user-rpc.example.com',
+        ensResolutionOrder: ['direct'],
+      });
+      mockUrReverse.mockResolvedValue(['direct.eth', RESOLVER, RESOLVER]);
+
+      const result = await resolveEnsReverse(input);
+
+      expect(result).toMatchObject({
+        success: true,
+        name: 'direct.eth',
+        trust: { level: 'user-configured' },
+      });
       expect(mockUrReverse).toHaveBeenCalledTimes(1);
+      expect(mockGetBlockNumber).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -1633,7 +1687,10 @@ describe('ens-resolver', () => {
       const firstReverse = await resolveEnsReverse(address);
       expect(firstContent.trust.method).not.toBe('myotis');
       expect(firstAddress.trust.method).not.toBe('myotis');
-      expect(firstReverse.trust).toBeUndefined();
+      expect(firstReverse.trust).toMatchObject({
+        level: 'verified',
+        quorum: { k: 3, m: 2, achieved: true },
+      });
 
       // 2. Node becomes ready — but the cached fallback answers still win…
       mockMyotisIsReady.mockImplementation(() => true);
@@ -1658,7 +1715,7 @@ describe('ens-resolver', () => {
       });
       expect((await resolveEnsContent('myotis-overtake.eth')).trust.method).not.toBe('myotis');
       expect((await resolveEnsAddress('myotis-overtake-addr.eth')).trust.method).not.toBe('myotis');
-      expect((await resolveEnsReverse(address)).trust).toBeUndefined();
+      expect((await resolveEnsReverse(address)).trust.method).not.toBe('myotis');
 
       // 3. …until the ready transition sweeps all three caches.
       expect(mockMyotisReadyListeners.length).toBeGreaterThan(0);
@@ -2834,7 +2891,7 @@ describe('ens-resolver', () => {
       expect(result.trust.quorum).toEqual({ k: 3, m: 2, achieved: true });
     });
 
-    test('default ensResolutionMethod=quorum leaves the legacy path untouched (regression)', async () => {
+    test('default ensResolutionMethod=quorum bypasses Colibri (regression)', async () => {
       // Don't call withColibri — defaults to 'quorum'.
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
 
@@ -2867,7 +2924,7 @@ describe('ens-resolver', () => {
     });
 
     test('no primary set surfaces as NO_REVERSE with trust attached', async () => {
-      withColibri();
+      withColibri({ ensResolutionOrder: ['colibri'] });
       mockResolveReverseViaColibri.mockResolvedValue({ name: '' });
 
       const result = await resolveEnsReverse(ADDR);
@@ -2875,6 +2932,41 @@ describe('ens-resolver', () => {
       expect(result.success).toBe(false);
       expect(result.reason).toBe('NO_REVERSE');
       expect(result.trust.method).toBe('colibri');
+      expect(mockResolveViaColibri).toHaveBeenCalledTimes(2);
+      expect(mockResolveViaColibri.mock.calls.map(([name]) => name)).toEqual([
+        'reverse.wei',
+        'reverse.gwei',
+      ]);
+      expect(mockGetBlockNumber).not.toHaveBeenCalled();
+      expect(mockUrReverse).not.toHaveBeenCalled();
+      expect(mockWnsReverseResolve).not.toHaveBeenCalled();
+      expect(mockGnsReverseResolve).not.toHaveBeenCalled();
+    });
+
+    test('resolves and forward-verifies WNS through Colibri without public RPC', async () => {
+      withColibri();
+      mockResolveReverseViaColibri.mockResolvedValue({ name: '' });
+      mockResolveViaColibri.mockImplementation(async (name) => {
+        const resolvedData = name === 'reverse.wei'
+          ? actualEthers.AbiCoder.defaultAbiCoder().encode(['string'], ['alice.wei'])
+          : actualEthers.AbiCoder.defaultAbiCoder().encode(['address'], [ADDR]);
+        return { resolvedData, resolverAddress: WNS_ADDRESS };
+      });
+
+      const result = await resolveEnsReverse(ADDR);
+
+      expect(result).toMatchObject({
+        success: true,
+        address: ADDR,
+        name: 'alice.wei',
+        system: 'wns',
+        trust: { level: 'verified', method: 'colibri', system: 'wns' },
+      });
+      expect(mockResolveViaColibri).toHaveBeenCalledTimes(2);
+      expect(mockGetBlockNumber).not.toHaveBeenCalled();
+      expect(mockUrReverse).not.toHaveBeenCalled();
+      expect(mockWnsReverseResolve).not.toHaveBeenCalled();
+      expect(mockWnsAddr).not.toHaveBeenCalled();
     });
 
     test('ResolverNotFound surfaces as NO_REVERSE (no record at all)', async () => {
@@ -2940,7 +3032,7 @@ describe('ens-resolver', () => {
       expect(result.claimedName).toBeNull();
     });
 
-    test('non-revert error falls through to the legacy path by default', async () => {
+    test('non-revert error falls through to the configured quorum path', async () => {
       withColibri();
       mockResolveReverseViaColibri.mockRejectedValue(new Error('prover unreachable'));
       mockUrReverse.mockResolvedValue(['legacy.eth']);
@@ -2949,20 +3041,26 @@ describe('ens-resolver', () => {
 
       expect(result.success).toBe(true);
       expect(result.name).toBe('legacy.eth');
-      // No trust field on the legacy path — additive design.
-      expect(result.trust).toBeUndefined();
-      expect(mockUrReverse).toHaveBeenCalled();
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        quorum: { k: 3, m: 2, achieved: true },
+      });
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
     });
 
-    test('default ensResolutionMethod=quorum leaves the legacy reverse path untouched', async () => {
+    test('default ensResolutionMethod=quorum queries the configured provider quorum', async () => {
       // Don't call withColibri — defaults to 'quorum'.
       mockUrReverse.mockResolvedValue(['legacy.eth']);
 
       const result = await resolveEnsReverse(ADDR);
 
       expect(mockResolveReverseViaColibri).not.toHaveBeenCalled();
-      expect(mockUrReverse).toHaveBeenCalled();
+      expect(mockUrReverse).toHaveBeenCalledTimes(3);
       expect(result.name).toBe('legacy.eth');
+      expect(result.trust).toMatchObject({
+        level: 'verified',
+        quorum: { k: 3, m: 2, achieved: true },
+      });
     });
 
     test('invalid address rejects before either path is hit', async () => {
