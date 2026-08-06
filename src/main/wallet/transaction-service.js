@@ -59,27 +59,16 @@ async function estimateGas({ from, to, value, data, chainId }) {
  */
 async function getGasPrices(chainId) {
   try {
-    const gasPriceResult = await chainData.request(chainId, 'eth_gasPrice');
-    const gasPrice = BigInt(gasPriceResult.result);
-    let priorityResult;
-    try {
-      priorityResult = await chainData.request(chainId, 'eth_maxPriorityFeePerGas');
-    } catch {
-      return {
-        type: 'legacy',
-        gasPrice: gasPrice.toString(),
-        effectiveGasPrice: gasPrice.toString(),
-      };
-    }
-    const priority = BigInt(priorityResult.result);
-    const baseFee = gasPrice > priority ? gasPrice - priority : 0n;
-    return {
-      type: 'eip1559',
-      baseFee: baseFee.toString(),
-      maxPriorityFeePerGas: priority.toString(),
-      maxFeePerGas: gasPrice.toString(),
-      effectiveGasPrice: gasPrice.toString(),
-    };
+    const quote = await chainData.getFeeQuote(chainId);
+    console.log('[TransactionService] Fee quote:', {
+      chainId,
+      type: quote.type,
+      source: quote.source,
+      maxFeePerGas: quote.maxFeePerGas,
+      maxPriorityFeePerGas: quote.maxPriorityFeePerGas,
+      gasPrice: quote.gasPrice,
+    });
+    return quote;
   } catch (err) {
     console.error('[TransactionService] Failed to get gas prices:', err);
     throw new Error(`Failed to get gas prices: ${err.message}`, { cause: err });
@@ -148,7 +137,10 @@ function buildTransaction({
   }
 
   // EIP-1559 or legacy
-  if (maxFeePerGas && maxPriorityFeePerGas) {
+  if (maxFeePerGas != null && maxPriorityFeePerGas != null) {
+    if (BigInt(maxPriorityFeePerGas) > BigInt(maxFeePerGas)) {
+      throw new Error('Invalid transaction fees: priority fee exceeds maximum fee');
+    }
     tx.maxFeePerGas = maxFeePerGas;
     tx.maxPriorityFeePerGas = maxPriorityFeePerGas;
     tx.type = 2; // EIP-1559
@@ -206,6 +198,7 @@ async function signAndSendTransaction(params, privateKey) {
       gasLimit: tx.gasLimit,
       chainId: tx.chainId,
       nonce: tx.nonce,
+      nonceSource: nonceResponse.source,
     });
 
     const signedTransaction = await wallet.signTransaction(tx);
@@ -234,22 +227,44 @@ async function signAndSendTransaction(params, privateKey) {
     console.error('[TransactionService] Transaction failed:', err);
 
     // Parse common error messages
-    if (err.message.includes('insufficient funds')) {
+    const message = String(err?.message || '');
+    const normalizedMessage = message.toLowerCase();
+    if (normalizedMessage.includes('insufficient funds')) {
       throw new Error('Insufficient funds for transaction', { cause: err });
     }
-    if (err.message.includes('nonce')) {
+    if (
+      [
+        'nonce too low',
+        'nonce too high',
+        'invalid nonce',
+        'nonce has already been used',
+        'replacement transaction underpriced',
+      ].some((pattern) => normalizedMessage.includes(pattern))
+    ) {
       throw new Error('Transaction nonce error. Please try again.', { cause: err });
     }
-    if (err.message.includes('gas')) {
+    if (
+      normalizedMessage.includes('priority fee') ||
+      normalizedMessage.includes('priorityfee') ||
+      normalizedMessage.includes('maxfeepergas') ||
+      normalizedMessage.includes('maxpriorityfeepergas') ||
+      normalizedMessage.includes('fee cap') ||
+      normalizedMessage.includes('base fee')
+    ) {
+      throw new Error('Transaction fee data is invalid. Please refresh and try again.', {
+        cause: err,
+      });
+    }
+    if (normalizedMessage.includes('gas')) {
       throw new Error('Gas estimation error. The transaction may fail.', { cause: err });
     }
     // Server errors (rate limiting, blocked, etc.)
     if (
       err.code === 'SERVER_ERROR' ||
-      err.message.includes('SERVER_ERROR') ||
-      err.message.includes('403') ||
-      err.message.includes('429') ||
-      err.message.includes('invalid numeric value')
+      message.includes('SERVER_ERROR') ||
+      message.includes('403') ||
+      message.includes('429') ||
+      normalizedMessage.includes('invalid numeric value')
     ) {
       throw new Error('RPC provider temporarily unavailable. Please try again.', { cause: err });
     }

@@ -1,8 +1,10 @@
 const { Wallet, Transaction, verifyMessage, getBytes } = require('ethers');
 const mockChainRequest = jest.fn();
+const mockGetFeeQuote = jest.fn();
 const mockBroadcastRawTransaction = jest.fn();
 jest.mock('../networks/chain-data-router', () => ({
   request: (...args) => mockChainRequest(...args),
+  getFeeQuote: (...args) => mockGetFeeQuote(...args),
   broadcastRawTransaction: (...args) => mockBroadcastRawTransaction(...args),
 }));
 const { signPersonalMessage, estimateGas, getGasPrices, signAndSendTransaction } = require('./transaction-service');
@@ -83,9 +85,16 @@ describe('capability-aware transaction routing', () => {
 
   test('uses the configured chain source for gas estimation and fee data', async () => {
     mockChainRequest
-      .mockResolvedValueOnce({ result: '0x5208', source: 'myotis' })
-      .mockResolvedValueOnce({ result: '0x64', source: 'myotis' })
-      .mockResolvedValueOnce({ result: '0x2', source: 'myotis' });
+      .mockResolvedValueOnce({ result: '0x5208', source: 'myotis' });
+    mockGetFeeQuote.mockResolvedValue({
+      type: 'eip1559',
+      baseFee: '98',
+      maxFeePerGas: '100',
+      maxPriorityFeePerGas: '2',
+      effectiveGasPrice: '100',
+      source: 'myotis',
+      verified: true,
+    });
 
     await expect(
       estimateGas({ from: testWallet.address, to: testWallet.address, value: '0', chainId: 100 })
@@ -95,6 +104,7 @@ describe('capability-aware transaction routing', () => {
       maxFeePerGas: '100',
       maxPriorityFeePerGas: '2',
     });
+    expect(mockGetFeeQuote).toHaveBeenCalledWith(100);
   });
 
   test('signs locally and broadcasts the raw transaction through Myotis', async () => {
@@ -122,5 +132,41 @@ describe('capability-aware transaction routing', () => {
     );
     expect(result).toMatchObject({ chainId: 100, broadcastSource: 'myotis' });
     expect(result.hash).toMatch(/^0x[0-9a-f]{64}$/i);
+  });
+
+  test('reports inconsistent fees as a fee error rather than a nonce error', async () => {
+    mockChainRequest.mockResolvedValue({ result: '0x11b', source: 'direct' });
+
+    await expect(
+      signAndSendTransaction(
+        {
+          to: testWallet.address,
+          value: '1',
+          gasLimit: '25200',
+          maxFeePerGas: '3727',
+          maxPriorityFeePerGas: '1000000000',
+          chainId: 100,
+        },
+        TEST_PRIVATE_KEY
+      )
+    ).rejects.toThrow('Transaction fee data is invalid. Please refresh and try again.');
+    expect(mockBroadcastRawTransaction).not.toHaveBeenCalled();
+  });
+
+  test('still maps an actual nonce rejection to the nonce error', async () => {
+    mockChainRequest.mockRejectedValue(new Error('nonce too low'));
+
+    await expect(
+      signAndSendTransaction(
+        {
+          to: testWallet.address,
+          value: '1',
+          gasLimit: '21000',
+          gasPrice: '1',
+          chainId: 100,
+        },
+        TEST_PRIVATE_KEY
+      )
+    ).rejects.toThrow('Transaction nonce error. Please try again.');
   });
 });

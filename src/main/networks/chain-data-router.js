@@ -72,6 +72,58 @@ function nativeResult(payload, ...keys) {
   throw new Error('Myotis returned an unexpected response');
 }
 
+function optionalNativeResult(payload, ...keys) {
+  for (const key of keys) {
+    if (payload?.[key] != null) return payload[key];
+  }
+  return null;
+}
+
+function feeQuote(source, gasPriceValue, priorityValue = null) {
+  const gasPrice = BigInt(gasPriceValue);
+  if (gasPrice <= 0n) throw new Error(`${source} returned a non-positive gas price`);
+
+  const metadata = {
+    source,
+    verified: source === 'myotis' || source === 'colibri' || source === 'quorum',
+  };
+  if (priorityValue == null) {
+    return {
+      type: 'legacy',
+      gasPrice: gasPrice.toString(),
+      effectiveGasPrice: gasPrice.toString(),
+      ...metadata,
+    };
+  }
+
+  const priority = BigInt(priorityValue);
+  // A provider can implement both methods yet return fee hints that cannot
+  // form a valid type-2 transaction. Keep the usable gas price from that same
+  // source and fall back to a legacy transaction instead of combining it with
+  // another provider's priority fee.
+  if (priority < 0n || priority > gasPrice) {
+    log.verbose(
+      `[chain-data] ${source} returned an inconsistent fee quote ` +
+        `(gasPrice=${gasPrice}, priorityFee=${priority}); using legacy fees`
+    );
+    return {
+      type: 'legacy',
+      gasPrice: gasPrice.toString(),
+      effectiveGasPrice: gasPrice.toString(),
+      ...metadata,
+    };
+  }
+
+  return {
+    type: 'eip1559',
+    baseFee: (gasPrice - priority).toString(),
+    maxPriorityFeePerGas: priority.toString(),
+    maxFeePerGas: gasPrice.toString(),
+    effectiveGasPrice: gasPrice.toString(),
+    ...metadata,
+  };
+}
+
 async function requestMyotis(chainId, method, params) {
   if (!myotis.isReady(chainId)) throw new SourceUnavailableError('Myotis is not ready');
 
@@ -204,6 +256,32 @@ async function requestDirect(chainId, method, params) {
   throw lastError || new SourceUnavailableError('All RPC endpoints failed');
 }
 
+async function requestDirectFeeQuote(chainId) {
+  const network = registry.getNetwork(chainId) || {};
+  const timeoutMs = Math.max(500, Number(network.quorum?.timeoutMs) || 5000);
+  const urls = registry.getEndpoints(chainId, 'rpc');
+  if (!urls.length) throw new SourceUnavailableError('No RPC endpoint configured');
+  let lastError;
+  for (const url of urls) {
+    try {
+      const gasPrice = await requestRpcUrl(url, 'eth_gasPrice', [], timeoutMs);
+      let priority = null;
+      try {
+        // Deliberately use the same URL as eth_gasPrice. Falling through the
+        // endpoint list independently is what produced mixed, invalid quotes.
+        priority = await requestRpcUrl(url, 'eth_maxPriorityFeePerGas', [], timeoutMs);
+      } catch {
+        // Legacy transactions remain valid when this endpoint does not expose
+        // an EIP-1559 priority-fee hint.
+      }
+      return feeQuote('direct', gasPrice, priority);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError || new SourceUnavailableError('All RPC endpoints failed');
+}
+
 async function requestSource(source, chainId, method, params) {
   if (source === 'myotis') return requestMyotis(chainId, method, params);
   if (source === 'colibri') return requestColibri(chainId, method, params);
@@ -235,6 +313,46 @@ async function request(chainId, method, params = []) {
   throw new Error(`All chain sources failed for ${method} (${failures.join('; ')})`);
 }
 
+async function getFeeQuote(chainId) {
+  const network = registry.getNetwork(chainId);
+  if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
+  const order = network.access?.readOrder || DEFAULT_READ_ORDER;
+  const failures = [];
+
+  for (const source of order) {
+    try {
+      if (source === 'myotis') {
+        if (!myotis.isReady(chainId)) throw new SourceUnavailableError('Myotis is not ready');
+        const result = await myotis.feeEstimate(chainId);
+        const gasPrice = nativeResult(result, 'gasPriceWei', 'gasPrice');
+        const priority = optionalNativeResult(
+          result,
+          'maxPriorityFeePerGasWei',
+          'maxPriorityFeePerGas'
+        );
+        return feeQuote(source, gasPrice, priority);
+      }
+
+      if (source === 'direct') return await requestDirectFeeQuote(chainId);
+
+      const gasPrice = await requestSource(source, chainId, 'eth_gasPrice', []);
+      let priority = null;
+      try {
+        priority = await requestSource(source, chainId, 'eth_maxPriorityFeePerGas', []);
+      } catch {
+        // Preserve source coherence by using this source's gas price as a
+        // legacy quote rather than asking the next source for half a quote.
+      }
+      return feeQuote(source, gasPrice, priority);
+    } catch (err) {
+      failures.push(`${source}: ${err.message}`);
+      log.verbose(`[chain-data] ${chainId} fee quote via ${source} failed: ${err.message}`);
+    }
+  }
+
+  throw new Error(`All chain sources failed for fee quote (${failures.join('; ')})`);
+}
+
 async function broadcastRawTransaction(chainId, rawTransaction) {
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
@@ -264,6 +382,7 @@ async function broadcastRawTransaction(chainId, rawTransaction) {
 module.exports = {
   isReadMethod,
   request,
+  getFeeQuote,
   broadcastRawTransaction,
   requestRpcUrl,
   SourceUnavailableError,

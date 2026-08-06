@@ -19,7 +19,7 @@ jest.mock('../ens/colibri-resolver', () => ({
 }));
 jest.mock('../logger', () => ({ verbose: jest.fn() }));
 
-const { request, broadcastRawTransaction } = require('./chain-data-router');
+const { request, getFeeQuote, broadcastRawTransaction } = require('./chain-data-router');
 const originalFetch = global.fetch;
 
 describe('chain-data-router', () => {
@@ -76,6 +76,71 @@ describe('chain-data-router', () => {
       source: 'myotis',
     });
     expect(mockMyotis.sendRawTransaction).toHaveBeenCalledWith('0xsigned', 100);
+  });
+
+  test('uses one Myotis response for a complete fee quote', async () => {
+    mockMyotis.feeEstimate.mockResolvedValue({
+      gasPriceWei: '100',
+      maxPriorityFeePerGasWei: '2',
+    });
+
+    await expect(getFeeQuote(100)).resolves.toEqual({
+      type: 'eip1559',
+      baseFee: '98',
+      maxPriorityFeePerGas: '2',
+      maxFeePerGas: '100',
+      effectiveGasPrice: '100',
+      source: 'myotis',
+      verified: true,
+    });
+    expect(mockMyotis.feeEstimate).toHaveBeenCalledTimes(1);
+    expect(mockMyotis.feeEstimate).toHaveBeenCalledWith(100);
+  });
+
+  test('downgrades an inconsistent fee quote instead of signing invalid EIP-1559 fees', async () => {
+    mockMyotis.feeEstimate.mockResolvedValue({
+      gasPriceWei: '3727',
+      maxPriorityFeePerGasWei: '1000000000',
+    });
+
+    await expect(getFeeQuote(100)).resolves.toEqual({
+      type: 'legacy',
+      gasPrice: '3727',
+      effectiveGasPrice: '3727',
+      source: 'myotis',
+      verified: true,
+    });
+  });
+
+  test('gets direct fee components from the same RPC endpoint', async () => {
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['direct'] },
+      quorum: { timeoutMs: 1000 },
+    });
+    mockRegistry.getEndpoints.mockReturnValue([
+      'https://primary.example',
+      'https://secondary.example',
+    ]);
+    global.fetch = jest.fn().mockImplementation(async (url, options) => {
+      const { method } = JSON.parse(options.body);
+      return {
+        ok: true,
+        json: async () => ({ result: method === 'eth_gasPrice' ? '0xebd' : '0x1' }),
+        url,
+      };
+    });
+
+    await expect(getFeeQuote(100)).resolves.toMatchObject({
+      type: 'eip1559',
+      maxFeePerGas: '3773',
+      maxPriorityFeePerGas: '1',
+      source: 'direct',
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch.mock.calls.map(([url]) => url)).toEqual([
+      'https://primary.example',
+      'https://primary.example',
+    ]);
   });
 
   test('keeps stateful dapp filters on one direct RPC endpoint', async () => {
