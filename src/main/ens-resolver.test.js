@@ -274,6 +274,7 @@ const {
   universalResolverCall,
   isResolverNotFoundError,
 } = require('./ens-resolver');
+const resolverLog = require('./logger');
 
 // Fake block anchor — stable hash so consensus legs querying the same
 // block get deterministic agreement.
@@ -2999,6 +3000,43 @@ describe('ens-resolver', () => {
       // was valid, the contract reverted. The 'reason' carries the spoofed-
       // record signal, not the trust level.
       expect(result.trust.level).toBe('verified');
+    });
+
+    test('logs why an unverified Colibri reverse result continues to quorum', async () => {
+      withColibri({
+        ensResolutionOrder: ['myotis', 'colibri', 'quorum'],
+        ensPreferVerified: true,
+      });
+      const infoSpy = jest.spyOn(resolverLog, 'info').mockImplementation(() => {});
+      const err = Object.assign(new Error('ReverseAddressMismatch'), {
+        data: '0xef9c03ce',
+      });
+      mockResolveReverseViaColibri.mockRejectedValue(err);
+      mockUrReverse.mockResolvedValue(['']);
+
+      try {
+        const result = await resolveEnsReverse(ADDR);
+
+        expect(result).toMatchObject({ success: false, reason: 'NO_REVERSE' });
+        expect(infoSpy).toHaveBeenCalledWith(
+          `[ens] reverse policy address=${ADDR} order=[myotis,colibri,quorum] ` +
+          'preferVerified=true'
+        );
+        expect(infoSpy).toHaveBeenCalledWith(
+          `[ens] reverse method=myotis address=${ADDR} outcome=UNAVAILABLE ` +
+          'system=none trust=none action=continue reason=disabled'
+        );
+        expect(infoSpy).toHaveBeenCalledWith(
+          `[ens] reverse method=colibri address=${ADDR} outcome=UNVERIFIED ` +
+          'system=ens trust=verified action=continue reason=prefer-verified'
+        );
+        expect(infoSpy).toHaveBeenCalledWith(
+          `[ens] reverse method=quorum address=${ADDR} outcome=NO_REVERSE ` +
+          'system=ens,wns,gns trust=verified action=accept'
+        );
+      } finally {
+        infoSpy.mockRestore();
+      }
     });
 
     test('UNVERIFIED carries the decoded claimedName from revert data', async () => {

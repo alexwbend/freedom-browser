@@ -2445,17 +2445,41 @@ function isProvisionalReverse(result) {
   return result?.trust?.level === 'unverified' || result?.reason === 'UNVERIFIED';
 }
 
+function logReverseMethodOutcome(method, normalizedAddress, result, action, reason = '') {
+  const outcome = result?.success ? 'RESOLVED' : result?.reason || 'UNAVAILABLE';
+  const system = outcome === 'NO_REVERSE'
+    ? 'ens,wns,gns'
+    : result?.system || result?.trust?.system || 'none';
+  const trust = result?.trust?.level || 'none';
+  log.info(
+    `[ens] reverse method=${method} address=${normalizedAddress} outcome=${outcome} ` +
+    `system=${system} trust=${trust} action=${action}${reason ? ` reason=${reason}` : ''}`
+  );
+}
+
 async function doResolveEnsReverse(normalizedAddress) {
   const network = registry.getNetwork(1);
   const { order, preferVerified } = resolutionPolicy(network);
   let provisional = null;
+  let provisionalMethod = null;
   let lastError = null;
+
+  log.info(
+    `[ens] reverse policy address=${normalizedAddress} order=[${order.join(',')}] ` +
+    `preferVerified=${preferVerified}`
+  );
 
   for (const method of order) {
     let result = null;
+    let unavailableReason = 'unavailable';
     try {
       if (method === 'myotis') {
-        if (myotisManager.isEnabled()) result = await tryMyotisReverse(normalizedAddress);
+        if (myotisManager.isEnabled()) {
+          result = await tryMyotisReverse(normalizedAddress);
+          if (!result) unavailableReason = 'not-ready';
+        } else {
+          unavailableReason = 'disabled';
+        }
       } else {
         const ensResult = await resolveEnsReverseWithMethod(method, normalizedAddress);
         result = await resolveContractBackedReverseWithMethod(
@@ -2467,20 +2491,38 @@ async function doResolveEnsReverse(normalizedAddress) {
     } catch (err) {
       lastError = err;
       log.warn(
-        `[ens] ${method}-fallback reverse address=${normalizedAddress} error=${err.message}`
+        `[ens] reverse method=${method} address=${normalizedAddress} outcome=ERROR ` +
+        `action=continue error=${err.message}`
       );
       continue;
     }
 
-    if (!result) continue;
-    if (preferVerified && isProvisionalReverse(result)) {
-      provisional ||= result;
+    if (!result) {
+      logReverseMethodOutcome(method, normalizedAddress, result, 'continue', unavailableReason);
       continue;
     }
+    if (preferVerified && isProvisionalReverse(result)) {
+      if (!provisional) {
+        provisional = result;
+        provisionalMethod = method;
+      }
+      logReverseMethodOutcome(method, normalizedAddress, result, 'continue', 'prefer-verified');
+      continue;
+    }
+    logReverseMethodOutcome(method, normalizedAddress, result, 'accept');
     return cacheReverseResult(normalizedAddress, result);
   }
 
-  if (provisional) return cacheReverseResult(normalizedAddress, provisional);
+  if (provisional) {
+    logReverseMethodOutcome(
+      provisionalMethod,
+      normalizedAddress,
+      provisional,
+      'accept',
+      'no-better-result'
+    );
+    return cacheReverseResult(normalizedAddress, provisional);
+  }
   if (lastError) throw lastError;
   throw new Error(`No enabled name-resolution method could reverse-resolve ${normalizedAddress}`);
 }
