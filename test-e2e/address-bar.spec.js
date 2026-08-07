@@ -6,6 +6,17 @@
 
 const { test, expect, SAMPLE_BZZ_HASH } = require('./fixtures');
 
+const evalInActiveWebview = (window, snippet) =>
+  window.evaluate(async (source) => {
+    const webview = document.querySelector('webview:not(.hidden)');
+    if (!webview || typeof webview.executeJavaScript !== 'function') return null;
+    try {
+      return await webview.executeJavaScript(source);
+    } catch {
+      return null;
+    }
+  }, snippet);
+
 // Prove a navigation actually went through the harness stub
 // (`makeHttpStubHandler` in src/main/test-harness.js) rather than out to the
 // public internet. The stub embeds the request URL in a
@@ -85,9 +96,69 @@ test('typing a non-URL query searches with the default provider', async ({ windo
   await input.fill('best pizza near me');
   await input.press('Enter');
 
-  await expect(input).toHaveValue('https://www.google.com/search?q=best%20pizza%20near%20me');
-  await expectHarnessStubServed(
+  await expect(input).toHaveValue('https://duckduckgo.com/?q=best%20pizza%20near%20me');
+  await expectHarnessStubServed(window, 'https://duckduckgo.com/?q=best%20pizza%20near%20me');
+});
+
+test('a custom search engine added in Settings persists and handles address-bar queries', async ({
+  window,
+}) => {
+  const input = window.locator('[data-test="address-input"]');
+  await input.click();
+  await input.fill('freedom://settings/search');
+  await input.press('Enter');
+
+  await expect
+    .poll(() => evalInActiveWebview(window, `!!document.getElementById('add-search-provider')`), {
+      message: 'Waiting for Search settings to render',
+      timeout: 10_000,
+    })
+    .toBe(true);
+
+  await evalInActiveWebview(
     window,
-    'https://www.google.com/search?q=best%20pizza%20near%20me'
+    `(() => {
+      document.getElementById('add-search-provider').click();
+      const name = document.getElementById('custom-search-provider-name');
+      const template = document.getElementById('custom-search-provider-template');
+      name.value = 'Private Search';
+      template.value = 'https://search.example/?q={searchTerms}&source=freedom';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      template.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('save-search-provider').click();
+      return true;
+    })()`
   );
+
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async () => {
+          const settings = await window.electronAPI.getSettings();
+          return {
+            selected: settings.searchProvider,
+            provider: settings.customSearchProviders?.[0],
+          };
+        }),
+      { message: 'Waiting for the custom search engine to persist', timeout: 10_000 }
+    )
+    .toMatchObject({
+      selected: expect.stringMatching(/^custom:/),
+      provider: {
+        name: 'Private Search',
+        searchUrlTemplate: 'https://search.example/?q={searchTerms}&source=freedom',
+      },
+    });
+
+  await window.reload();
+  await window.waitForSelector('[data-test="address-input"]');
+
+  const reloadedInput = window.locator('[data-test="address-input"]');
+  await reloadedInput.click();
+  await reloadedInput.fill('freedom browser privacy');
+  await reloadedInput.press('Enter');
+
+  const expectedUrl = 'https://search.example/?q=freedom%20browser%20privacy&source=freedom';
+  await expect(reloadedInput).toHaveValue(expectedUrl);
+  await expectHarnessStubServed(window, expectedUrl);
 });

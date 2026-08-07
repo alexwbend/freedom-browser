@@ -659,7 +659,7 @@ describe('navigation', () => {
       ctx.mod.loadTarget('best pizza near me');
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
-        'https://www.google.com/search?q=best%20pizza%20near%20me'
+        'https://duckduckgo.com/?q=best%20pizza%20near%20me'
       );
     });
 
@@ -673,6 +673,26 @@ describe('navigation', () => {
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
         'https://duckduckgo.com/?q=weather'
+      );
+    });
+
+    test('respects a configured custom search provider', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+      ctx.state.searchProvider = 'custom:searx';
+      ctx.state.customSearchProviders = [
+        {
+          id: 'searx',
+          name: 'SearxNG',
+          searchUrlTemplate: 'https://search.example/?query={searchTerms}',
+        },
+      ];
+
+      ctx.mod.loadTarget('privacy news');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://search.example/?query=privacy%20news'
       );
     });
 

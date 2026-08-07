@@ -45,7 +45,8 @@ describe('settings-store', () => {
         startRadicleAtLaunch: false,
         autoUpdate: true,
         showBookmarkBar: false,
-        searchProvider: 'google',
+        searchProvider: 'duckduckgo',
+        customSearchProviders: [],
         sidebarOpen: false,
         sidebarWidth: 320,
         blockUnverifiedEns: true,
@@ -150,10 +151,72 @@ describe('settings-store', () => {
   test('saveSettings persists the search provider and it survives a reload', () => {
     const { mod } = loadSettingsStore({ userDataDir });
 
-    expect(mod.saveSettings({ searchProvider: 'duckduckgo' })).toBe(true);
+    expect(
+      mod.saveSettings({
+        searchProvider: 'custom:searx',
+        customSearchProviders: [
+          {
+            id: 'searx',
+            name: 'SearxNG',
+            searchUrlTemplate: 'https://search.example/?q=%s',
+          },
+        ],
+      })
+    ).toBe(true);
 
     const { mod: reloaded } = loadSettingsStore({ userDataDir });
-    expect(reloaded.loadSettings().searchProvider).toBe('duckduckgo');
+    expect(reloaded.loadSettings()).toEqual(
+      expect.objectContaining({
+        searchProvider: 'custom:searx',
+        customSearchProviders: [
+          {
+            id: 'searx',
+            name: 'SearxNG',
+            searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+          },
+        ],
+      })
+    );
+  });
+
+  test('normalizes malformed custom providers loaded from disk', () => {
+    const settingsPath = path.join(userDataDir, 'settings.json');
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        customSearchProviders: [
+          {
+            id: 'valid',
+            name: ' Valid Search ',
+            searchUrlTemplate: 'https://search.example/?q=%s',
+          },
+          {
+            id: 'unsafe',
+            name: 'Unsafe',
+            searchUrlTemplate: 'javascript:{searchTerms}',
+          },
+          {
+            id: 'valid',
+            name: 'Duplicate',
+            searchUrlTemplate: 'https://duplicate.example/?q={searchTerms}',
+          },
+        ],
+      }),
+      'utf-8'
+    );
+
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(mod.loadSettings().customSearchProviders).toEqual([
+      {
+        id: 'valid',
+        name: 'Valid Search',
+        searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+      },
+    ]);
+    expect(JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).customSearchProviders).toEqual(
+      mod.loadSettings().customSearchProviders
+    );
   });
 
   test('saveSettings broadcasts settings:updated to all webContents', () => {
@@ -193,6 +256,30 @@ describe('settings-store', () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(fs.statSync(filePath).size).toBe(sizeBefore);
+  });
+
+  test('saveSettings treats an equivalent custom provider list as unchanged', () => {
+    const providers = [
+      {
+        id: 'searx',
+        name: 'SearxNG',
+        searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+      },
+    ];
+    fs.writeFileSync(
+      path.join(userDataDir, 'settings.json'),
+      JSON.stringify({ customSearchProviders: providers }),
+      'utf-8'
+    );
+    const send = jest.fn();
+    const webContents = { getAllWebContents: jest.fn(() => [{ send }]) };
+    const { mod } = loadSettingsStore({ userDataDir, webContents });
+    mod.loadSettings();
+
+    expect(
+      mod.saveSettings({ customSearchProviders: providers.map((entry) => ({ ...entry })) })
+    ).toBe(true);
+    expect(send).not.toHaveBeenCalled();
   });
 
   test('saveSettings drops keys that are not part of DEFAULT_SETTINGS', () => {

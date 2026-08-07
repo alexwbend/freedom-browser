@@ -1,6 +1,11 @@
 import fs from 'fs';
 import path from 'path';
-import { SEARCH_PROVIDERS, DEFAULT_SEARCH_PROVIDER, buildSearchUrl } from './search-utils.js';
+import {
+  SEARCH_PROVIDERS,
+  DEFAULT_SEARCH_PROVIDER,
+  buildSearchUrl,
+  normalizeSearchUrlTemplate,
+} from './search-utils.js';
 
 describe('search-utils', () => {
   test('the settings.html provider dropdown mirrors SEARCH_PROVIDERS', () => {
@@ -19,8 +24,8 @@ describe('search-utils', () => {
     );
   });
 
-  test('default provider is google', () => {
-    expect(DEFAULT_SEARCH_PROVIDER).toBe('google');
+  test('default provider is DuckDuckGo', () => {
+    expect(DEFAULT_SEARCH_PROVIDER).toBe('duckduckgo');
     expect(SEARCH_PROVIDERS[DEFAULT_SEARCH_PROVIDER]).toBeDefined();
   });
 
@@ -32,9 +37,48 @@ describe('search-utils', () => {
   });
 
   test('falls back to the default provider for unknown or missing provider ids', () => {
-    expect(buildSearchUrl('cats', 'not-a-provider')).toBe('https://www.google.com/search?q=cats');
-    expect(buildSearchUrl('cats', undefined)).toBe('https://www.google.com/search?q=cats');
-    expect(buildSearchUrl('cats', null)).toBe('https://www.google.com/search?q=cats');
+    expect(buildSearchUrl('cats', 'not-a-provider')).toBe('https://duckduckgo.com/?q=cats');
+    expect(buildSearchUrl('cats', undefined)).toBe('https://duckduckgo.com/?q=cats');
+    expect(buildSearchUrl('cats', null)).toBe('https://duckduckgo.com/?q=cats');
+  });
+
+  test('builds a URL for a configured custom provider', () => {
+    const customProviders = [
+      {
+        id: 'private-search',
+        name: 'Private Search',
+        searchUrlTemplate: 'https://search.example/results?q={searchTerms}&source=freedom',
+      },
+    ];
+
+    expect(buildSearchUrl('cats & dogs', 'custom:private-search', customProviders)).toBe(
+      'https://search.example/results?q=cats%20%26%20dogs&source=freedom'
+    );
+  });
+
+  test('falls back safely when a selected custom provider is missing or malformed', () => {
+    expect(buildSearchUrl('cats', 'custom:missing', [])).toBe('https://duckduckgo.com/?q=cats');
+    expect(
+      buildSearchUrl('cats', 'custom:unsafe', [
+        { id: 'unsafe', name: 'Unsafe', searchUrlTemplate: 'javascript:{searchTerms}' },
+      ])
+    ).toBe('https://duckduckgo.com/?q=cats');
+  });
+
+  test('normalizes supported templates and rejects unsafe endpoints', () => {
+    expect(normalizeSearchUrlTemplate('https://search.example/?q=%s')).toBe(
+      'https://search.example/?q={searchTerms}'
+    );
+    expect(normalizeSearchUrlTemplate('http://localhost:8080/?q={searchTerms}')).toBe(
+      'http://localhost:8080/?q={searchTerms}'
+    );
+    expect(normalizeSearchUrlTemplate('http://search.example/?q={searchTerms}')).toBeNull();
+    expect(normalizeSearchUrlTemplate('javascript:{searchTerms}')).toBeNull();
+    expect(normalizeSearchUrlTemplate('https://user:pass@example.com/?q={searchTerms}')).toBeNull();
+    expect(
+      normalizeSearchUrlTemplate('https://example.com/?q={searchTerms}&copy={searchTerms}')
+    ).toBeNull();
+    expect(normalizeSearchUrlTemplate('https://example.com/search')).toBeNull();
   });
 
   test('trims the query and returns null for empty input', () => {
