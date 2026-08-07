@@ -631,6 +631,21 @@ describe('ens-resolver', () => {
       // Default test settings: K=3, matching TEST_PROVIDERS.length.
       expect(mockUrResolve).toHaveBeenCalledTimes(3);
     });
+
+    test('pins every short-lived RPC provider to Ethereum Mainnet', async () => {
+      mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+
+      await resolveEnsContent('static-network.eth');
+
+      expect(ethers.JsonRpcProvider).toHaveBeenCalled();
+      for (const call of ethers.JsonRpcProvider.mock.calls) {
+        expect(call).toEqual([
+          expect.any(String),
+          1,
+          { staticNetwork: true },
+        ]);
+      }
+    });
   });
 
   describe('custom RPC URL', () => {
@@ -2917,12 +2932,16 @@ describe('ens-resolver', () => {
 
     test('CALL_EXCEPTION without revert data falls through to public RPC quorum', async () => {
       withColibri();
-      const err = Object.assign(new Error('missing response from Colibri prover'), {
+      const err = Object.assign(new Error(
+        'missing revert data transaction={ data: "0x' + 'ab'.repeat(200) + '" }'
+      ), {
         code: 'CALL_EXCEPTION',
-        info: { error: { code: -32603, message: 'no response' } },
+        shortMessage: 'missing revert data',
+        info: { error: { code: -32603, message: 'no response from prover' } },
       });
       mockResolveViaColibri.mockRejectedValue(err);
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+      const warnSpy = jest.spyOn(resolverLog, 'warn').mockImplementation(() => {});
 
       const result = await resolveEnsContent('prover-down.eth');
 
@@ -2931,6 +2950,13 @@ describe('ens-resolver', () => {
       expect(mockUrResolve).toHaveBeenCalled();
       expect(result.trust.method).not.toBe('colibri');
       expect(result.trust.quorum).toEqual({ k: 3, m: 2, achieved: true });
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[ens] colibri-fallback name=prover-down.eth kind=content ' +
+        'error="missing revert data" code=CALL_EXCEPTION rpcCode=-32603 ' +
+        'rpcMessage="no response from prover" revert=none'
+      );
+      expect(warnSpy.mock.calls.flat().join(' ')).not.toContain('abababababababab');
+      warnSpy.mockRestore();
     });
 
     test('non-revert error falls through to the quorum path by default', async () => {

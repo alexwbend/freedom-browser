@@ -209,11 +209,27 @@ const ANCHOR_SAFETY_DEPTH = { latest: 8, 'latest-32': 32, finalized: 0 };
 // to the single-source unverified path instead of claiming "verified".
 const MIN_QUORUM_PROVIDERS = 3;
 
+// Every JSON-RPC endpoint used in this module serves Ethereum Mainnet. Tell
+// ethers that up front so its short-lived providers do not start an
+// independent eth_chainId detection loop. A failed or cancelled quorum leg
+// otherwise leaves ethers printing its generic "failed to detect network"
+// retry message until teardown catches up.
+const ETHEREUM_MAINNET_CHAIN_ID = 1;
+const EPHEMERAL_PROVIDER_OPTIONS = { staticNetwork: true };
+
+function createEthereumProvider(url) {
+  return new ethers.JsonRpcProvider(
+    url,
+    ETHEREUM_MAINNET_CHAIN_ID,
+    EPHEMERAL_PROVIDER_OPTIONS,
+  );
+}
+
 // Create a short-lived provider for a single scoped operation, wrap the
 // caller's work in withTimeout, and guarantee the provider is destroyed
 // on both success and timeout. `fn` receives the bound provider.
 async function withEphemeralProvider(url, timeoutMs, fn) {
-  const provider = new ethers.JsonRpcProvider(url);
+  const provider = createEthereumProvider(url);
   const cleanup = () => { try { provider.destroy(); } catch { /* already torn down */ } };
   try {
     return await withTimeout(fn(provider), timeoutMs, cleanup);
@@ -547,6 +563,40 @@ function getRevertData(err) {
   return typeof data === 'string' && data.length >= 10 ? data : null;
 }
 
+// Keep provider diagnostics useful without dumping full transaction calldata,
+// endpoint URLs, or arbitrarily large upstream messages into the application
+// log. ethers' `shortMessage` is preferred because its full CALL_EXCEPTION
+// message includes the complete Universal Resolver request.
+function sanitizeErrorDetail(value, maxLength = 240) {
+  if (value == null || value === '') return '';
+  const cleaned = String(value)
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '<url>')
+    .replace(/0x[0-9a-fA-F]{66,}/g, (hex) =>
+      `${hex.slice(0, 10)}…(${Math.floor((hex.length - 2) / 2)} bytes)`
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length <= maxLength
+    ? cleaned
+    : `${cleaned.slice(0, maxLength - 1)}…`;
+}
+
+function formatResolutionErrorForLog(err) {
+  const nested = err?.info?.error;
+  const message = sanitizeErrorDetail(
+    err?.shortMessage || err?.reason || err?.message || String(err)
+  );
+  const fields = [`error=${JSON.stringify(message || 'unknown error')}`];
+  if (err?.code != null) fields.push(`code=${sanitizeErrorDetail(err.code, 40)}`);
+  if (nested?.code != null) fields.push(`rpcCode=${sanitizeErrorDetail(nested.code, 40)}`);
+  if (nested?.message) {
+    fields.push(`rpcMessage=${JSON.stringify(sanitizeErrorDetail(nested.message))}`);
+  }
+  const revertData = getRevertData(err);
+  fields.push(`revert=${revertData ? revertData.slice(0, 10) : 'none'}`);
+  return fields.join(' ');
+}
+
 function urErrorSelector(err) {
   const data = getRevertData(err);
   return data ? data.slice(0, 10).toLowerCase() : null;
@@ -801,7 +851,7 @@ async function runQuorumLeg(
   };
   if (cancelToken) cancelToken.cleanups.add(cleanup);
   try {
-    provider = new ethers.JsonRpcProvider(url);
+    provider = createEthereumProvider(url);
     const urCall = callResolver(provider, name, callData, { blockTag: blockHash });
     const result = await withTimeout(urCall, timeoutMs, cleanup);
     markProviderSuccess(url);
@@ -1748,7 +1798,8 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
     } catch (err) {
       lastError = err;
       log.warn(
-        `[ens] ${method}-fallback name=${normalizedName} kind=${kind} error=${err.message}`
+        `[ens] ${method}-fallback name=${normalizedName} kind=${kind} ` +
+        formatResolutionErrorForLog(err)
       );
       continue;
     }

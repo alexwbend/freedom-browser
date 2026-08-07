@@ -64,6 +64,80 @@ function destroyClient(client) {
   }
 }
 
+function colibriRevertData(err) {
+  const data = err?.data || err?.info?.error?.data || '';
+  return typeof data === 'string' && data.length >= 10 ? data : null;
+}
+
+function retryableColibriError(err) {
+  if (!err) return false;
+  if (err.code === 'CALL_EXCEPTION') return colibriRevertData(err) === null;
+  if (['NETWORK_ERROR', 'SERVER_ERROR', 'TIMEOUT'].includes(err.code)) return true;
+  if (err.info?.error?.code === -32603) return true;
+  return /ECONN|ENOTFOUND|ETIMEDOUT|fetch failed|network|no response|timeout/i
+    .test(err.shortMessage || err.message || '');
+}
+
+function sanitizeColibriErrorDetail(value, maxLength = 200) {
+  if (value == null || value === '') return '';
+  const cleaned = String(value)
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '<url>')
+    .replace(/0x[0-9a-fA-F]{66,}/g, (hex) =>
+      `${hex.slice(0, 10)}…(${Math.floor((hex.length - 2) / 2)} bytes)`
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length <= maxLength
+    ? cleaned
+    : `${cleaned.slice(0, maxLength - 1)}…`;
+}
+
+function colibriErrorForLog(err) {
+  const nested = err?.info?.error;
+  const message = sanitizeColibriErrorDetail(
+    err?.shortMessage || err?.reason || err?.message || String(err)
+  );
+  const fields = [`error=${JSON.stringify(message || 'unknown error')}`];
+  if (err?.code != null) fields.push(`code=${sanitizeColibriErrorDetail(err.code, 40)}`);
+  if (nested?.code != null) fields.push(`rpcCode=${sanitizeColibriErrorDetail(nested.code, 40)}`);
+  if (nested?.message) {
+    fields.push(`rpcMessage=${JSON.stringify(sanitizeColibriErrorDetail(nested.message))}`);
+  }
+  fields.push(`revert=${colibriRevertData(err)?.slice(0, 10) || 'none'}`);
+  return fields.join(' ');
+}
+
+// Evict only the client that actually failed. If another concurrent request
+// or a settings change has already installed a replacement, leave it intact.
+function evictFailedClient(chainId, failedClient) {
+  const cached = clients.get(chainId);
+  if (cached?.client !== failedClient) return;
+  clients.delete(chainId);
+  providers.delete(chainId);
+  destroyClient(failedClient);
+}
+
+// Retry exactly once after rebuilding the in-memory verifier. This recovers
+// from a stale runtime after sleep or a transient prover/network failure while
+// preserving fail-closed behavior: proof failures and reverts carrying actual
+// EVM revert data are never retried or reclassified.
+async function withColibriClientRetry(chainId, operation) {
+  const id = Number(chainId);
+  let client = await getClient(id);
+  try {
+    return await operation({ client, provider: providers.get(id) });
+  } catch (err) {
+    if (!retryableColibriError(err)) throw err;
+    log.warn(
+      `[colibri] chain ${id} request failed; rebuilding client and retrying once ` +
+      colibriErrorForLog(err)
+    );
+    evictFailedClient(id, client);
+    client = await getClient(id);
+    return operation({ client, provider: providers.get(id) });
+  }
+}
+
 async function buildClient({ chainId, key, proverUrl, zkProof, generation }) {
   // Storage adapter is registered exactly once per process: on the very
   // first construction. Later settings-change rebuilds reuse it — the
@@ -132,8 +206,9 @@ async function getClient(chainId = 1) {
 // pins to head − 1 by construction (sync committee signatures for block N
 // live in block N+1).
 async function resolveCallViaColibri(name, callData, callResolver = universalResolverCall) {
-  await getClient(1);
-  return callResolver(providers.get(1), name, callData);
+  return withColibriClientRetry(1, ({ provider }) =>
+    callResolver(provider, name, callData)
+  );
 }
 
 async function resolveViaColibri(name, callData) {
@@ -145,13 +220,15 @@ async function resolveViaColibri(name, callData) {
 // Throws on revert (UR's ResolverNotFound / ReverseAddressMismatch) or
 // network/verification failure — the orchestrator classifies.
 async function resolveReverseViaColibri(addressBytes) {
-  await getClient(1);
-  return universalResolverReverse(providers.get(1), addressBytes);
+  return withColibriClientRetry(1, ({ provider }) =>
+    universalResolverReverse(provider, addressBytes)
+  );
 }
 
 async function requestViaColibri(chainId, method, params = []) {
-  const client = await getClient(chainId);
-  return client.request({ method, params });
+  return withColibriClientRetry(chainId, ({ client }) =>
+    client.request({ method, params })
+  );
 }
 
 function clearColibriClientForTest() {
