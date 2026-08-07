@@ -135,16 +135,18 @@ const mockMyotisIsReady = jest.fn(() => false);
 const mockMyotisResolveEnsRecord = jest.fn();
 const mockMyotisEthCall = jest.fn();
 const mockMyotisGetStatus = jest.fn(() => ({ optimisticBlockNumber: 23456800 }));
-// Captures the resolver's module-load registration so tests can fire the
-// not-ready → ready transition (the fallback-cache sweep).
-const mockMyotisReadyListeners = [];
+const mockMyotisGetAvailabilityEpoch = jest.fn(() => 0);
+// Captures the resolver's module-load registration so tests can fire either
+// availability direction and exercise cache/in-flight lifecycle behavior.
+const mockMyotisAvailabilityListeners = [];
 jest.mock('./myotis/myotis-manager', () => ({
   isEnabled: (...args) => mockMyotisIsEnabled(...args),
   isReady: (...args) => mockMyotisIsReady(...args),
   resolveEnsRecord: (...args) => mockMyotisResolveEnsRecord(...args),
   ethCall: (...args) => mockMyotisEthCall(...args),
   getStatus: (...args) => mockMyotisGetStatus(...args),
-  onReadyTransition: (cb) => mockMyotisReadyListeners.push(cb),
+  getAvailabilityEpoch: (...args) => mockMyotisGetAvailabilityEpoch(...args),
+  onAvailabilityTransition: (cb) => mockMyotisAvailabilityListeners.push(cb),
 }));
 
 // Mock ethers with controllable provider and resolver behavior.
@@ -282,6 +284,7 @@ const FAKE_BLOCK = { number: 12345678, hash: '0xabcdef00000000000000000000000000
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockMyotisGetAvailabilityEpoch.mockImplementation(() => 0);
   invalidateCachedProvider();
   lastProviderUrl = null;
   mockProviderRouteMap = null;
@@ -1540,6 +1543,7 @@ describe('ens-resolver', () => {
       mockMyotisIsEnabled.mockImplementation(() => true);
       mockMyotisIsReady.mockImplementation(() => false);
       mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+      const infoSpy = jest.spyOn(resolverLog, 'info').mockImplementation(() => {});
 
       const result = await resolveEnsContent('myotis-notready.eth');
 
@@ -1547,6 +1551,98 @@ describe('ens-resolver', () => {
       expect(result.trust.method).not.toBe('myotis');
       expect(mockMyotisResolveEnsRecord).not.toHaveBeenCalled();
       expect(mockUrResolve).toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[ens] policy name=myotis-notready.eth kind=content ' +
+        'order=[myotis,quorum] preferVerified=false'
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^\[ens\] method=myotis name=myotis-notready\.eth kind=content outcome=SKIP trust=none action=continue reason=not-ready durationMs=\d+$/
+        )
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringMatching(
+          /^\[ens\] method=quorum name=myotis-notready\.eth kind=content outcome=DATA trust=verified action=accept reason=none durationMs=\d+$/
+        )
+      );
+      infoSpy.mockRestore();
+    });
+
+    test('discards a Myotis read interrupted by shutdown and resolves once through Colibri', async () => {
+      let ready = true;
+      let epoch = 1;
+      let finishMyotis;
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => ready);
+      mockMyotisGetAvailabilityEpoch.mockImplementation(() => epoch);
+      mockMyotisResolveEnsRecord.mockImplementation(() => new Promise((resolve) => {
+        finishMyotis = resolve;
+      }));
+      withColibri({
+        ensResolutionOrder: ['myotis', 'colibri'],
+        ensPreferVerified: true,
+      });
+      const [resolvedData, resolverAddress] = urReturnsBytes(ipfsContenthashFor(IPFS_V0));
+      mockResolveViaColibri.mockResolvedValue({ resolvedData, resolverAddress });
+
+      const pending = resolveEnsContent('shutdown-race.eth');
+      await Promise.resolve();
+      expect(mockMyotisResolveEnsRecord).toHaveBeenCalledTimes(1);
+
+      ready = false;
+      epoch = 2;
+      for (const cb of mockMyotisAvailabilityListeners) {
+        cb({ chainId: 1, ready: false, reason: 'stopping', epoch });
+      }
+      finishMyotis({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456801,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+
+      const result = await pending;
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        uri: `ipfs://${IPFS_V0}`,
+        trust: { level: 'verified', method: 'colibri' },
+      });
+      expect(mockResolveViaColibri).toHaveBeenCalledTimes(1);
+    });
+
+    test('unavailable transition evicts a cached Myotis answer before the next lookup', async () => {
+      let ready = true;
+      let epoch = 1;
+      mockMyotisIsEnabled.mockImplementation(() => true);
+      mockMyotisIsReady.mockImplementation(() => ready);
+      mockMyotisGetAvailabilityEpoch.mockImplementation(() => epoch);
+      mockMyotisResolveEnsRecord.mockResolvedValue({
+        status: 'ok',
+        verified: true,
+        blockNumber: 23456802,
+        dataHex: ipfsContenthashFor(IPFS_V0),
+      });
+
+      const first = await resolveEnsContent('shutdown-cache.eth');
+      expect(first.trust.method).toBe('myotis');
+
+      ready = false;
+      epoch = 2;
+      for (const cb of mockMyotisAvailabilityListeners) {
+        cb({ chainId: 1, ready: false, reason: 'stopping', epoch });
+      }
+      withColibri({
+        ensResolutionOrder: ['myotis', 'colibri'],
+        ensPreferVerified: true,
+      });
+      const [resolvedData, resolverAddress] = urReturnsBytes(ipfsContenthashFor(IPFS_V0));
+      mockResolveViaColibri.mockResolvedValue({ resolvedData, resolverAddress });
+
+      const second = await resolveEnsContent('shutdown-cache.eth');
+
+      expect(second.trust.method).toBe('colibri');
+      expect(mockResolveViaColibri).toHaveBeenCalledTimes(1);
     });
 
     test('engine failure falls through to the quorum path', async () => {
@@ -1775,8 +1871,10 @@ describe('ens-resolver', () => {
       expect((await resolveEnsReverse(address)).trust.method).not.toBe('myotis');
 
       // 3. …until the ready transition sweeps all three caches.
-      expect(mockMyotisReadyListeners.length).toBeGreaterThan(0);
-      for (const cb of mockMyotisReadyListeners) cb();
+      expect(mockMyotisAvailabilityListeners.length).toBeGreaterThan(0);
+      for (const cb of mockMyotisAvailabilityListeners) {
+        cb({ chainId: 1, ready: true, reason: 'ready', epoch: 1 });
+      }
       expect((await resolveEnsContent('myotis-overtake.eth')).trust).toMatchObject({
         level: 'verified',
         method: 'myotis',

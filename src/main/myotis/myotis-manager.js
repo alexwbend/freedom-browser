@@ -20,8 +20,11 @@ const { getMyotisDataDir } = require('../profile-paths');
 const EXPECTED_ABI = 21;
 const MYOTIS_VERSION = '0.1.3';
 
-// Poll/log-drain cadence while the node runs.
+// Poll/log-drain cadence while the node runs. Availability is intentionally
+// checked more frequently than log draining: resolution policy must react
+// promptly when a node finishes warming up or loses its usable peer context.
 const LOG_DRAIN_MS = 15000;
+const AVAILABILITY_POLL_MS = 1000;
 
 const NETWORKS = new Map([
   [1, { chainId: 1, name: 'mainnet', displayName: 'Ethereum' }],
@@ -34,6 +37,7 @@ let readyWatchTimer = null;
 let addonError = null;
 const instances = new Map();
 const readyListeners = new Set();
+const availabilityListeners = new Set();
 
 function normalizeChainId(chainId = 1) {
   const numeric = Number(chainId);
@@ -51,18 +55,59 @@ function instanceFor(chainId = 1) {
       startedAt: 0,
       lastError: null,
       wasReady: false,
+      stopping: false,
+      availabilityEpoch: 0,
     });
   }
   return instances.get(id);
 }
 
-// Fires callbacks on every not-ready → ready transition (initial sync
-// completing, or recovery after a peer-loss regression). The ENS resolver
-// uses this to sweep fallback-tier cache entries that would otherwise
-// outlive readiness by their TTL. Callback-based to avoid a require cycle
-// (ens-resolver already requires this module).
+// Backward-compatible ready-only subscription for callers that do not need
+// lifecycle epochs. New resolution code uses onAvailabilityTransition below.
 function onReadyTransition(cb) {
   readyListeners.add(cb);
+  return () => readyListeners.delete(cb);
+}
+
+// Fires for both availability directions and lifecycle boundaries. The epoch
+// lets consumers reject an async result produced by a client that was stopped
+// or replaced while the native read was in flight.
+function onAvailabilityTransition(cb) {
+  availabilityListeners.add(cb);
+  return () => availabilityListeners.delete(cb);
+}
+
+function publishAvailability(instance, ready, reason, force = false) {
+  const changed = instance.wasReady !== ready;
+  if (!changed && !force) return;
+  instance.wasReady = ready;
+  instance.availabilityEpoch += 1;
+  const event = {
+    chainId: instance.chainId,
+    ready,
+    reason,
+    epoch: instance.availabilityEpoch,
+  };
+
+  if (ready) {
+    log.info(`[myotis] ${instance.name} ready — verified reads available`);
+  }
+  for (const cb of availabilityListeners) {
+    try {
+      cb(event);
+    } catch (err) {
+      log.warn(`[myotis] availability listener failed: ${err.message}`);
+    }
+  }
+  if (ready && changed) {
+    for (const cb of readyListeners) {
+      try {
+        cb(instance.chainId);
+      } catch (err) {
+        log.warn(`[myotis] ready listener failed: ${err.message}`);
+      }
+    }
+  }
 }
 
 // Addon discovery, mirroring freedom-ipfs-native-binding: env override
@@ -192,21 +237,9 @@ function ensurePollers() {
       for (const chainId of NETWORKS.keys()) {
         const instance = instanceFor(chainId);
         if (instance.handle < 1) continue;
-        const ready = isReady(chainId);
-        if (ready && !instance.wasReady) {
-          log.info(`[myotis] ${instance.name} ready — verified reads available`);
-          for (const cb of readyListeners) {
-            try {
-              cb(chainId);
-            } catch (err) {
-              log.warn(`[myotis] ready listener failed: ${err.message}`);
-            }
-          }
-        }
-        instance.wasReady = ready;
         publishStatus(publicStatus(chainId));
       }
-    }, 10000);
+    }, AVAILABILITY_POLL_MS);
     if (readyWatchTimer.unref) readyWatchTimer.unref();
   }
 }
@@ -214,6 +247,8 @@ function ensurePollers() {
 function startMyotis({ dataDir, chainId = 1 } = {}) {
   const instance = instanceFor(chainId);
   if (instance.handle >= 1) return true;
+  instance.stopping = false;
+  publishAvailability(instance, false, 'starting', true);
   if (isDisabledMyotisConfig() || !loadAddon()) {
     publishStatus(publicStatus(instance.chainId));
     return false;
@@ -286,11 +321,22 @@ function getStatus(chainId = 1) {
 // during a hunt fail on the cold context), and at least one snap-capable
 // peer held. Callers treat not-ready as "skip myotis, use the next tier" —
 // never as an error.
-function isReady(chainId = 1) {
-  const s = getStatus(chainId);
-  return Boolean(
+function updateReadiness(instance, s) {
+  const ready = Boolean(
     s && s.beaconState === 'SYNCED' && s.elReaderAvailable && !s.elHunting && s.snapPeers > 0
   );
+  publishAvailability(instance, ready, ready ? 'ready' : 'not-ready');
+  return ready;
+}
+
+function isReady(chainId = 1) {
+  const instance = instanceFor(chainId);
+  if (instance.stopping || !addon || instance.handle < 1) return false;
+  return updateReadiness(instance, getStatus(chainId));
+}
+
+function getAvailabilityEpoch(chainId = 1) {
+  return instanceFor(chainId).availabilityEpoch;
 }
 
 // --- Verified reads (Promise<parsed JSON>) --------------------------------
@@ -347,7 +393,10 @@ async function sendRawTransaction(rawTransaction, chainId = 1) {
 
 function stopMyotis(chainId = 1) {
   const instance = instanceFor(chainId);
-  instance.wasReady = false;
+  instance.stopping = true;
+  // Make new reads ineligible and invalidate in-flight consumers before the
+  // blocking native stop begins. The handle remains intact for addon.stop().
+  publishAvailability(instance, false, 'stopping', true);
   if (addon && instance.handle >= 1) {
     try {
       addon.stop(instance.handle);
@@ -360,6 +409,7 @@ function stopMyotis(chainId = 1) {
   instance.lastStatus = null;
   instance.startedAt = 0;
   instance.lastError = null;
+  instance.stopping = false;
   if (![...instances.values()].some((entry) => entry.handle >= 1)) {
     if (drainTimer) clearInterval(drainTimer);
     drainTimer = null;
@@ -414,7 +464,7 @@ function publicStatus(chainId = 1) {
   }
   if (instance.handle < 1) return { ...base, running: false, state: 'off' };
   const s = getStatus(instance.chainId) || {};
-  const ready = isReady(instance.chainId);
+  const ready = instance.stopping ? false : updateReadiness(instance, s);
   return {
     ...base,
     running: true,
@@ -463,6 +513,8 @@ module.exports = {
   registerMyotisIpc,
   refreshMyotisStatus,
   onReadyTransition,
+  onAvailabilityTransition,
+  getAvailabilityEpoch,
   resolveEnsRecord,
   resolveContenthash,
   resolveAddress,

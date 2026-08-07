@@ -488,18 +488,24 @@ const ensAddressCache = new Map();
 
 // Address (lowercased 0x) → { result, expiresAt } for reverse lookups.
 const ensReverseCache = new Map();
+let resolutionLifecycleEpoch = 0;
 
-// Fallback answers cached while the Myotis node was still syncing would
-// outlive readiness by up to their 15-minute TTL — the P2P tier could never
-// overtake a name or address the user already visited. Sweep every resolution
-// cache on the not-ready → ready transition so the next lookup uses Myotis.
-myotisManager.onReadyTransition((chainId) => {
-  if (chainId != null && Number(chainId) !== 1) return;
+// Any Ethereum Myotis lifecycle boundary invalidates both cached and in-flight
+// policy decisions. Ready transitions let the preferred local tier overtake a
+// fallback answer; unavailable/stopping transitions prevent stale local reads
+// from being cached after shutdown.
+myotisManager.onAvailabilityTransition((event) => {
+  if (event?.chainId != null && Number(event.chainId) !== 1) return;
   const swept = ensResultCache.size + ensAddressCache.size + ensReverseCache.size;
+  resolutionLifecycleEpoch += 1;
   ensResultCache.clear();
   ensAddressCache.clear();
   ensReverseCache.clear();
-  log.info(`[ens] myotis ready — swept ${swept} cached resolution result(s) so the P2P tier can serve`);
+  inFlightResolves.clear();
+  log.info(
+    `[ens] myotis ${event?.ready ? 'ready' : 'unavailable'} reason=${event?.reason || 'unknown'} ` +
+    `epoch=${event?.epoch ?? 'unknown'} swept=${swept} cached resolution result(s)`
+  );
 });
 
 // Full reset: wipe the quorum pool (shuffled order, quarantine, pinned block),
@@ -1230,10 +1236,16 @@ async function tryMyotisContractPath(callData, nameSystem) {
 // throw so the orchestrator logs the handoff to the configured fallback.
 async function tryMyotisPath(name, callData, nameSystem) {
   if (!myotisManager.isReady()) return null;
-  if (nameSystem.contractAddress) {
-    return tryMyotisContractPath(callData, nameSystem);
+  const epoch = myotisManager.getAvailabilityEpoch();
+  const result = nameSystem.contractAddress
+    ? await tryMyotisContractPath(callData, nameSystem)
+    : await tryMyotisEnsPath(name, callData, nameSystem);
+  if (epoch !== myotisManager.getAvailabilityEpoch() || !myotisManager.isReady()) {
+    const err = new Error('Myotis availability changed during verified read');
+    err.code = 'MYOTIS_LIFECYCLE_CHANGED';
+    throw err;
   }
-  return tryMyotisEnsPath(name, callData, nameSystem);
+  return result;
 }
 
 // `verified` on the engine result is a FINALITY flag: true means the query ran
@@ -1744,6 +1756,25 @@ function isProvisionalResolution(result) {
   return result?.trust?.level === 'unverified';
 }
 
+function unavailableResolutionReason(method) {
+  if (method === 'myotis') {
+    return myotisManager.isEnabled() ? 'not-ready' : 'disabled';
+  }
+  if (method === 'direct') return 'not-configured';
+  return 'unavailable';
+}
+
+function logForwardMethodOutcome({
+  method, normalizedName, kind, result, action, reason, durationMs,
+}) {
+  const outcome = result?.outcome ? String(result.outcome).toUpperCase() : 'SKIP';
+  const trust = result?.trust?.level || 'none';
+  log.info(
+    `[ens] method=${method} name=${normalizedName} kind=${kind} outcome=${outcome} ` +
+    `trust=${trust} action=${action} reason=${reason || 'none'} durationMs=${durationMs}`
+  );
+}
+
 // Execute exactly one configured method. Keeping this separate from the
 // fallback loop is important for reverse records: a WNS/GNS reverse claim
 // must be forward-verified through the same source that produced the claim.
@@ -1785,9 +1816,16 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
   const nameSystem = options.nameSystem || NAME_SYSTEMS.ens;
   const { order, preferVerified } = resolutionPolicy(network);
   let provisional = null;
+  let provisionalMethod = null;
   let lastError = null;
 
+  log.info(
+    `[ens] policy name=${normalizedName} kind=${kind} order=[${order.join(',')}] ` +
+    `preferVerified=${preferVerified}`
+  );
+
   for (const method of order) {
+    const startedAt = Date.now();
     let result;
     try {
       result = await resolveWithMethod(method, normalizedName, callData, kind, {
@@ -1796,23 +1834,75 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
         nameSystem,
       });
     } catch (err) {
+      if (err?.code === 'MYOTIS_LIFECYCLE_CHANGED') throw err;
       lastError = err;
       log.warn(
         `[ens] ${method}-fallback name=${normalizedName} kind=${kind} ` +
         formatResolutionErrorForLog(err)
       );
+      logForwardMethodOutcome({
+        method,
+        normalizedName,
+        kind,
+        result: { outcome: 'error' },
+        action: 'continue',
+        reason: err?.code || 'error',
+        durationMs: Date.now() - startedAt,
+      });
       continue;
     }
 
-    if (!result) continue;
-    if (preferVerified && isProvisionalResolution(result)) {
-      provisional ||= result;
+    if (!result) {
+      logForwardMethodOutcome({
+        method,
+        normalizedName,
+        kind,
+        result,
+        action: 'continue',
+        reason: unavailableResolutionReason(method),
+        durationMs: Date.now() - startedAt,
+      });
       continue;
     }
+    if (preferVerified && isProvisionalResolution(result)) {
+      if (!provisional) {
+        provisional = result;
+        provisionalMethod = method;
+      }
+      logForwardMethodOutcome({
+        method,
+        normalizedName,
+        kind,
+        result,
+        action: 'continue',
+        reason: 'prefer-verified',
+        durationMs: Date.now() - startedAt,
+      });
+      continue;
+    }
+    logForwardMethodOutcome({
+      method,
+      normalizedName,
+      kind,
+      result,
+      action: 'accept',
+      durationMs: Date.now() - startedAt,
+    });
     return result;
   }
 
-  if (provisional) return provisional;
+  if (provisional) {
+    logForwardMethodOutcome({
+      method: provisionalMethod,
+      normalizedName,
+      kind,
+      result: provisional,
+      action: 'accept',
+      reason: 'fallback-exhausted',
+      durationMs: 0,
+    });
+    return provisional;
+  }
   if (lastError) throw lastError;
   throw new Error(`No enabled name-resolution method could resolve ${normalizedName}`);
 }
@@ -2024,6 +2114,7 @@ const inFlightResolves = new Map();
 // path (the bzz protocol handler now resolves on every subresource
 // request, so a busy page can fan out dozens of cache hits per page load).
 const PURE_ASCII_HOST = /^[a-z0-9-.]+$/;
+const MAX_LIFECYCLE_RESTARTS = 3;
 
 function fastNormalize(trimmed) {
   const lowered = trimmed.toLowerCase();
@@ -2051,12 +2142,46 @@ async function resolveWithCache(name, cache, doResolve, label) {
     return existing;
   }
 
-  const promise = doResolve(normalized).finally(() => {
-    inFlightResolves.delete(dedupKey);
+  let promise;
+  promise = resolveAcrossStableLifecycle(normalized, cache, doResolve, label).finally(() => {
+    // A Myotis transition clears the map so a fresh request can begin. Do not
+    // let the older promise's finally handler delete that replacement entry.
+    if (inFlightResolves.get(dedupKey) === promise) {
+      inFlightResolves.delete(dedupKey);
+    }
   });
 
   inFlightResolves.set(dedupKey, promise);
   return promise;
+}
+
+async function resolveAcrossStableLifecycle(normalized, cache, doResolve, label) {
+  for (let attempt = 1; attempt <= MAX_LIFECYCLE_RESTARTS; attempt++) {
+    const epoch = resolutionLifecycleEpoch;
+    let result;
+    try {
+      result = await doResolve(normalized);
+    } catch (err) {
+      if (epoch === resolutionLifecycleEpoch) throw err;
+      log.info(
+        `[ens] ${label} lifecycle changed during failed resolution for ${normalized}; ` +
+        `restarting (${attempt}/${MAX_LIFECYCLE_RESTARTS})`
+      );
+      continue;
+    }
+
+    if (epoch === resolutionLifecycleEpoch) return result;
+
+    // doResolve helpers cache before returning. Remove only this stale result;
+    // a newer concurrent request may already have populated the same key.
+    const cached = cache.get(normalized);
+    if (cached?.result === result) cache.delete(normalized);
+    log.info(
+      `[ens] ${label} lifecycle changed during resolution for ${normalized}; ` +
+      `discarding stale result and restarting (${attempt}/${MAX_LIFECYCLE_RESTARTS})`
+    );
+  }
+  throw new Error(`Myotis availability changed repeatedly while resolving ${normalized}`);
 }
 
 async function doResolveEnsAddress(normalized) {
@@ -2240,9 +2365,7 @@ function unverifiedReverseResult(normalizedAddress, nameSystem, claimedName, det
   };
 }
 
-async function tryMyotisReverse(normalizedAddress) {
-  if (!myotisManager.isReady()) return null;
-
+async function readMyotisReverse(normalizedAddress) {
   const ensRec = await resolveMyotisEnsRecord({
     method: 'reverse',
     addressHex: normalizedAddress,
@@ -2336,6 +2459,18 @@ async function tryMyotisReverse(normalizedAddress) {
     ...noReverseResult(normalizedAddress),
     trust: lastTrust,
   };
+}
+
+async function tryMyotisReverse(normalizedAddress) {
+  if (!myotisManager.isReady()) return null;
+  const epoch = myotisManager.getAvailabilityEpoch();
+  const result = await readMyotisReverse(normalizedAddress);
+  if (epoch !== myotisManager.getAvailabilityEpoch() || !myotisManager.isReady()) {
+    const err = new Error('Myotis availability changed during verified reverse read');
+    err.code = 'MYOTIS_LIFECYCLE_CHANGED';
+    throw err;
+  }
+  return result;
 }
 
 function reverseConflictResult(normalizedAddress, nameSystem, outcome) {
@@ -2541,6 +2676,7 @@ async function doResolveEnsReverse(normalizedAddress) {
         );
       }
     } catch (err) {
+      if (err?.code === 'MYOTIS_LIFECYCLE_CHANGED') throw err;
       lastError = err;
       log.warn(
         `[ens] reverse method=${method} address=${normalizedAddress} outcome=ERROR ` +
@@ -2672,6 +2808,7 @@ function invalidateEnsContent(name) {
 // after a settings edit (equivalent to waiting out the TTLs); tests also
 // call it directly to share ENS names across cases without cross-pollution.
 function clearEnsResolutionCaches() {
+  resolutionLifecycleEpoch += 1;
   ensResultCache.clear();
   ensAddressCache.clear();
   ensReverseCache.clear();

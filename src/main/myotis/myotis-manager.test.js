@@ -131,6 +131,56 @@ describe('myotis-manager', () => {
     expect(ctx.mod.publicStatus(100).running).toBe(false);
   });
 
+  test('publishes warm-up, ready, peer-loss, and stopping availability transitions', () => {
+    const status = {
+      beaconState: 'SYNCING',
+      elReaderAvailable: false,
+      elHunting: true,
+      snapPeers: 0,
+      peerCount: 0,
+    };
+    const ctx = loadManager({ status });
+    const events = [];
+    ctx.mod.onAvailabilityTransition((event) => events.push({
+      ...event,
+      nativeStopCalled: ctx.addon.stop.mock.calls.length > 0,
+    }));
+
+    ctx.mod.startMyotis();
+    expect(events).toEqual([
+      expect.objectContaining({ ready: false, reason: 'starting', epoch: 1 }),
+    ]);
+
+    Object.assign(status, {
+      beaconState: 'SYNCED',
+      elReaderAvailable: true,
+      elHunting: false,
+      snapPeers: 1,
+      peerCount: 2,
+    });
+    jest.advanceTimersByTime(1000);
+    expect(events).toContainEqual(
+      expect.objectContaining({ ready: true, reason: 'ready', epoch: 2 })
+    );
+
+    status.snapPeers = 0;
+    jest.advanceTimersByTime(1000);
+    expect(events).toContainEqual(
+      expect.objectContaining({ ready: false, reason: 'not-ready', epoch: 3 })
+    );
+
+    status.snapPeers = 1;
+    jest.advanceTimersByTime(1000);
+    ctx.mod.stopMyotis();
+    expect(events.at(-1)).toMatchObject({
+      ready: false,
+      reason: 'stopping',
+      nativeStopCalled: false,
+    });
+    expect(ctx.mod.isReady()).toBe(false);
+    expect(ctx.mod.getAvailabilityEpoch()).toBe(events.at(-1).epoch);
+  });
+
   test('does not load or start the addon when the profile disables Myotis', () => {
     const ctx = loadManager({ mode: 'disabled' });
 
