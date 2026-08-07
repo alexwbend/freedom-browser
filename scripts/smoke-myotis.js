@@ -7,7 +7,7 @@ const path = require('path');
 // Cross-platform live smoke for the exact addon Freedom ships. This is kept
 // separate from the Playwright spec so CI can cache a cleanly-stopped sync
 // data directory even when the first cold run needs another attempt.
-const EXPECTED_ABI = 21;
+const EXPECTED_ABI = 22;
 const VITALIK_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
 const network = process.env.MYOTIS_NETWORK || 'mainnet';
 const POLL_INTERVAL_MS = 5000;

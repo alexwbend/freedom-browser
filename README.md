@@ -229,7 +229,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Chain data routing**: Wallet balances, transaction preparation, signed-transaction broadcast, and compatible dapp reads prefer Myotis, then Colibri verification, RPC quorum, and direct RPC according to each chain's settings. Unsupported methods transparently continue to the next source.
 - **Gnosis verification**: Both Myotis and Colibri are available as verified Gnosis sources; Colibri keeps separate verifier state per chain.
 - **Verified ENS reads**: Once synced, ENS content, address, and forward-verified reverse records are resolved against finalized Ethereum state before Freedom falls back to its configured verification method. ERC-3668/CCIP-Read records use their declared gateway only to retrieve the callback payload; Myotis verifies the callback against the same chain state.
-- **WNS/GNS adapters**: Freedom executes the existing WNS and GNS NameNFT calls through Myotis's local EVM path. Myotis v0.1.3 serves generic contract calls from the beacon optimistic head without a finalized verdict, so the UI labels those answers unverified rather than overstating their trust.
+- **WNS/GNS adapters**: Freedom executes the existing WNS and GNS NameNFT calls through Myotis's local EVM path. Myotis v0.1.4 serves generic contract calls from the beacon optimistic head without a finalized verdict, so the UI labels those answers unverified rather than overstating their trust.
 
 ### Integrated Radicle Node (macOS & Linux)
 

@@ -41,7 +41,7 @@ describe('myotis-manager', () => {
       finalizedBlockNumber: '1234',
     };
     const addon = {
-      init: jest.fn(() => options.abi ?? 21),
+      init: jest.fn(() => options.abi ?? 22),
       create: jest.fn(() => options.handle ?? 7),
       start: jest.fn(() => options.starts !== false),
       stop: jest.fn(),
@@ -101,7 +101,7 @@ describe('myotis-manager', () => {
       available: true,
       running: true,
       state: 'ready',
-      version: '0.1.3',
+      version: '0.1.4',
       peerCount: 5,
       finalizedBlockNumber: '1234',
     });
@@ -224,7 +224,7 @@ describe('myotis-manager', () => {
     expect(ctx.mod.publicStatus()).toMatchObject({
       running: false,
       state: 'error',
-      error: 'ABI mismatch: engine 20, expected 21',
+      error: 'ABI mismatch: engine 20, expected 22',
     });
   });
 

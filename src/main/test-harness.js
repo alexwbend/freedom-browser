@@ -260,12 +260,12 @@ function overrideProbeIpc() {
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
 const stubMyotisStatuses = new Map([
   [1, {
-    supported: true, available: true, version: '0.1.3', chainId: 1,
+    supported: true, available: true, version: '0.1.4', chainId: 1,
     network: 'mainnet', displayName: 'Ethereum', running: true, state: 'ready',
     beaconState: 'SYNCED', peerCount: 2, snapPeers: 1, finalizedBlockNumber: 25684159,
   }],
   [100, {
-    supported: true, available: true, version: '0.1.3', chainId: 100,
+    supported: true, available: true, version: '0.1.4', chainId: 100,
     network: 'gnosis', displayName: 'Gnosis', running: false, state: 'off',
     beaconState: 'STARTING', peerCount: 0, snapPeers: 0, finalizedBlockNumber: 0,
   }],

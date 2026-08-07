@@ -106,14 +106,14 @@ describe('myotis-ui', () => {
       state: 'ready',
       peerCount: 7,
       finalizedBlockNumber: '2345',
-      version: '0.1.3',
+      version: '0.1.4',
     });
     expect(ctx.elements.toggle.classList.contains('running')).toBe(true);
     expect(ctx.elements.info.classList.contains('visible')).toBe(true);
     expect(ctx.elements.state.textContent).toBe('Ready');
     expect(ctx.elements.peers.textContent).toBe('7');
     expect(ctx.elements.block.textContent).toBe('2345');
-    expect(ctx.elements.version.textContent).toBe('Myotis v0.1.3');
+    expect(ctx.elements.version.textContent).toBe('Myotis v0.1.4');
 
     ctx.elements.button.dispatch('click');
     await flushMicrotasks();
@@ -151,7 +151,7 @@ describe('myotis-ui', () => {
       chainId: 100,
       peerCount: 4,
       finalizedBlockNumber: '9876',
-      version: '0.1.3',
+      version: '0.1.4',
     });
     expect(ctx.elements.gnosisToggle.classList.contains('running')).toBe(true);
     expect(ctx.elements.gnosisState.textContent).toBe('Ready');
