@@ -112,6 +112,16 @@ describe('verifyManifest', () => {
     );
   });
 
+  test('allowRepublish accepts the applied version again but never an older one', async () => {
+    const m = await signed(baseManifest({ version: 5 }));
+    const withRepublish = { sigAddress: SIGNER.address, allowRepublish: true };
+    expect(verifyManifest(m, { ...withRepublish, appliedVersion: 5 })).toEqual({
+      ok: true,
+      version: 5,
+    });
+    expect(verifyManifest(m, { ...withRepublish, appliedVersion: 6 }).reason).toBe('not_newer');
+  });
+
   test('rejects a schema mismatch', async () => {
     expect(verifyManifest(await signed(baseManifest({ schema: 2 })), opts())).toEqual({
       ok: false,

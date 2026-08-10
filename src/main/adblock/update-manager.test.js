@@ -71,6 +71,20 @@ async function signedManifest(version) {
 const blobFor = (ref) => (ref === REF_ADS ? ADS : ref === REF_PRIV ? PRIV : Buffer.from('x'));
 
 let root;
+
+// Seed updated/ as if `feedVersion` had been applied while only `categories`
+// were enabled (that's all the update-manager downloads).
+function seedApplied(feedVersion, categories) {
+  const updated = path.join(root, 'updated');
+  fs.mkdirSync(updated, { recursive: true });
+  const entries = {};
+  for (const category of categories) entries[category] = { file: `${category}.txt` };
+  fs.writeFileSync(
+    path.join(updated, 'manifest.json'),
+    JSON.stringify({ feedVersion, categories: entries })
+  );
+}
+
 function io(overrides = {}) {
   return {
     root,
@@ -140,12 +154,56 @@ describe('runUpdateOnce', () => {
   });
 
   test('rejects a downgrade (version <= applied)', async () => {
-    // Seed an applied version of 5.
-    fs.mkdirSync(path.join(root, 'updated'), { recursive: true });
-    fs.writeFileSync(
-      path.join(root, 'updated', 'manifest.json'),
-      JSON.stringify({ feedVersion: 5, categories: {} })
-    );
+    // Seed an applied version of 5 covering everything enabled.
+    seedApplied(5, ['ads', 'privacy']);
+    const result = await runUpdateOnce(io({ readFeed: async () => signedManifest(4) }));
+    expect(result).toEqual({ status: 'rejected', reason: 'not_newer' });
+  });
+
+  test('re-applying the current version is a no-op when nothing is missing', async () => {
+    seedApplied(5, ['ads', 'privacy']);
+    const opts = io({ readFeed: async () => signedManifest(5) });
+    const result = await runUpdateOnce(opts);
+    expect(result).toEqual({ status: 'rejected', reason: 'not_newer' });
+    expect(opts.downloadBlob).not.toHaveBeenCalled();
+  });
+
+  test('backfills a category enabled after the update landed, at the same version', async () => {
+    // v3 lands while only ads is on, so updated/ carries ads alone.
+    getEnabledCategories.mockReturnValue(['ads']);
+    await runUpdateOnce(io({ readFeed: async () => signedManifest(3) }));
+    expect(fs.existsSync(path.join(root, 'updated', 'easyprivacy.txt'))).toBe(false);
+
+    // The user turns privacy on. The feed hasn't bumped its version, but the
+    // missing list must still be fetched instead of waiting for a republish.
+    getEnabledCategories.mockReturnValue(['ads', 'privacy']);
+    const opts = io({ readFeed: async () => signedManifest(3) });
+    expect(await runUpdateOnce(opts)).toEqual({ status: 'applied', version: 3 });
+    expect(fs.readFileSync(path.join(root, 'updated', 'easyprivacy.txt'))).toEqual(PRIV);
+    expect(opts.activate).toHaveBeenCalledTimes(1);
+
+    // Backfilled: replay protection is back in force on the next tick.
+    const settled = io({ readFeed: async () => signedManifest(3) });
+    expect(await runUpdateOnce(settled)).toEqual({ status: 'rejected', reason: 'not_newer' });
+    expect(settled.downloadBlob).not.toHaveBeenCalled();
+    expect(settled.activate).not.toHaveBeenCalled();
+  });
+
+  test('does not re-download every tick when the feed has no list for the new category', async () => {
+    await runUpdateOnce(io({ readFeed: async () => signedManifest(3) }));
+
+    // 'cookies' is enabled but this feed version carries no cookies list, so
+    // the backfill path opens and finds nothing new: no rewrite, no rebuild.
+    getEnabledCategories.mockReturnValue(['ads', 'privacy', 'cookies']);
+    const opts = io({ readFeed: async () => signedManifest(3) });
+    expect(await runUpdateOnce(opts)).toEqual({ status: 'up_to_date', version: 3 });
+    expect(opts.downloadBlob).not.toHaveBeenCalled();
+    expect(opts.activate).not.toHaveBeenCalled();
+  });
+
+  test('backfilling never accepts an older version', async () => {
+    // Applied v5 without privacy: a backfill is wanted, but only from v5+.
+    seedApplied(5, ['ads']);
     const result = await runUpdateOnce(io({ readFeed: async () => signedManifest(4) }));
     expect(result).toEqual({ status: 'rejected', reason: 'not_newer' });
   });

@@ -8,11 +8,13 @@
  * so the engine can be swapped (e.g. for Brave's adblock-rust) without
  * touching the rest of the browser.
  *
- * Filter lists are read from an artifacts directory: a `manifest.json`
+ * Filter lists are read from artifacts directories: a `manifest.json`
  * naming one ABP-syntax list file per category (see the desktop target
- * of freedom-adblock-service). Engine builds happen off the request hot
- * path and are swapped atomically; until the first build completes,
- * requests pass through.
+ * of freedom-adblock-service). Directories are layered per category — a
+ * landed Swarm update over the bundled floor — so an update carrying only
+ * some categories never shadows the bundled lists for the rest. Engine
+ * builds happen off the request hot path and are swapped atomically; until
+ * the first build completes, requests pass through.
  *
  * Blocking decisions match Freedom iOS: ads + privacy on by default,
  * cookie banners + annoyances opt-in, allowlist bypasses the engine for
@@ -58,16 +60,15 @@ const CATEGORY_SETTINGS = [
   ['annoyances', 'adblockAnnoyances'],
 ];
 
-let artifactsDir = null;
 // When set (tests / E2E via options.artifactsDir), the artifacts dir is
-// pinned. Otherwise refreshEngine re-resolves it each build so a Swarm update
-// promoted into userData/adblock/updated takes effect in-session, not just on
-// the next restart.
+// pinned. Otherwise refreshEngine re-resolves the layers each build so a Swarm
+// update promoted into userData/adblock/updated takes effect in-session, not
+// just on the next restart.
 let artifactsDirOverride = null;
 let installed = false;
 let cacheDir = null;
 let engine = null;
-let lastManifest = null;
+let lastArtifacts = null;
 let allowlistedHosts = [];
 // webContentsId -> top-level URL, maintained from mainFrame requests so
 // subresources get first-party context and allowlist scoping.
@@ -113,14 +114,7 @@ function getUpdatedArtifactsDir() {
 
 // Lists live in assets/adblock (fetched by scripts/fetch-adblock-lists.js,
 // gitignored); packaged builds ship the whole assets/ dir via extraResources.
-// Resolution order: FREEDOM_ADBLOCK_DIR (dev/E2E override) → a landed Swarm
-// update in userData → the bundled floor.
-function getDefaultArtifactsDir() {
-  if (process.env.FREEDOM_ADBLOCK_DIR) {
-    return process.env.FREEDOM_ADBLOCK_DIR;
-  }
-  const updated = getUpdatedArtifactsDir();
-  if (updated) return updated;
+function getBundledArtifactsDir() {
   try {
     const { app } = require('electron');
     if (app && app.isPackaged) {
@@ -130,6 +124,23 @@ function getDefaultArtifactsDir() {
     // Running outside Electron (e.g. Jest).
   }
   return path.join(__dirname, '..', '..', '..', 'assets', 'adblock');
+}
+
+/**
+ * The artifact layers to build from, highest precedence first: a landed Swarm
+ * update in userData, then the bundled floor (which FREEDOM_ADBLOCK_DIR
+ * replaces for dev/E2E). A dir pinned via options.artifactsDir is used alone.
+ *
+ * An update dir only carries the categories that were enabled when it was
+ * downloaded, so it is layered over — never substituted for — the floor:
+ * enabling a category after an update landed still blocks with that
+ * category's bundled list until the feed copy is backfilled.
+ */
+function getArtifactDirs() {
+  if (artifactsDirOverride) return [artifactsDirOverride];
+  const bundled = process.env.FREEDOM_ADBLOCK_DIR || getBundledArtifactsDir();
+  const updated = getUpdatedArtifactsDir();
+  return updated ? [updated, bundled] : [bundled];
 }
 
 function getDefaultCacheDir() {
@@ -142,23 +153,47 @@ function getDefaultCacheDir() {
   }
 }
 
-async function readManifest() {
+async function readManifest(dir) {
   try {
-    const raw = await fs.promises.readFile(path.join(artifactsDir, 'manifest.json'), 'utf-8');
+    const raw = await fs.promises.readFile(path.join(dir, 'manifest.json'), 'utf-8');
     return JSON.parse(raw);
   } catch (err) {
-    log.info(`[adblock] no filter-list artifacts at ${artifactsDir}: ${err.message}`);
+    log.info(`[adblock] no filter-list artifacts at ${dir}: ${err.message}`);
     return null;
   }
 }
 
-async function readEnabledListsText(settings, manifest) {
+/**
+ * Merge the layers' manifests into one per-category view: each category is
+ * served by the highest-precedence layer carrying it, and every entry keeps
+ * the dir + bundle version it came from (needed for reads and the cache key).
+ *
+ * @returns {Promise<{version: string, categories: object}|null>} null when no
+ *   layer has a readable manifest at all.
+ */
+async function resolveArtifacts() {
+  const categories = {};
+  let version = null;
+  for (const dir of getArtifactDirs()) {
+    const manifest = await readManifest(dir);
+    if (!manifest) continue;
+    if (version === null) version = manifest.version;
+    for (const [category, entry] of Object.entries(manifest.categories || {})) {
+      if (!categories[category]) {
+        categories[category] = { ...entry, dir, listsVersion: manifest.version };
+      }
+    }
+  }
+  return version === null ? null : { version, categories };
+}
+
+async function readEnabledListsText(settings, resolved) {
   const texts = [];
   for (const [category, settingKey] of CATEGORY_SETTINGS) {
-    const entry = manifest.categories?.[category];
+    const entry = resolved.categories[category];
     if (!entry || settings[settingKey] !== true) continue;
     try {
-      texts.push(await fs.promises.readFile(path.join(artifactsDir, entry.file), 'utf-8'));
+      texts.push(await fs.promises.readFile(path.join(entry.dir, entry.file), 'utf-8'));
     } catch (err) {
       // A bad list disables that category, never the whole feature.
       log.warn(`[adblock] skipping unreadable list '${category}': ${err.message}`);
@@ -167,16 +202,29 @@ async function readEnabledListsText(settings, manifest) {
   return texts.length > 0 ? texts.join('\n') : null;
 }
 
+// Identity of the exact bytes an engine build compiles in: per enabled
+// category, the serving layer's bundle version plus the list file's name and
+// digest — deliberately not its directory, so the identity travels with the
+// content. A partial update refreshing only 'ads' therefore invalidates the
+// cache while the bundled layer's other categories keep their identity.
+function engineIdentity(resolved, enabledCategories) {
+  return enabledCategories
+    .map((category) => {
+      const entry = resolved.categories[category];
+      if (!entry) return `${category}@none`;
+      return `${category}@${entry.listsVersion}:${entry.file}:${entry.sha256 || ''}`;
+    })
+    .join(',');
+}
+
 // The serialized-engine format is version-locked, so the cache key covers
-// the exact library + format versions, the list bundle version, and which
-// categories were compiled in. Any mismatch is simply a different filename,
-// so stale caches are never read — and pruned on the next write.
-function cacheFileFor(manifest, categoriesKey) {
+// the exact library + format versions plus the engine identity above. Any
+// mismatch is simply a different filename, so stale caches are never read —
+// and pruned on the next write.
+function cacheFileFor(identity) {
   const key = crypto
     .createHash('sha256')
-    .update(
-      `${ADBLOCKER_VERSION}|${ENGINE_VERSION}|${ENGINE_CONFIG_KEY}|${manifest.version}|${categoriesKey}`
-    )
+    .update(`${ADBLOCKER_VERSION}|${ENGINE_VERSION}|${ENGINE_CONFIG_KEY}|${identity}`)
     .digest('hex')
     .slice(0, 16);
   return path.join(cacheDir, `engine-${key}.bin`);
@@ -234,19 +282,20 @@ function refreshEngine() {
 async function rebuildEngineOnce() {
   // Not installed yet (e.g. a settings save before bootstrap wires us up).
   if (!installed) return;
-  // Re-resolve each build (unless pinned) so a just-promoted update dir wins.
-  artifactsDir = artifactsDirOverride || getDefaultArtifactsDir();
 
   const settings = loadSettings();
-  const manifest = await readManifest();
-  lastManifest = manifest;
-  if (!manifest) {
+  // Re-resolve the layers each build (unless pinned) so a just-promoted
+  // update dir wins per category.
+  const resolved = await resolveArtifacts();
+  lastArtifacts = resolved;
+  if (!resolved) {
     engine = null;
     return;
   }
 
-  const categoriesKey = getEnabledCategories().join(',');
-  const cacheFile = cacheDir ? cacheFileFor(manifest, categoriesKey) : null;
+  const enabledCategories = getEnabledCategories();
+  const categoriesKey = enabledCategories.join(',');
+  const cacheFile = cacheDir ? cacheFileFor(engineIdentity(resolved, enabledCategories)) : null;
 
   if (cacheFile) {
     const cached = await readEngineCache(cacheFile);
@@ -257,13 +306,13 @@ async function rebuildEngineOnce() {
     }
   }
 
-  const text = await readEnabledListsText(settings, manifest);
+  const text = await readEnabledListsText(settings, resolved);
   if (text === null) {
     engine = null;
     return;
   }
   engine = FiltersEngine.parse(text, ENGINE_CONFIG);
-  log.info(`[adblock] filter engine ready (${manifest.version}, categories: ${categoriesKey})`);
+  log.info(`[adblock] filter engine ready (${resolved.version}, categories: ${categoriesKey})`);
   if (cacheFile) {
     await writeEngineCache(cacheFile, engine);
   }
@@ -407,12 +456,12 @@ function isEngineReady() {
 /** Status snapshot for the settings page. */
 function getAdblockStatus() {
   const categories = {};
-  for (const [category, meta] of Object.entries(lastManifest?.categories || {})) {
+  for (const [category, meta] of Object.entries(lastArtifacts?.categories || {})) {
     categories[category] = { title: meta.title, ruleCount: meta.ruleCount };
   }
   return {
     engineReady: isEngineReady(),
-    listsVersion: lastManifest?.version || null,
+    listsVersion: lastArtifacts?.version || null,
     categories,
   };
 }
@@ -441,12 +490,11 @@ function getEnabledCategories() {
 
 /** Test-only: clear module state between suites. */
 function _resetAdblockForTests() {
-  artifactsDir = null;
   artifactsDirOverride = null;
   installed = false;
   cacheDir = null;
   engine = null;
-  lastManifest = null;
+  lastArtifacts = null;
   allowlistedHosts = [];
   topLevelUrls.clear();
   frameUrlCache.clear();
@@ -462,6 +510,7 @@ module.exports = {
   setAllowlistedHosts,
   cleanupAdblockWebContents,
   isEngineReady,
+  getAdblockStatus,
   getEnabledCategories,
   _resetAdblockForTests,
 };

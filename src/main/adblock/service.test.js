@@ -18,6 +18,17 @@ jest.mock('../settings-store', () => ({
   loadSettings: jest.fn(),
 }));
 
+// Electron is absent under Jest, which is what the "no landed update" default
+// exercises (the service catches the failure). Tests that need the Swarm
+// update layer point this at a fake userData dir.
+const mockElectron = { userData: null };
+jest.mock('electron', () => ({
+  get app() {
+    if (!mockElectron.userData) throw new Error('electron unavailable');
+    return { getPath: () => mockElectron.userData, isPackaged: false };
+  },
+}));
+
 const dispatcherMock = require('../webrequest-dispatcher');
 const { loadSettings } = require('../settings-store');
 const {
@@ -27,6 +38,7 @@ const {
   refreshEngine,
   cleanupAdblockWebContents,
   setAllowlistedHosts,
+  getAdblockStatus,
   _resetAdblockForTests,
 } = require('./service');
 
@@ -68,6 +80,25 @@ function writeFixtureArtifacts() {
   for (const [name, text] of Object.entries(FIXTURE_LISTS)) {
     fs.writeFileSync(path.join(artifactsDir, name), text);
   }
+}
+
+// A fake userData holding a landed Swarm update that carries only 'ads' —
+// what the update-manager writes when only ads+privacy were enabled at
+// download time. Returns the userData dir (caller cleans up).
+function writeUpdateLayer() {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-userdata-'));
+  const updated = path.join(userData, 'adblock', 'updated');
+  fs.mkdirSync(updated, { recursive: true });
+  fs.writeFileSync(path.join(updated, 'easylist.txt'), '||updated-ads.test^');
+  fs.writeFileSync(
+    path.join(updated, 'manifest.json'),
+    JSON.stringify({
+      version: '2026-08-01',
+      feedVersion: 9,
+      categories: { ads: { file: 'easylist.txt', title: 'EasyList', ruleCount: 1 } },
+    })
+  );
+  return userData;
 }
 
 // A subresource request as the dispatcher hands it to handlers.
@@ -402,6 +433,34 @@ describe('refreshEngine', () => {
     expect(adblockRequestForDispatch(makeDetails())).toEqual({ cancel: true });
   });
 
+  test('a landed update invalidates an engine cache built from the floor alone', async () => {
+    const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-cache-'));
+    process.env.FREEDOM_ADBLOCK_DIR = artifactsDir;
+
+    // Build (and cache) from the bundled floor only.
+    _resetAdblockForTests();
+    installAdblockInterception({ cacheDir });
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+    expect(adblockRequestForDispatch(makeDetails())).toEqual({ cancel: true });
+
+    // Now an update lands for 'ads'. The cached engine must not be reused.
+    const userData = writeUpdateLayer();
+    mockElectron.userData = userData;
+    _resetAdblockForTests();
+    installAdblockInterception({ cacheDir });
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://updated-ads.test/x.js' }))
+    ).toEqual({ cancel: true });
+
+    mockElectron.userData = null;
+    delete process.env.FREEDOM_ADBLOCK_DIR;
+    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(cacheDir, { recursive: true, force: true });
+  });
+
   test('skips unreadable list files without disabling the rest', async () => {
     const broken = fs.mkdtempSync(path.join(os.tmpdir(), 'adblock-broken-'));
     fs.writeFileSync(
@@ -426,5 +485,60 @@ describe('refreshEngine', () => {
     ).toEqual({ cancel: true });
 
     fs.rmSync(broken, { recursive: true, force: true });
+  });
+});
+
+describe('artifact layers', () => {
+  let userData;
+
+  beforeEach(() => {
+    userData = writeUpdateLayer();
+    mockElectron.userData = userData;
+    // Stand in for the bundled floor (the real one is gitignored).
+    process.env.FREEDOM_ADBLOCK_DIR = artifactsDir;
+  });
+
+  afterEach(() => {
+    mockElectron.userData = null;
+    delete process.env.FREEDOM_ADBLOCK_DIR;
+    fs.rmSync(userData, { recursive: true, force: true });
+  });
+
+  async function buildWithLayers(settings) {
+    _resetAdblockForTests();
+    loadSettings.mockReturnValue({ ...DEFAULT_TEST_SETTINGS, ...settings });
+    installAdblockInterception({ cacheDir: null }); // no pinned artifactsDir
+    await refreshEngine();
+    navigateTab(7, 'https://news.example/story');
+  }
+
+  test('an update wins for the categories it carries', async () => {
+    await buildWithLayers();
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://updated-ads.test/x.js' }))
+    ).toEqual({ cancel: true });
+    // The bundled ads list is replaced, not merged, for that category.
+    expect(adblockRequestForDispatch(makeDetails())).toBe(null);
+  });
+
+  test('a category the update omits still blocks from the bundled floor', async () => {
+    // The update landed while only ads+privacy were on; the user then enables
+    // cookie banners. That category must block immediately from the bundled
+    // list rather than silently do nothing until the feed version bumps.
+    await buildWithLayers({ adblockCookies: true });
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://cookiewall.test/banner.js' }))
+    ).toEqual({ cancel: true });
+    // Privacy, absent from the update too, keeps blocking as well.
+    expect(
+      adblockRequestForDispatch(makeDetails({ url: 'https://telemetry.test/beacon' }))
+    ).toEqual({ cancel: true });
+  });
+
+  test('reports the update version and merged categories in the status', async () => {
+    await buildWithLayers({ adblockCookies: true });
+    const status = getAdblockStatus();
+    expect(status.listsVersion).toBe('2026-08-01');
+    expect(Object.keys(status.categories).sort()).toEqual(['ads', 'cookies', 'privacy']);
   });
 });

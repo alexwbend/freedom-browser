@@ -90,9 +90,12 @@ function isValidDesktopListEntry(entry) {
  * @param {object} opts
  * @param {string} opts.sigAddress - Pinned signer address (MANIFEST_SIG_ADDRESS).
  * @param {number} opts.appliedVersion - Highest version already applied (0 if none).
+ * @param {boolean} [opts.allowRepublish] - Accept the applied version again
+ *   (not anything older): used to backfill a category that wasn't enabled —
+ *   and so wasn't downloaded — when that version was first applied.
  * @returns {{ ok: boolean, reason?: string, version?: number }}
  */
-function verifyManifest(manifest, { sigAddress, appliedVersion = 0 }) {
+function verifyManifest(manifest, { sigAddress, appliedVersion = 0, allowRepublish = false }) {
   if (!isPlainObject(manifest)) return { ok: false, reason: 'not_an_object' };
   if (manifest.schema !== MANIFEST_SCHEMA) return { ok: false, reason: 'schema_mismatch' };
   if (!isPositiveInt(manifest.version)) return { ok: false, reason: 'bad_version' };
@@ -114,8 +117,10 @@ function verifyManifest(manifest, { sigAddress, appliedVersion = 0 }) {
     return { ok: false, reason: 'duplicate_list_id' };
   }
 
-  // Downgrade protection: never move backward or replay the current version.
-  if (manifest.version <= appliedVersion) {
+  // Downgrade protection: never move backward. The current version is also
+  // rejected as a replay unless the caller is backfilling from it.
+  const floor = allowRepublish ? appliedVersion - 1 : appliedVersion;
+  if (manifest.version <= floor) {
     return { ok: false, reason: 'not_newer', version: manifest.version };
   }
 

@@ -49,14 +49,19 @@ function getUpdateRoot() {
   return path.join(app.getPath('userData'), 'adblock');
 }
 
-// The feed version already applied on disk, or 0 if none.
-function readAppliedVersion(updatedDir) {
+// What's already applied on disk: the feed version (0 if none) and the
+// categories that update carried — only the ones enabled at download time, so
+// a category enabled later is absent and needs backfilling.
+function readAppliedState(updatedDir) {
   try {
     const raw = fs.readFileSync(path.join(updatedDir, 'manifest.json'), 'utf-8');
-    const v = JSON.parse(raw).feedVersion;
-    return Number.isInteger(v) ? v : 0;
+    const local = JSON.parse(raw);
+    return {
+      version: Number.isInteger(local.feedVersion) ? local.feedVersion : 0,
+      categories: Object.keys(local.categories || {}),
+    };
   } catch {
-    return 0;
+    return { version: 0, categories: [] };
   }
 }
 
@@ -82,7 +87,14 @@ async function runUpdateOnce(io = {}) {
   if (loadSettings().adblockEnabled === false) return { status: 'disabled' };
 
   const updatedDir = path.join(root, 'updated');
-  const appliedVersion = readAppliedVersion(updatedDir);
+  const applied = readAppliedState(updatedDir);
+  const enabledCategories = getEnabledCategories();
+  // A category enabled after the last update landed isn't in updated/ — the
+  // bundled floor serves it meanwhile, but the feed copy must be able to
+  // backfill without waiting for the publisher to bump the version. Re-applying
+  // the current version is safe (same signed content); older is still a
+  // downgrade and stays rejected.
+  const needsBackfill = enabledCategories.some((c) => !applied.categories.includes(c));
 
   let manifest;
   try {
@@ -93,14 +105,26 @@ async function runUpdateOnce(io = {}) {
   }
   if (!manifest) return { status: 'feed_empty' };
 
-  const verdict = verifyManifest(manifest, { sigAddress, appliedVersion });
+  const verdict = verifyManifest(manifest, {
+    sigAddress,
+    appliedVersion: applied.version,
+    allowRepublish: needsBackfill,
+  });
   if (!verdict.ok) {
     log.info(`[adblock-update] rejected manifest: ${verdict.reason}`);
     return { status: 'rejected', reason: verdict.reason };
   }
 
-  const entries = desktopListsFor(manifest, getEnabledCategories());
+  const entries = desktopListsFor(manifest, enabledCategories);
   if (entries.length === 0) return { status: 'no_enabled_lists' };
+  // Backfill path only: the republished version has nothing this install is
+  // missing, so don't re-download and rebuild the engine every tick.
+  if (
+    manifest.version === applied.version &&
+    entries.every((entry) => applied.categories.includes(entry.category))
+  ) {
+    return { status: 'up_to_date', version: manifest.version };
+  }
 
   const stageDir = path.join(root, 'updated.next');
 
