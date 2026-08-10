@@ -298,9 +298,9 @@ const loadNavigationModule = async (options = {}) => {
     clearBzzBase: jest.fn(),
     setRadBase: jest.fn(),
     clearRadBase: jest.fn(),
-    startSwarmProbe: jest.fn((hash) => {
+    startSwarmProbe: jest.fn((hash, path) => {
       const id = swarmProbeState.nextProbeId;
-      swarmProbeState.startCalls.push({ id, hash });
+      swarmProbeState.startCalls.push({ id, hash, path });
       return Promise.resolve({ success: true, id });
     }),
     awaitSwarmProbe: jest.fn(
@@ -744,7 +744,7 @@ describe('navigation', () => {
       // slow Bee warm-up doesn't redirect the spinner to a different tab.
       expect(ctx.tabsMocks.setTabLoading).toHaveBeenCalledWith(true, ctx.activeRef.tab.id);
       expect(ctx.elements.reloadBtn.dataset.state).toBe('stop');
-      expect(ctx.electronAPI.startSwarmProbe).toHaveBeenCalledWith(VALID_HASH);
+      expect(ctx.electronAPI.startSwarmProbe).toHaveBeenCalledWith(VALID_HASH, '');
       expect(ctx.activeRef.tab.webview.loadURL).not.toHaveBeenCalled();
       expect(ctx.activeRef.tab.navigationState.pendingSwarmProbeId).toBe('probe-1');
 
@@ -757,6 +757,27 @@ describe('navigation', () => {
         `bzz://${VALID_HASH}/`
       );
       expect(ctx.activeRef.tab.navigationState.pendingSwarmProbeId).toBeNull();
+    });
+
+    test('probes the in-manifest path so index-less manifests deep-link (#172)', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget(`bzz://${VALID_HASH}/index.html`);
+      await flushMicrotasks();
+
+      // The probe must HEAD the same resource the navigation will load. A
+      // manifest without a root index document 404s on the bare hash even
+      // when /index.html is retrievable, which strands the probe until its
+      // overall timeout.
+      expect(ctx.electronAPI.startSwarmProbe).toHaveBeenCalledWith(VALID_HASH, '/index.html');
+
+      settleAwait(ctx, 'probe-1', { ok: true });
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        `bzz://${VALID_HASH}/index.html`
+      );
     });
 
     test('routes to ERR_CONNECTION_REFUSED error page when Bee is unreachable', async () => {
@@ -1600,7 +1621,7 @@ describe('navigation', () => {
       // Probe gates on the resolved hash so the cold-Bee retry budget is
       // applied to actual content, even though Chromium's URL is the ENS
       // name.
-      expect(ctx.electronAPI.startSwarmProbe).toHaveBeenCalledWith(HASH);
+      expect(ctx.electronAPI.startSwarmProbe).toHaveBeenCalledWith(HASH, '');
 
       // Settle the probe successfully and confirm the URL handed to
       // webview.loadURL is the ENS form, not the gateway URL or hash form.
