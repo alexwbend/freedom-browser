@@ -15,11 +15,11 @@ const { getMyotisDataDir } = require('../profile-paths');
 // The engine ABI version this manager was written against. The addon's
 // init() must return exactly this or we refuse to start (a stale addon
 // would otherwise fail confusingly deep inside a resolve).
-// v19 → v22 (myotis v0.1.4 release): additive only — v20 Tor toggle,
+// v19 → v22 (myotis v0.1.5 release): additive only — v20 Tor toggle,
 // v21 opt-in eth_getLogs watch-list index, v22 live served-block window.
 // No shape we call changed.
 const EXPECTED_ABI = 22;
-const MYOTIS_VERSION = '0.1.4';
+const MYOTIS_VERSION = '0.1.5';
 
 // Poll/log-drain cadence while the node runs. Availability is intentionally
 // checked more frequently than log draining: resolution policy must react
