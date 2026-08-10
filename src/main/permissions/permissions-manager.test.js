@@ -558,6 +558,40 @@ describe('permissions-manager', () => {
     expect(await ctx.ipcMain.invoke(IPC.PERMISSIONS_GET_ALL)).toEqual({});
   });
 
+  test('null-origin documents (data:, about:srcdoc) are denied without a prompt', () => {
+    load();
+    const host = makeHost();
+    for (const url of [
+      'data:text/html,<script>x</script>',
+      'about:srcdoc',
+      'not a parseable url at all',
+    ]) {
+      const callback = request('notifications', { url, host });
+      expect(callback).toHaveBeenCalledWith(false);
+    }
+    expect(promptCount(host)).toBe(0);
+  });
+
+  test('host destroyed-listener is disarmed when its last guest goes away', () => {
+    load();
+    const host = makeHost();
+    host.removeListener = jest.fn();
+    const guest = makeGuest('https://example.com/page', host);
+    request('notifications', { host, guest });
+    expect(host.once).toHaveBeenCalledTimes(1);
+
+    guest.destroy();
+    expect(host.removeListener).toHaveBeenCalledWith(
+      'destroyed',
+      host.destroyedCallbacks[0]
+    );
+
+    // A fresh prompt cycle re-arms exactly one listener.
+    const guest2 = makeGuest('https://example.com/other', host);
+    request('notifications', { host, guest: guest2 });
+    expect(host.once).toHaveBeenCalledTimes(2);
+  });
+
   test('bzz name-host and raw-hash origins stay distinct', async () => {
     load();
     const host = makeHost();

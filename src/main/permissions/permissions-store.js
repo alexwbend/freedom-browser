@@ -94,7 +94,14 @@ function setDecision(origin, permission, decision) {
   if (!key) return false;
 
   const permissions = loadPermissions();
-  if (!permissions[key]) {
+  // Self-heal a hand-edited file mapping an origin to a non-object —
+  // assigning onto a string primitive would silently no-op (sloppy mode)
+  // while this function still reports success.
+  if (
+    !permissions[key] ||
+    typeof permissions[key] !== 'object' ||
+    Array.isArray(permissions[key])
+  ) {
     permissions[key] = {};
   }
   permissions[key][permission] = decision;

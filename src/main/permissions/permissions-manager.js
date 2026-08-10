@@ -66,7 +66,11 @@ const sessionDecisions = new Map();
 const guestQueues = new Map();
 
 // Guests per host window, so closing the window tears down every queue
-// that would have rendered into it: Map<hostWebContentsId, Set<GuestState>>
+// that would have rendered into it:
+// Map<hostWebContentsId, {host, onHostDestroyed, guests: Set<GuestState>}>
+// The host and its armed destroyed-listener are kept so the listener can be
+// disarmed when the last guest leaves — re-arming on the next prompt cycle
+// would otherwise accumulate one listener per cycle.
 const hostGuests = new Map();
 
 // Pending prompt entries by prompt id (for the renderer's response).
@@ -107,11 +111,20 @@ function permissionKeysForRequest(permission, details) {
   }
 }
 
+// The shapes getPermissionKey produces for real sites: a bare Ethereum
+// name, a dweb-scheme key, or a scheme://host[:port] web origin. Anything
+// else is its raw-string fallback and must not become a storage key.
+const VALID_ORIGIN_KEY_SHAPE =
+  /^(?:[a-z0-9-]+\.(?:eth|box|wei|gwei)|(?:ipfs|ipns|bzz|rad):\/\/[^/?#\s]+|https?:\/\/[^/?#\s]+)$/i;
+
 /**
  * Derive the permission-store origin for a request. Uses the frame's
  * actual URL — webviews load `bzz://name.eth` (not the resolved hash)
  * directly, so this matches the display-origin the rest of the codebase
- * keys permissions by.
+ * keys permissions by. Note: this keys by the requesting FRAME's origin,
+ * so a cross-origin iframe (reachable only when the embedder delegates
+ * via permissions policy) prompts and remembers under the iframe origin,
+ * not the top site — double-keying like Chrome is a possible follow-up.
  *
  * @returns {string|null} Normalized origin, or null when unusable
  */
@@ -128,7 +141,14 @@ function originForRequest(webContents, details, requestingOrigin) {
     return null;
   }
   const origin = normalizeOrigin(rawUrl);
-  return origin || null;
+  if (!origin) return null;
+  // getPermissionKey falls back to the raw input string for null-origin
+  // documents (data:, about:srcdoc) and unparseable URLs. Such a "key" is
+  // an unbounded attacker-chosen string that would render verbatim in the
+  // prompt, and a remembered allow under it could key too broadly — refuse
+  // to prompt unless the key has one of the known origin shapes.
+  if (!VALID_ORIGIN_KEY_SHAPE.test(origin)) return null;
+  return origin;
 }
 
 function getSessionDecision(origin, key) {
@@ -278,10 +298,15 @@ function teardownGuestState(state, reason) {
     state.guest.removeListener('destroyed', state.onDestroyed);
   }
   guestQueues.delete(state.guestId);
-  const siblings = hostGuests.get(state.hostId);
-  if (siblings) {
-    siblings.delete(state);
-    if (siblings.size === 0) hostGuests.delete(state.hostId);
+  const entry = hostGuests.get(state.hostId);
+  if (entry) {
+    entry.guests.delete(state);
+    if (entry.guests.size === 0) {
+      hostGuests.delete(state.hostId);
+      if (typeof entry.host?.removeListener === 'function') {
+        entry.host.removeListener('destroyed', entry.onHostDestroyed);
+      }
+    }
   }
 }
 
@@ -291,18 +316,21 @@ function teardownGuestState(state, reason) {
  */
 function trackHostGuest(host, state) {
   const hostId = host.id;
-  if (!hostGuests.has(hostId)) {
-    hostGuests.set(hostId, new Set());
-    host.once('destroyed', () => {
-      const set = hostGuests.get(hostId);
+  let entry = hostGuests.get(hostId);
+  if (!entry) {
+    const onHostDestroyed = () => {
+      const current = hostGuests.get(hostId);
       hostGuests.delete(hostId);
-      if (!set) return;
-      for (const guestState of [...set]) {
+      if (!current) return;
+      for (const guestState of [...current.guests]) {
         teardownGuestState(guestState, 'window closed');
       }
-    });
+    };
+    entry = { host, onHostDestroyed, guests: new Set() };
+    hostGuests.set(hostId, entry);
+    host.once('destroyed', onHostDestroyed);
   }
-  hostGuests.get(hostId).add(state);
+  entry.guests.add(state);
 }
 
 /**

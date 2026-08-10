@@ -124,6 +124,17 @@ describe('permissions-store', () => {
     expect(mod.getDecision('https://example.com', 'camera')).toBe('allow');
   });
 
+  test('self-heals an origin mapped to a non-object', () => {
+    fs.writeFileSync(
+      permissionsPath(userDataDir),
+      JSON.stringify({ 'https://example.com': 'allow' }),
+      'utf-8'
+    );
+    const { mod } = loadStore({ userDataDir });
+    expect(mod.setDecision('https://example.com', 'camera', 'allow')).toBe(true);
+    expect(mod.getDecision('https://example.com', 'camera')).toBe('allow');
+  });
+
   test('survives a corrupt permissions.json', () => {
     fs.writeFileSync(permissionsPath(userDataDir), 'not json', 'utf-8');
     const { mod } = loadStore({ userDataDir });
