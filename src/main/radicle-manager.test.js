@@ -1046,6 +1046,98 @@ describe('radicle-manager', () => {
     expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
   });
 
+  test('a stop during the node socket wait leaves Radicle stopped and restartable', async () => {
+    const ctx = loadRadicleManagerModule({
+      activeProfile: {
+        metadata: {
+          nodes: {
+            radicle: { mode: 'managed', httpPort: 18780, p2pPort: 18776 },
+          },
+        },
+      },
+      configExists: false,
+      keyFiles: [],
+      // Node socket never shows up, so the start sits in waitForSocket().
+      socketExists: false,
+      portResolver: () => false,
+    });
+
+    ctx.mod.registerRadicleIpc();
+    const starting = ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    // Only radicle-node is up: httpd waits for the socket.
+    expect(ctx.spawnedProcesses).toHaveLength(1);
+    expect(ctx.spawnedProcesses[0].binary).toContain('radicle-node');
+
+    // User toggles the node back off while the socket wait is still pending.
+    const stopPromise = ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await stopPromise;
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses[0].kills).toContain('SIGTERM');
+    expect(ctx.clearService).toHaveBeenCalledWith('radicle');
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+    // The abandoned socket wait must not report a startup failure.
+    expect(ctx.log.error).not.toHaveBeenCalledWith(
+      '[Radicle] Socket wait failed:',
+      expect.anything()
+    );
+
+    // ...and the node must be startable again, not wedged for the session.
+    ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses).toHaveLength(2);
+    expect(ctx.spawnedProcesses[1].binary).toContain('radicle-node');
+
+    // The abandoned socket wait must give up rather than hold the start open.
+    await starting;
+
+    await ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+
+  test('a start queued while stopping runs once the last process exits', async () => {
+    const ctx = loadRadicleManagerModule({
+      activeProfile: {
+        metadata: {
+          nodes: {
+            radicle: { mode: 'managed', httpPort: 18780, p2pPort: 18776 },
+          },
+        },
+      },
+      configExists: false,
+      keyFiles: [],
+      socketExists: false,
+      portResolver: () => false,
+    });
+
+    const starting = ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+    expect(ctx.spawnedProcesses).toHaveLength(1);
+
+    const stopPromise = ctx.mod.stopRadicle();
+    // Toggled straight back on while the stop is still in flight.
+    await ctx.mod.startRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await stopPromise;
+    // The queued start is scheduled 100ms after the stop finalizes.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses).toHaveLength(2);
+    expect(ctx.spawnedProcesses[1].binary).toContain('radicle-node');
+
+    await starting;
+    await ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+
   test('marks a disabled profile Radicle node without probing or spawning', async () => {
     const checkedPorts = [];
     const ctx = loadRadicleManagerModule({

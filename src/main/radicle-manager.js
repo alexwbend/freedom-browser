@@ -123,6 +123,29 @@ function beginStartAttempt() {
   };
 }
 
+/**
+ * Terminal bookkeeping for a stopped Radicle: report the state, drop the
+ * service entry and run any start queued while we were stopping. The managed
+ * mode runs two processes and may never get as far as spawning httpd, so both
+ * the httpd close handler and stopRadicle() route through here - otherwise a
+ * stop that lands before httpd exists strands the state in 'stopping' and
+ * leaves pendingStart with nothing to consume it.
+ */
+function finalizeStopped(error = null) {
+  if (healthCheckInterval) {
+    clearInterval(healthCheckInterval);
+    healthCheckInterval = null;
+  }
+  updateState(STATUS.STOPPED, error);
+  clearService('radicle');
+
+  if (pendingStart) {
+    log.info('[Radicle] Processing queued start request');
+    pendingStart = false;
+    setTimeout(() => startRadicle(), 100);
+  }
+}
+
 function getRadicleBinaryPath(binary) {
   const arch = process.arch;
 
@@ -398,11 +421,18 @@ function isPortOpen(port, host = '127.0.0.1') {
 /**
  * Wait for Unix socket to exist
  */
-function waitForSocket(socketPath, timeout = 30000) {
+function waitForSocket(socketPath, timeout = 30000, shouldAbort = () => false) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
 
     const check = () => {
+      // A stop can land mid-wait; give up straight away instead of holding the
+      // start open (and reporting a bogus failure) for the full timeout.
+      if (shouldAbort()) {
+        reject(new Error('Socket wait aborted'));
+        return;
+      }
+
       if (fs.existsSync(socketPath)) {
         resolve(true);
         return;
@@ -768,24 +798,19 @@ async function startRadicle(opts = {}) {
       log.info(`[Radicle-httpd] Process exited with code ${code}`);
       radicleHttpdProcess = null;
 
+      if (currentState === STATUS.STOPPING) {
+        // stopRadicle() is coordinating this shutdown and the node may still be
+        // exiting: leave its force-kill timer armed and let it finalize once
+        // every process is gone.
+        return;
+      }
+
       if (forceKillTimeout) {
         clearTimeout(forceKillTimeout);
         forceKillTimeout = null;
       }
 
-      if (currentState !== STATUS.STOPPING) {
-        updateState(STATUS.STOPPED, code !== 0 ? `httpd exited with code ${code}` : null);
-      } else {
-        updateState(STATUS.STOPPED);
-      }
-      if (healthCheckInterval) clearInterval(healthCheckInterval);
-      clearService('radicle');
-
-      if (pendingStart) {
-        log.info('[Radicle] Processing queued start request');
-        pendingStart = false;
-        setTimeout(() => startRadicle(), 100);
-      }
+      finalizeStopped(code !== 0 ? `httpd exited with code ${code}` : null);
     });
 
     radicleHttpdProcess.on('error', (err) => {
@@ -982,9 +1007,15 @@ async function startRadicle(opts = {}) {
     // Step 7: Wait for socket to appear
     log.info('[Radicle] Waiting for node socket...');
     try {
-      await waitForSocket(socketPath, 30000);
+      await waitForSocket(socketPath, 30000, superseded);
       log.info('[Radicle] Node socket ready');
     } catch (err) {
+      if (superseded()) {
+        // Stopped while waiting for the socket: the stop path owns the shutdown
+        // (and its terminal state), so bail without reporting a failure.
+        if (radicleNodeProcess) radicleNodeProcess.kill('SIGTERM');
+        return;
+      }
       log.error('[Radicle] Socket wait failed:', err.message);
       if (radicleNodeProcess) {
         radicleNodeProcess.kill('SIGTERM');
@@ -1024,24 +1055,19 @@ async function startRadicle(opts = {}) {
       log.info(`[Radicle-httpd] Process exited with code ${code}`);
       radicleHttpdProcess = null;
 
+      if (currentState === STATUS.STOPPING) {
+        // stopRadicle() is coordinating this shutdown and the node may still be
+        // exiting: leave its force-kill timer armed and let it finalize once
+        // every process is gone.
+        return;
+      }
+
       if (forceKillTimeout) {
         clearTimeout(forceKillTimeout);
         forceKillTimeout = null;
       }
 
-      if (currentState !== STATUS.STOPPING) {
-        updateState(STATUS.STOPPED, code !== 0 ? `httpd exited with code ${code}` : null);
-      } else {
-        updateState(STATUS.STOPPED);
-      }
-      if (healthCheckInterval) clearInterval(healthCheckInterval);
-      clearService('radicle');
-
-      if (pendingStart) {
-        log.info('[Radicle] Processing queued start request');
-        pendingStart = false;
-        setTimeout(() => startRadicle(), 100);
-      }
+      finalizeStopped(code !== 0 ? `httpd exited with code ${code}` : null);
     });
 
     radicleHttpdProcess.on('error', (err) => {
@@ -1102,24 +1128,23 @@ function stopRadicle() {
     // Cancel any startRadicle() still sitting on an await, so it can't spawn
     // processes after we've reported the service as stopped.
     startGeneration += 1;
+    const stopGeneration = startGeneration;
+    // A start queued during this stop (pendingStart) begins its own attempt and
+    // bumps the generation; don't let our late process exits clobber its state.
+    const supersededByNewStart = () => startGeneration !== stopGeneration;
 
     // If we reused a node, stop only the httpd process this app started.
     if (currentMode === MODE.REUSED) {
       if (radicleHttpdProcess) {
         // We spawned httpd against the system node — kill it
         radicleHttpdProcess.once('close', () => {
-          if (healthCheckInterval) {
-            clearInterval(healthCheckInterval);
-            healthCheckInterval = null;
-          }
           if (forceKillTimeout) {
             clearTimeout(forceKillTimeout);
             forceKillTimeout = null;
           }
-          updateState(STATUS.STOPPED);
-          clearService('radicle');
           currentMode = MODE.NONE;
           activeRadHome = null;
+          if (!supersededByNewStart()) finalizeStopped();
           resolve();
         });
         if (forceKillTimeout) clearTimeout(forceKillTimeout);
@@ -1134,34 +1159,23 @@ function stopRadicle() {
         return;
       }
       // No httpd process (fully reused) — just clear state.
-      if (healthCheckInterval) {
-        clearInterval(healthCheckInterval);
-        healthCheckInterval = null;
-      }
-      updateState(STATUS.STOPPED);
-      clearService('radicle');
       currentMode = MODE.NONE;
       activeRadHome = null;
+      finalizeStopped();
       resolve();
       return;
     }
 
     if (currentMode === MODE.EXTERNAL || currentMode === MODE.DISABLED) {
-      if (healthCheckInterval) {
-        clearInterval(healthCheckInterval);
-        healthCheckInterval = null;
-      }
-      updateState(STATUS.STOPPED);
-      clearService('radicle');
       currentMode = MODE.NONE;
       activeRadHome = null;
+      finalizeStopped();
       resolve();
       return;
     }
 
     if (!radicleHttpdProcess && !radicleNodeProcess) {
-      updateState(STATUS.STOPPED);
-      clearService('radicle');
+      finalizeStopped();
       resolve();
       return;
     }
@@ -1175,15 +1189,15 @@ function stopRadicle() {
     const checkDone = () => {
       processesExited++;
       if (processesExited >= totalProcesses) {
-        if (healthCheckInterval) {
-          clearInterval(healthCheckInterval);
-          healthCheckInterval = null;
-        }
         if (forceKillTimeout) {
           clearTimeout(forceKillTimeout);
           forceKillTimeout = null;
         }
         activeRadHome = null;
+        // Every process this stop was waiting for is gone. httpd may never have
+        // been spawned (a stop landing during the node's socket wait), so this
+        // is the only place guaranteed to run: report the terminal state here.
+        if (!supersededByNewStart()) finalizeStopped();
         resolve();
       }
     };
