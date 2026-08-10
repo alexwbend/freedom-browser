@@ -1191,6 +1191,20 @@
       let customSearchProviders = [];
       let editingSearchProviderId = null;
       let searchProviderFormDirty = false;
+      // Keep in sync with CUSTOM_SEARCH_PROVIDER_LIMIT in src/main/settings-store.js —
+      // main silently drops anything past it, so the form must refuse first.
+      const CUSTOM_SEARCH_PROVIDER_LIMIT = 50;
+
+      // Latest cross-window provider list. cachedSettings is refreshed by every
+      // settings broadcast even while this form is dirty (applySearchSettings
+      // skips only the re-render), so writes rebase on it rather than on this
+      // window's render snapshot — otherwise a save here would resurrect
+      // entries another settings window removed meanwhile.
+      const latestCustomSearchProviders = () =>
+        (Array.isArray(cachedSettings?.customSearchProviders)
+          ? cachedSettings.customSearchProviders
+          : customSearchProviders
+        ).map((provider) => ({ ...provider }));
 
       const setSearchProviderStatus = (message, kind) => {
         searchFields.status.textContent = message || '';
@@ -1309,13 +1323,23 @@
           return;
         }
 
+        const baseProviders = latestCustomSearchProviders();
+        if (!editingSearchProviderId && baseProviders.length >= CUSTOM_SEARCH_PROVIDER_LIMIT) {
+          setSearchProviderStatus(
+            `Limit of ${CUSTOM_SEARCH_PROVIDER_LIMIT} custom search engines reached. Remove one first.`,
+            'error'
+          );
+          return;
+        }
         const id = editingSearchProviderId || crypto.randomUUID();
         const nextProvider = { id, name, searchUrlTemplate };
         const nextProviders = editingSearchProviderId
-          ? customSearchProviders.map((provider) =>
-              provider.id === editingSearchProviderId ? nextProvider : provider
-            )
-          : [...customSearchProviders, nextProvider];
+          ? baseProviders.some((provider) => provider.id === editingSearchProviderId)
+            ? baseProviders.map((provider) =>
+                provider.id === editingSearchProviderId ? nextProvider : provider
+              )
+            : [...baseProviders, nextProvider]
+          : [...baseProviders, nextProvider];
         const selectedProvider = editingSearchProviderId
           ? fields.searchProvider.value
           : `custom:${id}`;
@@ -1355,7 +1379,7 @@
         if (button.dataset.searchAction !== 'remove') return;
         if (!confirm(`Remove ${provider.name}?`)) return;
 
-        const nextProviders = customSearchProviders.filter(
+        const nextProviders = latestCustomSearchProviders().filter(
           (candidate) => candidate.id !== provider.id
         );
         const removedProviderId = `custom:${provider.id}`;

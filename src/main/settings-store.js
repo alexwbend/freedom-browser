@@ -243,4 +243,6 @@ module.exports = {
   loadSettings,
   saveSettings,
   registerSettingsIpc,
+  // Exported for the parity test against the renderer copy in search-utils.js.
+  normalizeSearchUrlTemplate,
 };

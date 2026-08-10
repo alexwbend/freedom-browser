@@ -328,3 +328,55 @@ describe('settings-store', () => {
     expect(nativeTheme.themeSource).toBe('dark');
   });
 });
+
+// The search-template validator exists in three copies: here (main), the
+// renderer's search-utils.js, and inline in settings.html. If the renderer
+// copy drifts looser than this one, a template the form accepts is silently
+// dropped by normalizeCustomSearchProviders while the UI reports "saved".
+// This parity suite pins main vs search-utils over the tricky vectors (the
+// settings.html inline copy has no import seam — keep it in sync by hand).
+describe('normalizeSearchUrlTemplate parity (main vs renderer)', () => {
+  const {
+    normalizeSearchUrlTemplate: rendererNormalize,
+  } = require('../renderer/lib/search-utils.js');
+
+  let userDataDir;
+  beforeEach(() => {
+    userDataDir = createTempUserDataDir();
+  });
+  afterEach(() => {
+    removeTempUserDataDir(userDataDir);
+  });
+
+  const VECTORS = [
+    'https://example.com/search?q={searchTerms}',
+    'https://example.com/search?q=%s',
+    '  https://example.com/?q={searchTerms}  ',
+    'https://example.com/search', // no placeholder
+    'https://example.com/?a={searchTerms}&b={searchTerms}', // two placeholders
+    'https://example.com/?a={searchTerms}&b=%s', // mixed placeholder forms
+    'http://example.com/?q={searchTerms}', // http non-loopback
+    'http://localhost:3000/?q={searchTerms}',
+    'http://127.0.0.1/?q={searchTerms}',
+    'http://[::1]:8080/?q={searchTerms}',
+    'https://user:pass@example.com/?q={searchTerms}', // credentials
+    'ftp://example.com/?q={searchTerms}',
+    'not a url {searchTerms}',
+    '{searchTerms}',
+    '',
+    'https://example.com/?q={SEARCHTERMS}', // wrong case
+    `https://example.com/?q={searchTerms}&pad=${'x'.repeat(2048)}`, // over length cap
+  ];
+
+  test.each(VECTORS.map((v) => [v]))('agrees on %s', (vector) => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    expect(mod.normalizeSearchUrlTemplate(vector)).toBe(rendererNormalize(vector));
+  });
+
+  test('agrees on non-string inputs', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    for (const vector of [null, undefined, 42, {}, []]) {
+      expect(mod.normalizeSearchUrlTemplate(vector)).toBe(rendererNormalize(vector));
+    }
+  });
+});

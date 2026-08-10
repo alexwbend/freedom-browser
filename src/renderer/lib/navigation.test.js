@@ -667,12 +667,14 @@ describe('navigation', () => {
       const ctx = await loadNavigationModule();
       await ctx.mod.initNavigation();
       await flushMicrotasks();
-      ctx.state.searchProvider = 'duckduckgo';
+      // A non-default provider — with the DuckDuckGo default this test would
+      // pass even if state.searchProvider were ignored entirely.
+      ctx.state.searchProvider = 'google';
 
       ctx.mod.loadTarget('weather');
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
-        'https://duckduckgo.com/?q=weather'
+        'https://www.google.com/search?q=weather'
       );
     });
 
