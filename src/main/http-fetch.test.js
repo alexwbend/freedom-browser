@@ -14,10 +14,27 @@ const path = require('path');
 
 const { fetchBuffer, fetchToFile } = require('./http-fetch');
 
-const okResponse = (body) => ({
+const bodyStream = (chunks, { intervalMs = 0, close = true } = {}) =>
+  new ReadableStream({
+    async pull(controller) {
+      if (!chunks.length) {
+        if (close) {
+          controller.close();
+          return;
+        }
+        // close: false → stall forever with the stream open, like a dead
+        // gateway; the pending read only settles when the timeout cancels it.
+        return new Promise(() => {});
+      }
+      if (intervalMs) await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      controller.enqueue(Uint8Array.from(Buffer.from(chunks.shift())));
+    },
+  });
+
+const okResponse = (body, streamOpts) => ({
   ok: true,
   status: 200,
-  arrayBuffer: async () => Uint8Array.from(Buffer.from(body)).buffer,
+  body: bodyStream([body], streamOpts),
 });
 
 describe('http-fetch dweb schemes', () => {
@@ -54,6 +71,44 @@ describe('http-fetch dweb schemes', () => {
 
     await expect(fetchBuffer('bzz://example.eth/missing.png')).rejects.toThrow(
       'Failed to download: HTTP 404'
+    );
+  });
+
+  test('fetchBuffer concatenates a chunked dweb body', async () => {
+    session.defaultSession.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: bodyStream(['chunk-one|', 'chunk-two|', 'chunk-three']),
+    });
+
+    const result = await fetchBuffer('bzz://example.eth/big.png');
+
+    expect(result).toEqual(Buffer.from('chunk-one|chunk-two|chunk-three'));
+  });
+
+  test('timeout is inactivity-based: steady slow transfers exceeding the timeout succeed', async () => {
+    // 4 chunks arriving every 40ms with a 100ms timeout: total transfer time
+    // (~160ms) exceeds the timeout, but no single gap does.
+    session.defaultSession.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: bodyStream(['a', 'b', 'c', 'd'], { intervalMs: 40 }),
+    });
+
+    const result = await fetchBuffer('bzz://example.eth/slow-but-steady.png', { timeout: 100 });
+
+    expect(result).toEqual(Buffer.from('abcd'));
+  });
+
+  test('a stalled dweb stream rejects with a timeout error', async () => {
+    session.defaultSession.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: bodyStream(['first-chunk'], { close: false }),
+    });
+
+    await expect(fetchBuffer('bzz://example.eth/stalled.png', { timeout: 50 })).rejects.toThrow(
+      'Request timed out'
     );
   });
 

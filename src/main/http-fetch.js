@@ -29,21 +29,47 @@ function validateUrl(url) {
 }
 
 /**
- * Fetch a dweb URL through the default session's protocol handlers and
- * return the body as a Buffer.
+ * Fetch a dweb URL through the default session's protocol handlers,
+ * streaming the body to onChunk. The timeout is an inactivity timeout to
+ * match the http(s) paths' protocol.get semantics: it resets on every
+ * chunk, so a slow-but-steady transfer is not cut off mid-download.
  */
-async function sessionFetchBuffer(url, { timeout = DEFAULT_TIMEOUT } = {}) {
+async function sessionFetchStream(url, onChunk, { timeout = DEFAULT_TIMEOUT } = {}) {
   // Lazy require so the plain http/https paths stay usable in tests that
   // don't mock the electron module.
   const { session } = require('electron');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
+  let timer = setTimeout(() => controller.abort(), timeout);
+  const touch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => controller.abort(), timeout);
+  };
   try {
     const response = await session.defaultSession.fetch(url, { signal: controller.signal });
     if (!response.ok) {
       throw new Error(`Failed to download: HTTP ${response.status}`);
     }
-    return Buffer.from(await response.arrayBuffer());
+    if (response.body) {
+      const reader = response.body.getReader();
+      // A protocol handler may return a Response whose body stream is not
+      // wired to the fetch signal — cancel the reader on abort so a stalled
+      // stream can't hang past the timeout.
+      const onAbort = () => reader.cancel().catch(() => {});
+      controller.signal.addEventListener('abort', onAbort);
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (controller.signal.aborted) {
+            throw new Error('Request timed out');
+          }
+          if (done) break;
+          touch();
+          await onChunk(Buffer.from(value));
+        }
+      } finally {
+        controller.signal.removeEventListener('abort', onAbort);
+      }
+    }
   } catch (err) {
     if (err?.name === 'AbortError') {
       throw new Error('Request timed out', { cause: err });
@@ -51,6 +77,50 @@ async function sessionFetchBuffer(url, { timeout = DEFAULT_TIMEOUT } = {}) {
     throw err;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Fetch a dweb URL through the default session's protocol handlers and
+ * return the body as a Buffer.
+ */
+async function sessionFetchBuffer(url, opts) {
+  const chunks = [];
+  await sessionFetchStream(url, (chunk) => chunks.push(chunk), opts);
+  return Buffer.concat(chunks);
+}
+
+/**
+ * Fetch a dweb URL and stream the body to a file. The file is only created
+ * once the first chunk arrives (never on a failed response) and partial
+ * files are removed on error.
+ */
+async function sessionFetchToFile(url, destPath, opts) {
+  let handle = null;
+  try {
+    await sessionFetchStream(
+      url,
+      async (chunk) => {
+        if (!handle) {
+          handle = await fs.promises.open(destPath, 'w');
+        }
+        await handle.write(chunk);
+      },
+      opts
+    );
+    if (handle) {
+      await handle.close();
+      handle = null;
+    } else {
+      // Empty body still produces an (empty) file, like the http path.
+      await fs.promises.writeFile(destPath, Buffer.alloc(0));
+    }
+  } catch (err) {
+    if (handle) {
+      await handle.close().catch(() => {});
+      await fs.promises.unlink(destPath).catch(() => {});
+    }
+    throw err;
   }
 }
 
@@ -108,14 +178,7 @@ async function fetchToFile(url, destPath, { timeout = DEFAULT_TIMEOUT, _redirect
   validateUrl(url);
 
   if (isSessionFetchUrl(url)) {
-    const data = await sessionFetchBuffer(url, { timeout });
-    try {
-      await fs.promises.writeFile(destPath, data);
-    } catch (err) {
-      fs.unlink(destPath, () => {});
-      throw err;
-    }
-    return;
+    return sessionFetchToFile(url, destPath, { timeout });
   }
 
   if (_redirectCount > MAX_REDIRECTS) {

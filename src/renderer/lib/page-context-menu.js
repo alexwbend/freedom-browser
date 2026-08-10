@@ -238,6 +238,7 @@ const handleAction = async (action) => {
         if (result?.success) {
           pushDebug('Copied image to clipboard');
         } else if (result?.error) {
+          pushDebug(`Failed to copy image: ${result.error}`);
           console.error('Failed to copy image:', result.error);
         }
       }
