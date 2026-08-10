@@ -116,7 +116,7 @@ describe('preload', () => {
     const invokeCases = [
       [exposures.electronAPI, 'setBzzBase', [11, 'http://127.0.0.1:1633/bzz/hash/'], IPC.BZZ_SET_BASE, [{ webContentsId: 11, baseUrl: 'http://127.0.0.1:1633/bzz/hash/' }]],
       [exposures.electronAPI, 'clearBzzBase', [11], IPC.BZZ_CLEAR_BASE, [{ webContentsId: 11 }]],
-      [exposures.electronAPI, 'startSwarmProbe', ['a'.repeat(64)], IPC.BZZ_START_PROBE, [{ hash: 'a'.repeat(64) }]],
+      [exposures.electronAPI, 'startSwarmProbe', ['a'.repeat(64), '/index.html'], IPC.BZZ_START_PROBE, [{ hash: 'a'.repeat(64), path: '/index.html' }]],
       [exposures.electronAPI, 'awaitSwarmProbe', ['probe-1'], IPC.BZZ_AWAIT_PROBE, [{ id: 'probe-1' }]],
       [exposures.electronAPI, 'cancelSwarmProbe', ['probe-1'], IPC.BZZ_CANCEL_PROBE, [{ id: 'probe-1' }]],
       [exposures.electronAPI, 'setRadBase', [31, 'http://127.0.0.1:8780/api/v1/repos/rid/'], IPC.RAD_SET_BASE, [{ webContentsId: 31, baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/' }]],

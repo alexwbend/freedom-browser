@@ -452,8 +452,16 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 // Context Menu Handler (works on all pages)
 // ============================================
 
-// Get context information when right-clicking
-document.addEventListener(
+// Get context information when right-clicking.
+//
+// Registered on window in the capture phase: window is the first node in the
+// capture path and the preload runs before any page script, so no page
+// handler (not even a window-level capture listener calling
+// stopPropagation()) can starve the interceptor. The send is deferred with
+// setTimeout so the defaultPrevented check happens after the full dispatch,
+// honoring only a genuine preventDefault() from the page (standard browser
+// semantics).
+window.addEventListener(
   'contextmenu',
   (event) => {
     const context = {
@@ -524,11 +532,15 @@ document.addEventListener(
       element = element.parentElement;
     }
 
-    // Prevent the default context menu
-    event.preventDefault();
+    // Decide after page handlers have run (setTimeout fires after the
+    // event dispatch completes; a microtask would run between listeners).
+    setTimeout(() => {
+      // The page suppressed the menu with preventDefault() — honor it.
+      if (event.defaultPrevented) return;
 
-    // Send context info to the host renderer
-    ipcRenderer.sendToHost('context-menu', context);
+      // Send context info to the host renderer
+      ipcRenderer.sendToHost('context-menu', context);
+    }, 0);
   },
   true
 );

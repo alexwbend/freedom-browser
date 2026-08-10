@@ -11,6 +11,7 @@ All notable changes to Freedom will be documented in this file.
   - Remembered decisions per profile under Settings > Site Permissions, with per-site and remove-all revocation
   - Indicator icon in the address bar with quick revoke on sites holding granted permissions
   - Location prompts note that positioning may be unreliable
+- Audio indicator on tabs playing sound; click it or use "Mute Tab" in the tab context menu to mute/unmute (mute survives navigation)
 
 ### Changed
 
