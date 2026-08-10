@@ -4,6 +4,10 @@ All notable changes to Freedom will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Audio indicator on tabs playing sound; click it or use "Mute Tab" in the tab context menu to mute/unmute (mute survives navigation)
+
 ### Changed
 
 - Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
