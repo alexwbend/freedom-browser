@@ -139,26 +139,50 @@ const shouldShowIpfsProgress = ({ data = {}, tab = null, navState = null } = {})
   return candidates.some(isIpfsProgressUrl);
 };
 
+// The 64- or 128-char hex Swarm reference (unencrypted / encrypted). Single
+// source for the gateway-URL helpers below so the patterns can't drift.
+const BZZ_REF_SOURCE = '[a-fA-F0-9]{64}(?:[a-fA-F0-9]{64})?';
+// `/bzz/<ref>` appearing anywhere in a gateway URL string — deliberately
+// unanchored so gateways mounted under a path prefix still match.
+const BZZ_REF_ANYWHERE_RE = new RegExp(`/bzz/(${BZZ_REF_SOURCE})`);
+// A gateway URL pathname of exactly `/bzz/<ref><in-manifest path>`.
+const BZZ_GATEWAY_PATHNAME_RE = new RegExp(`^/bzz/(${BZZ_REF_SOURCE})(/.*)?$`);
+
 // Extract the bzz reference (64- or 128-char hex) from a Bee gateway URL.
 const extractBzzHash = (gatewayUrl) => {
-  const match = /\/bzz\/([a-fA-F0-9]{64}(?:[a-fA-F0-9]{64})?)/.exec(gatewayUrl || '');
+  const match = BZZ_REF_ANYWHERE_RE.exec(gatewayUrl || '');
   return match ? match[1] : null;
 };
+
+// Parse a Bee gateway URL whose pathname is `/bzz/<ref><path>` into its
+// reference, in-manifest path ('' at the manifest root), query, and
+// fragment. Returns null when the URL doesn't have that shape.
+const parseBzzGatewayUrl = (gatewayUrl) => {
+  try {
+    const parsed = new URL(gatewayUrl || '');
+    const match = BZZ_GATEWAY_PATHNAME_RE.exec(parsed.pathname);
+    if (!match) return null;
+    return { hash: match[1], path: match[2] || '', search: parsed.search, fragment: parsed.hash };
+  } catch {
+    return null;
+  }
+};
+
+// Extract the in-manifest path (sans query/fragment) that follows the bzz
+// reference in a Bee gateway URL, e.g. `<bee-api>/bzz/<hash>/index.html?q`
+// → `/index.html`. Returns '' when the URL targets the manifest root. The
+// probe must HEAD the exact resource the navigation will load: a manifest
+// with no root index document 404s on the bare hash forever, which the
+// probe can't tell apart from a still-warming node (see swarm-probe.js).
+const extractBzzPath = (gatewayUrl) => parseBzzGatewayUrl(gatewayUrl)?.path || '';
 
 // Convert a Bee gateway URL (<bee-api>/bzz/<hash>/path?q#h) into
 // the `bzz://<hash>/path?q#h` form that Chromium routes through the custom
 // protocol handler. Falls back to the gateway URL if the shape doesn't match.
 const gatewayUrlToBzzUrl = (gatewayUrl) => {
-  try {
-    const parsed = new URL(gatewayUrl);
-    const match = /^\/bzz\/([a-fA-F0-9]{64}(?:[a-fA-F0-9]{64})?)(\/.*)?$/.exec(parsed.pathname);
-    if (!match) return gatewayUrl;
-    const [, hash, tail] = match;
-    const path = tail || '/';
-    return `bzz://${hash}${path}${parsed.search}${parsed.hash}`;
-  } catch {
-    return gatewayUrl;
-  }
+  const parsed = parseBzzGatewayUrl(gatewayUrl);
+  if (!parsed) return gatewayUrl;
+  return `bzz://${parsed.hash}${parsed.path || '/'}${parsed.search}${parsed.fragment}`;
 };
 
 // Build a file:// URL for error.html. `targetUrl` is the user-facing URL
@@ -835,6 +859,11 @@ const handleEthereumUri = (value) => {
 const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   const gatewayUrl = target.targetUrl;
   const hash = target.swarmHash || extractBzzHash(gatewayUrl);
+  // Probe the same in-manifest path the navigation will load. The gateway
+  // URL carries the full path in both the direct-hash and ENS-host cases
+  // (the ENS resolution feeds `bzz://<hash><suffix>` back through
+  // formatBzzUrl), so extracting it here covers both.
+  const probePath = extractBzzPath(gatewayUrl);
   const errorDisplayUrl = displayUrl || target.displayValue || gatewayUrl;
 
   if (!hash || !electronAPI?.startSwarmProbe) {
@@ -865,7 +894,7 @@ const startBzzNavigationWithProbe = (webview, target, navState, displayUrl) => {
   pushDebug(`[Swarm] Probing ${gatewayUrl} before navigating`);
 
   electronAPI
-    .startSwarmProbe(hash)
+    .startSwarmProbe(hash, probePath)
     .then((startResult) => {
       if (!startResult || startResult.success === false) {
         const message = startResult?.error?.message || 'failed to start probe';

@@ -1189,9 +1189,10 @@ describe('ipc-handlers', () => {
 
     const startResult = await ctx.ipcMain.invoke(IPC.BZZ_START_PROBE, {
       hash: 'a'.repeat(64),
+      path: '/index.html',
     });
     expect(startResult).toEqual(success({ id: 'probe-abc' }));
-    expect(startProbe).toHaveBeenCalledWith('a'.repeat(64));
+    expect(startProbe).toHaveBeenCalledWith('a'.repeat(64), { path: '/index.html' });
 
     const awaitPromise = ctx.ipcMain.invoke(IPC.BZZ_AWAIT_PROBE, { id: 'probe-abc' });
     probeResolve({ ok: true });
