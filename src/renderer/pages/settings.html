@@ -1779,6 +1779,7 @@
             <h2 class="section-title">${esc(c.name)}</h2>
             <p class="row-help" style="margin-bottom: 16px">Review and confirm.</p>
             <div class="card">${rowsHtml}</div>
+            ${addState.error ? `<p class="rpc-status error" style="margin: 8px 0 0">${esc(addState.error)}</p>` : ''}
             ${cardButton('Add chain', 'confirm-add')}`;
         };
 
@@ -2135,6 +2136,7 @@
           } else if (action === 'add-back') {
             if (addState) {
               addState.picked = null;
+              addState.error = null;
               render();
               runChainSearch($('chain-search-input')?.value || '');
             }
@@ -2157,6 +2159,11 @@
           } else if (action === 'confirm-add') {
             const c = addState?.picked;
             if (!c) return;
+            const failConfirm = (error) => {
+              if (!addState) { setStatus(error, 'error'); return; }
+              addState.error = error;
+              render();
+            };
             await submitAddChain(
               {
                 chainId: c.chainId,
@@ -2165,7 +2172,8 @@
                 nativeCurrency: c.nativeCurrency || null,
                 blockExplorer: c.explorerUrl || '',
               },
-              c.rpcUrls || []
+              c.rpcUrls || [],
+              failConfirm
             );
           } else if (action === 'submit-manual') {
             const chainId = ($('man-chainid')?.value || '').trim();
