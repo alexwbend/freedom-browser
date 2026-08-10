@@ -125,14 +125,44 @@ function mappedIpv4Parts(hostname) {
   ];
 }
 
+// Several IPv6 forms carry an IPv4 destination that the stack (or a gateway)
+// translates back to real IPv4 — so [64:ff9b::a00:1] reaches 10.0.0.1 on any
+// NAT64 network. Recover the embedded address so the IPv4 rules apply to it,
+// otherwise these are a straight bypass of the internal-host block.
+function embeddedIpv4Parts(segments) {
+  const low32 = () => [segments[6] >> 8, segments[6] & 0xff, segments[7] >> 8, segments[7] & 0xff];
+
+  // RFC 6052 well-known NAT64 prefix 64:ff9b::/96 — IPv4 in the low 32 bits.
+  if (
+    segments[0] === 0x0064 && segments[1] === 0xff9b
+    && segments.slice(2, 6).every((segment) => segment === 0)
+  ) {
+    return low32();
+  }
+  // ::/96 IPv4-compatible (deprecated) — also covers :: and ::1 as 0.0.0.x.
+  if (segments.slice(0, 6).every((segment) => segment === 0)) {
+    return low32();
+  }
+  // RFC 3056 6to4 2002::/16 — IPv4 in the second and third segments.
+  if (segments[0] === 0x2002) {
+    return [segments[1] >> 8, segments[1] & 0xff, segments[2] >> 8, segments[2] & 0xff];
+  }
+  return null;
+}
+
 function isInternalIpv6(hostname) {
   const mapped = mappedIpv4Parts(hostname);
   if (mapped) return isInternalIpv4Parts(mapped);
 
   const segments = ipv6Segments(hostname);
   if (!segments) return true;
-  if (segments.every((segment) => segment === 0)) return true; // ::
-  if (segments.slice(0, 7).every((segment) => segment === 0) && segments[7] === 1) return true; // ::1
+  const embedded = embeddedIpv4Parts(segments);
+  if (embedded) return isInternalIpv4Parts(embedded);
+  // RFC 8215 local-use NAT64 prefixes 64:ff9b:1::/48 — the embedded IPv4 sits
+  // at a position that depends on the operator's prefix length, so the whole
+  // range is treated as internal rather than guessed at.
+  if (segments[0] === 0x0064 && segments[1] === 0xff9b && segments[2] === 0x0001) return true;
+  if (segments[0] === 0x2001 && segments[1] === 0) return true; // Teredo 2001::/32
   if ((segments[0] & 0xfe00) === 0xfc00) return true; // fc00::/7
   if ((segments[0] & 0xffc0) === 0xfe80) return true; // fe80::/10
   if ((segments[0] & 0xff00) === 0xff00) return true; // ff00::/8 multicast

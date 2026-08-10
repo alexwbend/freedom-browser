@@ -307,6 +307,13 @@ describe('mutation layer', () => {
     ['https://rpc.local'],
     ['https://rpc.local.'],
     ['http://[::ffff:8.8.8.8]:8545'],
+    ['https://[64:ff9b::a00:1]:8545'],
+    ['https://[64:ff9b::10.0.0.1]:8545'],
+    ['https://[64:ff9b:1::a00:1]:8545'],
+    ['https://[64:ff9b:1:ffff::1]:8545'],
+    ['https://[::10.0.0.1]:8545'],
+    ['https://[2002:a00:1::1]:8545'],
+    ['https://[2001:0:4136:e378:8000:63bf:3fff:fdd2]:8545'],
     ['https://rpc.example/${API_KEY}'],
   ])('upsertEndpointSource rejects unsafe RPC URL %s', (url) => {
     const result = registry.upsertEndpointSource('bad-rpc', {
@@ -315,6 +322,16 @@ describe('mutation layer', () => {
 
     expect(result.success).toBe(false);
     expect(registry.getEndpointSourceList().find((src) => src.id === 'bad-rpc')).toBeUndefined();
+  });
+
+  test('upsertEndpointSource accepts a NAT64 address embedding a public IPv4', () => {
+    const url = 'https://[64:ff9b::8.8.8.8]:8545';
+    const result = registry.upsertEndpointSource('nat64-rpc', {
+      role: 'rpc', keyed: false, coverage: { '1': url },
+    });
+
+    expect(result.success).toBe(true);
+    expect(registry.getEndpoints(1, 'rpc')).toContain(url);
   });
 
   test('removeEndpointSource hides a builtin source', () => {
@@ -423,6 +440,8 @@ describe('addCustomChain', () => {
     ['https://10.0.0.5'],
     ['https://[febf::1]:8545'],
     ['https://[::ffff:10.0.0.5]:8545'],
+    ['https://[64:ff9b::a00:5]:8545'],
+    ['https://[64:ff9b:1::a00:5]:8545'],
     ['https://base.local'],
     ['https://base.local.'],
     ['https://base.example/${API_KEY}'],
