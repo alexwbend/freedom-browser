@@ -13,7 +13,7 @@ import { pushDebug } from './debug.js';
 
 const AUTO_DISMISS_MS = 5000;
 
-// id -> { el, nameEl, statusEl, barEl, fillEl, actionsEl, dismissTimer }
+// id -> { el, nameEl, statusEl, barEl, fillEl, actionsEl, actionsKey, dismissTimer }
 const cards = new Map();
 
 let shelfEl = null;
@@ -54,6 +54,11 @@ export const downloadStatusText = (download) => {
     case 'interrupted':
       return 'Failed — download interrupted';
     default:
+      // Live but stalled mid-transfer (see downloads-manager.js): not a
+      // terminal failure, so don't claim bytes are still moving.
+      if (download?.is_interrupted) {
+        return total ? `Interrupted — ${received} of ${total}` : `Interrupted — ${received}`;
+      }
       if (download?.is_paused) {
         return total ? `Paused — ${received} of ${total}` : `Paused — ${received}`;
       }
@@ -117,7 +122,16 @@ const buildCard = (id) => {
   el.appendChild(actionsEl);
   el.appendChild(closeBtn);
 
-  const card = { el, nameEl, statusEl, barEl, fillEl, actionsEl, dismissTimer: null };
+  const card = {
+    el,
+    nameEl,
+    statusEl,
+    barEl,
+    fillEl,
+    actionsEl,
+    actionsKey: null,
+    dismissTimer: null,
+  };
   cards.set(id, card);
   shelfEl.appendChild(el);
   return card;
@@ -140,12 +154,28 @@ const renderActions = (card, download) => {
       })
     );
   } else if (!isSettledState(download.state)) {
+    if (download.is_interrupted && download.can_resume) {
+      card.actionsEl.appendChild(
+        makeButton('Resume', 'download-card-btn', 'download-resume', () => {
+          electronAPI?.resumeDownload?.(download.id);
+        })
+      );
+    }
     card.actionsEl.appendChild(
       makeButton('Cancel', 'download-card-btn danger', 'download-cancel', () => {
         electronAPI?.cancelDownload?.(download.id);
       })
     );
   }
+};
+
+// Which set of buttons a payload calls for. Rebuilding on every progress tick
+// would blow away focus, so the card re-renders its actions only when this
+// bucket changes.
+const actionsKey = (download) => {
+  if (download.state === 'completed') return 'completed';
+  if (isSettledState(download.state)) return 'settled';
+  return download.is_interrupted && download.can_resume ? 'resumable' : 'active';
 };
 
 // Apply one `downloads:updated` payload to the shelf. Exported for tests.
@@ -171,10 +201,13 @@ export const handleDownloadUpdate = (download) => {
     'failed',
     download.state === 'cancelled' || download.state === 'interrupted'
   );
+  card.el.classList.toggle('stalled', !settled && Boolean(download.is_interrupted));
 
   // Buttons depend only on the state bucket; re-render on creation and on
-  // state transitions (a progress tick never rebuilds them).
-  if (isNew || settled) {
+  // bucket transitions (a progress tick never rebuilds them).
+  const key = actionsKey(download);
+  if (isNew || key !== card.actionsKey) {
+    card.actionsKey = key;
     renderActions(card, download);
   }
 

@@ -380,4 +380,91 @@ describe('downloads-manager', () => {
     const item = startDownload({ url: 'https://example.com/dup.txt', filename: 'dup.txt' });
     expect(item.savePath).toBe(path.join(downloadsDir, 'dup (1).txt'));
   });
+
+  test('concurrent same-name downloads never share a save path', () => {
+    loadManager();
+
+    // Chromium creates the file lazily, so nothing exists on disk yet when
+    // the second will-download fires — only the in-flight claim separates them.
+    const first = startDownload({ url: 'https://a.example/report.pdf', filename: 'report.pdf' });
+    const second = startDownload({ url: 'https://b.example/report.pdf', filename: 'report.pdf' });
+    const third = startDownload({ url: 'https://c.example/report.pdf', filename: 'report.pdf' });
+
+    expect(first.savePath).toBe(path.join(downloadsDir, 'report.pdf'));
+    expect(second.savePath).toBe(path.join(downloadsDir, 'report (1).pdf'));
+    expect(third.savePath).toBe(path.join(downloadsDir, 'report (2).pdf'));
+    expect(new Set([first.savePath, second.savePath, third.savePath]).size).toBe(3);
+  });
+
+  test('a settled download releases its claimed name for reuse', () => {
+    loadManager();
+
+    const cancelled = startDownload({ url: 'https://a.example/x.bin', filename: 'x.bin' });
+    expect(cancelled.savePath).toBe(path.join(downloadsDir, 'x.bin'));
+    // Cancelled — no file left behind, so the plain name is free again.
+    cancelled.emit('done', {}, 'cancelled');
+
+    const next = startDownload({ url: 'https://b.example/x.bin', filename: 'x.bin' });
+    expect(next.savePath).toBe(path.join(downloadsDir, 'x.bin'));
+  });
+
+  test("an 'interrupted' updated-state surfaces resume affordances without settling the row", async () => {
+    loadManager();
+
+    const item = startDownload({
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+      totalBytes: 1000,
+    });
+    item.receivedBytes = 400;
+    item.emit('updated', {}, 'progressing');
+    const sendCallsBefore = ownerWindow.webContents.send.mock.calls.length;
+
+    // Connection drops: Chromium keeps the item live and resumable.
+    item.resumable = true;
+    item.emit('updated', {}, 'interrupted');
+
+    const rows = await ipcMain.invoke(IPC.DOWNLOADS_GET, {});
+    expect(rows[0]).toEqual(
+      expect.objectContaining({
+        state: 'in_progress',
+        is_interrupted: true,
+        is_paused: false,
+        can_resume: true,
+      })
+    );
+
+    // The transition flushes past the progress throttle — the UI must not sit
+    // on a stale "still downloading" render.
+    expect(ownerWindow.webContents.send.mock.calls.length).toBeGreaterThan(sendCallsBefore);
+    expect(ownerWindow.webContents.send.mock.calls.at(-1)[1]).toEqual(
+      expect.objectContaining({ state: 'in_progress', is_interrupted: true, can_resume: true })
+    );
+
+    // Pause is a no-op on an interrupted item — refused rather than faked.
+    await expect(ipcMain.invoke(IPC.DOWNLOADS_PAUSE, rows[0].id)).resolves.toBe(false);
+    expect(item.pause).not.toHaveBeenCalled();
+    await expect(ipcMain.invoke(IPC.DOWNLOADS_RESUME, rows[0].id)).resolves.toBe(true);
+    expect(item.resume).toHaveBeenCalled();
+
+    // Back to progressing → the flag clears.
+    item.emit('updated', {}, 'progressing');
+    const resumedRows = await ipcMain.invoke(IPC.DOWNLOADS_GET, {});
+    expect(resumedRows[0].is_interrupted).toBe(false);
+  });
+
+  test("a done 'interrupted' clears the live interrupted flag", async () => {
+    loadManager();
+
+    const item = startDownload({ url: 'https://example.com/y.bin', filename: 'y.bin' });
+    item.emit('updated', {}, 'interrupted');
+    item.emit('done', {}, 'interrupted');
+
+    const rows = await ipcMain.invoke(IPC.DOWNLOADS_GET, {});
+    expect(rows[0].state).toBe('interrupted');
+    expect(rows[0].is_interrupted).toBeUndefined();
+    expect(ownerWindow.webContents.send.mock.calls.at(-1)[1]).toEqual(
+      expect.objectContaining({ state: 'interrupted', is_interrupted: false, can_resume: false })
+    );
+  });
 });

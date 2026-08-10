@@ -19,6 +19,7 @@ describe('downloads-ui', () => {
         return () => {};
       }),
       cancelDownload: jest.fn(),
+      resumeDownload: jest.fn(),
       openDownloadedFile: jest.fn(),
       showDownloadInFolder: jest.fn(),
     };
@@ -88,6 +89,16 @@ describe('downloads-ui', () => {
       expect(mod.downloadStatusText({ state: 'interrupted' })).toBe(
         'Failed — download interrupted'
       );
+      // Live-but-stalled is not a terminal failure and must not read as an
+      // in-flight transfer either.
+      expect(
+        mod.downloadStatusText({
+          state: 'in_progress',
+          is_interrupted: true,
+          received_bytes: 512,
+          total_bytes: 2048,
+        })
+      ).toBe('Interrupted — 512 B of 2.0 KB');
     });
   });
 
@@ -213,6 +224,57 @@ describe('downloads-ui', () => {
       );
       jest.advanceTimersByTime(5000);
       expect(shelfEl.children).toHaveLength(0);
+    });
+
+    test('a live interrupted download swaps Cancel-only for Resume + Cancel', async () => {
+      await loadModule();
+
+      updateHandler({
+        id: 5,
+        filename: 'big.iso',
+        state: 'in_progress',
+        received_bytes: 400,
+        total_bytes: 1000,
+      });
+      let card = shelfEl.children[0];
+      expect(card.querySelector('[data-test="download-resume"]')).toBeNull();
+
+      // Connection drops mid-transfer: still live, still resumable.
+      updateHandler({
+        id: 5,
+        filename: 'big.iso',
+        state: 'in_progress',
+        is_interrupted: true,
+        can_resume: true,
+        received_bytes: 400,
+        total_bytes: 1000,
+      });
+      card = shelfEl.children[0];
+      expect(card.classList.contains('stalled')).toBe(true);
+      expect(card.querySelector('.download-card-status').textContent).toBe(
+        'Interrupted — 400 B of 1000 B'
+      );
+      const resumeBtn = card.querySelector('[data-test="download-resume"]');
+      expect(resumeBtn).toBeTruthy();
+      resumeBtn.dispatch('click');
+      expect(electronAPI.resumeDownload).toHaveBeenCalledWith(5);
+
+      // Still live, so the card must not auto-dismiss.
+      jest.advanceTimersByTime(5000);
+      expect(shelfEl.children).toHaveLength(1);
+
+      // Back to progressing → Resume goes away again.
+      updateHandler({
+        id: 5,
+        filename: 'big.iso',
+        state: 'in_progress',
+        received_bytes: 600,
+        total_bytes: 1000,
+      });
+      card = shelfEl.children[0];
+      expect(card.classList.contains('stalled')).toBe(false);
+      expect(card.querySelector('[data-test="download-resume"]')).toBeNull();
+      expect(card.querySelector('[data-test="download-cancel"]')).toBeTruthy();
     });
 
     test('missing shelf container disables the module without throwing', async () => {

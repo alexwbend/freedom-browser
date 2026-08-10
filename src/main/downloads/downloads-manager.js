@@ -29,6 +29,17 @@ const { broadcastToAllWebContents } = require('../lib/broadcast-to-all-webconten
 // through this map; settled items are removed.
 const activeItems = new Map();
 
+// Store row ids whose live DownloadItem is in Chromium's 'interrupted'
+// updated-state: still live (not `done`), usually resumable, but not
+// transferring. Kept out of activeItems so pause/resume/cancel stay simple.
+const interruptedItems = new Set();
+
+// Save paths claimed by in-flight downloads. Chromium creates the file
+// lazily, so an existsSync check alone misses a sibling download that picked
+// the same path moments earlier — two same-name downloads would then write
+// the same file and silently clobber each other.
+const reservedSavePaths = new Set();
+
 // Progress writes/broadcasts are throttled per item so a fast download
 // doesn't flood SQLite and IPC. Terminal transitions always flush.
 const PROGRESS_THROTTLE_MS = 250;
@@ -58,21 +69,35 @@ function sanitizeFilename(name) {
 
 /**
  * Pick a collision-free path in `dir` for `filename` by appending " (n)"
- * before the extension, matching Chromium's behavior.
+ * before the extension, matching Chromium's behavior, and claim it for the
+ * caller. The claim covers the window between choosing a path and Chromium
+ * actually creating the file, during which `existsSync` still reports the
+ * path as free; release it with `releaseSavePath` once the item settles.
  * @param {string} dir - Target directory
  * @param {string} filename - Sanitized filename
- * @returns {string} Absolute path that does not exist yet
+ * @returns {string} Absolute path that neither exists nor is claimed yet
  */
 function uniqueSavePath(dir, filename) {
   const ext = path.extname(filename);
   const stem = path.basename(filename, ext);
   let candidate = path.join(dir, filename);
   let counter = 1;
-  while (fs.existsSync(candidate)) {
+  while (reservedSavePaths.has(candidate) || fs.existsSync(candidate)) {
     candidate = path.join(dir, `${stem} (${counter})${ext}`);
     counter++;
   }
+  reservedSavePaths.add(candidate);
   return candidate;
+}
+
+/**
+ * Drop an in-flight claim made by `uniqueSavePath`. A completed download's
+ * file is on disk by then, so `existsSync` takes over the dedupe duty; a
+ * cancelled / interrupted one frees the name outright.
+ * @param {string|null} savePath
+ */
+function releaseSavePath(savePath) {
+  if (savePath) reservedSavePaths.delete(savePath);
 }
 
 /**
@@ -92,6 +117,9 @@ function serializeDownload(id, item) {
     state: store.STATES.IN_PROGRESS,
     is_paused: item.isPaused(),
     can_resume: item.canResume(),
+    // Live-but-stalled: the transfer broke mid-session and Chromium has not
+    // given up on the item yet. The UI must offer Resume, not Pause.
+    is_interrupted: interruptedItems.has(id),
   };
 }
 
@@ -116,6 +144,7 @@ function handleWillDownload(_event, item, webContents) {
   const filename = sanitizeFilename(item.getFilename());
   const settings = loadSettings();
   const downloadsDir = app.getPath('downloads');
+  let reservedPath = null;
 
   if (settings.askWhereToSave === true) {
     // No savePath set → Electron shows its native save dialog; we only seed
@@ -127,7 +156,8 @@ function handleWillDownload(_event, item, webContents) {
     } catch (err) {
       log.warn('[Downloads] Could not ensure downloads dir:', err.message);
     }
-    item.setSavePath(uniqueSavePath(downloadsDir, filename));
+    reservedPath = uniqueSavePath(downloadsDir, filename);
+    item.setSavePath(reservedPath);
   }
 
   const row = store.insertDownload({
@@ -146,9 +176,21 @@ function handleWillDownload(_event, item, webContents) {
   sendToOwner(ownerWindow, serializeDownload(id, item));
 
   let lastProgressAt = 0;
-  item.on('updated', () => {
+  let lastUpdatedState = 'progressing';
+  item.on('updated', (_updatedEvent, updatedState) => {
+    // Electron reports 'progressing' | 'interrupted' here. An 'interrupted'
+    // item is NOT done — Chromium keeps it around and `canResume()` is often
+    // true — so it must stop rendering as a live transfer (whose Pause button
+    // Chromium ignores) and start offering Resume instead. State flips are
+    // rare and user-visible, so they flush past the progress throttle.
+    const nextState = updatedState === 'interrupted' ? 'interrupted' : 'progressing';
+    const stateChanged = nextState !== lastUpdatedState;
+    lastUpdatedState = nextState;
+    if (nextState === 'interrupted') interruptedItems.add(id);
+    else interruptedItems.delete(id);
+
     const now = Date.now();
-    if (now - lastProgressAt < PROGRESS_THROTTLE_MS) return;
+    if (!stateChanged && now - lastProgressAt < PROGRESS_THROTTLE_MS) return;
     lastProgressAt = now;
 
     store.updateDownload(id, {
@@ -162,6 +204,8 @@ function handleWillDownload(_event, item, webContents) {
 
   item.once('done', (_doneEvent, doneState) => {
     activeItems.delete(id);
+    interruptedItems.delete(id);
+    releaseSavePath(reservedPath);
 
     // Electron reports 'completed' | 'cancelled' | 'interrupted'; the store
     // uses the same vocabulary (snake-cased in_progress aside).
@@ -186,6 +230,7 @@ function handleWillDownload(_event, item, webContents) {
       state,
       is_paused: false,
       can_resume: false,
+      is_interrupted: false,
     });
   });
 }
@@ -218,6 +263,7 @@ function withLiveFlags(rows) {
       total_bytes: item.getTotalBytes(),
       is_paused: item.isPaused(),
       can_resume: item.canResume(),
+      is_interrupted: interruptedItems.has(dbRow.id),
     };
   });
 }
@@ -237,7 +283,9 @@ function registerDownloadsIpc() {
 
   ipcMain.handle(IPC.DOWNLOADS_PAUSE, (_event, id) => {
     const item = activeItems.get(id);
-    if (!item) return false;
+    // Chromium ignores pause() on an interrupted item — refuse rather than
+    // pretend it worked.
+    if (!item || interruptedItems.has(id)) return false;
     item.pause();
     return true;
   });

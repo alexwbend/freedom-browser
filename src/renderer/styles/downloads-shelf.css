@@ -43,7 +43,10 @@
   margin-top: 2px;
 }
 
-.download-card.failed .download-card-status {
+.download-card.failed .download-card-status,
+/* Live but stalled (interrupted mid-transfer, resumable) — warn without
+   claiming the download is over. */
+.download-card.stalled .download-card-status {
   color: var(--danger);
 }
 

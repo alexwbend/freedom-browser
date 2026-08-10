@@ -451,6 +451,12 @@
           case 'interrupted':
             return 'Failed — download interrupted';
           default:
+            // A live item can be stalled two ways: paused by the user, or
+            // interrupted mid-transfer (connection dropped) but not yet given
+            // up on by Chromium.
+            if (entry.is_interrupted) {
+              return total ? `Interrupted — ${received} of ${total}` : `Interrupted — ${received}`;
+            }
             if (entry.is_paused) {
               return total ? `Paused — ${received} of ${total}` : `Paused — ${received}`;
             }
@@ -460,11 +466,17 @@
 
       function renderActions(entry) {
         if (entry.state === 'in_progress') {
-          const pauseResume = entry.is_paused
-            ? `<button class="action-btn" data-action="resume" data-id="${entry.id}">Resume</button>`
-            : `<button class="action-btn" data-action="pause" data-id="${entry.id}">Pause</button>`;
+          // Pause only makes sense while bytes are moving; a paused or
+          // interrupted item offers Resume when Chromium says it can.
+          const stalled = entry.is_paused || entry.is_interrupted;
+          let pauseResume = `<button class="action-btn" data-action="pause" data-id="${entry.id}">Pause</button>`;
+          if (stalled) {
+            pauseResume = entry.can_resume
+              ? `<button class="action-btn" data-action="resume" data-id="${entry.id}">Resume</button>`
+              : '';
+          }
           return `
-            ${entry.is_paused && !entry.can_resume ? '' : pauseResume}
+            ${pauseResume}
             <button class="action-btn danger" data-action="cancel" data-id="${entry.id}">Cancel</button>
           `;
         }
@@ -483,7 +495,7 @@
           entry.total_bytes > 0
             ? Math.min(100, Math.round((entry.received_bytes / entry.total_bytes) * 100))
             : null;
-        const failed = entry.state === 'interrupted';
+        const failed = entry.state === 'interrupted' || (inProgress && entry.is_interrupted);
         const removeBtn = inProgress
           ? ''
           : `
