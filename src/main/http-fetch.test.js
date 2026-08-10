@@ -87,17 +87,18 @@ describe('http-fetch dweb schemes', () => {
   });
 
   test('timeout is inactivity-based: steady slow transfers exceeding the timeout succeed', async () => {
-    // 4 chunks arriving every 40ms with a 100ms timeout: total transfer time
-    // (~160ms) exceeds the timeout, but no single gap does.
+    // 8 chunks arriving every 50ms with a 300ms timeout: total transfer time
+    // (~400ms) exceeds the timeout, but no single gap comes close — a 250ms
+    // event-loop stall would be needed to flake this on a loaded runner.
     session.defaultSession.fetch.mockResolvedValue({
       ok: true,
       status: 200,
-      body: bodyStream(['a', 'b', 'c', 'd'], { intervalMs: 40 }),
+      body: bodyStream(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], { intervalMs: 50 }),
     });
 
-    const result = await fetchBuffer('bzz://example.eth/slow-but-steady.png', { timeout: 100 });
+    const result = await fetchBuffer('bzz://example.eth/slow-but-steady.png', { timeout: 300 });
 
-    expect(result).toEqual(Buffer.from('abcd'));
+    expect(result).toEqual(Buffer.from('abcdefgh'));
   });
 
   test('a stalled dweb stream rejects with a timeout error', async () => {

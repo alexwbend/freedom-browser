@@ -49,6 +49,9 @@ async function sessionFetchStream(url, onChunk, { timeout = DEFAULT_TIMEOUT } = 
     if (!response.ok) {
       throw new Error(`Failed to download: HTTP ${response.status}`);
     }
+    // Headers arriving is activity too — don't let a slow time-to-headers
+    // eat into the first chunk's window.
+    touch();
     if (response.body) {
       const reader = response.body.getReader();
       // A protocol handler may return a Response whose body stream is not
