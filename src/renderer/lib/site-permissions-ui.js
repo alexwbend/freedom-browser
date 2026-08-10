@@ -421,7 +421,14 @@ export const initSitePermissionsUi = () => {
     }
     setPopoverOpen(false);
     refreshIndicator();
-    showNextPrompt();
+    // Surface the incoming tab's held prompt on the next task, never
+    // inline. switchTab() dispatches active-tab-changed synchronously
+    // from the tab strip's click handler, so showing the prompt here
+    // would put it on screen mid-dispatch — the very same click then
+    // reaches the document click-away listener below (target = the tab
+    // element, outside promptEl) and deny-onces the request before the
+    // user ever sees it. Deferring lets the click dispatch finish first.
+    setTimeout(showNextPrompt, 0);
   });
 
   refreshIndicator();

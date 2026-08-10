@@ -134,12 +134,27 @@ describe('site-permissions-ui prompt tab-scoping', () => {
 
   const promptVisible = () => els['permission-prompt'].hidden === false;
   const sendRequest = (payload) => api.handlers.request(payload);
+  // Held prompts surface on the next task (see the click-away note in
+  // site-permissions-ui.js), so drain timers after every tab switch.
   const switchTab = (guestId) => {
     setActiveGuest(guestId);
     doc.handlers['active-tab-changed']();
+    jest.runOnlyPendingTimers();
+  };
+  // The real thing: clicking a tab in the strip runs switchTab() —
+  // which dispatches active-tab-changed synchronously — and the same
+  // click then bubbles up to the document click-away listener.
+  const clickTabInStrip = (guestId) => {
+    const tabEl = createElement('div');
+    doc.body.appendChild(tabEl);
+    setActiveGuest(guestId);
+    doc.handlers['active-tab-changed']();
+    doc.handlers.click({ target: tabEl });
+    jest.runOnlyPendingTimers();
   };
 
   beforeEach(() => {
+    jest.useFakeTimers();
     _resetForTests();
     els = buildDom();
     doc = createDocument({ elementsById: els });
@@ -154,6 +169,7 @@ describe('site-permissions-ui prompt tab-scoping', () => {
     global.document = originalDocument;
     global.window = originalWindow;
     mockActiveWebview = null;
+    jest.useRealTimers();
   });
 
   test("a request from the active tab's webview shows immediately", () => {
@@ -191,6 +207,27 @@ describe('site-permissions-ui prompt tab-scoping', () => {
       id: 12,
       decision: 'allow',
       remember: true,
+    });
+  });
+
+  test('clicking the requesting tab in the strip surfaces its held prompt, unanswered', () => {
+    sendRequest({ id: 20, origin: 'https://bg.example', keys: ['notifications'], guestId: 2 });
+    expect(promptVisible()).toBe(false);
+
+    // The click that switches tabs must not also click-away the prompt
+    // it just surfaced.
+    clickTabInStrip(2);
+    expect(promptVisible()).toBe(true);
+    expect(els['permission-prompt-origin'].textContent).toBe('https://bg.example');
+    expect(api.respondToPrompt).not.toHaveBeenCalled();
+
+    // A later, separate click outside the prompt still dismisses it.
+    doc.handlers.click({ target: doc.body });
+    expect(promptVisible()).toBe(false);
+    expect(api.respondToPrompt).toHaveBeenCalledWith({
+      id: 20,
+      decision: 'dismiss',
+      remember: false,
     });
   });
 

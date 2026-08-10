@@ -37,6 +37,23 @@ async function evalInWebview(window, script) {
 const readOut = (window) =>
   evalInWebview(window, "document.getElementById('out')?.textContent || null");
 
+// Same as evalInWebview, but targets a webview by index so a spec can
+// drive a BACKGROUND tab (whose webview carries `.hidden`).
+async function evalInWebviewAt(window, index, script) {
+  return window.evaluate(
+    async ({ code, i }) => {
+      const wv = document.querySelectorAll('webview')[i];
+      if (!wv || typeof wv.executeJavaScript !== 'function') return null;
+      try {
+        return await wv.executeJavaScript(code);
+      } catch {
+        return null;
+      }
+    },
+    { code: script, i: index }
+  );
+}
+
 async function navigateToFixture(window, harness) {
   await harness.setContentFixture(`bzz://${SAMPLE_BZZ_HASH}/`, { body: FIXTURE_BODY });
 
@@ -186,4 +203,42 @@ test('Escape dismisses the prompt as deny-once and the site can ask again', asyn
   // Nothing was remembered — the next request prompts again.
   await clickAsk(window);
   await expect(prompt).toBeVisible();
+});
+
+test('clicking a background tab surfaces its held prompt instead of dismissing it', async ({
+  window,
+  harness,
+}) => {
+  await navigateToFixture(window, harness);
+
+  const prompt = window.locator('[data-test="permission-prompt"]');
+  const fixtureTab = window.locator('[data-test="tab"][data-tab-id="1"]');
+
+  // Push the fixture tab into the background.
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await expect(window.locator('[data-test="tab"][data-tab-id="2"]')).toHaveClass(/active/);
+
+  // The background page asks for notifications: the prompt is held, not
+  // shown under the unrelated active tab.
+  await evalInWebviewAt(window, 0, "document.getElementById('ask').click(); true");
+  await window.waitForTimeout(500);
+  await expect(prompt).toBeHidden();
+
+  // Clicking the requesting tab in the strip surfaces the held prompt —
+  // and that same click must not click-away/deny it.
+  await fixtureTab.click();
+  await expect(prompt).toBeVisible();
+  await expect(window.locator('[data-test="permission-prompt-origin"]')).toHaveText(
+    `bzz://${SAMPLE_BZZ_HASH}`
+  );
+
+  // The page is still waiting: no decision was delivered by the click.
+  await window.waitForTimeout(500);
+  expect(await readOut(window)).toBe('none');
+  await expect(prompt).toBeVisible();
+
+  // And the surfaced prompt is still answerable.
+  await answerPrompt(window, 'allow');
+  await expect(prompt).toBeHidden();
+  await expect.poll(() => readOut(window), { timeout: 5_000 }).toBe('granted');
 });
