@@ -95,11 +95,34 @@ function delay(ms) {
  */
 function runSyncAttempt(record, opts) {
   return new Promise((resolve) => {
-    const child = spawn(
-      opts.radBin,
-      ['sync', '--fetch', '--timeout', `${SYNC_TIMEOUT_SEC}sec`, record.rid],
-      { env: { ...process.env, RAD_HOME: opts.radHome, RAD_PASSPHRASE: '' } }
-    );
+    // Exactly one of 'error' / 'exit' may fire (a spawn failure — ENOENT on a
+    // missing rad binary, EACCES, EMFILE — emits only 'error'), and a killed
+    // child can emit both. Settle once, on whichever arrives first, or the
+    // fetch loop awaits forever and the record is wedged at 'fetching' —
+    // which startFetch's idempotency guard then treats as in-flight, killing
+    // the retry path for good.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      record.child = null;
+      resolve();
+    };
+
+    let child;
+    try {
+      child = spawn(
+        opts.radBin,
+        ['sync', '--fetch', '--timeout', `${SYNC_TIMEOUT_SEC}sec`, record.rid],
+        { env: { ...process.env, RAD_HOME: opts.radHome, RAD_PASSPHRASE: '' } }
+      );
+    } catch (err) {
+      // spawn can throw synchronously (bad options); no child, nothing to clean up.
+      record.lastError = err.message;
+      resolve();
+      return;
+    }
     record.child = child;
 
     const killTimer = setTimeout(() => {
@@ -120,18 +143,17 @@ function runSyncAttempt(record, opts) {
         record.seedersKnown = 0;
       }
     };
-    child.stdout.on('data', parseOutput);
-    child.stderr.on('data', parseOutput);
+    // Streams are absent when the spawn itself failed.
+    child.stdout?.on('data', parseOutput);
+    child.stderr?.on('data', parseOutput);
     child.on('error', (err) => {
       record.lastError = err.message;
+      log.warn(`[seed-status] ${record.rid} sync attempt could not run: ${err.message}`);
+      settle();
     });
     // 'exit', not 'close': a killed rad can leave subprocesses holding the
     // stdout pipe open, and 'close' would wait for them.
-    child.on('exit', () => {
-      clearTimeout(killTimer);
-      record.child = null;
-      resolve();
-    });
+    child.on('exit', settle);
   });
 }
 

@@ -180,6 +180,28 @@ test('hanging sync attempt is hard-killed and counts as failed', async () => {
   expect(seedStatus.getStatus(RID, radHome).state).toBe('failed');
 }, 10000);
 
+// A spawn failure emits 'error' and never 'exit'. If the attempt promise
+// doesn't settle there, the record is wedged at 'fetching' forever and
+// startFetch's idempotency guard blocks the retry path permanently.
+test('unspawnable rad binary fails the fetch instead of hanging at fetching', async () => {
+  const record = seedStatus.startFetch(RID, {
+    radBin: path.join(radHome, 'does-not-exist'),
+    radHome,
+    maxAttempts: 2,
+    retryDelayMs: 10,
+  });
+  await record.done;
+  const status = seedStatus.getStatus(RID, radHome);
+  expect(status.state).toBe('failed');
+  expect(status.lastError).toContain('ENOENT');
+
+  // ...and the failed record is retryable, unlike a wedged 'fetching' one.
+  const retry = seedStatus.startFetch(RID, { radBin: fetchingStub(), radHome });
+  expect(retry).not.toBe(record);
+  await retry.done;
+  expect(seedStatus.getStatus(RID, radHome).state).toBe('fetched');
+}, 10000);
+
 test('startFetch is idempotent while fetching, restarts after failure', async () => {
   const slow = stubRad('sleep 1');
   const first = seedStatus.startFetch(RID, { radBin: slow, radHome, maxAttempts: 1, killMs: 200 });

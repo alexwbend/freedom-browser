@@ -785,9 +785,21 @@ try {
           return new Promise((resolve, reject) => {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_RADICLE_REQUEST', id, method, params: params || {} }, '*');
-            // All methods return promptly — seed/sync hand the network
-            // fetch to a background tracker (poll radicle_getSeedStatus).
-            const timeout = 60000;
+            // Execution itself is prompt — seed/sync hand the network fetch
+            // to a background tracker (poll radicle_getSeedStatus). But the
+            // methods below can first block on a consent prompt while the
+            // user deliberates; timing those out at 60s rejects the page
+            // promise while the grant and the write still land in main, so
+            // the dApp retries and duplicates the COB. Match the swarm
+            // sibling's 300s budget for anything that can prompt.
+            const canPrompt = method === 'radicle_requestAccess' ||
+              method === 'radicle_seed' ||
+              method === 'radicle_getIdentity' ||
+              method === 'radicle_createIssue' ||
+              method === 'radicle_commentIssue' ||
+              method === 'radicle_editIssueState' ||
+              method === 'radicle_commentPatch';
+            const timeout = canPrompt ? 300000 : 60000;
             setTimeout(() => {
               if (pendingRequests.has(id)) {
                 pendingRequests.delete(id);

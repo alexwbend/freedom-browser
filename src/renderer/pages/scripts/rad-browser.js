@@ -61,10 +61,15 @@ displayRid.textContent = rid ? `rad://${rid}` : 'rad://...';
 // UTILITIES
 // =============================================
 
+// Safe in both text and quoted-attribute contexts. The textContent →
+// innerHTML trick escapes & < > but NOT quotes, and this page interpolates
+// httpd-supplied names (file paths, RIDs) into data-* attributes — a file
+// named `x" onmouseover="…` would break out and run with full freedomAPI
+// access on this privileged internal page.
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
+  return String(str ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
 }
 
 function timeAgo(timestamp) {
@@ -853,10 +858,10 @@ function renderRepoList(repos) {
       const desc = repoData.description || repo.description || 'No description';
       const seeders = repo.seeding || 0;
       return `
-        <div class="repo-item" data-rid="${repoRid}">
+        <div class="repo-item" data-rid="${escapeHtml(repoRid)}">
           <div class="repo-item-header">
             <span class="repo-item-name">${escapeHtml(name)}</span>
-            <span class="repo-item-rid">${shortRid}</span>
+            <span class="repo-item-rid">${escapeHtml(shortRid)}</span>
           </div>
           <div class="repo-item-desc">${escapeHtml(desc)}</div>
           <div class="repo-item-meta">
@@ -918,10 +923,10 @@ function renderNetworkRepoList(repos) {
       const seeders = repo.seeding || 0;
 
       return `
-        <div class="repo-item network" data-rid="${repoRid}">
+        <div class="repo-item network" data-rid="${escapeHtml(repoRid)}">
           <div class="repo-item-header">
             <span class="repo-item-name">${escapeHtml(name)}</span>
-            <span class="repo-item-rid">${shortRid}</span>
+            <span class="repo-item-rid">${escapeHtml(shortRid)}</span>
           </div>
           <div class="repo-item-desc">${escapeHtml(desc)}</div>
           <div class="repo-item-meta">
