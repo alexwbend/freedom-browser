@@ -165,6 +165,7 @@ function isInternalIpv6(hostname) {
   if (segments[0] === 0x2001 && segments[1] === 0) return true; // Teredo 2001::/32
   if ((segments[0] & 0xfe00) === 0xfc00) return true; // fc00::/7
   if ((segments[0] & 0xffc0) === 0xfe80) return true; // fe80::/10
+  if ((segments[0] & 0xffc0) === 0xfec0) return true; // fec0::/10 deprecated site-local (RFC 3879)
   if ((segments[0] & 0xff00) === 0xff00) return true; // ff00::/8 multicast
   return false;
 }
