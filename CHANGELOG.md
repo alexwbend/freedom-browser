@@ -7,6 +7,7 @@ All notable changes to Freedom will be documented in this file.
 ### Added
 
 - Find in page (`Cmd+F` / `Ctrl+F`, also under Edit in the menu): overlay bar over the page with a live match counter, `Enter` / `Shift+Enter` to cycle matches, `Esc` to close
+- Audio indicator on tabs playing sound; click it or use "Mute Tab" in the tab context menu to mute/unmute (mute survives navigation)
 
 ### Changed
 
