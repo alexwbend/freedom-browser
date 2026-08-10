@@ -59,19 +59,29 @@ function getRpcEndpoints() {
   const override = String(process.env.TEZOS_RPC || '').trim();
   const candidates = override ? [override, ...DEFAULT_RPC_ENDPOINTS] : DEFAULT_RPC_ENDPOINTS;
   const seen = new Set();
-  return candidates.filter((candidate) => {
+  const endpoints = [];
+  for (const candidate of candidates) {
     try {
       const parsed = new URL(candidate);
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      // Keep the slash-normalized form, not the raw candidate — request
+      // paths are appended directly, so TEZOS_RPC=https://node/ would
+      // otherwise produce https://node//chains/… .
       const normalized = parsed.toString().replace(/\/$/, '');
-      if (seen.has(normalized)) return false;
+      if (seen.has(normalized)) continue;
       seen.add(normalized);
-      return true;
+      endpoints.push(normalized);
     } catch {
-      return false;
+      // Unparseable candidate — skip.
     }
-  });
+  }
+  return endpoints;
 }
+
+// Cancel an unread response body. Undici holds the connection out of its
+// pool until the body is consumed or cancelled, and the early exits below
+// (404 is the common path for unregistered names) never read it.
+const discardBody = (response) => response?.body?.cancel?.()?.catch?.(() => {});
 
 // Reads the body while enforcing MAX_RPC_RESPONSE_BYTES incrementally, so a
 // hostile endpoint can't buffer an arbitrarily large body into memory before
@@ -110,10 +120,17 @@ async function rpcRequest(endpoint, path, { method = 'GET', body, fetchImpl = fe
       headers: body ? { 'content-type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (response.status === 404) return null;
-    if (!response.ok) throw new Error(`RPC returned HTTP ${response.status}`);
+    if (response.status === 404) {
+      await discardBody(response);
+      return null;
+    }
+    if (!response.ok) {
+      await discardBody(response);
+      throw new Error(`RPC returned HTTP ${response.status}`);
+    }
     const declaredLength = Number(response.headers?.get?.('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > MAX_RPC_RESPONSE_BYTES) {
+      await discardBody(response);
       throw new Error('RPC response exceeded the size limit');
     }
     return JSON.parse(await readBodyWithLimit(response));
@@ -231,8 +248,16 @@ function parsePublishedUri(rawUri, { redirect = false } = {}) {
     // A website record must point at content (CID / IPNS key / DNSLink host),
     // never at another dweb *name*. `ipns://self.tez` would be handed back to
     // the renderer, re-parsed as a name, and resolved again — an unbounded
-    // resolve→navigate loop the domain owner controls.
-    if (isDwebNameHost(parsed.hostname)) {
+    // resolve→navigate loop the domain owner controls. Normalize before the
+    // check: a trailing dot (`self.tez.`) or percent-encoded dot
+    // (`self%2Etez`) is the same name to a resolver but slips the pattern.
+    let hostForNameCheck = parsed.hostname.replace(/\.+$/, '');
+    try {
+      hostForNameCheck = decodeURIComponent(hostForNameCheck);
+    } catch {
+      // Malformed escape — keep the raw form for the check.
+    }
+    if (isDwebNameHost(hostForNameCheck)) {
       return {
         type: 'unsupported',
         reason: `${protocol.toUpperCase()} website URI must reference content, not a name`,
@@ -451,6 +476,10 @@ function semanticResultKey(result) {
     basePath: result.basePath || null,
     redirect: Boolean(result.redirect),
     expiry: result.expiry || null,
+    // ttl drives cacheDuration for the winning group — leaving it out of
+    // the key would let one member's lie about td:ttl steer the cache when
+    // it happens to sort first within the group.
+    ttl: result.ttl ?? null,
   });
 }
 

@@ -1,6 +1,6 @@
 import { applyEnsNamePreservation, deriveDisplayValue } from './url-utils.js';
 import { getInternalPageName, parseEnsInput } from './page-urls.js';
-import { isEnsHost } from './origin-utils.js';
+import { isDwebNameHost } from './origin-utils.js';
 
 // Extract the Ethereum name from an address bar value, or null if the value isn't
 // a supported name-resolution input. Thin wrapper around `parseEnsInput` so the
@@ -373,7 +373,7 @@ export const buildViewSourceNavigation = ({
   const innerUrl = value.startsWith('view-source:') ? value.slice(12) : value;
 
   const bzzMatch = innerUrl.match(/^bzz:\/\/([a-fA-F0-9]+)(\/.*)?$/);
-  if (bzzMatch && !isEnsHost(bzzMatch[1])) {
+  if (bzzMatch && !isDwebNameHost(bzzMatch[1])) {
     const hash = bzzMatch[1];
     const path = bzzMatch[2] || '/';
     return {
@@ -383,7 +383,7 @@ export const buildViewSourceNavigation = ({
   }
 
   const ipfsMatch = innerUrl.match(/^ipfs:\/\/([A-Za-z0-9]+)(\/.*)?$/);
-  if (ipfsMatch && !isEnsHost(ipfsMatch[1])) {
+  if (ipfsMatch && !isDwebNameHost(ipfsMatch[1])) {
     const cid = ipfsMatch[1];
     const path = ipfsMatch[2] || '';
     return {
@@ -393,7 +393,7 @@ export const buildViewSourceNavigation = ({
   }
 
   const ipnsMatch = innerUrl.match(/^ipns:\/\/([A-Za-z0-9.-]+)(\/.*)?$/);
-  if (ipnsMatch && !isEnsHost(ipnsMatch[1])) {
+  if (ipnsMatch && !isDwebNameHost(ipnsMatch[1])) {
     const name = ipnsMatch[1];
     const path = ipnsMatch[2] || '';
     return {

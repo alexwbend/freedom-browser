@@ -147,7 +147,15 @@ describe('Tezos Domains resolver', () => {
   test('rejects website records that point back at a dweb name', () => {
     // Self- or cross-referential records would be handed to the renderer,
     // re-parsed as a name and resolved again — an unbounded navigation loop.
-    for (const uri of ['ipns://self.tez', 'ipfs://other.tez', 'ipns://vitalik.eth']) {
+    // Includes the obfuscated forms: trailing dot and percent-encoded dot
+    // are the same name to a resolver but slip a naive host pattern.
+    for (const uri of [
+      'ipns://self.tez',
+      'ipfs://other.tez',
+      'ipns://vitalik.eth',
+      'ipns://self.tez.',
+      'ipns://self%2Etez',
+    ]) {
       expect(parsePublishedUri(uri)).toMatchObject({
         type: 'unsupported',
         reason: expect.stringContaining('must reference content, not a name'),
