@@ -67,6 +67,17 @@ const handleFoundInPage = (event) => {
   if (nextBtn) nextBtn.disabled = matches === 0;
 };
 
+// Drop a scheduled find-as-you-type run. Anything that submits or ends the
+// session must call this first: a timer that survives fires startFind()
+// against whatever webview is active *then*, resurrecting a session the
+// user already dismissed (highlights + found-in-page listener with no
+// visible bar) or searching the tab they just switched to.
+const cancelPendingFind = () => {
+  if (!debounceTimer) return;
+  clearTimeout(debounceTimer);
+  debounceTimer = null;
+};
+
 // Blank counter, no error tint, prev/next disabled — the "no live results"
 // presentation used when the bar opens, the query empties, or the page
 // navigates away from the highlighted results.
@@ -185,6 +196,9 @@ export const openFindBar = () => {
 // per-tab reset: tabs.js calls this on every tab switch so find state
 // never leaks across tabs.
 export const closeFindBar = () => {
+  // Before the open check: a close must never leave a queued search behind,
+  // whatever state the bar is in.
+  cancelPendingFind();
   if (!findBarEl || findBarEl.hidden) return;
   // Captured before detachSession nulls it: focus returns to the searched
   // page, but only when it is still the foreground tab (on tab-switch
@@ -241,10 +255,7 @@ export const initFindBar = ({ getActiveWebview: getWebview } = {}) => {
       event.preventDefault();
       // Cancel a pending find-as-you-type run; findNext falls back to a
       // fresh search itself when the visible query was never submitted.
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
+      cancelPendingFind();
       findNext(!event.shiftKey);
     } else if (event.key === 'Escape') {
       event.preventDefault();

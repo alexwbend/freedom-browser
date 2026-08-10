@@ -297,6 +297,79 @@ describe('find-bar', () => {
     expect(ctx.webview.focus).toHaveBeenCalled();
   });
 
+  test('closing within the debounce window cancels the queued find-as-you-type', async () => {
+    const ctx = await loadFindBarModule();
+    ctx.mod.openFindBar();
+    await flushMicrotasks();
+
+    // Type, then close before the debounce elapses.
+    ctx.input.value = 'needle';
+    ctx.input.dispatch('input');
+    jest.advanceTimersByTime(ctx.mod.FIND_DEBOUNCE_MS - 1);
+    ctx.input.dispatch('keydown', {
+      key: 'Escape',
+      preventDefault: jest.fn(),
+      stopPropagation: jest.fn(),
+    });
+
+    jest.advanceTimersByTime(ctx.mod.FIND_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    // No orphaned session: nothing searched, nothing highlighted, and the
+    // hidden counter stays blank instead of reporting matches nobody sees.
+    expect(ctx.webview.findInPage).not.toHaveBeenCalled();
+    expect(ctx.mod.isFindBarOpen()).toBe(false);
+    expect(ctx.count.textContent).toBe('');
+
+    // A late found-in-page (from a session that should not exist) must not
+    // repaint the counter either — the listener is gone.
+    emitFoundInPage(ctx, { activeMatchOrdinal: 1, matches: 3, finalUpdate: true });
+    expect(ctx.count.textContent).toBe('');
+  });
+
+  test('switching tabs within the debounce window does not search the incoming tab', async () => {
+    const firstWebview = createFakeWebview();
+    const secondWebview = createFakeWebview();
+    let active = firstWebview;
+    const ctx = await loadFindBarModule({
+      webview: firstWebview,
+      initOptions: { getActiveWebview: () => active },
+    });
+
+    ctx.mod.openFindBar();
+    await flushMicrotasks();
+    ctx.input.value = 'needle';
+    ctx.input.dispatch('input');
+
+    // tabs.js flips the active tab, then closes the bar — both inside the
+    // debounce window.
+    active = secondWebview;
+    ctx.mod.closeFindBar();
+
+    jest.advanceTimersByTime(ctx.mod.FIND_DEBOUNCE_MS);
+    await flushMicrotasks();
+
+    expect(firstWebview.findInPage).not.toHaveBeenCalled();
+    expect(secondWebview.findInPage).not.toHaveBeenCalled();
+  });
+
+  test('a completed debounce still searches after a later close/reopen cycle', async () => {
+    const ctx = await loadFindBarModule();
+    ctx.mod.openFindBar();
+    await flushMicrotasks();
+    await typeQuery(ctx, 'needle');
+    expect(ctx.webview.findInPage).toHaveBeenCalledWith('needle');
+
+    ctx.mod.closeFindBar();
+    ctx.mod.openFindBar();
+    await flushMicrotasks();
+    ctx.webview.findInPage.mockClear();
+
+    // Cancelling on close must not wedge the debounce for the next session.
+    await typeQuery(ctx, 'haystack');
+    expect(ctx.webview.findInPage).toHaveBeenCalledWith('haystack');
+  });
+
   test('navigation resets results but keeps the bar open; Enter re-runs a full search', async () => {
     const ctx = await loadFindBarModule();
     ctx.mod.openFindBar();

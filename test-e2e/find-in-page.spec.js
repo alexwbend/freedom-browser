@@ -86,6 +86,31 @@ test('zero matches shows 0/0 and tints the input', async ({ window, harness }) =
   await expect(input).toHaveClass(/find-bar-input--no-matches/);
 });
 
+test('closing right after typing leaves no orphaned find session', async ({ window, harness }) => {
+  await loadFixturePage(window, harness);
+  await openFindBar(window);
+
+  const input = window.locator('[data-test="find-bar-input"]');
+  const counter = window.locator('[data-test="find-bar-count"]');
+
+  // Type and close inside the find-as-you-type debounce window: the queued
+  // search must be dropped, not run against a bar the user already closed.
+  await input.fill('needle');
+  await input.press('Escape');
+  await expect(window.locator('[data-test="find-bar"]')).toBeHidden();
+
+  // Well past the debounce — the counter stays blank (no session ran) and
+  // the page carries no highlights.
+  await window.waitForTimeout(600);
+  await expect(counter).toHaveText('');
+  expect(
+    await window.evaluate(async () => {
+      const wv = document.querySelector('webview:not(.hidden)');
+      return wv.executeJavaScript('window.getSelection().toString()');
+    })
+  ).toBe('');
+});
+
 test('switching tabs closes the find bar', async ({ window }) => {
   await openFindBar(window);
 
