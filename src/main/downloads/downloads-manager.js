@@ -40,6 +40,12 @@ const interruptedItems = new Set();
 // the same file and silently clobber each other.
 const reservedSavePaths = new Set();
 
+// Reservation keys are case-folded where the default filesystem is
+// case-insensitive (Windows, macOS): Report.PDF and report.pdf resolve to
+// the same file there, so they must contend for the same claim.
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+const savePathKey = (savePath) => (CASE_INSENSITIVE_FS ? savePath.toLowerCase() : savePath);
+
 // Progress writes/broadcasts are throttled per item so a fast download
 // doesn't flood SQLite and IPC. Terminal transitions always flush.
 const PROGRESS_THROTTLE_MS = 250;
@@ -58,8 +64,15 @@ function sanitizeFilename(name) {
   // Control characters and characters that break paths on some platforms.
   // eslint-disable-next-line no-control-regex
   base = base.replace(/[\x00-\x1f\x7f]/g, '').replace(/[<>:"|?*]/g, '_');
-  // Leading dots (hidden files / '..' remnants) and surrounding whitespace.
-  base = base.replace(/^\.+/, '').trim();
+  // Leading dots (hidden files / '..' remnants), trailing dots (dropped or
+  // path-breaking on Windows), and surrounding whitespace.
+  base = base.replace(/^\.+/, '').trim().replace(/[. ]+$/, '');
+  // Windows reserved device names (bare or with any extension) would target
+  // a device path or die as an unexplained interrupted download — defang by
+  // prefixing rather than rejecting.
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(base)) {
+    base = '_' + base;
+  }
   if (base.length > 255) {
     const ext = path.extname(base).slice(0, 32);
     base = base.slice(0, 255 - ext.length) + ext;
@@ -82,11 +95,11 @@ function uniqueSavePath(dir, filename) {
   const stem = path.basename(filename, ext);
   let candidate = path.join(dir, filename);
   let counter = 1;
-  while (reservedSavePaths.has(candidate) || fs.existsSync(candidate)) {
+  while (reservedSavePaths.has(savePathKey(candidate)) || fs.existsSync(candidate)) {
     candidate = path.join(dir, `${stem} (${counter})${ext}`);
     counter++;
   }
-  reservedSavePaths.add(candidate);
+  reservedSavePaths.add(savePathKey(candidate));
   return candidate;
 }
 
@@ -97,7 +110,7 @@ function uniqueSavePath(dir, filename) {
  * @param {string|null} savePath
  */
 function releaseSavePath(savePath) {
-  if (savePath) reservedSavePaths.delete(savePath);
+  if (savePath) reservedSavePaths.delete(savePathKey(savePath));
 }
 
 /**

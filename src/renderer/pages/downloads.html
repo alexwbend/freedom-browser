@@ -440,6 +440,23 @@
         return date.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
       }
 
+      // Transient per-row action failures (e.g. Open on a since-deleted
+      // file). Rendered into the row's status line — a direct DOM poke would
+      // be wiped by the next downloads:changed re-render, so the error lives
+      // here and expires after a few seconds.
+      const actionErrors = new Map();
+      const ACTION_ERROR_MS = 5000;
+      function showActionError(id, message) {
+        actionErrors.set(id, message);
+        applyFilter();
+        setTimeout(() => {
+          if (actionErrors.get(id) === message) {
+            actionErrors.delete(id);
+            applyFilter();
+          }
+        }, ACTION_ERROR_MS);
+      }
+
       function statusText(entry) {
         const received = formatBytes(entry.received_bytes || 0);
         const total = entry.total_bytes > 0 ? formatBytes(entry.total_bytes) : null;
@@ -495,7 +512,11 @@
           entry.total_bytes > 0
             ? Math.min(100, Math.round((entry.received_bytes / entry.total_bytes) * 100))
             : null;
-        const failed = entry.state === 'interrupted' || (inProgress && entry.is_interrupted);
+        const actionError = actionErrors.get(entry.id);
+        const failed =
+          Boolean(actionError) ||
+          entry.state === 'interrupted' ||
+          (inProgress && entry.is_interrupted);
         const removeBtn = inProgress
           ? ''
           : `
@@ -518,7 +539,7 @@
             <div class="download-content">
               <div class="download-name">${escapeHtml(entry.filename)}</div>
               <div class="download-url">${escapeHtml(entry.url)}</div>
-              <div class="download-status${failed ? ' error' : ''}">${escapeHtml(statusText(entry))}</div>
+              <div class="download-status${failed ? ' error' : ''}">${escapeHtml(actionError || statusText(entry))}</div>
               ${
                 inProgress && percent !== null
                   ? `<div class="progress-bar"><div class="progress-fill" style="width: ${percent}%"></div></div>`
@@ -572,12 +593,22 @@
           case 'cancel':
             await freedomAPI.cancelDownload?.(id);
             break;
-          case 'open':
-            await freedomAPI.openDownloadedFile?.(id);
+          case 'open': {
+            const res = await freedomAPI.openDownloadedFile?.(id);
+            if (res && res.success === false) {
+              showActionError(id, res.error || 'Could not open file');
+              return;
+            }
             break;
-          case 'show':
-            await freedomAPI.showDownloadInFolder?.(id);
+          }
+          case 'show': {
+            const res = await freedomAPI.showDownloadInFolder?.(id);
+            if (res && res.success === false) {
+              showActionError(id, res.error || 'Could not show file in folder');
+              return;
+            }
             break;
+          }
           case 'remove':
             await freedomAPI.removeDownload?.(id);
             break;

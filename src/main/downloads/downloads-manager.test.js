@@ -152,6 +152,23 @@ describe('downloads-manager', () => {
       expect(mod.sanitizeFilename(null)).toBe('download');
     });
 
+    test('strips trailing dots and defangs Windows reserved device names', () => {
+      const { mod } = loadMainModule(require.resolve('./downloads-manager'), {
+        userDataDir,
+        extraMocks: { 'better-sqlite3': () => FakeBetterSqlite3DownloadsDatabase },
+      });
+      expect(mod.sanitizeFilename('report.pdf.')).toBe('report.pdf');
+      expect(mod.sanitizeFilename('notes.txt. . ')).toBe('notes.txt');
+      expect(mod.sanitizeFilename('CON')).toBe('_CON');
+      expect(mod.sanitizeFilename('con.txt')).toBe('_con.txt');
+      expect(mod.sanitizeFilename('NUL.tar.gz')).toBe('_NUL.tar.gz');
+      expect(mod.sanitizeFilename('COM1')).toBe('_COM1');
+      expect(mod.sanitizeFilename('LPT9.log')).toBe('_LPT9.log');
+      // Not reserved: prefix-similar names pass through untouched.
+      expect(mod.sanitizeFilename('CONSOLE.txt')).toBe('CONSOLE.txt');
+      expect(mod.sanitizeFilename('COM10.txt')).toBe('COM10.txt');
+    });
+
     test('caps overlong names while keeping the extension', () => {
       const { mod } = loadMainModule(require.resolve('./downloads-manager'), {
         userDataDir,

@@ -137,20 +137,41 @@ const buildCard = (id) => {
   return card;
 };
 
+// Run a completed-file action (Open / Show in folder) and dismiss the card
+// only on success. Main reports failures like "File no longer exists" as
+// {success:false, error} — a failed action must keep the card and say why,
+// not vanish as if it worked.
+const runFileAction = async (downloadId, label, invoke) => {
+  let result;
+  try {
+    result = await invoke();
+  } catch (err) {
+    result = { success: false, error: err?.message || `${label} failed` };
+  }
+  if (result && result.success === false) {
+    const error = result.error || `${label} failed`;
+    const card = cards.get(downloadId);
+    if (card) card.statusEl.textContent = error;
+    pushDebug(`[downloads] ${label} failed for ${downloadId}: ${error}`);
+    return;
+  }
+  dismissCard(downloadId);
+};
+
 const renderActions = (card, download) => {
   const electronAPI = window.electronAPI;
   card.actionsEl.innerHTML = '';
   if (download.state === 'completed') {
     card.actionsEl.appendChild(
       makeButton('Open', 'download-card-btn', 'download-open', () => {
-        electronAPI?.openDownloadedFile?.(download.id);
-        dismissCard(download.id);
+        runFileAction(download.id, 'Open', () => electronAPI?.openDownloadedFile?.(download.id));
       })
     );
     card.actionsEl.appendChild(
       makeButton('Show in folder', 'download-card-btn', 'download-show-in-folder', () => {
-        electronAPI?.showDownloadInFolder?.(download.id);
-        dismissCard(download.id);
+        runFileAction(download.id, 'Show in folder', () =>
+          electronAPI?.showDownloadInFolder?.(download.id)
+        );
       })
     );
   } else if (!isSettledState(download.state)) {

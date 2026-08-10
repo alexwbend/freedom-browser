@@ -191,6 +191,9 @@ describe('downloads-ui', () => {
 
       openBtn.dispatch('click');
       expect(electronAPI.openDownloadedFile).toHaveBeenCalledWith(3);
+      // Dismissal now awaits main's result — settle the microtask queue.
+      await Promise.resolve();
+      await Promise.resolve();
 
       // The open click dismissed the card; a fresh completed update spawns a
       // new card which auto-dismisses after the timeout.
@@ -205,6 +208,31 @@ describe('downloads-ui', () => {
       expect(shelfEl.children).toHaveLength(1);
       jest.advanceTimersByTime(5000);
       expect(shelfEl.children).toHaveLength(0);
+    });
+
+    test('a failed Open keeps the card and surfaces the error', async () => {
+      await loadModule();
+      electronAPI.openDownloadedFile.mockResolvedValue({
+        success: false,
+        error: 'File no longer exists',
+      });
+
+      updateHandler({
+        id: 7,
+        filename: 'gone.iso',
+        state: 'completed',
+        received_bytes: 5,
+        total_bytes: 5,
+      });
+      const card = shelfEl.children[0];
+      card.querySelector('[data-test="download-open"]').dispatch('click');
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(shelfEl.children).toHaveLength(1);
+      expect(card.querySelector('.download-card-status').textContent).toBe(
+        'File no longer exists'
+      );
     });
 
     test('failed downloads show their state and auto-dismiss', async () => {
