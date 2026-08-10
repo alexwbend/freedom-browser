@@ -120,6 +120,9 @@ async function sessionFetchToFile(url, destPath, opts) {
         let offset = 0;
         while (offset < chunk.length) {
           const { bytesWritten } = await handle.write(chunk, offset, chunk.length - offset);
+          if (bytesWritten === 0) {
+            throw new Error('File write made no progress');
+          }
           offset += bytesWritten;
         }
       },

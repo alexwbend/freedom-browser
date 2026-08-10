@@ -178,6 +178,22 @@ describe('http-fetch dweb schemes', () => {
     expect(cancelled).toHaveBeenCalled();
   });
 
+  test('fails loudly when a file write makes no progress', async () => {
+    session.defaultSession.fetch.mockResolvedValue(okResponse('abcdef'));
+    const write = jest.fn().mockResolvedValue({ bytesWritten: 0 });
+    const close = jest.fn().mockResolvedValue(undefined);
+    const openSpy = jest.spyOn(fs.promises, 'open').mockResolvedValue({ write, close });
+
+    try {
+      await expect(
+        fetchToFile('bzz://example.eth/pic.png', '/tmp/http-fetch-no-progress.png')
+      ).rejects.toThrow('File write made no progress');
+      expect(write).toHaveBeenCalledTimes(1);
+    } finally {
+      openSpy.mockRestore();
+    }
+  });
+
   test('retries partial file writes until the whole chunk is on disk', async () => {
     session.defaultSession.fetch.mockResolvedValue(okResponse('abcdef'));
     const write = jest
