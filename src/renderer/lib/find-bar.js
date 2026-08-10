@@ -58,6 +58,12 @@ const handleFoundInPage = (event) => {
   // Chromium streams interim updates while it scans; render them all so
   // long pages show the count converging, the finalUpdate lands last.
   const matches = result.matches ?? 0;
+  // Interim events may carry activeMatchOrdinal 0 while matches is already
+  // counted — painting "0/N" reads as a bug. Hold those until the ordinal
+  // arrives (the finalUpdate always carries it).
+  if (!result.finalUpdate && matches > 0 && !(result.activeMatchOrdinal > 0)) {
+    return;
+  }
   const active = matches === 0 ? 0 : (result.activeMatchOrdinal ?? 0);
   if (findCount) {
     findCount.textContent = `${active}/${matches}`;
@@ -216,7 +222,9 @@ export const closeFindBar = () => {
   // Captured before detachSession nulls it: focus returns to the searched
   // page, but only when it is still the foreground tab (on tab-switch
   // closes it isn't, and stealing focus there would break the switch).
-  const searchedWebview = sessionWebview;
+  // With no session (bar opened, nothing searched) fall back to the active
+  // webview so closing doesn't strand focus on the hidden bar's input.
+  const searchedWebview = sessionWebview || getActiveWebview?.();
   detachSession();
   resetResultUi();
   findBarEl.hidden = true;
@@ -267,6 +275,10 @@ export const initFindBar = ({ getActiveWebview: getWebview } = {}) => {
   });
 
   findInput.addEventListener('keydown', (event) => {
+    // During an IME composition session Enter commits and Escape cancels
+    // the composition itself — neither may act on the find bar (keyCode
+    // 229 is the legacy in-composition marker some engines report).
+    if (event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       // Cancel a pending find-as-you-type run; findNext falls back to a
@@ -282,8 +294,17 @@ export const initFindBar = ({ getActiveWebview: getWebview } = {}) => {
     }
   });
 
-  prevBtn?.addEventListener('click', () => findNext(false));
-  nextBtn?.addEventListener('click', () => findNext(true));
+  // Same "submit" action class as Enter — cancel the pending
+  // find-as-you-type run so it can't restart the session right after
+  // the button advanced the active match.
+  prevBtn?.addEventListener('click', () => {
+    cancelPendingFind();
+    findNext(false);
+  });
+  nextBtn?.addEventListener('click', () => {
+    cancelPendingFind();
+    findNext(true);
+  });
   closeBtn?.addEventListener('click', () => closeFindBar());
 
   // Cmd/Ctrl+F fallback for when focus is in the browser chrome. With the

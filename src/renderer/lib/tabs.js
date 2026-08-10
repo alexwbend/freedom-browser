@@ -1353,6 +1353,9 @@ export const hideTabContextMenu = () => {
 export const switchTab = (tabId, options = {}) => {
   const tab = tabState.tabs.find((t) => t.id === tabId);
   if (!tab) return;
+  // Already foreground — nothing to swap, and running the swap anyway has
+  // real side effects (closing an open find bar, re-hiding webviews).
+  if (tabState.activeTabId === tabId) return;
 
   // Reset the link-hover preview before swapping active tabs:
   // - immediate clear so the previous tab's URL never trails into the new tab
