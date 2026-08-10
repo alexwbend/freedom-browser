@@ -1002,6 +1002,50 @@ describe('radicle-manager', () => {
     await ctx.mod.stopRadicle();
   });
 
+  test('a stop during the external-candidate prompt cancels the pending start', async () => {
+    const activeProfile = {
+      source: 'catalog',
+      metadata: {
+        nodes: {
+          radicle: {
+            mode: 'managed',
+            httpPort: 18780,
+            p2pPort: 18776,
+          },
+        },
+      },
+    };
+    let releasePrompt;
+    const promptForDefaultExternalCandidateProtocol = jest.fn(
+      () => new Promise((resolve) => {
+        releasePrompt = () => resolve([]);
+      })
+    );
+    const ctx = loadRadicleManagerModule({
+      activeProfile,
+      promptForDefaultExternalCandidateProtocol,
+    });
+
+    ctx.mod.registerRadicleIpc();
+    const starting = ctx.mod.startRadicle({ checkDefaultExternalCandidate: true });
+    await flushMicrotasks();
+    expect(promptForDefaultExternalCandidateProtocol).toHaveBeenCalled();
+
+    // User toggles the node off while the prompt is still open.
+    await ctx.mod.stopRadicle();
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+
+    releasePrompt();
+    await starting;
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    // The superseded start must not spawn processes the stop path can't kill.
+    expect(ctx.spawn).not.toHaveBeenCalled();
+    expect(ctx.updateActiveProfileNodeConfig).not.toHaveBeenCalled();
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+  });
+
   test('marks a disabled profile Radicle node without probing or spawning', async () => {
     const checkedPorts = [];
     const ctx = loadRadicleManagerModule({

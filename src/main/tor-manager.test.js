@@ -10,6 +10,36 @@ function flushMicrotasks() {
   return Promise.resolve().then(() => Promise.resolve());
 }
 
+function createArtiProcessMock() {
+  const handlers = new Map();
+  const onceHandlers = new Map();
+  const add = (store, event, handler) => {
+    if (!store.has(event)) store.set(event, []);
+    store.get(event).push(handler);
+  };
+
+  const proc = {
+    kills: [],
+    stdout: { on: jest.fn() },
+    stderr: { on: jest.fn() },
+    on: jest.fn((event, handler) => add(handlers, event, handler)),
+    once: jest.fn((event, handler) => add(onceHandlers, event, handler)),
+    emit(event, ...args) {
+      for (const handler of handlers.get(event) || []) handler(...args);
+      const once = onceHandlers.get(event) || [];
+      onceHandlers.delete(event);
+      once.forEach((handler) => handler(...args));
+    },
+    kill: jest.fn((signal) => {
+      proc.kills.push(signal);
+      proc.emit('close', 0);
+      return true;
+    }),
+  };
+
+  return proc;
+}
+
 function loadTorManager(options = {}) {
   const ipcMain = options.ipcMain || createIpcMainMock();
   const enableTorIntegration = options.enableTorIntegration === true;
@@ -220,6 +250,98 @@ describe('tor-manager IPC', () => {
     expect(mod.getActivePort()).toBe(9150);
     await mod.stopTor();
     await flushMicrotasks();
+  });
+
+  test('a stop during the external-candidate prompt cancels the pending start', async () => {
+    const realExistsSync = fs.existsSync;
+    jest.spyOn(fs, 'existsSync').mockImplementation((target) => {
+      // Pretend the bundled arti binary is present so the start would otherwise
+      // reach spawn().
+      if (String(target).includes(`${path.sep}arti-bin${path.sep}`)) return true;
+      return realExistsSync(target);
+    });
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tor-stop-race-'));
+    const spawn = jest.fn();
+    let releasePrompt;
+    const promptForDefaultExternalCandidateProtocol = jest.fn(
+      () => new Promise((resolve) => {
+        releasePrompt = () => resolve([]);
+      })
+    );
+    const updateActiveProfileNodeConfig = jest.fn();
+
+    try {
+      const { mod } = loadTorManager({
+        userDataDir,
+        enableTorIntegration: true,
+        updateActiveProfileNodeConfig,
+        promptForDefaultExternalCandidateProtocol,
+        activeProfile: {
+          source: 'catalog',
+          metadata: { nodes: { tor: { mode: 'managed', socksPort: 19150 } } },
+        },
+        extraMocks: {
+          child_process: () => ({ spawn, execFile: jest.fn() }),
+        },
+      });
+
+      const starting = mod.startTor({ checkDefaultExternalCandidate: true });
+      await flushMicrotasks();
+      expect(promptForDefaultExternalCandidateProtocol).toHaveBeenCalled();
+
+      // User toggles Tor off while the prompt is still open.
+      await mod.stopTor();
+
+      releasePrompt();
+      await starting;
+      await flushMicrotasks();
+
+      // The superseded start must not spawn an arti the stop path can't kill,
+      // nor churn the persisted SOCKS port.
+      expect(spawn).not.toHaveBeenCalled();
+      expect(updateActiveProfileNodeConfig).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  });
+
+  test('a managed start that is not interrupted still spawns arti', async () => {
+    const realExistsSync = fs.existsSync;
+    jest.spyOn(fs, 'existsSync').mockImplementation((target) => {
+      if (String(target).includes(`${path.sep}arti-bin${path.sep}`)) return true;
+      return realExistsSync(target);
+    });
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tor-start-ok-'));
+    const artiProcess = createArtiProcessMock();
+    const spawn = jest.fn(() => artiProcess);
+
+    try {
+      const { mod } = loadTorManager({
+        userDataDir,
+        enableTorIntegration: true,
+        activeProfile: {
+          source: 'catalog',
+          metadata: { nodes: { tor: { mode: 'managed', socksPort: 19150 } } },
+        },
+        extraMocks: {
+          child_process: () => ({ spawn, execFile: jest.fn() }),
+        },
+      });
+
+      await mod.startTor({ checkDefaultExternalCandidate: true });
+      await flushMicrotasks();
+
+      expect(spawn).toHaveBeenCalledWith(
+        expect.stringContaining('arti'),
+        expect.arrayContaining(['proxy']),
+        expect.any(Object)
+      );
+
+      await mod.stopTor();
+      expect(artiProcess.kills).toContain('SIGTERM');
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
   });
 
   test('getArtiVersion fails when the binary is absent', async () => {

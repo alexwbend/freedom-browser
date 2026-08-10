@@ -64,6 +64,10 @@ let currentSocksEndpoint = `127.0.0.1:${DEFAULTS.tor.socksPort}`;
 let proxySession = null;
 let artiBootstrapped = false;
 let artiOutputBuffer = '';
+// Bumped by every start attempt and by every stop, so a start that is awaiting
+// something (external-candidate prompt, port probe, SOCKS probe) can tell that
+// it has been superseded and must not spawn/commit anything.
+let startGeneration = 0;
 
 /**
  * Resolve the bundled arti binary path. Dev layout mirrors radicle:
@@ -182,6 +186,23 @@ function writeArtiConfig(dataDir, socksPort) {
   return configPath;
 }
 
+/**
+ * Claim the current start generation. The returned predicate reports whether a
+ * stopTor() (or a newer startTor()) landed while this attempt was awaiting; the
+ * caller must then bail out without spawning arti or touching shared state,
+ * otherwise we leak an untracked process the stop path can never kill.
+ * @returns {() => boolean}
+ */
+function beginStartAttempt() {
+  startGeneration += 1;
+  const generation = startGeneration;
+  return () => {
+    if (startGeneration === generation) return false;
+    log.info('[Tor] Start attempt superseded by a stop/restart; aborting');
+    return true;
+  };
+}
+
 function updateState(newState, error = null) {
   log.info('[Tor] State change:', currentState, '->', newState, error ? `(error: ${error})` : '');
   currentState = newState;
@@ -263,13 +284,21 @@ function startHealthCheck(mode) {
   }, 5000);
 }
 
-async function applyTorProxy(mode, statusMessage) {
+async function applyTorProxy(mode, statusMessage, superseded = () => false) {
   try {
     await applyOnionProxy(proxySession, currentSocksEndpoint);
   } catch (err) {
+    if (superseded()) return false;
     log.error('[Tor] Failed to apply proxy:', err.message);
     updateState(STATUS.ERROR, 'Failed to apply Tor proxy');
     setStatusMessage('tor', 'Tor failed to start');
+    return false;
+  }
+
+  if (superseded()) {
+    // Stopped while the proxy was being applied: undo it instead of reporting
+    // RUNNING for a service the user just turned off.
+    if (proxySession) clearOnionProxy(proxySession).catch(() => {});
     return false;
   }
 
@@ -283,7 +312,7 @@ async function applyTorProxy(mode, statusMessage) {
   return true;
 }
 
-async function startExternalTor(config) {
+async function startExternalTor(config, superseded = () => false) {
   const endpoint = normalizeSocksEndpoint(config?.externalSocks);
   if (!endpoint) {
     updateState(STATUS.ERROR, 'External Tor SOCKS endpoint is not configured');
@@ -294,13 +323,15 @@ async function startExternalTor(config) {
   setCurrentSocksEndpoint(endpoint);
   setStatusMessage('tor', 'Checking external SOCKS…');
 
-  if (!(await checkSocksProtocolHealth())) {
+  const healthy = await checkSocksProtocolHealth();
+  if (superseded()) return;
+  if (!healthy) {
     updateState(STATUS.ERROR, 'External Tor SOCKS endpoint is unreachable');
     setStatusMessage('tor', 'External Tor unreachable');
     return;
   }
 
-  if (await applyTorProxy(MODE.EXTERNAL, `External SOCKS: ${currentSocksEndpoint}`)) {
+  if (await applyTorProxy(MODE.EXTERNAL, `External SOCKS: ${currentSocksEndpoint}`, superseded)) {
     log.info('[Tor] Connected to external SOCKS at', currentSocksEndpoint);
   }
 }
@@ -392,6 +423,7 @@ async function startTor(opts = {}) {
   proxySession = opts.targetSession || session.defaultSession;
 
   pendingStart = false;
+  const superseded = beginStartAttempt();
   updateState(STATUS.STARTING);
   setStatusMessage('tor', 'Bootstrapping…');
 
@@ -409,6 +441,7 @@ async function startTor(opts = {}) {
       window: opts.promptWindow,
       logger: log,
     });
+    if (superseded()) return;
     profileConfig = getProfileTorConfig();
     managedProfileNode = isManagedTorConfig(profileConfig);
   }
@@ -419,7 +452,7 @@ async function startTor(opts = {}) {
   }
 
   if (isExternalTorConfig(profileConfig)) {
-    await startExternalTor(profileConfig);
+    await startExternalTor(profileConfig, superseded);
     return;
   }
 
@@ -448,6 +481,10 @@ async function startTor(opts = {}) {
     }
     socksPort = next;
   }
+
+  // Port probing above is async: bail before persisting a port or spawning if a
+  // stop landed in the meantime.
+  if (superseded()) return;
 
   if (managedProfileNode && socksPort !== configuredSocksPort) {
     try {
@@ -530,13 +567,18 @@ async function startTor(opts = {}) {
   let attempts = 0;
   const maxAttempts = 120; // up to ~120s for first bootstrap
   const pollInterval = setInterval(async () => {
-    if (currentState === STATUS.STOPPED || currentState === STATUS.ERROR || !artiProcess) {
+    if (
+      superseded()
+      || currentState === STATUS.STOPPED
+      || currentState === STATUS.ERROR
+      || !artiProcess
+    ) {
       clearInterval(pollInterval);
       return;
     }
     if (artiBootstrapped) {
       clearInterval(pollInterval);
-      await applyTorProxy(MODE.BUNDLED, `SOCKS: ${currentSocksEndpoint}`);
+      await applyTorProxy(MODE.BUNDLED, `SOCKS: ${currentSocksEndpoint}`, superseded);
     } else {
       attempts++;
       if (attempts >= maxAttempts) {
@@ -553,6 +595,9 @@ async function startTor(opts = {}) {
 function stopTor() {
   return new Promise((resolve) => {
     pendingStart = false;
+    // Cancel any startTor() still sitting on an await, so it can't spawn arti
+    // after we've reported the service as stopped.
+    startGeneration += 1;
 
     const finish = () => {
       if (healthCheckInterval) {

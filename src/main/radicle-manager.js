@@ -101,6 +101,27 @@ let currentP2pPort = DEFAULTS.radicle.p2pPort;
 let currentHttpUrl = `http://127.0.0.1:${DEFAULTS.radicle.httpPort}`;
 let currentMode = MODE.NONE;
 let activeRadHome = null;
+// Bumped by every start attempt and by every stop, so a start that is awaiting
+// something (external-candidate prompt, node detection, port probe) can tell it
+// has been superseded and must not spawn/commit anything.
+let startGeneration = 0;
+
+/**
+ * Claim the current start generation. The returned predicate reports whether a
+ * stopRadicle() (or a newer startRadicle()) landed while this attempt was
+ * awaiting; the caller must then bail out without spawning processes or
+ * committing state, otherwise we leak processes the stop path can never kill.
+ * @returns {() => boolean}
+ */
+function beginStartAttempt() {
+  startGeneration += 1;
+  const generation = startGeneration;
+  return () => {
+    if (startGeneration === generation) return false;
+    log.info('[Radicle] Start attempt superseded by a stop/restart; aborting');
+    return true;
+  };
+}
 
 function getRadicleBinaryPath(binary) {
   const arch = process.arch;
@@ -549,7 +570,7 @@ function startHealthCheck() {
   }, 5000);
 }
 
-async function startExternalRadicle(config) {
+async function startExternalRadicle(config, superseded = () => false) {
   const httpUrl = normalizeExternalUrl(config?.externalHttp);
   if (!httpUrl) {
     updateState(STATUS.ERROR, 'External Radicle HTTP endpoint is not configured');
@@ -558,6 +579,7 @@ async function startExternalRadicle(config) {
   }
 
   const probe = await probeRadicleApiUrl(httpUrl);
+  if (superseded()) return;
   if (!probe.valid) {
     updateState(STATUS.ERROR, 'External Radicle HTTP endpoint is unreachable');
     setStatusMessage('radicle', 'External node unreachable');
@@ -640,6 +662,7 @@ async function startRadicle(opts = {}) {
   }
 
   pendingStart = false;
+  const superseded = beginStartAttempt();
   updateState(STATUS.STARTING);
 
   let profileConfig = getProfileRadicleConfig();
@@ -656,6 +679,7 @@ async function startRadicle(opts = {}) {
       window: opts.promptWindow,
       logger: log,
     });
+    if (superseded()) return;
     profileConfig = getProfileRadicleConfig();
     managedProfileNode = isManagedRadicleConfig(profileConfig);
   }
@@ -666,12 +690,13 @@ async function startRadicle(opts = {}) {
   }
 
   if (isExternalRadicleConfig(profileConfig)) {
-    await startExternalRadicle(profileConfig);
+    await startExternalRadicle(profileConfig, superseded);
     return;
   }
 
   // Step 0: Detect system-wide radicle-node (~/.radicle)
   const systemNode = managedProfileNode ? { found: false } : await detectSystemNode();
+  if (superseded()) return;
 
   if (systemNode.found) {
     activeRadHome = systemNode.radHome;
@@ -687,9 +712,11 @@ async function startRadicle(opts = {}) {
     // Find an available HTTP port
     let httpPort = DEFAULTS.radicle.httpPort;
     const portBusy = await isPortOpen(httpPort);
+    if (superseded()) return;
     if (portBusy) {
       // Check if it's already a working httpd we can reuse
       const probe = await probeRadicleApi(httpPort);
+      if (superseded()) return;
       if (probe.valid) {
         currentHttpPort = httpPort;
         currentHttpUrl = `http://127.0.0.1:${currentHttpPort}`;
@@ -707,6 +734,7 @@ async function startRadicle(opts = {}) {
       }
       // Port busy but not httpd — find another
       const newPort = await findAvailablePort(httpPort + 1);
+      if (superseded()) return;
       if (!newPort) {
         updateState(STATUS.ERROR, 'No available ports for Radicle httpd');
         setStatusMessage('radicle', 'Node failed to start');
@@ -770,7 +798,7 @@ async function startRadicle(opts = {}) {
     let attempts = 0;
     const maxAttempts = 60;
     const pollInterval = setInterval(async () => {
-      if (currentState === STATUS.STOPPED || currentState === STATUS.ERROR) {
+      if (superseded() || currentState === STATUS.STOPPED || currentState === STATUS.ERROR) {
         clearInterval(pollInterval);
         return;
       }
@@ -804,6 +832,7 @@ async function startRadicle(opts = {}) {
 
   // Step 1: Legacy/profile-dir launches may still opt into a system httpd.
   const existing = managedProfileNode ? { found: false } : await detectExistingDaemon();
+  if (superseded()) return;
 
   if (existing.found) {
     // Reuse existing daemon
@@ -875,6 +904,10 @@ async function startRadicle(opts = {}) {
     usingFallbackPort = true;
     p2pPort = newP2pPort;
   }
+
+  // Port probing above is async: bail before persisting ports or spawning if a
+  // stop landed in the meantime.
+  if (superseded()) return;
 
   if (
     managedProfileNode
@@ -961,6 +994,13 @@ async function startRadicle(opts = {}) {
       return;
     }
 
+    if (superseded()) {
+      // Stopped while waiting for the socket: don't add an httpd on top of a
+      // node the stop path may already have killed.
+      if (radicleNodeProcess) radicleNodeProcess.kill('SIGTERM');
+      return;
+    }
+
     // Step 8: Start radicle-httpd
     log.info(`[Radicle] Starting httpd: ${httpdBinPath} on port ${httpPort}`);
 
@@ -1014,7 +1054,7 @@ async function startRadicle(opts = {}) {
     let attempts = 0;
     const maxAttempts = 60;
     const pollInterval = setInterval(async () => {
-      if (currentState === STATUS.STOPPED || currentState === STATUS.ERROR) {
+      if (superseded() || currentState === STATUS.STOPPED || currentState === STATUS.ERROR) {
         clearInterval(pollInterval);
         return;
       }
@@ -1059,6 +1099,9 @@ async function startRadicle(opts = {}) {
 function stopRadicle() {
   return new Promise((resolve) => {
     pendingStart = false;
+    // Cancel any startRadicle() still sitting on an await, so it can't spawn
+    // processes after we've reported the service as stopped.
+    startGeneration += 1;
 
     // If we reused a node, stop only the httpd process this app started.
     if (currentMode === MODE.REUSED) {
