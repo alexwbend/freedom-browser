@@ -501,6 +501,65 @@ describe('find-bar', () => {
     expect(webview.findInPage).not.toHaveBeenCalled();
   });
 
+  test('typing while a prefill is in flight keeps the typed query', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.mod.openFindBar();
+    // The user starts typing before the selection read comes back.
+    ctx.input.value = 'q';
+    ctx.input.dispatch('input');
+
+    deferred.resolve('needle one');
+    await flushMicrotasks();
+
+    // The late selection must not rewrite (or re-select) what was typed.
+    expect(ctx.input.value).toBe('q');
+    expect(webview.findInPage).not.toHaveBeenCalledWith('needle one');
+
+    // ...and the typed query still searches once the debounce fires.
+    jest.advanceTimersByTime(ctx.mod.FIND_DEBOUNCE_MS);
+    await flushMicrotasks();
+    expect(webview.findInPage).toHaveBeenCalledWith('q');
+  });
+
+  test('submitting with Enter while a prefill is in flight keeps the submitted query', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.input.value = 'typed query';
+    ctx.mod.openFindBar();
+    ctx.input.dispatch('keydown', { key: 'Enter', preventDefault: () => {} });
+
+    deferred.resolve('page selection');
+    await flushMicrotasks();
+
+    expect(ctx.input.value).toBe('typed query');
+    expect(webview.findInPage).toHaveBeenCalledWith('typed query');
+    expect(webview.findInPage).not.toHaveBeenCalledWith('page selection');
+  });
+
+  test('clicking next while a prefill is in flight keeps the visible query', async () => {
+    const webview = createFakeWebview();
+    const deferred = createDeferred();
+    webview.executeJavaScript.mockReturnValue(deferred.promise);
+    const ctx = await loadFindBarModule({ webview });
+
+    ctx.input.value = 'typed query';
+    ctx.mod.openFindBar();
+    ctx.nextBtn.dispatch('click');
+
+    deferred.resolve('page selection');
+    await flushMicrotasks();
+
+    expect(ctx.input.value).toBe('typed query');
+    expect(webview.findInPage).not.toHaveBeenCalledWith('page selection');
+  });
+
   test('a re-open supersedes a still-pending prefill; only the latest applies', async () => {
     const webview = createFakeWebview();
     const first = createDeferred();

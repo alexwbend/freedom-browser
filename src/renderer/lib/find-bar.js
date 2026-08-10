@@ -78,6 +78,16 @@ const cancelPendingFind = () => {
   debounceTimer = null;
 };
 
+// Invalidate any in-flight selection prefill. The selection read is async
+// and can resolve hundreds of milliseconds after the bar opened, by which
+// time the user may already have stated their own query — typing one, or
+// submitting the visible one with Enter/prev/next. The user's intent always
+// wins over a selection captured before they acted, so every such action
+// bumps the generation and the late read is dropped in prefillFromSelection.
+const cancelPendingPrefill = () => {
+  prefillGeneration++;
+};
+
 // Blank counter, no error tint, prev/next disabled — the "no live results"
 // presentation used when the bar opens, the query empties, or the page
 // navigates away from the highlighted results.
@@ -134,6 +144,9 @@ const startFind = (query) => {
 // the query changed since the last submission or the session was reset
 // (navigation, tab switch) — findNext on a dead session silently no-ops.
 const findNext = (forward) => {
+  // Enter / prev / next all submit the query the user can see; a selection
+  // read still in flight must not overwrite it afterwards.
+  cancelPendingPrefill();
   const query = findInput?.value || '';
   if (!query) return;
   if (!sessionWebview || query !== submittedQuery) {
@@ -226,7 +239,7 @@ export const notifyFindBarNavigated = () => {
   // Navigation keeps the same webview object, so the prefill guards can't
   // see the document change — invalidate any in-flight selection read
   // explicitly, or a selection from the old document could still apply.
-  prefillGeneration++;
+  cancelPendingPrefill();
   detachSession({ clearHighlights: false });
   resetResultUi();
 };
@@ -243,6 +256,9 @@ export const initFindBar = ({ getActiveWebview: getWebview } = {}) => {
 
   // Find-as-you-type, debounced so fast typers don't spam findInPage.
   findInput.addEventListener('input', () => {
+    // The user is typing their own query — drop any selection prefill still
+    // in flight so a slow read can't rewrite what they just typed.
+    cancelPendingPrefill();
     if (debounceTimer) clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
