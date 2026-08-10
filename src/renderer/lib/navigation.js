@@ -54,6 +54,7 @@ import {
   parseEnsInput,
   buildInternalPageUrl,
 } from './page-urls.js';
+import { isTezosDomainHost } from './origin-utils.js';
 import { parseEthereumUri } from './ethereum-uri.js';
 import { openSendFlow } from './wallet-ui.js';
 import { walletState } from './wallet/wallet-state.js';
@@ -63,6 +64,12 @@ import { TOOLTIP_HOVER_DELAY_MS } from './hover-tooltip.js';
 
 // Helper to get active tab's navigation state (with fallback to empty object)
 const getNavState = () => getActiveTabState() || {};
+
+// Maximum number of name-resolution hops a single navigation may take before
+// loadTarget gives up. One hop is the normal case (name → content URI); a
+// second is slack for a legitimate redirect. Anything beyond that is a
+// resolve→navigate loop, not a real site.
+const MAX_NAME_RESOLUTION_DEPTH = 3;
 
 const isIpfsProgressUrl = (value) => {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -1144,6 +1151,20 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
   const resolveName = resolverForNameInput(ens);
   if (ens && resolveName) {
     const systemLabel = nameSystemLabelForName(ens.name);
+    // Defence in depth against a resolve→navigate loop. A name record is
+    // attacker-controlled: if it points back at another dweb name (e.g. a
+    // .tez whose website record is `ipns://self.tez`) the recursive
+    // loadTarget below re-enters this branch and never terminates. The
+    // resolvers reject name-hosted records at the source; this bounds the
+    // renderer regardless of what a resolver hands back.
+    const resolutionDepth = options.nameResolutionDepth || 0;
+    if (resolutionDepth >= MAX_NAME_RESOLUTION_DEPTH) {
+      pushDebug(
+        `${systemLabel} resolution loop detected for ${ens.name} (depth ${resolutionDepth}) — aborting`
+      );
+      alert(`${systemLabel} name ${ens.name} resolves in a loop. Navigation aborted.`);
+      return;
+    }
     // Capture the webview reference before async operation to prevent loading in wrong tab
     const capturedWebview = webview;
     // Capture the tab id too so async callbacks can route per-tab UI
@@ -1249,7 +1270,9 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
             return;
           }
           pushDebug(`${systemLabel} resolved: ${ens.name} -> ${targetUri}`);
-          loadTarget(targetUri, displayOverride || targetUri, capturedWebview);
+          loadTarget(targetUri, displayOverride || targetUri, capturedWebview, {
+            nameResolutionDepth: resolutionDepth + 1,
+          });
           return;
         }
 
@@ -1313,11 +1336,12 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         // rather than the resolved CID/hash. For Swarm the probe still
         // needs the actual hash to gate navigation on Bee warmth, so we
         // pass it separately as `swarmHash`.
-        let innerOptions = {};
+        const innerOptions = { nameResolutionDepth: resolutionDepth + 1 };
         if (result.protocol === 'bzz') {
-          innerOptions = { bzzLoadUrl: transportDisplay, swarmHash: result.decoded };
+          innerOptions.bzzLoadUrl = transportDisplay;
+          innerOptions.swarmHash = result.decoded;
         } else if (result.protocol === 'ipfs' || result.protocol === 'ipns') {
-          innerOptions = { ipfsLoadUrl: transportDisplay };
+          innerOptions.ipfsLoadUrl = transportDisplay;
         }
 
         // Pass captured webview to ensure we load in the correct tab
@@ -2227,7 +2251,11 @@ export const initNavigation = () => {
           const name = data.args?.[0]?.name;
           if (name) {
             pushDebug(`ENS continue-unverified requested for ${name}`);
-            loadTarget('ens://' + name, null, webview, { allowUnverifiedOnce: true });
+            // `ens://` is the legacy Ethereum-name form; parseEnsInput
+            // deliberately rejects `ens://<name>.tez`, so Tezos names have to
+            // go back through loadTarget bare or the continue is a no-op.
+            const target = isTezosDomainHost(name) ? name : 'ens://' + name;
+            loadTarget(target, null, webview, { allowUnverifiedOnce: true });
           }
         } else if (data.channel === 'ens:open-settings') {
           loadTarget('freedom://settings', null, webview);

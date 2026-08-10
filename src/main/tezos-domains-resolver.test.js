@@ -138,6 +138,19 @@ describe('Tezos Domains resolver', () => {
     });
   });
 
+  test('rejects website records that point back at a dweb name', () => {
+    // Self- or cross-referential records would be handed to the renderer,
+    // re-parsed as a name and resolved again — an unbounded navigation loop.
+    for (const uri of ['ipns://self.tez', 'ipfs://other.tez', 'ipns://vitalik.eth']) {
+      expect(parsePublishedUri(uri)).toMatchObject({
+        type: 'unsupported',
+        reason: expect.stringContaining('must reference content, not a name'),
+      });
+    }
+    // DNSLink hosts stay valid — only dweb *names* are refused.
+    expect(parsePublishedUri('ipns://docs.example.org')).toMatchObject({ type: 'ok' });
+  });
+
   test('requires matching public RPC results and prefers redirect_url', async () => {
     const fetchImpl = createRpcFetch(
       record([
@@ -191,6 +204,14 @@ describe('Tezos Domains resolver', () => {
     expect(result.type).toBe('conflict');
     expect(result.reason).toBe('Tezos RPC providers returned conflicting results');
     expect(result.trust).toMatchObject({ level: 'conflict', k: 2, m: 1 });
+    // Shape must match what pages/scripts/ens-conflict.js renders: provider
+    // hosts under `urls`, the disputed answer under `value` (or `reason`).
+    expect(result.groups).toEqual(
+      expect.arrayContaining([
+        { value: 'ipfs://bafybeigdyrzt/site', urls: ['rpc-one.test'] },
+        { value: 'ipfs://bafyother/site', urls: ['rpc-two.test'] },
+      ])
+    );
   });
 
   test('refuses expired domains', async () => {

@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { ethers } = require('ethers');
 const IPC = require('../shared/ipc-channels');
 const { blake2b } = require('../shared/blake2b');
+const { isDwebNameHost } = require('../shared/origin-utils');
 const { capCache } = require('./cache-utils');
 
 const MAINNET_CHAIN_ID = 'NetXdQprcVkpaWU';
@@ -227,6 +228,17 @@ function parsePublishedUri(rawUri, { redirect = false } = {}) {
     if (!parsed.hostname || parsed.username || parsed.password || parsed.port) {
       return { type: 'unsupported', reason: `invalid ${protocol.toUpperCase()} website URI`, system: 'tezos' };
     }
+    // A website record must point at content (CID / IPNS key / DNSLink host),
+    // never at another dweb *name*. `ipns://self.tez` would be handed back to
+    // the renderer, re-parsed as a name, and resolved again — an unbounded
+    // resolve→navigate loop the domain owner controls.
+    if (isDwebNameHost(parsed.hostname)) {
+      return {
+        type: 'unsupported',
+        reason: `${protocol.toUpperCase()} website URI must reference content, not a name`,
+        system: 'tezos',
+      };
+    }
     const basePath = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '');
     return {
       type: 'ok',
@@ -362,6 +374,27 @@ async function fetchAnchor(endpoint, level, fetchImpl = fetch) {
   return { endpoint, level, hash };
 }
 
+function hostOf(url) {
+  try { return new URL(url).host; }
+  catch { return url; }
+}
+
+// Build one entry of the `groups` payload for a conflict outcome, in the
+// shape pages/scripts/ens-conflict.js renders: `urls` (provider hosts) plus
+// either a human-readable `value` or a `reason` for a negative answer. The
+// ENS side emits raw contenthash bytes as `resolvedData`; a Tezos website
+// record is already a URI, so it goes in `value` verbatim (length-capped so
+// a hostile 8KB record can't bloat the interstitial URL).
+function buildConflictGroup(group) {
+  const result = group[0].result;
+  const urls = group.map((leg) => hostOf(leg.endpoint));
+  if (result.type !== 'ok' || !result.uri) {
+    return { resolvedData: null, reason: result.reason || result.type, urls };
+  }
+  const uri = String(result.uri);
+  return { value: uri.length > 300 ? `${uri.slice(0, 300)}…` : uri, urls };
+}
+
 function semanticResultKey(result) {
   return JSON.stringify({
     type: result.type,
@@ -474,10 +507,7 @@ async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
       type: 'conflict',
       reason: 'Tezos RPC providers returned conflicting results',
       system: 'tezos',
-      groups: groups.map((group) => ({
-        value: group[0].result.uri || group[0].result.reason || group[0].result.type,
-        providers: group.map((leg) => leg.endpoint),
-      })),
+      groups: groups.map((group) => buildConflictGroup(group)),
       trust: { level: 'conflict', system: 'tezos', block, k: successful.length, m: winner.length },
     };
   }
