@@ -86,6 +86,7 @@ function createRpcFetch(
     expiry = { string: '2099-01-01T00:00:00Z' },
     headLevels = {},
     recordsByEndpoint = null,
+    anchorHashes = {},
   } = {}
 ) {
   return jest.fn(async (url) => {
@@ -94,7 +95,12 @@ function createRpcFetch(
     if (url.endsWith('/blocks/head/header')) {
       return response({ level: headLevels[origin] ?? 1_000 });
     }
-    if (url.endsWith('/blocks/992/hash')) return response('BLockHashSharedByProviders');
+    // Any anchor level resolves, so a provider lying about its head can be
+    // followed all the way to the answer it would have served.
+    const anchor = url.match(/\/blocks\/(\d+)\/hash$/);
+    if (anchor) {
+      return response(`${anchorHashes[origin] ?? 'BLockHashSharedByProviders'}${anchor[1]}`);
+    }
     if (url.includes('KT1F7JKNqwaoLzRsMio1MQC7zv3jG9dHcDdJ/script/normalized')) {
       return response(proxyScript);
     }
@@ -237,6 +243,66 @@ describe('Tezos Domains resolver', () => {
 
     expect(result.trust).toMatchObject({ level: 'verified', k: 2, m: 2 });
     expect(result.trust.agreed).not.toContain('https://rpc-three.test');
+  });
+
+  test('refuses to resolve when two providers disagree about the chain head', async () => {
+    // Only two providers reachable and one of them lies 600 blocks low. The
+    // median of two is the lower one, so median-referenced rejection would
+    // eject the honest provider and hand the liar the quorum as a merely
+    // "unverified" answer. There is no majority either way — hard block.
+    const fetchImpl = createRpcFetch(null, {
+      headLevels: { 'https://rpc-two.test': 400 },
+      recordsByEndpoint: {
+        'https://rpc-one.test': record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]),
+        'https://rpc-two.test': record([['web:content_url', 'ipfs://bafyEVIL/site']]),
+      },
+    });
+    const result = await resolveTezosDomain('lagged.tez', {
+      fetchImpl,
+      endpoints: ['https://rpc-one.test', 'https://rpc-two.test'],
+    });
+
+    expect(result.type).toBe('conflict');
+    expect(result.reason).toBe('Tezos RPC providers disagree about the chain head');
+    expect(result.trust).toMatchObject({ level: 'conflict', k: 2, m: 1 });
+    expect(result.groups).toEqual(
+      expect.arrayContaining([
+        { value: 'chain head #1000', urls: ['rpc-one.test'] },
+        { value: 'chain head #400', urls: ['rpc-two.test'] },
+      ])
+    );
+    expect(JSON.stringify(result)).not.toContain('bafyEVIL');
+  });
+
+  test('refuses to resolve when providers return different anchor block hashes', async () => {
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]), {
+      anchorHashes: { 'https://rpc-two.test': 'BForgedChain' },
+    });
+    const result = await resolveTezosDomain('forked.tez', {
+      fetchImpl,
+      endpoints: ['https://rpc-one.test', 'https://rpc-two.test'],
+    });
+
+    expect(result.type).toBe('conflict');
+    expect(result.reason).toBe('Tezos RPC providers returned conflicting anchor blocks');
+    expect(result.trust).toMatchObject({ level: 'conflict', k: 2, m: 1 });
+    expect(result.groups.map((group) => group.urls)).toEqual(
+      expect.arrayContaining([['rpc-one.test'], ['rpc-two.test']])
+    );
+  });
+
+  test('still resolves when the lone reachable provider defines its own head', async () => {
+    // The strict-majority head rule must not break the degraded single-provider
+    // path: one head is trivially a majority of one.
+    const fetchImpl = createRpcFetch(record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]), {
+      headLevels: { 'https://rpc-one.test': 400 },
+    });
+    const result = await resolveTezosDomain('lonely.tez', {
+      fetchImpl,
+      endpoints: ['https://rpc-one.test'],
+    });
+
+    expect(result).toMatchObject({ type: 'ok', trust: { level: 'unverified', k: 1, m: 1 } });
   });
 
   test('coalesces concurrent resolutions of the same name into one quorum round', async () => {

@@ -395,6 +395,52 @@ function buildConflictGroup(group) {
   return { value: uri.length > 300 ? `${uri.slice(0, 300)}…` : uri, urls };
 }
 
+// Providers cannot agree on which chain state to read. Rendered by the same
+// interstitial as a record conflict — a hard block — because with no
+// trustworthy anchor every answer below it is unverifiable, not merely
+// unconfirmed.
+function headConflict(allHeads, retained) {
+  const byLevel = new Map();
+  for (const head of allHeads) {
+    if (!byLevel.has(head.level)) byLevel.set(head.level, []);
+    byLevel.get(head.level).push(hostOf(head.endpoint));
+  }
+  return {
+    type: 'conflict',
+    reason: 'Tezos RPC providers disagree about the chain head',
+    system: 'tezos',
+    groups: [...byLevel.entries()].map(([level, urls]) => ({ value: `chain head #${level}`, urls })),
+    trust: {
+      level: 'conflict',
+      system: 'tezos',
+      block: null,
+      k: allHeads.length,
+      m: retained,
+    },
+  };
+}
+
+// Providers agreed closely enough on the head but returned different hashes
+// for the anchor block itself.
+function anchorConflict(anchorGroups, retained) {
+  return {
+    type: 'conflict',
+    reason: 'Tezos RPC providers returned conflicting anchor blocks',
+    system: 'tezos',
+    groups: anchorGroups.map((group) => ({
+      value: `block #${group[0].level} ${group[0].hash.slice(0, 10)}…${group[0].hash.slice(-4)}`,
+      urls: group.map((anchor) => hostOf(anchor.endpoint)),
+    })),
+    trust: {
+      level: 'conflict',
+      system: 'tezos',
+      block: null,
+      k: anchorGroups.reduce((total, group) => total + group.length, 0),
+      m: retained,
+    },
+  };
+}
+
 function semanticResultKey(result) {
   return JSON.stringify({
     type: result.type,
@@ -465,6 +511,17 @@ async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
       );
     }
   }
+  // A median only survives a *minority* of liars. When the retained set is not
+  // a strict majority of the responders the reference level may itself be the
+  // liar's — always the case when exactly two reachable providers disagree,
+  // where the median of two is just the lower one, so a provider claiming a
+  // head 600 blocks behind ejects the honest one and inherits the quorum as a
+  // merely "unverified" solo answer. Keeping both instead would let the low
+  // head drag the shared anchor back in time. Neither side is trustworthy, so
+  // refuse rather than pick one.
+  if (heads.length * 2 <= allHeads.length) {
+    return headConflict(allHeads, heads.length);
+  }
   const anchorLevel = Math.min(...heads.map((head) => head.level)) - ANCHOR_DEPTH;
   const anchorSettled = await Promise.allSettled(
     heads.map((head) => fetchAnchor(head.endpoint, anchorLevel, fetchImpl))
@@ -481,6 +538,14 @@ async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
     anchorGroups.get(key).push(anchor);
   }
   const bestAnchors = [...anchorGroups.values()].sort((a, b) => b.length - a.length)[0];
+  // Same rule one step down: the block hash at a settled depth is not
+  // negotiable, so a provider serving a different hash is forking or lying.
+  // Taking the largest group when it isn't a strict majority would let a tie
+  // (two providers, one honest) be broken by iteration order, again handing an
+  // attacker the whole quorum with only an "unverified" mark.
+  if (bestAnchors.length * 2 <= anchors.length) {
+    return anchorConflict([...anchorGroups.values()], bestAnchors.length);
+  }
   const legs = await Promise.allSettled(
     bestAnchors.map(async (anchor) => ({
       endpoint: anchor.endpoint,
@@ -502,7 +567,10 @@ async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
   const winner = groups[0];
   const block = { number: bestAnchors[0].level, hash: bestAnchors[0].hash };
 
-  if (winner.length < 2 && groups.length > 1) {
+  // Strict majority again: `winner.length < 2` alone would call an even split
+  // (two answers, two providers each) a verified win for whichever group the
+  // sort happened to put first.
+  if (groups.length > 1 && winner.length * 2 <= successful.length) {
     return {
       type: 'conflict',
       reason: 'Tezos RPC providers returned conflicting results',
