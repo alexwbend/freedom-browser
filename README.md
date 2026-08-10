@@ -268,6 +268,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Multiple Tabs**: Open multiple pages simultaneously with `Cmd+T`.
 - **Tab Management**: Close tabs with `Cmd+W` or middle-click.
+- **Audio Indicators & Mute**: Tabs playing sound show a speaker icon; click it (or use "Mute Tab" in the tab context menu) to mute or unmute the tab. Mute survives navigation within the tab.
 - **Drag & Drop Reordering**: Rearrange tabs by dragging.
 - **Per-Tab State**: Each tab maintains its own navigation history, address bar state, and bzz/ipfs base.
 - **Link Handling**: Links that open new windows are captured and opened in new tabs instead.
