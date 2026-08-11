@@ -19,7 +19,7 @@ const { getMyotisDataDir } = require('../profile-paths');
 // v21 opt-in eth_getLogs watch-list index, v22 live served-block window.
 // No shape we call changed.
 const EXPECTED_ABI = 22;
-const MYOTIS_VERSION = '0.1.5';
+const MYOTIS_VERSION = '0.1.6';
 
 // Poll/log-drain cadence while the node runs. Availability is intentionally
 // checked more frequently than log draining: resolution policy must react

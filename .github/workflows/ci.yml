@@ -193,9 +193,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/myotis-data
-          key: myotis-v0.1.5-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: myotis-v0.1.6-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            myotis-v0.1.5-${{ matrix.target }}-
+            myotis-v0.1.6-${{ matrix.target }}-
 
       - name: Start Myotis and resolve verified ENS records
         id: myotis-smoke
@@ -221,7 +221,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/myotis-data
-          key: myotis-v0.1.5-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: myotis-v0.1.6-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Fail when native smoke did not resolve
         if: steps.myotis-smoke.outcome != 'success' || steps.myotis-gnosis-smoke.outcome != 'success'

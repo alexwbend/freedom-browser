@@ -1205,7 +1205,7 @@ async function tryMyotisEnsPath(name, callData, nameSystem) {
 
 // WNS and GNS are separate NameNFT contracts, not ENS registries. Myotis's
 // generic verified eth_call can execute their existing calldata locally. The
-// current v0.1.5 addon pins generic calls to the beacon optimistic head. Every
+// current v0.1.6 addon pins generic calls to the beacon optimistic head. Every
 // state fetch is MPT-verified against that root and the root is authenticated
 // by the light client's sync committee; `ok` therefore means cryptographically
 // verified, while the trust metadata still states that it is not finalized.
