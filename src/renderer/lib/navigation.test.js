@@ -366,6 +366,9 @@ const loadNavigationModule = async (options = {}) => {
     return null;
   });
   document.activeElement = null;
+  // navigation.js broadcasts CustomEvents ('navigation-completed',
+  // 'active-tab-changed') for the dApp banner + permission indicator.
+  document.dispatchEvent = jest.fn();
 
   const windowHandlers = {};
   global.window = {
@@ -648,6 +651,78 @@ describe('navigation', () => {
     ctx.tabsMocks.webviewEventHandler('dom-ready', {});
     await flushMicrotasks();
     expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith('Webview ready.');
+  });
+
+  describe('address bar search fallback', () => {
+    test('loads the default provider results page for non-URL input', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('best pizza near me');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://duckduckgo.com/?q=best%20pizza%20near%20me'
+      );
+    });
+
+    test('respects the configured search provider', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+      // A non-default provider — with the DuckDuckGo default this test would
+      // pass even if state.searchProvider were ignored entirely.
+      ctx.state.searchProvider = 'google';
+
+      ctx.mod.loadTarget('weather');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://www.google.com/search?q=weather'
+      );
+    });
+
+    test('respects a configured custom search provider', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+      ctx.state.searchProvider = 'custom:searx';
+      ctx.state.customSearchProviders = [
+        {
+          id: 'searx',
+          name: 'SearxNG',
+          searchUrlTemplate: 'https://search.example/?query={searchTerms}',
+        },
+      ];
+
+      ctx.mod.loadTarget('privacy news');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://search.example/?query=privacy%20news'
+      );
+    });
+
+    test('still ignores empty input', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('   ');
+
+      expect(ctx.activeRef.tab.webview.loadURL).not.toHaveBeenCalled();
+      expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith(
+        'Ignoring empty input or invalid URL.'
+      );
+    });
+
+    test('does not turn protocol input into a search', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      await flushMicrotasks();
+
+      ctx.mod.loadTarget('ipfs://bafybeigdyrzt');
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith('ipfs://bafybeigdyrzt');
+    });
   });
 
   describe('bzz navigation probe', () => {

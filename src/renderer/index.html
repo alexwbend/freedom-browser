@@ -13,6 +13,9 @@
     <link rel="stylesheet" href="./styles/sidebar.css" />
   </head>
   <body>
+    <!-- Download shelf (cards inserted dynamically) -->
+    <div id="download-shelf" class="download-shelf" data-test="download-shelf"></div>
+
     <!-- Update Toast Notification -->
     <div id="update-toast" class="update-toast" hidden>
       <div class="update-toast-content">
@@ -241,6 +244,63 @@
               </div>
               <div class="trust-popover-tooltip" id="trust-popover-tooltip" hidden>Copy</div>
             </div>
+            <!-- Site permission prompt, anchored under the address bar. Shown
+                 when a page requests a web permission (camera, mic,
+                 notifications, …) that has no stored decision. Also doubles
+                 as the macOS "OS blocked camera/mic" notice. -->
+            <div
+              id="permission-prompt"
+              class="permission-prompt"
+              role="dialog"
+              aria-label="Site permission request"
+              data-test="permission-prompt"
+              hidden
+            >
+              <div class="permission-prompt-text">
+                <span id="permission-prompt-origin" data-test="permission-prompt-origin"></span>
+                <span id="permission-prompt-action"></span>
+              </div>
+              <div class="permission-prompt-note hidden" id="permission-prompt-note"></div>
+              <label class="permission-prompt-remember" id="permission-prompt-remember-label">
+                <input
+                  type="checkbox"
+                  id="permission-prompt-remember"
+                  data-test="permission-remember"
+                  checked
+                />
+                Remember for this site
+              </label>
+              <div class="permission-prompt-actions">
+                <button
+                  id="permission-prompt-block"
+                  class="permission-btn"
+                  type="button"
+                  data-test="permission-block"
+                >
+                  Block
+                </button>
+                <button
+                  id="permission-prompt-allow"
+                  class="permission-btn primary"
+                  type="button"
+                  data-test="permission-allow"
+                >
+                  Allow
+                </button>
+              </div>
+            </div>
+            <!-- Popover behind the permission indicator: the current site's
+                 granted/blocked permissions with quick revoke. -->
+            <div
+              id="permission-popover"
+              class="permission-popover"
+              role="dialog"
+              aria-label="Site permissions"
+              hidden
+            >
+              <div class="permission-popover-title" id="permission-popover-title"></div>
+              <div class="permission-popover-list" id="permission-popover-list"></div>
+            </div>
             <span id="protocol-icon" class="protocol-icon" aria-hidden="true">
               <!-- Swarm icon (official logo) -->
               <svg class="icon-swarm" viewBox="18 34 44 45" fill="currentColor">
@@ -307,6 +367,36 @@
               spellcheck="false"
               data-test="address-input"
             />
+            <button
+              id="permission-indicator"
+              class="icon-btn input-action-btn permission-indicator hidden"
+              type="button"
+              aria-label="Site permissions"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="permission-popover"
+              data-test="permission-indicator"
+            >
+              <!-- Sliders icon: this site holds granted permissions -->
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="4" y1="21" x2="4" y2="14" />
+                <line x1="4" y1="10" x2="4" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12" y2="3" />
+                <line x1="20" y1="21" x2="20" y2="16" />
+                <line x1="20" y1="12" x2="20" y2="3" />
+                <line x1="1" y1="14" x2="7" y2="14" />
+                <line x1="9" y1="8" x2="15" y2="8" />
+                <line x1="17" y1="16" x2="23" y2="16" />
+              </svg>
+            </button>
             <button
               id="github-bridge-btn"
               class="icon-btn input-action-btn github-bridge-btn hidden"
@@ -816,6 +906,35 @@
           </div>
           <div id="link-status" class="link-status" hidden aria-hidden="true">
             <span id="link-status-url" class="link-status-url"></span>
+          </div>
+          <div id="find-bar" class="find-bar" role="search" aria-label="Find in page" hidden data-test="find-bar">
+            <input
+              id="find-bar-input"
+              class="find-bar-input"
+              type="text"
+              placeholder="Find in page"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label="Find in page"
+              data-test="find-bar-input"
+            />
+            <span id="find-bar-count" class="find-bar-count" aria-live="polite" data-test="find-bar-count"></span>
+            <div class="find-bar-divider"></div>
+            <button id="find-bar-prev" class="find-bar-btn" type="button" disabled aria-label="Previous match" title="Previous match (Shift+Enter)" data-test="find-bar-prev">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m18 15-6-6-6 6"/>
+              </svg>
+            </button>
+            <button id="find-bar-next" class="find-bar-btn" type="button" disabled aria-label="Next match" title="Next match (Enter)" data-test="find-bar-next">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+            <button id="find-bar-close" class="find-bar-btn" type="button" aria-label="Close find bar" title="Close (Esc)" data-test="find-bar-close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6 6 18"/><path d="M6 6 18 18"/>
+              </svg>
+            </button>
           </div>
         </div>
       </main>

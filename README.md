@@ -290,7 +290,9 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Ctrl+Shift+PgUp`: Move tab left
   - `Cmd+R` / `Ctrl+R`: Reload (from cache)
   - `Cmd+Shift+R` / `Ctrl+Shift+R`: Hard reload (bypass cache)
+  - `Cmd+F` / `Ctrl+F`: Find in page (`Enter` next match, `Shift+Enter` previous, `Esc` close)
   - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
+  - `Cmd+Shift+J` / `Ctrl+Shift+J`: Downloads
   - `F11`: Toggle fullscreen
   - `F12` / `Cmd+Alt+I` / `Ctrl+Shift+I`: Developer Tools
   - `Cmd+=` / `Ctrl+=`: Zoom in
@@ -310,6 +312,13 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Recording**: Pages are recorded as you browse.
 - **History Page**: View and search your browsing history at `freedom://history`.
+
+### Downloads
+
+- **Download Manager**: Every download — http(s), `bzz://`, `ipfs://`/`ipns://`, and data URIs — is tracked with progress, pause/resume, and cancel.
+- **Shelf**: A compact card in the bottom corner shows progress and offers Cancel; on completion it offers Open and Show in Folder, then dismisses itself. Files are never opened automatically.
+- **Downloads Page**: View and search download history at `freedom://downloads` (`Cmd+Shift+J` / `Ctrl+Shift+J`), with per-item open / show-in-folder / remove and Clear All.
+- **Save Location**: Files land in the OS Downloads folder by default; enable "Ask where to save each file" under Settings > Downloads for a save dialog per download.
 
 ### Context Menus
 
@@ -343,6 +352,7 @@ Access built-in browser pages using the `freedom://` protocol:
 | Page                      | Description                  |
 | ------------------------- | ---------------------------- |
 | `freedom://home`          | Welcome/home page            |
+| `freedom://downloads`     | Download manager             |
 | `freedom://history`       | Browsing history             |
 | `freedom://links`         | Link behavior test page      |
 | `freedom://protocol-test` | Protocol and media test page |
@@ -352,6 +362,7 @@ Access built-in browser pages using the `freedom://` protocol:
 
 - **Theme**: Light, Dark, or System (follows OS preference).
 - **Node Auto-start**: Toggle whether Swarm and IPFS nodes start automatically at launch (enabled by default).
+- **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
 - **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
@@ -710,7 +721,7 @@ npm run start:test-updater
 - **Remote Module Disabled**: The remote module is not available.
 - **Minimal API Surface**: Only necessary IPC methods are exposed to the renderer. The `freedomAPI` (history, bookmarks, etc.) is restricted to internal `freedom://` pages — external websites cannot call it.
 - **Local Nodes**: Ant, IPFS, and Radicle run locally; no external services required for basic operation.
-- **Permission Handling**: Pointer lock and fullscreen permissions are granted for better UX in Swarm/IPFS apps.
+- **Permission Handling**: Web permissions are deny-by-default with per-site prompts for camera, microphone, notifications, clipboard reading, location, and MIDI. Decisions marked "Remember for this site" persist per profile (`permissions.json`, reviewable under Settings → Site Permissions); unremembered decisions last for the session. Pointer lock and fullscreen remain auto-allowed for better UX in Swarm/IPFS apps; everything else (HID, screen capture, …) is denied. Location grants expose the API but may not resolve reliably — Electron lacks Chromium's network location service.
 - **Public RPC Fallback**: ENS resolution uses public RPCs by default. For trustless verification, use a local Helios client.
 
 ---

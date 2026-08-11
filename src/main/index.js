@@ -24,6 +24,12 @@ app.setName(appName);
 // touches userData.
 if (process.env.FREEDOM_TEST_USER_DATA) {
   app.setPath('userData', process.env.FREEDOM_TEST_USER_DATA);
+  // Keep E2E download artifacts inside the per-run temp dir instead of
+  // polluting the real ~/Downloads folder.
+  app.setPath(
+    'downloads',
+    require('path').join(process.env.FREEDOM_TEST_USER_DATA, 'downloads')
+  );
 }
 const TEST_MODE = process.env.FREEDOM_TEST_MODE === '1';
 const { migrateBeeDataToAntData, migrateUserData } = require('./migrate-user-data');
@@ -168,6 +174,11 @@ protocol.registerSchemesAsPrivileged([
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
+const {
+  registerDownloadsIpc,
+  attachDownloadsManager,
+} = require('./downloads/downloads-manager');
+const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
 const {
@@ -196,6 +207,10 @@ const { registerTokenRegistryIpc } = require('./token-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerNetworkConfigIpc } = require('./networks/network-ipc');
 const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
+const {
+  installPermissionHandlers,
+  registerPermissionsIpc,
+} = require('./permissions/permissions-manager');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
 const {
@@ -241,20 +256,6 @@ app.on('will-quit', () => {
   }
 });
 
-function allowInteractivePermissions(targetSession) {
-  if (!targetSession || !targetSession.setPermissionRequestHandler) {
-    return;
-  }
-  targetSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'pointerLock' || permission === 'fullscreen') {
-      log.info(`[permissions] granting ${permission} for`, webContents.getURL());
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
-}
-
 async function bootstrap() {
   // Carry the injected Swarm identity from the Bee-era bee-data/ into
   // ant-data/. Must run before the Ant node is started below, or antd
@@ -270,6 +271,7 @@ async function bootstrap() {
   registerSettingsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
+  registerDownloadsIpc();
   registerFaviconsIpc();
   registerEnsIpc();
   registerAntIpc();
@@ -289,6 +291,7 @@ async function bootstrap() {
   registerRpcManagerIpc();
   registerNetworkConfigIpc();
   registerDappPermissionsIpc();
+  registerPermissionsIpc();
   registerX402Ipc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
@@ -323,7 +326,15 @@ async function bootstrap() {
   installRequestRewriter();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
-  allowInteractivePermissions(defaultSession);
+  // Per-site permission prompts (camera, mic, notifications, …) with
+  // deny-by-default for everything unhandled. Webviews don't set a
+  // `partition` attribute, so the default session is the one they use.
+  installPermissionHandlers(defaultSession);
+  // All webviews run on the default session (no partitions today), so this
+  // one hook covers every download source — including the bzz:/ipfs:/ipns:
+  // protocol handlers, whose responses route through Chromium's download
+  // manager like any http(s) response.
+  attachDownloadsManager(defaultSession);
   registerWebContentsHandlers();
   setupApplicationMenu();
 
@@ -462,6 +473,7 @@ app.on('before-quit', async (event) => {
   // Close history databases
   log.info('[App] Closing history databases...');
   closeHistoryDb();
+  closeDownloadsDb();
   closePublishHistoryDb();
   paymentHistory.closeDb();
 

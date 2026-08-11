@@ -75,6 +75,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addHistory: (entry) => ipcRenderer.invoke('history:add', entry),
   removeHistory: (id) => ipcRenderer.invoke('history:remove', id),
   clearHistory: () => ipcRenderer.invoke('history:clear'),
+  // Downloads (shelf in the chrome renderer)
+  getDownloads: (options) => ipcRenderer.invoke('downloads:get', options),
+  pauseDownload: (id) => ipcRenderer.invoke('downloads:pause', id),
+  resumeDownload: (id) => ipcRenderer.invoke('downloads:resume', id),
+  cancelDownload: (id) => ipcRenderer.invoke('downloads:cancel', id),
+  openDownloadedFile: (id) => ipcRenderer.invoke('downloads:open-file', id),
+  showDownloadInFolder: (id) => ipcRenderer.invoke('downloads:show-in-folder', id),
+  // Main sends this to the download's owning window only; drives the shelf.
+  onDownloadUpdated: (callback) => {
+    const handler = (_event, download) => callback(download);
+    ipcRenderer.on('downloads:updated', handler);
+    return () => ipcRenderer.removeListener('downloads:updated', handler);
+  },
   // x402 payments. All tab-scoped calls take webContentsId explicitly —
   // the sidebar is the host webContents, not the paying webview.
   x402GetDetails: (args) => ipcRenderer.invoke('x402:get-details', args),
@@ -243,6 +256,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = () => callback();
     ipcRenderer.on('tab:reopen-closed', handler);
     return () => ipcRenderer.removeListener('tab:reopen-closed', handler);
+  },
+  onOpenFindBar: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('find:open', handler);
+    return () => ipcRenderer.removeListener('find:open', handler);
   },
   updateTabMenuState: (state) => ipcRenderer.send('menu:update-tab-state', state),
   setBookmarkBarToggleEnabled: (enabled) =>
@@ -473,6 +491,42 @@ contextBridge.exposeInMainWorld('rpcManager', {
   // Used by the injected dApp provider; provider/API-key management now
   // lives on the Networks settings page.
   getEffectiveUrls: (chainId) => ipcRenderer.invoke('rpc:get-effective-urls', chainId),
+});
+
+// Site permissions (web permission prompts). The chrome renderer shows
+// the anchored prompt + the address-bar indicator; both live here.
+contextBridge.exposeInMainWorld('sitePermissions', {
+  // Main asks this window to show a prompt
+  // ({id, origin, permission, keys, guestId}). `guestId` is the requesting
+  // webview's webContents id; the prompt only shows while that tab is active.
+  onPromptRequest: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:prompt-request', handler);
+    return () => ipcRenderer.removeListener('permissions:prompt-request', handler);
+  },
+  // Main withdraws a prompt ({id}): the requesting document navigated away
+  // or its webContents was destroyed (already denied once on the main side).
+  onPromptCancel: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:prompt-cancel', handler);
+    return () => ipcRenderer.removeListener('permissions:prompt-cancel', handler);
+  },
+  // Answer a prompt: {id, decision: 'allow'|'deny'|'dismiss', remember}.
+  respondToPrompt: (response) => ipcRenderer.invoke('permissions:prompt-response', response),
+  // macOS blocked camera/mic for Freedom itself after a site-level allow.
+  onOsDenied: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:os-denied', handler);
+    return () => ipcRenderer.removeListener('permissions:os-denied', handler);
+  },
+  onChanged: (callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('permissions:changed', handler);
+    return () => ipcRenderer.removeListener('permissions:changed', handler);
+  },
+  getForOrigin: (origin) => ipcRenderer.invoke('permissions:get-for-origin', origin),
+  revoke: (origin, permission) => ipcRenderer.invoke('permissions:revoke', origin, permission),
+  revokeOrigin: (origin) => ipcRenderer.invoke('permissions:revoke-origin', origin),
 });
 
 contextBridge.exposeInMainWorld('dappPermissions', {

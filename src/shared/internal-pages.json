@@ -1,6 +1,7 @@
 {
   "routable": {
     "home": "home.html",
+    "downloads": "downloads.html",
     "history": "history.html",
     "links": "links.html",
     "payments": "payments.html",
