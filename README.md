@@ -290,6 +290,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Ctrl+Shift+PgUp`: Move tab left
   - `Cmd+R` / `Ctrl+R`: Reload (from cache)
   - `Cmd+Shift+R` / `Ctrl+Shift+R`: Hard reload (bypass cache)
+  - `Cmd+F` / `Ctrl+F`: Find in page (`Enter` next match, `Shift+Enter` previous, `Esc` close)
   - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
   - `F11`: Toggle fullscreen
   - `F12` / `Cmd+Alt+I` / `Ctrl+Shift+I`: Developer Tools

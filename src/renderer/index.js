@@ -34,6 +34,7 @@ import {
   setOnContextMenuOpening as setOnTabContextMenuOpening,
   createTab,
   openOrFocusInternalPage,
+  getActiveWebview,
 } from './lib/tabs.js';
 import {
   initNavigation,
@@ -53,6 +54,7 @@ import {
 import { initGithubBridgeUi, setOnOpenRadicleUrl } from './lib/github-bridge-ui.js';
 import { initMenuBackdrop } from './lib/menu-backdrop.js';
 import { initLinkStatus } from './lib/link-status.js';
+import { initFindBar } from './lib/find-bar.js';
 import { initPageContextMenu, hidePageContextMenu } from './lib/page-context-menu.js';
 import {
   initChromeInputContextMenu,
@@ -727,6 +729,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initBookmarks();
   initNavigation(); // Sets up event handler with tabs module
   initLinkStatus();
+  initFindBar({ getActiveWebview }); // In-page find bar (Cmd/Ctrl+F)
   initTabs(); // Creates first tab and starts loading home page
   initAutocomplete(); // Address bar autocomplete
   initPageContextMenu(); // Page context menu for webviews
