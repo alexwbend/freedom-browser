@@ -32,12 +32,17 @@ module.exports = {
   RADICLE_GET_CONNECTIONS: 'radicle:getConnections',
   RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
+  RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
 
   // ENS resolution
   ENS_RESOLVE: 'ens:resolve',
   ENS_RESOLVE_ADDRESS: 'ens:resolve-address',
   ENS_RESOLVE_REVERSE: 'ens:resolve-reverse',
   ENS_INVALIDATE_CONTENT: 'ens:invalidate-content',
+
+  // Tezos Domains website resolution
+  TEZOS_DOMAINS_RESOLVE: 'tezos-domains:resolve',
+  TEZOS_DOMAINS_INVALIDATE: 'tezos-domains:invalidate',
 
   // Settings
   SETTINGS_GET: 'settings:get',
@@ -94,6 +99,24 @@ module.exports = {
   HISTORY_REMOVE: 'history:remove',
   HISTORY_CLEAR: 'history:clear',
 
+  // Downloads
+  DOWNLOADS_GET: 'downloads:get',
+  DOWNLOADS_PAUSE: 'downloads:pause',
+  DOWNLOADS_RESUME: 'downloads:resume',
+  DOWNLOADS_CANCEL: 'downloads:cancel',
+  DOWNLOADS_OPEN_FILE: 'downloads:open-file',
+  DOWNLOADS_SHOW_IN_FOLDER: 'downloads:show-in-folder',
+  DOWNLOADS_REMOVE: 'downloads:remove',
+  DOWNLOADS_CLEAR: 'downloads:clear',
+  // Main→renderer, sent to the download's owning window only — drives the
+  // shelf card in that window's chrome (a download started in window A must
+  // not pop a card in window B).
+  DOWNLOADS_UPDATED: 'downloads:updated',
+  // Main→renderer broadcast to all webContents on every item mutation.
+  // The freedom://downloads page subscribes; the row is already written
+  // by the time it fires, so receivers just re-query.
+  DOWNLOADS_CHANGED: 'downloads:changed',
+
   // Internal
   GET_WEBVIEW_PRELOAD_PATH: 'internal:get-webview-preload-path',
   GET_INTERNAL_PAGES: 'internal:get-pages',
@@ -116,6 +139,9 @@ module.exports = {
 
   // Window with URL
   WINDOW_NEW_WITH_URL: 'window:new-with-url',
+
+  // Find in page (main → renderer: Edit menu / accelerator opens the bar)
+  FIND_IN_PAGE_OPEN: 'find:open',
 
   // Tab navigation
   TAB_NEXT: 'tab:next',
@@ -210,6 +236,28 @@ module.exports = {
   // the time it fires, so receivers just re-query.
   PAYMENTS_TX_RECORDED: 'payments:tx-recorded',
 
+  // Site Permissions (web permission prompts: camera, mic, notifications, …)
+  // Prompt round-trip: main asks the requesting window's renderer to show
+  // the anchored prompt (main→renderer), the renderer answers with the
+  // user's decision (renderer→main).
+  PERMISSIONS_PROMPT_REQUEST: 'permissions:prompt-request',
+  PERMISSIONS_PROMPT_RESPONSE: 'permissions:prompt-response',
+  // Main withdraws a previously sent prompt (main→renderer): the
+  // requesting document navigated away or its webContents was destroyed,
+  // so the request was invalidated (denied once) on the main side.
+  PERMISSIONS_PROMPT_CANCEL: 'permissions:prompt-cancel',
+  // macOS only: the user allowed a site's camera/mic but the OS-level
+  // privacy setting blocks Freedom itself (main→renderer notice).
+  PERMISSIONS_OS_DENIED: 'permissions:os-denied',
+  PERMISSIONS_GET_ALL: 'permissions:get-all',
+  PERMISSIONS_GET_FOR_ORIGIN: 'permissions:get-for-origin',
+  PERMISSIONS_REVOKE: 'permissions:revoke',
+  PERMISSIONS_REVOKE_ORIGIN: 'permissions:revoke-origin',
+  PERMISSIONS_REVOKE_ALL: 'permissions:revoke-all',
+  // Main→renderer broadcast after any decision is recorded or revoked, so
+  // the address-bar indicator and the settings page can re-query.
+  PERMISSIONS_CHANGED: 'permissions:changed',
+
   // dApp Permissions
   DAPP_GET_PERMISSION: 'dapp:get-permission',
   DAPP_GRANT_PERMISSION: 'dapp:grant-permission',
@@ -252,4 +300,22 @@ module.exports = {
   SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY: 'swarm:ensure-ethereum-wallet-identity',
   SWARM_ACTIVATE_FEED_IDENTITY: 'swarm:activate-feed-identity',
   SWARM_REVOKE_FEED_ACCESS: 'swarm:revoke-feed-access',
+
+  // Radicle Provider Permissions
+  RADICLE_GET_PERMISSION: 'radicle:get-permission',
+  RADICLE_GRANT_PERMISSION: 'radicle:grant-permission',
+  RADICLE_REVOKE_PERMISSION: 'radicle:revoke-permission',
+  RADICLE_GET_ALL_PERMISSIONS: 'radicle:get-all-permissions',
+  RADICLE_UPDATE_LAST_USED: 'radicle:update-last-used',
+  RADICLE_HAS_SIGNING_GRANT: 'radicle:has-signing-grant',
+  RADICLE_GRANT_SIGNING: 'radicle:grant-signing',
+  RADICLE_GET_AUTO_APPROVE: 'radicle:get-auto-approve',
+  RADICLE_SET_AUTO_APPROVE: 'radicle:set-auto-approve',
+
+  // Radicle Provider (main-process authority)
+  RADICLE_PROVIDER_EXECUTE: 'radicle:provider-execute',
+
+  // Radicle node alias (chrome UI: sidebar Nodes tab)
+  RADICLE_GET_ALIAS: 'radicle:get-alias',
+  RADICLE_SET_ALIAS: 'radicle:set-alias',
 };

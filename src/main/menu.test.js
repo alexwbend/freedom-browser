@@ -155,6 +155,21 @@ describe('menu', () => {
     }
   });
 
+  test('File menu offers Downloads with the Chromium-standard accelerator', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const { capturedTemplate } = loadMenuModule(platform);
+      const file = findTopLabel(capturedTemplate, 'File');
+      const downloads = file?.submenu?.find((item) => item.id === 'downloads');
+
+      expect(downloads).toEqual(
+        expect.objectContaining({
+          label: 'Downloads',
+          accelerator: 'CmdOrCtrl+Shift+J',
+        })
+      );
+    }
+  });
+
   test('Profiles menu sits between History and the Window menu on macOS', () => {
     const { capturedTemplate } = loadMenuModule('darwin');
     const labels = capturedTemplate.map((item) => item.label ?? item.role);
@@ -173,6 +188,20 @@ describe('menu', () => {
     expect(capturedTemplate.some((item) => item.role === 'editMenu')).toBe(true);
     expect(capturedTemplate.some((item) => item.role === 'windowMenu')).toBe(true);
     expect(findTopLabel(capturedTemplate, 'Edit')).toBeFalsy();
+  });
+
+  test('Edit menu carries Find in Page with CmdOrCtrl+F on every platform', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const { capturedTemplate } = loadMenuModule(platform);
+      const edit = capturedTemplate.find(
+        (item) => item.label === 'Edit' || item.role === 'editMenu'
+      );
+      const find = edit?.submenu?.find((item) => item.id === 'find-in-page');
+
+      expect(find).toBeTruthy();
+      expect(find.accelerator).toBe('CmdOrCtrl+F');
+      expect(typeof find.click).toBe('function');
+    }
   });
 
   test('macOS places editMenu immediately after File', () => {

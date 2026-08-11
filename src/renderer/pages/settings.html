@@ -536,6 +536,22 @@
         border-color: var(--danger);
       }
 
+      .search-provider-actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 8px;
+      }
+
+      .search-provider-form[hidden] {
+        display: none;
+      }
+
+      .search-provider-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
       /* Light theme */
       @media (prefers-color-scheme: light) {
         :root {
@@ -622,6 +638,22 @@
             </svg>
             Appearance
           </button>
+          <button type="button" class="nav-item" data-target="search">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Search
+          </button>
           <button type="button" class="nav-item" data-target="profile">
             <svg
               width="16"
@@ -669,6 +701,23 @@
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
             Startup
+          </button>
+          <button type="button" class="nav-item" data-target="downloads">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Downloads
           </button>
           <button type="button" class="nav-item" data-target="chains">
             <svg
@@ -719,6 +768,22 @@
               <polygon points="4 14 12 22 20 14 12 18 4 14"></polygon>
             </svg>
             Name Resolution
+          </button>
+          <button type="button" class="nav-item" data-target="permissions">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 2 L4 6 L4 12 C4 17 7.5 21 12 22 C16.5 21 20 17 20 12 L20 6 Z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+            Site Permissions
           </button>
           <button type="button" class="nav-item" data-target="experimental" id="nav-experimental">
             <svg
@@ -795,6 +860,74 @@
           </div>
         </section>
 
+        <!-- Search -->
+        <section class="section" id="search">
+          <h2 class="section-title">Search</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Search engine</p>
+                <p class="row-help">Used when the address bar input is not a URL, hash, or name.</p>
+              </div>
+              <div class="row-control">
+                <!-- Values mirror SEARCH_PROVIDERS in renderer/lib/search-utils.js -->
+                <select id="search-provider">
+                  <optgroup label="Built-in">
+                    <option value="google">Google</option>
+                    <option value="duckduckgo">DuckDuckGo</option>
+                    <option value="bing">Bing</option>
+                    <option value="brave">Brave Search</option>
+                    <option value="ecosia">Ecosia</option>
+                    <option value="startpage">Startpage</option>
+                  </optgroup>
+                  <optgroup
+                    id="custom-search-provider-options"
+                    label="Your search engines"
+                    hidden
+                  ></optgroup>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div id="custom-search-provider-list"></div>
+            <div class="rpc-block" style="border-top: none">
+              <button type="button" class="btn" id="add-search-provider">
+                + Add a search engine
+              </button>
+            </div>
+            <div class="rpc-block search-provider-form" id="search-provider-form" hidden>
+              <div class="search-provider-fields">
+                <input
+                  type="text"
+                  class="rpc-input"
+                  id="custom-search-provider-name"
+                  maxlength="64"
+                  placeholder="Search engine name"
+                  spellcheck="false"
+                />
+                <input
+                  type="text"
+                  class="rpc-input"
+                  id="custom-search-provider-template"
+                  maxlength="2048"
+                  placeholder="https://search.example/?q={searchTerms}"
+                  spellcheck="false"
+                />
+              </div>
+              <p class="rpc-hint">
+                Put <code>{searchTerms}</code> where the encoded query belongs. HTTPS is required
+                except for localhost.
+              </p>
+              <div style="margin-top: 12px">
+                <button type="button" class="btn" id="save-search-provider">Save</button>
+                <button type="button" class="btn" id="cancel-search-provider">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <p id="search-provider-status" class="rpc-status"></p>
+        </section>
+
         <!-- Profile (current profile identity) -->
         <section class="section" id="profile">
           <h2 class="section-title">Profile</h2>
@@ -856,6 +989,27 @@
               <div class="row-control">
                 <label class="toggle">
                   <input type="checkbox" id="start-ipfs-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Downloads -->
+        <section class="section" id="downloads">
+          <h2 class="section-title">Downloads</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Ask where to save each file</p>
+                <p class="row-help">
+                  When off, files are saved to your Downloads folder automatically.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="ask-where-to-save" />
                   <span class="slider"></span>
                 </label>
               </div>
@@ -932,6 +1086,12 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- Site Permissions -->
+        <section class="section" id="permissions">
+          <h2 class="section-title">Site Permissions</h2>
+          <div id="permissions-view"></div>
         </section>
 
         <!-- Experimental -->
@@ -1026,9 +1186,11 @@
 
       const fields = {
         themeMode: $('theme-mode'),
+        searchProvider: $('search-provider'),
         tabsInTitlebar: $('tabs-in-titlebar'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
+        askWhereToSave: $('ask-where-to-save'),
         blockUnverifiedEns: $('block-unverified-ens'),
         enableRadicle: $('enable-radicle-integration'),
         startRadicleRow: $('start-radicle-row'),
@@ -1036,6 +1198,18 @@
         enableIdentity: $('enable-identity-wallet'),
         showIpfsProgressStatus: $('show-ipfs-progress-status'),
         autoUpdate: $('auto-update'),
+      };
+
+      const searchFields = {
+        customOptions: $('custom-search-provider-options'),
+        customList: $('custom-search-provider-list'),
+        addButton: $('add-search-provider'),
+        form: $('search-provider-form'),
+        name: $('custom-search-provider-name'),
+        template: $('custom-search-provider-template'),
+        saveButton: $('save-search-provider'),
+        cancelButton: $('cancel-search-provider'),
+        status: $('search-provider-status'),
       };
 
       const swarmModeHelp = $('swarm-mode-help');
@@ -1071,6 +1245,235 @@
           /[&<>"]/g,
           (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
         );
+
+      const DEFAULT_SEARCH_PROVIDER = 'duckduckgo';
+      const SEARCH_TERMS_PLACEHOLDER = '{searchTerms}';
+      const LOOPBACK_SEARCH_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+      let customSearchProviders = [];
+      let editingSearchProviderId = null;
+      let searchProviderFormDirty = false;
+      // Keep in sync with CUSTOM_SEARCH_PROVIDER_LIMIT in src/main/settings-store.js —
+      // main silently drops anything past it, so the form must refuse first.
+      const CUSTOM_SEARCH_PROVIDER_LIMIT = 50;
+
+      // Latest cross-window provider list. cachedSettings is refreshed by every
+      // settings broadcast even while this form is dirty (applySearchSettings
+      // skips only the re-render), so writes rebase on it rather than on this
+      // window's render snapshot — otherwise a save here would resurrect
+      // entries another settings window removed meanwhile.
+      const latestCustomSearchProviders = () =>
+        (Array.isArray(cachedSettings?.customSearchProviders)
+          ? cachedSettings.customSearchProviders
+          : customSearchProviders
+        ).map((provider) => ({ ...provider }));
+
+      const setSearchProviderStatus = (message, kind) => {
+        searchFields.status.textContent = message || '';
+        searchFields.status.className = 'rpc-status' + (kind ? ' ' + kind : '');
+      };
+
+      const normalizeSearchTemplateInput = (value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : '';
+        if (!trimmed || trimmed.length > 2048) return null;
+        const openSearchCount = trimmed.split(SEARCH_TERMS_PLACEHOLDER).length - 1;
+        const percentCount = trimmed.split('%s').length - 1;
+        if (openSearchCount + percentCount !== 1) return null;
+        const normalized =
+          percentCount === 1 ? trimmed.replace('%s', SEARCH_TERMS_PLACEHOLDER) : trimmed;
+
+        try {
+          const parsed = new URL(normalized.replace(SEARCH_TERMS_PLACEHOLDER, 'test'));
+          const secure = parsed.protocol === 'https:';
+          const loopbackHttp =
+            parsed.protocol === 'http:' && LOOPBACK_SEARCH_HOSTS.has(parsed.hostname);
+          if ((!secure && !loopbackHttp) || parsed.username || parsed.password) return null;
+        } catch {
+          return null;
+        }
+
+        return normalized;
+      };
+
+      const renderSearchProviderOptions = (selectedId) => {
+        searchFields.customOptions.innerHTML = customSearchProviders
+          .map(
+            (provider) =>
+              `<option value="custom:${esc(provider.id)}">${esc(provider.name)}</option>`
+          )
+          .join('');
+        searchFields.customOptions.hidden = customSearchProviders.length === 0;
+
+        const available = [...fields.searchProvider.options].some(
+          (option) => option.value === selectedId
+        );
+        fields.searchProvider.value = available ? selectedId : DEFAULT_SEARCH_PROVIDER;
+      };
+
+      const renderCustomSearchProviders = () => {
+        searchFields.customList.innerHTML = customSearchProviders.length
+          ? customSearchProviders
+              .map(
+                (provider) => `
+                  <div class="row">
+                    <div class="row-body">
+                      <p class="row-label">${esc(provider.name)}</p>
+                      <p class="row-help" style="overflow-wrap: anywhere">
+                        ${esc(provider.searchUrlTemplate)}
+                      </p>
+                    </div>
+                    <div class="search-provider-actions">
+                      <button type="button" class="btn" data-search-action="edit" data-id="${esc(provider.id)}">Edit</button>
+                      <button type="button" class="btn danger" data-search-action="remove" data-id="${esc(provider.id)}">Remove</button>
+                    </div>
+                  </div>`
+              )
+              .join('')
+          : '<div class="profile-node-empty">No custom search engines yet.</div>';
+      };
+
+      const applySearchSettings = (settings) => {
+        if (!settings || searchProviderFormDirty) return;
+        customSearchProviders = Array.isArray(settings.customSearchProviders)
+          ? settings.customSearchProviders.map((provider) => ({ ...provider }))
+          : [];
+        renderSearchProviderOptions(settings.searchProvider || DEFAULT_SEARCH_PROVIDER);
+        renderCustomSearchProviders();
+      };
+
+      const closeSearchProviderForm = () => {
+        editingSearchProviderId = null;
+        searchProviderFormDirty = false;
+        searchFields.name.value = '';
+        searchFields.template.value = '';
+        searchFields.form.hidden = true;
+      };
+
+      const openSearchProviderForm = (provider = null) => {
+        editingSearchProviderId = provider?.id || null;
+        searchProviderFormDirty = false;
+        searchFields.name.value = provider?.name || '';
+        searchFields.template.value = provider?.searchUrlTemplate || '';
+        searchFields.form.hidden = false;
+        searchFields.name.focus();
+      };
+
+      searchFields.addButton.addEventListener('click', () => {
+        setSearchProviderStatus('', null);
+        openSearchProviderForm();
+      });
+
+      searchFields.cancelButton.addEventListener('click', closeSearchProviderForm);
+      for (const input of [searchFields.name, searchFields.template]) {
+        input.addEventListener('input', () => {
+          searchProviderFormDirty = true;
+        });
+      }
+
+      searchFields.saveButton.addEventListener('click', async () => {
+        const name = searchFields.name.value.trim();
+        const searchUrlTemplate = normalizeSearchTemplateInput(searchFields.template.value);
+        if (!name) {
+          setSearchProviderStatus('Enter a search engine name.', 'error');
+          return;
+        }
+        if (!searchUrlTemplate) {
+          setSearchProviderStatus(
+            'Enter a valid HTTPS search URL with one {searchTerms} placeholder.',
+            'error'
+          );
+          return;
+        }
+
+        const baseProviders = latestCustomSearchProviders();
+        if (!editingSearchProviderId && baseProviders.length >= CUSTOM_SEARCH_PROVIDER_LIMIT) {
+          setSearchProviderStatus(
+            `Limit of ${CUSTOM_SEARCH_PROVIDER_LIMIT} custom search engines reached. Remove one first.`,
+            'error'
+          );
+          return;
+        }
+        const id = editingSearchProviderId || crypto.randomUUID();
+        const nextProvider = { id, name, searchUrlTemplate };
+        const nextProviders = editingSearchProviderId
+          ? baseProviders.some((provider) => provider.id === editingSearchProviderId)
+            ? baseProviders.map((provider) =>
+                provider.id === editingSearchProviderId ? nextProvider : provider
+              )
+            : [...baseProviders, nextProvider]
+          : [...baseProviders, nextProvider];
+        const selectedProvider = editingSearchProviderId
+          ? fields.searchProvider.value
+          : `custom:${id}`;
+
+        searchFields.saveButton.disabled = true;
+        const ok = await freedomAPI.saveSettings({
+          searchProvider: selectedProvider,
+          customSearchProviders: nextProviders,
+        });
+        searchFields.saveButton.disabled = false;
+        if (!ok) {
+          setSearchProviderStatus('The search engine could not be saved.', 'error');
+          return;
+        }
+
+        customSearchProviders = nextProviders;
+        renderSearchProviderOptions(selectedProvider);
+        renderCustomSearchProviders();
+        closeSearchProviderForm();
+        setSearchProviderStatus('Search engine saved.', 'success');
+      });
+
+      searchFields.customList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-search-action]');
+        if (!button) return;
+        const provider = customSearchProviders.find(
+          (candidate) => candidate.id === button.dataset.id
+        );
+        if (!provider) return;
+
+        if (button.dataset.searchAction === 'edit') {
+          setSearchProviderStatus('', null);
+          openSearchProviderForm(provider);
+          return;
+        }
+
+        if (button.dataset.searchAction !== 'remove') return;
+        if (!confirm(`Remove ${provider.name}?`)) return;
+
+        const nextProviders = latestCustomSearchProviders().filter(
+          (candidate) => candidate.id !== provider.id
+        );
+        const removedProviderId = `custom:${provider.id}`;
+        const selectedProvider =
+          fields.searchProvider.value === removedProviderId
+            ? DEFAULT_SEARCH_PROVIDER
+            : fields.searchProvider.value;
+        const ok = await freedomAPI.saveSettings({
+          searchProvider: selectedProvider,
+          customSearchProviders: nextProviders,
+        });
+        if (!ok) {
+          setSearchProviderStatus('The search engine could not be removed.', 'error');
+          return;
+        }
+
+        customSearchProviders = nextProviders;
+        renderSearchProviderOptions(selectedProvider);
+        renderCustomSearchProviders();
+        if (editingSearchProviderId === provider.id) closeSearchProviderForm();
+        setSearchProviderStatus('Search engine removed.', 'success');
+      });
+
+      fields.searchProvider.addEventListener('change', async () => {
+        const selectedProvider = fields.searchProvider.value || DEFAULT_SEARCH_PROVIDER;
+        const ok = await freedomAPI.saveSettings({ searchProvider: selectedProvider });
+        if (!ok) {
+          renderSearchProviderOptions(cachedSettings?.searchProvider || DEFAULT_SEARCH_PROVIDER);
+          setSearchProviderStatus('The default search engine could not be changed.', 'error');
+          return;
+        }
+        setSearchProviderStatus('Default search engine updated.', 'success');
+      });
 
       // Each sidebar entry maps to one section; the active section is driven
       // by location.hash so the URL is the source of truth and the outer
@@ -1421,6 +1824,7 @@
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
+        askWhereToSave: fields.askWhereToSave.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
         startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
@@ -1435,6 +1839,7 @@
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
+        fields.askWhereToSave.checked = settings.askWhereToSave === true;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableIdentity.checked = settings.enableIdentityWallet === true;
@@ -1542,6 +1947,7 @@
       $('tabs-titlebar-restart').addEventListener('click', () => freedomAPI.relaunchApp());
       fields.startAnt.addEventListener('change', save);
       fields.startIpfs.addEventListener('change', save);
+      fields.askWhereToSave.addEventListener('change', save);
       fields.enableRadicle.addEventListener('change', () => {
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         save();
@@ -1565,6 +1971,7 @@
       freedomAPI.onSettingsUpdated?.((settings) => {
         if (!settings) return;
         cachedSettings = settings;
+        applySearchSettings(settings);
         if (!formStateMatches(settings)) {
           applyFormState(settings);
         }
@@ -1598,6 +2005,7 @@
           ]);
           cachedSettings = settings;
           cachedRegistry = registry;
+          applySearchSettings(settings);
           applyFormState(settings);
           renderSwarmModeRow(settings, registry);
         } catch {
@@ -2484,6 +2892,145 @@
         window.addEventListener('hashchange', () => {
           if (resolveSection(location.hash) !== 'rpc') return;
           keyFor = null;
+          reload();
+        });
+
+        reload();
+      })();
+
+      // Controller for the #permissions section: stored per-site
+      // permission decisions (permissions.json) grouped by origin, with
+      // per-permission revoke, per-site revoke, and revoke-all. Session-only
+      // (unremembered) decisions live in main-process memory and are not
+      // listed here — they expire with the app anyway.
+      (() => {
+        const view = $('permissions-view');
+        if (!view) return;
+
+        const PERMISSION_LABELS = {
+          camera: 'Camera',
+          microphone: 'Microphone',
+          notifications: 'Notifications',
+          'clipboard-read': 'Clipboard reading',
+          geolocation: 'Location',
+          midi: 'MIDI devices',
+        };
+        const label = (key) => PERMISSION_LABELS[key] || key;
+
+        const render = (all) => {
+          const origins = Object.keys(all || {}).sort();
+
+          const intro = `
+            <div class="card" style="margin-bottom: 16px">
+              <div class="row">
+                <div class="row-body">
+                  <p class="row-label">Decisions you asked Freedom to remember</p>
+                  <p class="row-help">
+                    When a site asks to use your camera, microphone, notifications,
+                    clipboard, location, or MIDI devices, Freedom prompts you.
+                    Remembered answers are listed here. Everything else is denied
+                    by default.
+                  </p>
+                </div>
+                <div class="row-control">
+                  <button class="btn danger" data-action="revoke-all" ${
+                    origins.length === 0 ? 'disabled' : ''
+                  }>
+                    Remove all
+                  </button>
+                </div>
+              </div>
+            </div>`;
+
+          if (origins.length === 0) {
+            view.innerHTML =
+              intro +
+              `<div class="card"><div class="row"><div class="row-body">
+                 <p class="row-label">No stored site permissions</p>
+                 <p class="row-help">Allow or Block a site's request with
+                 “Remember for this site” checked and the decision appears here.</p>
+               </div></div></div>`;
+            return;
+          }
+
+          const cards = origins
+            .map((origin) => {
+              const rows = Object.entries(all[origin] || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(
+                  ([permission, decision]) => `
+                    <div class="row sub">
+                      <div class="row-body">
+                        <p class="row-label">${esc(label(permission))}</p>
+                        <p class="row-help" ${
+                          decision === 'deny' ? 'style="color: var(--danger)"' : ''
+                        }>${decision === 'allow' ? 'Allowed' : 'Blocked'}</p>
+                      </div>
+                      <div class="row-control">
+                        <button class="btn" data-action="revoke"
+                          data-origin="${esc(origin)}"
+                          data-permission="${esc(permission)}">Remove</button>
+                      </div>
+                    </div>`
+                )
+                .join('');
+              return `
+                <div class="card" style="margin-bottom: 12px">
+                  <div class="row">
+                    <div class="row-body">
+                      <p class="row-label" style="word-break: break-all">${esc(origin)}</p>
+                    </div>
+                    <div class="row-control">
+                      <button class="btn" data-action="revoke-origin"
+                        data-origin="${esc(origin)}">Remove site</button>
+                    </div>
+                  </div>
+                  ${rows}
+                </div>`;
+            })
+            .join('');
+
+          view.innerHTML = intro + cards;
+        };
+
+        const reload = async () => {
+          try {
+            render(await freedomAPI.getSitePermissions());
+          } catch (err) {
+            view.innerHTML = `<div class="card"><div class="row"><div class="row-body">
+              <p class="row-label">Could not load site permissions</p>
+              <p class="row-help">${esc(err?.message || String(err))}</p>
+            </div></div></div>`;
+          }
+        };
+
+        view.addEventListener('click', async (e) => {
+          const btn = e.target.closest('button[data-action]');
+          if (!btn) return;
+          const { action, origin, permission } = btn.dataset;
+          try {
+            if (action === 'revoke') {
+              await freedomAPI.revokeSitePermission(origin, permission);
+            } else if (action === 'revoke-origin') {
+              await freedomAPI.revokeSitePermissionOrigin(origin);
+            } else if (action === 'revoke-all') {
+              await freedomAPI.revokeAllSitePermissions();
+            }
+          } catch (err) {
+            console.error('[settings] site-permission revoke failed:', err);
+          }
+          reload();
+        });
+
+        // Live refresh when decisions change elsewhere (prompt answers,
+        // the address-bar indicator's quick revoke).
+        freedomAPI.onSitePermissionsChanged?.(() => {
+          reload();
+        });
+
+        // Re-sync on navigation into this section.
+        window.addEventListener('hashchange', () => {
+          if (resolveSection(location.hash) !== 'permissions') return;
           reload();
         });
 
