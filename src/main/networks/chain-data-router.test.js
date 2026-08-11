@@ -93,6 +93,57 @@ describe('chain-data-router', () => {
     expect(mockMyotis.estimateGas).not.toHaveBeenCalled();
   });
 
+  test('sends historical eth_call to a source that honours the block tag', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0xhead' });
+    mockRequestViaColibri.mockResolvedValue('0xhistoric');
+
+    await expect(
+      request(100, 'eth_call', [{ to: '0xabc', data: '0x70a08231' }, '0x10d4f00'])
+    ).resolves.toEqual({ result: '0xhistoric', source: 'colibri', verified: true });
+    expect(mockMyotis.ethCall).not.toHaveBeenCalled();
+  });
+
+  test('sends eth_call state overrides to a source that can apply them', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0xhead' });
+    mockRequestViaColibri.mockResolvedValue('0xsimulated');
+
+    await expect(
+      request(100, 'eth_call', [
+        { to: '0xabc', data: '0x70a08231' },
+        'latest',
+        { '0xabc': { balance: '0x1' } },
+      ])
+    ).resolves.toMatchObject({ result: '0xsimulated', source: 'colibri' });
+    expect(mockMyotis.ethCall).not.toHaveBeenCalled();
+  });
+
+  test('sends calls carrying gas/fee/nonce fields to a source that honours them', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0xhead' });
+    mockMyotis.estimateGas.mockResolvedValue({ gasLimit: '21000' });
+    mockRequestViaColibri.mockResolvedValue('0xcapped');
+
+    await expect(
+      request(100, 'eth_call', [{ to: '0xabc', data: '0x', gas: '0x5208' }, 'latest'])
+    ).resolves.toMatchObject({ source: 'colibri' });
+    await expect(
+      request(100, 'eth_estimateGas', [{ to: '0xabc', maxFeePerGas: '0x1' }])
+    ).resolves.toMatchObject({ source: 'colibri' });
+    expect(mockMyotis.ethCall).not.toHaveBeenCalled();
+    expect(mockMyotis.estimateGas).not.toHaveBeenCalled();
+  });
+
+  test('still serves a plain head-state eth_call from Myotis', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0x2a' });
+
+    await expect(
+      request(100, 'eth_call', [{ to: '0xabc', data: '0x70a08231' }, 'latest'])
+    ).resolves.toEqual({ result: '0x2a', source: 'myotis', verified: true });
+    expect(mockMyotis.ethCall).toHaveBeenCalledWith(
+      expect.objectContaining({ chainId: 100, to: '0xabc', block: 'latest' })
+    );
+    expect(mockRequestViaColibri).not.toHaveBeenCalled();
+  });
+
   test('falls through unsupported Myotis reads to the per-chain Colibri client', async () => {
     mockRequestViaColibri.mockResolvedValue('0x6000');
 

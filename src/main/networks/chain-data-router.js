@@ -179,6 +179,34 @@ function assertMyotisBlockTag(method, blockTag) {
   throw new SourceUnavailableError(`Myotis cannot serve ${method} at block "${blockTag}"`);
 }
 
+// The engine executes a call as `from`/`to`/`data`/`value` against its verified
+// head: the block argument it takes is discarded (`_block`, never read — the
+// servable-window gate is a host obligation), and the addon exposes no
+// state-override entry point. Any call carrying more than that has to go to a
+// source that can honour it, rather than being answered — as `verified` — from
+// head state without it.
+const MYOTIS_UNSUPPORTED_CALL_FIELDS = [
+  'gas',
+  'gasPrice',
+  'maxFeePerGas',
+  'maxPriorityFeePerGas',
+  'nonce',
+  'accessList',
+];
+
+function assertMyotisCallShape(method, params) {
+  assertMyotisBlockTag(method, params[1]);
+  if (params[2] != null) {
+    throw new SourceUnavailableError(`Myotis cannot serve ${method} with state overrides`);
+  }
+  const call = params[0] || {};
+  for (const field of MYOTIS_UNSUPPORTED_CALL_FIELDS) {
+    const value = call[field];
+    if (value == null || value === '') continue;
+    throw new SourceUnavailableError(`Myotis cannot serve ${method} with a "${field}" field`);
+  }
+}
+
 async function requestMyotis(chainId, method, params) {
   if (!myotis.isReady(chainId)) throw new SourceUnavailableError('Myotis is not ready');
 
@@ -192,6 +220,7 @@ async function requestMyotis(chainId, method, params) {
   }
 
   if (method === 'eth_call') {
+    assertMyotisCallShape(method, params);
     const call = params[0] || {};
     const result = await myotis.ethCall({
       chainId,
@@ -199,15 +228,16 @@ async function requestMyotis(chainId, method, params) {
       to: call.to,
       data: call.data || '0x',
       value: decimal(call.value),
-      block: params[1] || 'latest',
+      block: 'latest',
     });
     return nativeResult(result, 'resultHex', 'result');
   }
 
   if (method === 'eth_estimateGas') {
-    // Same constraint as the account reads: the estimate is taken against the
-    // verified head, so an explicit non-`latest` tag cannot be honoured here.
-    assertMyotisBlockTag(method, params[1]);
+    // Same constraint as the account reads and `eth_call`: the estimate is
+    // taken against the verified head with only from/to/data/value, so an
+    // explicit tag, state overrides or extra call fields cannot be honoured.
+    assertMyotisCallShape(method, params);
     const call = params[0] || {};
     const result = await myotis.estimateGas({
       chainId,
