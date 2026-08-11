@@ -36,6 +36,9 @@ const DEFAULT_SETTINGS = {
   startRadicleAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
+  // When true, every download opens a native save dialog. Off by default:
+  // files land in the OS Downloads folder without a prompt.
+  askWhereToSave: false,
   // Address-bar search provider id used when typed input is not a URL, hash,
   // or name. Valid ids live in the renderer's search-utils.js SEARCH_PROVIDERS
   // map; unknown ids fall back to DuckDuckGo there.

@@ -52,6 +52,7 @@ import {
   hide as hideAutocomplete,
 } from './lib/autocomplete.js';
 import { initGithubBridgeUi, setOnOpenRadicleUrl } from './lib/github-bridge-ui.js';
+import { initDownloadsUi } from './lib/downloads-ui.js';
 import { initMenuBackdrop } from './lib/menu-backdrop.js';
 import { initLinkStatus } from './lib/link-status.js';
 import { initFindBar } from './lib/find-bar.js';
@@ -742,4 +743,5 @@ window.addEventListener('DOMContentLoaded', async () => {
   initPlatformUI();
   initProfileIndicator();
   initUpdateNotifications();
+  initDownloadsUi(); // Download shelf cards (bottom-right)
 });

@@ -75,6 +75,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   addHistory: (entry) => ipcRenderer.invoke('history:add', entry),
   removeHistory: (id) => ipcRenderer.invoke('history:remove', id),
   clearHistory: () => ipcRenderer.invoke('history:clear'),
+  // Downloads (shelf in the chrome renderer)
+  getDownloads: (options) => ipcRenderer.invoke('downloads:get', options),
+  pauseDownload: (id) => ipcRenderer.invoke('downloads:pause', id),
+  resumeDownload: (id) => ipcRenderer.invoke('downloads:resume', id),
+  cancelDownload: (id) => ipcRenderer.invoke('downloads:cancel', id),
+  openDownloadedFile: (id) => ipcRenderer.invoke('downloads:open-file', id),
+  showDownloadInFolder: (id) => ipcRenderer.invoke('downloads:show-in-folder', id),
+  // Main sends this to the download's owning window only; drives the shelf.
+  onDownloadUpdated: (callback) => {
+    const handler = (_event, download) => callback(download);
+    ipcRenderer.on('downloads:updated', handler);
+    return () => ipcRenderer.removeListener('downloads:updated', handler);
+  },
   // x402 payments. All tab-scoped calls take webContentsId explicitly —
   // the sidebar is the host webContents, not the paying webview.
   x402GetDetails: (args) => ipcRenderer.invoke('x402:get-details', args),

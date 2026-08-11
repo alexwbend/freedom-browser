@@ -24,6 +24,12 @@ app.setName(appName);
 // touches userData.
 if (process.env.FREEDOM_TEST_USER_DATA) {
   app.setPath('userData', process.env.FREEDOM_TEST_USER_DATA);
+  // Keep E2E download artifacts inside the per-run temp dir instead of
+  // polluting the real ~/Downloads folder.
+  app.setPath(
+    'downloads',
+    require('path').join(process.env.FREEDOM_TEST_USER_DATA, 'downloads')
+  );
 }
 const TEST_MODE = process.env.FREEDOM_TEST_MODE === '1';
 const { migrateBeeDataToAntData, migrateUserData } = require('./migrate-user-data');
@@ -156,6 +162,11 @@ protocol.registerSchemesAsPrivileged([
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
+const {
+  registerDownloadsIpc,
+  attachDownloadsManager,
+} = require('./downloads/downloads-manager');
+const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
 const {
@@ -256,6 +267,7 @@ async function bootstrap() {
   registerSettingsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
+  registerDownloadsIpc();
   registerFaviconsIpc();
   registerEnsIpc();
   registerAntIpc();
@@ -306,6 +318,11 @@ async function bootstrap() {
   installRequestRewriter();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
+  // All webviews run on the default session (no partitions today), so this
+  // one hook covers every download source — including the bzz:/ipfs:/ipns:
+  // protocol handlers, whose responses route through Chromium's download
+  // manager like any http(s) response.
+  attachDownloadsManager(defaultSession);
   allowInteractivePermissions(defaultSession);
   registerWebContentsHandlers();
   setupApplicationMenu();
@@ -447,6 +464,7 @@ app.on('before-quit', async (event) => {
   // Close history databases
   log.info('[App] Closing history databases...');
   closeHistoryDb();
+  closeDownloadsDb();
   closePublishHistoryDb();
   paymentHistory.closeDb();
 
