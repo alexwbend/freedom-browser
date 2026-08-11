@@ -390,9 +390,50 @@ function buildHistorySubmenu(isMac) {
   ];
 }
 
+// Find in Page needs a custom click handler (main → renderer IPC), so it
+// can't come from a role. The renderer's find-bar module listens on the
+// other end and drives the active webview's findInPage().
+function buildFindMenuItem() {
+  return {
+    id: 'find-in-page',
+    label: 'Find in Page...',
+    accelerator: 'CmdOrCtrl+F',
+    click: () => {
+      const win = getTargetWindow();
+      if (win) {
+        win.webContents.send(IPC.FIND_IN_PAGE_OPEN);
+      }
+    },
+  };
+}
+
 function buildEditMenuEntry(isMac) {
   if (isMac) {
-    return { role: 'editMenu' };
+    // Keep the `editMenu` role (native label + placement semantics) but
+    // spell out its submenu so Find in Page can be appended — a bare role
+    // entry can't carry extra items. The listed roles mirror the role's
+    // default macOS submenu.
+    return {
+      role: 'editMenu',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        buildFindMenuItem(),
+        { type: 'separator' },
+        {
+          label: 'Speech',
+          submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }],
+        },
+      ],
+    };
   }
 
   return {
@@ -407,6 +448,8 @@ function buildEditMenuEntry(isMac) {
       { role: 'delete' },
       { type: 'separator' },
       { role: 'selectAll' },
+      { type: 'separator' },
+      buildFindMenuItem(),
     ],
   };
 }

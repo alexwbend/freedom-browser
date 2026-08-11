@@ -1,8 +1,7 @@
 // Renderer process entry point
 import {
   updateRegistry,
-  setRadicleIntegrationEnabled,
-  setBlockUnverifiedEns,
+  applySettingsToState,
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
@@ -35,6 +34,7 @@ import {
   setOnContextMenuOpening as setOnTabContextMenuOpening,
   createTab,
   openOrFocusInternalPage,
+  getActiveWebview,
 } from './lib/tabs.js';
 import {
   initNavigation,
@@ -55,6 +55,7 @@ import { initGithubBridgeUi, setOnOpenRadicleUrl } from './lib/github-bridge-ui.
 import { initDownloadsUi } from './lib/downloads-ui.js';
 import { initMenuBackdrop } from './lib/menu-backdrop.js';
 import { initLinkStatus } from './lib/link-status.js';
+import { initFindBar } from './lib/find-bar.js';
 import { initPageContextMenu, hidePageContextMenu } from './lib/page-context-menu.js';
 import {
   initChromeInputContextMenu,
@@ -708,16 +709,12 @@ document.addEventListener('open-url-new-tab', (e) => {
 // Initialize all modules
 window.addEventListener('DOMContentLoaded', async () => {
   try {
-    const settings = await electronAPI.getSettings();
-    setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
+    applySettingsToState(await electronAPI.getSettings());
   } catch {
-    setRadicleIntegrationEnabled(false);
-    setBlockUnverifiedEns(true);
+    applySettingsToState(null);
   }
   window.addEventListener('settings:updated', (event) => {
-    setRadicleIntegrationEnabled(event.detail?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(event.detail?.blockUnverifiedEns !== false);
+    applySettingsToState(event.detail);
   });
 
   initMenuBackdrop(closeAllOverlays);
@@ -733,6 +730,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initBookmarks();
   initNavigation(); // Sets up event handler with tabs module
   initLinkStatus();
+  initFindBar({ getActiveWebview }); // In-page find bar (Cmd/Ctrl+F)
   initTabs(); // Creates first tab and starts loading home page
   initAutocomplete(); // Address bar autocomplete
   initPageContextMenu(); // Page context menu for webviews
