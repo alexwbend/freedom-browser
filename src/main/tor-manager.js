@@ -59,6 +59,11 @@ let artiProcess = null;
 let healthCheckInterval = null;
 let pendingStart = false;
 let forceKillTimeout = null;
+// Set by a startup-timeout before it calls stopTor(), so the exit handler
+// reports this error rather than the raw "arti exited with code N" that the
+// SIGTERM/SIGKILL produces. Consumed once. (Arti is single-process, so unlike
+// radicle there is no leaked-backstop hazard — this is message fidelity.)
+let pendingStopError = null;
 let currentSocksPort = DEFAULTS.tor.socksPort;
 let currentSocksEndpoint = `127.0.0.1:${DEFAULTS.tor.socksPort}`;
 let proxySession = null;
@@ -545,7 +550,14 @@ async function startTor(opts = {}) {
     }
     // Tear down the proxy so clearnet isn't pointed at a dead SOCKS port.
     if (proxySession) clearOnionProxy(proxySession).catch(() => {});
-    if (currentState !== STATUS.STOPPING && code !== 0) {
+    if (pendingStopError) {
+      // A startup timeout initiated this stop: report its message instead of
+      // the raw arti exit code from the SIGTERM/SIGKILL that carried it out.
+      const message = pendingStopError;
+      pendingStopError = null;
+      updateState(STATUS.ERROR, message);
+      setErrorState('tor', 'Tor failed to start');
+    } else if (currentState !== STATUS.STOPPING && code !== 0) {
       // Unexpected exit (crash / killed): surface it as an error and keep the
       // service entry so the menu shows a failure indication, rather than a
       // silent stop that looks identical to a clean shutdown.
@@ -583,9 +595,11 @@ async function startTor(opts = {}) {
       attempts++;
       if (attempts >= maxAttempts) {
         clearInterval(pollInterval);
-        stopTor();
-        updateState(STATUS.ERROR, 'Startup timed out');
+        // Flag the terminal error before stopTor() so the exit handler reports
+        // it instead of the raw arti exit code from the kill it performs.
+        pendingStopError = 'Startup timed out';
         setStatusMessage('tor', 'Tor failed to start');
+        stopTor();
       }
     }
   }, 1000);

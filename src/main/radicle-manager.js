@@ -83,6 +83,11 @@ let radicleHttpdProcess = null;
 let healthCheckInterval = null;
 let pendingStart = false;
 let forceKillTimeout = null;
+// Set by a startup-timeout before it calls stopRadicle(), so the coordinated
+// shutdown keeps running under STOPPING (force-kill backstop intact, close
+// handlers taking the clean path) and finalizeStopped() reports the terminal
+// state as ERROR with this message instead of a plain STOPPED. Consumed once.
+let pendingStopError = null;
 // Timestamp (ms since epoch) of the most recent transition into RUNNING. Used by
 // getConnections to suppress transient `rad node status` errors while the node
 // is still bootstrapping its control socket.
@@ -135,6 +140,21 @@ function finalizeStopped(error = null) {
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
     healthCheckInterval = null;
+  }
+  // A startup timeout that routed through stopRadicle() wants the terminal
+  // state to read as an error, not a clean stop. Consume the flag here — the
+  // one place guaranteed to run once every process has exited.
+  if (pendingStopError) {
+    const message = pendingStopError;
+    pendingStopError = null;
+    updateState(STATUS.ERROR, message);
+    clearService('radicle');
+    if (pendingStart) {
+      log.info('[Radicle] Processing queued start request');
+      pendingStart = false;
+      setTimeout(() => startRadicle(), 100);
+    }
+    return;
   }
   updateState(STATUS.STOPPED, error);
   clearService('radicle');
@@ -843,9 +863,13 @@ async function startRadicle(opts = {}) {
         attempts++;
         if (attempts >= maxAttempts) {
           clearInterval(pollInterval);
-          stopRadicle();
-          updateState(STATUS.ERROR, 'Startup timed out');
+          // Flag the terminal state BEFORE stopRadicle(): the coordinated
+          // shutdown must run under STOPPING (backstop intact so a
+          // SIGTERM-ignoring node is still SIGKILLed; a concurrent start is
+          // queued, not run) and finalizeStopped() surfaces this as the error.
+          pendingStopError = 'Startup timed out';
           setStatusMessage('radicle', 'Node failed to start');
+          stopRadicle();
         }
       }
     }, 1000);
@@ -1108,9 +1132,13 @@ async function startRadicle(opts = {}) {
         attempts++;
         if (attempts >= maxAttempts) {
           clearInterval(pollInterval);
-          stopRadicle();
-          updateState(STATUS.ERROR, 'Startup timed out');
+          // Flag the terminal state BEFORE stopRadicle(): the coordinated
+          // shutdown must run under STOPPING (backstop intact so a
+          // SIGTERM-ignoring node is still SIGKILLed; a concurrent start is
+          // queued, not run) and finalizeStopped() surfaces this as the error.
+          pendingStopError = 'Startup timed out';
           setStatusMessage('radicle', 'Node failed to start');
+          stopRadicle();
         }
       }
     }, 1000);
