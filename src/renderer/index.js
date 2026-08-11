@@ -1,8 +1,7 @@
 // Renderer process entry point
 import {
   updateRegistry,
-  setRadicleIntegrationEnabled,
-  setBlockUnverifiedEns,
+  applySettingsToState,
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
@@ -707,16 +706,12 @@ document.addEventListener('open-url-new-tab', (e) => {
 // Initialize all modules
 window.addEventListener('DOMContentLoaded', async () => {
   try {
-    const settings = await electronAPI.getSettings();
-    setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
+    applySettingsToState(await electronAPI.getSettings());
   } catch {
-    setRadicleIntegrationEnabled(false);
-    setBlockUnverifiedEns(true);
+    applySettingsToState(null);
   }
   window.addEventListener('settings:updated', (event) => {
-    setRadicleIntegrationEnabled(event.detail?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(event.detail?.blockUnverifiedEns !== false);
+    applySettingsToState(event.detail);
   });
 
   initMenuBackdrop(closeAllOverlays);
