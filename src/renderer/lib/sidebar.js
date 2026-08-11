@@ -8,6 +8,10 @@
 // State
 let isOpen = false;
 let featureEnabled = false;
+// The Radicle provider's consent prompts live in this sidebar too, and the
+// Radicle integration is gated independently of the identity wallet —
+// consent-driven opens must work when either flag is on.
+let radicleEnabled = false;
 
 // DOM references
 let sidebar;
@@ -28,18 +32,24 @@ export function initSidebar() {
   }
 
   // Load initial feature flag state
-  window.electronAPI.getSettings().then((settings) => {
-    featureEnabled = settings?.enableIdentityWallet === true;
-    applyFeatureVisibility();
-  }).catch(() => {
-    featureEnabled = false;
-    applyFeatureVisibility();
-  });
+  window.electronAPI
+    .getSettings()
+    .then((settings) => {
+      featureEnabled = settings?.enableIdentityWallet === true;
+      radicleEnabled = settings?.enableRadicleIntegration === true;
+      applyFeatureVisibility();
+    })
+    .catch(() => {
+      featureEnabled = false;
+      radicleEnabled = false;
+      applyFeatureVisibility();
+    });
 
   // React to settings changes
   window.addEventListener('settings:updated', (event) => {
     const wasEnabled = featureEnabled;
     featureEnabled = event.detail?.enableIdentityWallet === true;
+    radicleEnabled = event.detail?.enableRadicleIntegration === true;
     applyFeatureVisibility();
     // Close sidebar if feature was just disabled while open
     if (wasEnabled && !featureEnabled && isOpen) {
@@ -98,6 +108,20 @@ export function toggle() {
  */
 export function open() {
   if (!featureEnabled) return;
+  if (!isOpen) {
+    isOpen = true;
+    applyState();
+    document.dispatchEvent(new CustomEvent('sidebar-opened'));
+  }
+}
+
+/**
+ * Open the sidebar for a consent prompt. Unlike open(), this works when
+ * any provider that hosts consent screens here is enabled — the Radicle
+ * provider prompts must render without the identity-wallet flag.
+ */
+export function openForConsent() {
+  if (!featureEnabled && !radicleEnabled) return;
   if (!isOpen) {
     isOpen = true;
     applyState();

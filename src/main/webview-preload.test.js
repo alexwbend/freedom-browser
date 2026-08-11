@@ -184,7 +184,7 @@ describe('webview-preload', () => {
     }
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)'
+      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
     );
   });
 
@@ -700,5 +700,74 @@ describe('webview-preload', () => {
     ipcRenderer.emit('context-menu-action', 'copy-text', { text: 'Failure case' });
     await flushMicrotasks();
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
+  });
+});
+
+// The page-side provider scripts are injected as source strings, so they are
+// exercised here by extracting and evaluating them in a sandbox rather than
+// through loadWebviewPreloadModule().
+describe('injected provider request timeouts', () => {
+  const fs = require('fs');
+  const preloadSource = fs.readFileSync(require.resolve('./webview-preload'), 'utf8');
+
+  function extractScript(varName) {
+    const start = preloadSource.indexOf(`${varName}.textContent = \``);
+    const bodyStart = preloadSource.indexOf('`', start) + 1;
+    const bodyEnd = preloadSource.indexOf('\n  `;', bodyStart);
+    expect(bodyStart).toBeGreaterThan(0);
+    expect(bodyEnd).toBeGreaterThan(bodyStart);
+    return preloadSource.slice(bodyStart, bodyEnd);
+  }
+
+  /** Evaluate an injected provider and report the timeout it arms per method. */
+  function timeoutFor(varName, globalName, method) {
+    let armed = null;
+    const sandboxWindow = {
+      postMessage: () => {},
+      addEventListener: () => {},
+      location: { origin: 'https://dapp.example' },
+    };
+    new Function('window', 'setTimeout', 'Map', extractScript(varName))(
+      sandboxWindow,
+      (_fn, ms) => {
+        armed = ms;
+      },
+      Map
+    );
+    sandboxWindow[globalName].request({ method }).catch(() => {});
+    return armed;
+  }
+
+  // A consent prompt blocks the response until the user decides. Timing that
+  // out page-side rejects the dApp's promise while main still records the
+  // grant and performs the write — the dApp retries and duplicates the COB.
+  test.each([
+    'radicle_requestAccess',
+    'radicle_seed',
+    'radicle_getIdentity',
+    'radicle_createIssue',
+    'radicle_commentIssue',
+    'radicle_editIssueState',
+    'radicle_commentPatch',
+  ])('radicle %s (can prompt) gets the 300s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(300000);
+  });
+
+  test.each([
+    'radicle_getCapabilities',
+    'radicle_getNodeStatus',
+    'radicle_listSeededRepos',
+    'radicle_unseed',
+    'radicle_sync',
+    'radicle_getSeedStatus',
+    'radicle_disconnect',
+  ])('radicle %s (never prompts) keeps the 60s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(60000);
+  });
+
+  // Parity with the sibling provider the radicle one was modelled on.
+  test('swarm prompt/long-running methods use the same 300s budget', () => {
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_getSigningIdentity')).toBe(300000);
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_readChunk')).toBe(60000);
   });
 });

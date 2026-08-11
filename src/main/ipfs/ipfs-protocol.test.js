@@ -21,6 +21,10 @@ const mockResolveEnsContent = jest.fn();
 jest.mock('../ens-resolver', () => ({
   resolveEnsContent: (...args) => mockResolveEnsContent(...args),
 }));
+const mockResolveTezosDomain = jest.fn();
+jest.mock('../tezos-domains-resolver', () => ({
+  resolveTezosDomain: (...args) => mockResolveTezosDomain(...args),
+}));
 
 const { buildGatewayUrl, sanitizeRequestHeaders, handleRequest } = require('./ipfs-protocol');
 
@@ -49,6 +53,7 @@ const IPNS_KEY_BASE58_ED25519 = '12D3KooWGuQafLgPqRRRkRSUNqZNQwL2gMZcQ27GiNpoVxz
 describe('buildGatewayUrl(ipfs)', () => {
   beforeEach(() => {
     mockResolveEnsContent.mockReset();
+    mockResolveTezosDomain.mockReset();
   });
 
   test.each([
@@ -298,6 +303,24 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
     });
 
+    test('resolves .tez host natively and preserves the published base path', async () => {
+      mockResolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'ipfs',
+        decoded: CIDV0,
+        basePath: '/published/site',
+        uri: `ipfs://${CIDV0}/published/site`,
+      });
+
+      await expect(buildGatewayUrl('ipfs', 'ipfs://docs.example.tez/guide?v=1')).resolves.toEqual({
+        ok: true,
+        url: `http://freedom-ipfs.localhost/ipfs/${CIDV0}/published/site/guide?v=1`,
+      });
+      expect(mockResolveTezosDomain).toHaveBeenCalledWith('docs.example.tez');
+      expect(mockResolveEnsContent).not.toHaveBeenCalled();
+    });
+
     test('resolves .wei host via WNS resolver result', async () => {
       mockResolveEnsContent.mockResolvedValue({
         type: 'ok',
@@ -457,6 +480,7 @@ describe('buildGatewayUrl(ipfs)', () => {
 describe('buildGatewayUrl(ipns)', () => {
   beforeEach(() => {
     mockResolveEnsContent.mockReset();
+    mockResolveTezosDomain.mockReset();
   });
 
   test.each([
@@ -534,6 +558,23 @@ describe('buildGatewayUrl(ipns)', () => {
         url: `http://freedom-ipfs.localhost/ipns/${IPNS_KEY_BASE58_ED25519}/`,
       });
       expect(mockResolveEnsContent).toHaveBeenCalledWith('jalil.eth');
+    });
+
+    test('routes .tez hosts to Tezos Domains instead of raw DNSLink', async () => {
+      mockResolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'ipns',
+        decoded: IPNS_KEY_BASE58_ED25519,
+        basePath: '/published',
+        uri: `ipns://${IPNS_KEY_BASE58_ED25519}/published`,
+      });
+
+      await expect(buildGatewayUrl('ipns', 'ipns://docs.example.tez/guide')).resolves.toEqual({
+        ok: true,
+        url: `http://freedom-ipfs.localhost/ipns/${IPNS_KEY_BASE58_ED25519}/published/guide`,
+      });
+      expect(mockResolveTezosDomain).toHaveBeenCalledWith('docs.example.tez');
     });
 
     test('routes WNS hosts to the resolver, not the raw IPNS branch', async () => {
