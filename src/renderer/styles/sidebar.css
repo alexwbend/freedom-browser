@@ -3525,6 +3525,16 @@
   color: var(--muted);
 }
 
+.publisher-identity-unavailable {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.publisher-identity-selector-item.unavailable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .publisher-identity-create-actions {
   display: flex;
   gap: 8px;

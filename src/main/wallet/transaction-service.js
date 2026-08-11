@@ -179,11 +179,53 @@ function buildTransaction({
 }
 
 /**
+ * Fill in fee parameters the caller didn't supply.
+ *
+ * ethers' Wallet.sendTransaction used to populate missing fees from the
+ * network before signing. Now that signing and broadcasting are separate
+ * steps nothing does, so an unpriced tx would be signed with
+ * maxFeePerGas = 0 and rejected by every node as underpriced — on a
+ * hardware wallet, only after the user confirmed it on-device. Populate
+ * (or refuse) here, before the signer is ever asked to sign.
+ *
+ * @param {Object} params
+ * @returns {Promise<{maxFeePerGas?: string, maxPriorityFeePerGas?: string, gasPrice?: string}>}
+ */
+async function resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId }) {
+  if ((maxFeePerGas && maxPriorityFeePerGas) || gasPrice) {
+    return { maxFeePerGas, maxPriorityFeePerGas, gasPrice };
+  }
+
+  const fees = await getGasPrices(chainId);
+
+  if (fees.type === 'eip1559' && isPositiveFee(fees.maxFeePerGas) && isPositiveFee(fees.maxPriorityFeePerGas)) {
+    return { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
+  }
+  if (isPositiveFee(fees.gasPrice)) {
+    return { gasPrice: fees.gasPrice };
+  }
+
+  throw new Error('Unable to determine a gas price for this transaction. Please try again.');
+}
+
+function isPositiveFee(value) {
+  try {
+    return value !== undefined && value !== null && BigInt(value) > 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sign and broadcast a transaction.
  *
  * Signing and broadcasting are separate steps so the signer can be
  * anything implementing the signer interface (vault key, hardware
  * device) — the provider only ever sees the serialized signed tx.
+ *
+ * Fee parameters are optional: when the caller supplies none they are
+ * fetched from the network (see resolveFeeParams) rather than signed as
+ * zero.
  *
  * @param {Object} params - Transaction parameters
  * @param {string} params.to - Recipient (or token contract for ERC-20)
@@ -205,6 +247,10 @@ async function signAndSendTransaction(params, signer) {
     throw new Error(`No provider available for chain ${chainId}`);
   }
 
+  // Outside the try: fee-resolution failures should surface as-is instead
+  // of being remapped to the generic "gas estimation" message below.
+  const fees = await resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId });
+
   try {
     const from = await signer.getAddress();
 
@@ -217,9 +263,9 @@ async function signAndSendTransaction(params, signer) {
       value,
       data,
       gasLimit,
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      gasPrice,
+      maxFeePerGas: fees.maxFeePerGas,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      gasPrice: fees.gasPrice,
       nonce,
       chainId,
     });

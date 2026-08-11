@@ -72,6 +72,65 @@ describe('signAndSendTransaction (signer-based)', () => {
     });
   });
 
+  it('populates EIP-1559 fees from the network when the caller supplies none', async () => {
+    const provider = mockGetProvider();
+    provider.getFeeData = async () => ({
+      maxFeePerGas: 4_000_000_000n,
+      maxPriorityFeePerGas: 1_000_000_000n,
+      gasPrice: 3_000_000_000n,
+    });
+    provider.getBlock = async () => ({ baseFeePerGas: 2_000_000_000n });
+
+    await signAndSendTransaction(
+      {
+        to: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+        value: '1000',
+        gasLimit: '21000',
+        chainId: 8453,
+      },
+      signer,
+    );
+
+    const parsed = Transaction.from(broadcastedRaw);
+    expect(parsed.type).toBe(2);
+    // 2 * baseFee + priority — never the zero-fee tx every node rejects.
+    expect(parsed.maxFeePerGas).toBe(5_000_000_000n);
+    expect(parsed.maxPriorityFeePerGas).toBe(1_000_000_000n);
+  });
+
+  it('falls back to the legacy gas price when the chain has no EIP-1559 fee data', async () => {
+    const provider = mockGetProvider();
+    provider.getFeeData = async () => ({ maxFeePerGas: null, maxPriorityFeePerGas: null, gasPrice: 7_000_000_000n });
+    provider.getBlock = async () => ({ baseFeePerGas: null });
+
+    await signAndSendTransaction(
+      { to: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C', value: '1', gasLimit: '21000', chainId: 100 },
+      signer,
+    );
+
+    const parsed = Transaction.from(broadcastedRaw);
+    expect(parsed.type).toBe(0);
+    expect(parsed.gasPrice).toBe(7_000_000_000n);
+  });
+
+  it('refuses to sign when the network reports no usable gas price', async () => {
+    const signTransaction = jest.fn();
+    const provider = mockGetProvider();
+    provider.getFeeData = async () => ({ maxFeePerGas: null, maxPriorityFeePerGas: null, gasPrice: 0n });
+    provider.getBlock = async () => ({ baseFeePerGas: null });
+
+    await expect(
+      signAndSendTransaction(
+        { to: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C', value: '1', gasLimit: '21000', chainId: 100 },
+        { ...signer, signTransaction },
+      ),
+    ).rejects.toThrow('Unable to determine a gas price');
+
+    // Critically: the device is never asked to confirm an unbroadcastable tx.
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(broadcastedRaw).toBeNull();
+  });
+
   it('maps insufficient-funds broadcast errors to a friendly message', async () => {
     mockGetProvider.mockReturnValue({
       getTransactionCount: async () => 0,
