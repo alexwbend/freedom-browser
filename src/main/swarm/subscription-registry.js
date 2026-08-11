@@ -26,7 +26,7 @@ const crypto = require('crypto');
 // is still connecting, the page may already be gone).
 const DEFAULT_ESTABLISH_TIMEOUT_MS = 30_000;
 
-// id → { id, origin, webContentsId, kind, key, socketKey, pageUrl, pending }
+// id → { id, origin, webContentsId, kind, key, socketKey, pending }
 const subscriptions = new Map();
 // socketKey (`${kind}:${key}`) → { handle, established, subIds: Set }
 const sockets = new Map();
@@ -115,15 +115,16 @@ function withEstablishTimeout(established) {
 
 /**
  * Open (or join) a subscription.
- * @param {{ origin: string, webContentsId: number, kind: 'gsoc'|'pss', key: string, pageUrl?: string }} params
- *   `pageUrl` is the committed URL of the subscribing document; the
- *   deliverer re-checks it so messages can never land in a page that
- *   navigated in after the subscription was opened.
+ * @param {{ origin: string, webContentsId: number, kind: 'gsoc'|'pss', key: string }} params
+ *   `origin` is the normalized permission key of the subscribing document;
+ *   the deliverer re-checks it against the webContents' live URL so
+ *   messages can never land in a page from another origin that navigated
+ *   in after the subscription was opened.
  * @returns {Promise<{ subscriptionId: string }>}
  * @throws {Error} reason 'too_many_subscriptions' | 'node_subscription_limit'
  *   | 'establish_timeout' | 'subscription_cancelled' | socket errors
  */
-async function subscribe({ origin, webContentsId, kind, key, pageUrl }) {
+async function subscribe({ origin, webContentsId, kind, key }) {
   if (countByOrigin(origin) >= maxSubscriptionsPerOrigin) {
     throw semanticError(
       'too_many_subscriptions',
@@ -147,7 +148,6 @@ async function subscribe({ origin, webContentsId, kind, key, pageUrl }) {
     kind,
     key,
     socketKey,
-    pageUrl,
     pending: true,
   };
   subscriptions.set(subscriptionId, subscription);
@@ -204,6 +204,17 @@ function cancelByWebContents(webContentsId) {
   cancelWhere((sub) => sub.webContentsId === webContentsId);
 }
 
+/**
+ * Cancel the subscriptions on `webContentsId` that do NOT belong to
+ * `currentOrigin`. Used when the deliverer notices the webview is hosting a
+ * different origin than the one that subscribed: those documents are gone,
+ * but a subscription the *current* document already opened is still live
+ * and must survive.
+ */
+function cancelStaleByWebContents(webContentsId, currentOrigin) {
+  cancelWhere((sub) => sub.webContentsId === webContentsId && sub.origin !== currentOrigin);
+}
+
 function cancelByOrigin(origin) {
   cancelWhere((sub) => sub.origin === origin);
 }
@@ -226,6 +237,7 @@ module.exports = {
   subscribe,
   unsubscribe,
   cancelByWebContents,
+  cancelStaleByWebContents,
   cancelByOrigin,
   countByOrigin,
   _reset,

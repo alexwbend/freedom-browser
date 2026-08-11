@@ -1633,6 +1633,10 @@ async function handleSendGsoc(params, origin) {
 // webview keeps its webContents across navigations, so subscriptions are
 // torn down both on 'destroyed' (tab close) and 'did-navigate' (main-frame
 // navigation away — the page that subscribed is gone either way).
+// Deliberately not 'did-navigate-in-page': a hash route or pushState
+// leaves the same document, with the same grant and the same live
+// listeners, so tearing down there would break messaging on a page that
+// is very much still there.
 const teardownAttached = new Set();
 
 function attachWebContentsTeardown(webContentsId) {
@@ -1655,14 +1659,23 @@ function attachWebContentsTeardown(webContentsId) {
 function deliverSubscriptionMessage(subscription, payload) {
   const contents = webContents.fromId(subscription.webContentsId);
   if (!contents || contents.isDestroyed()) return;
-  // A webview keeps its webContents across navigations, so the document
-  // on screen may no longer be the one that subscribed. Delivering here
-  // would hand another origin's page the messages of a subscription it
-  // never asked for (and has no grant for). The did-navigate teardown
+  // A webview keeps its webContents across navigations, so the page on
+  // screen may no longer belong to the origin that subscribed. Delivering
+  // here would hand another origin's page the messages of a subscription
+  // it never asked for (and has no grant for). The did-navigate teardown
   // below normally wins this race; this check is what makes it safe when
   // a message and a commit land in the same tick.
-  if (subscription.pageUrl && contents.getURL() !== subscription.pageUrl) {
-    subscriptionRegistry.cancelByWebContents(subscription.webContentsId);
+  //
+  // The comparison is on the permission key, not the exact URL: an
+  // in-page navigation (hash route, pushState) fires no did-navigate and
+  // leaves the very same document — and the same grant — in place, so
+  // keying on the URL would kill a live page's messaging on its first
+  // route change.
+  const currentOrigin = normalizeOrigin(contents.getURL());
+  if (currentOrigin !== subscription.origin) {
+    // Only the subscriptions whose origin is gone: a subscription the
+    // origin now loaded already opened on this webview is still valid.
+    subscriptionRegistry.cancelStaleByWebContents(subscription.webContentsId, currentOrigin);
     return;
   }
   // The webview preload bridges this channel to the page (the preload
@@ -1758,6 +1771,26 @@ async function handleSubscribe(params, origin, meta) {
     return invalidParams('subscribe requires a live webContents target', 'invalid_params');
   }
 
+  // Everything above this line can take arbitrarily long — the messaging
+  // grant prompt is user-paced and the reachability probe is a network
+  // round-trip — and a webview keeps its webContents across navigations.
+  // If the user navigated the tab elsewhere while we waited, the registry
+  // entry we are about to create would bind `origin`'s subscription to a
+  // webContents now hosting someone else, and the delivery check would
+  // then happily validate it: every message for this topic would land in
+  // the other site. did-navigate cannot save us here — it fired before
+  // any entry existed. Re-check the live page instead.
+  if (normalizeOrigin(contents.getURL()) !== origin) {
+    log.warn(`[SwarmProvider] subscribe target navigated away from ${origin}: ${kind}:${key}`);
+    return {
+      error: {
+        ...ERRORS.NODE_UNAVAILABLE,
+        message: 'Page navigated away before the subscription was established',
+        data: { reason: 'subscription_cancelled' },
+      },
+    };
+  }
+
   // Teardown must be armed *before* the registry can hold a slot on this
   // page's behalf: establishment can take seconds (or, against a node
   // that stopped answering, never settle), and the page can navigate away
@@ -1771,7 +1804,6 @@ async function handleSubscribe(params, origin, meta) {
       webContentsId,
       kind,
       key,
-      pageUrl: contents.getURL(),
     });
     log.info(`[SwarmProvider] subscribe succeeded for ${origin}: ${kind}:${key}`);
     return { result: { subscriptionId, kind, key } };

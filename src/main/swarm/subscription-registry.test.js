@@ -123,19 +123,31 @@ describe('subscription-registry', () => {
     expect(registry.countByOrigin('a.eth')).toBe(0);
   });
 
-  test('carries the subscribing document url through to the deliverer', async () => {
+  test('carries the subscribing origin through to the deliverer', async () => {
     await subscribeEstablished({
       origin: 'a.eth',
       webContentsId: 1,
       kind: 'gsoc',
       key: GSOC_KEY,
-      pageUrl: 'http://127.0.0.1:1633/bzz/aabb/index.html',
     });
 
     opened[0].handlers.onMessage(Buffer.from('hi'));
-    expect(deliver.mock.calls[0][0]).toMatchObject({
-      pageUrl: 'http://127.0.0.1:1633/bzz/aabb/index.html',
-    });
+    // The deliverer re-checks this against the webContents' live URL, so
+    // it must reach it — messages can never land in another origin's page.
+    expect(deliver.mock.calls[0][0]).toMatchObject({ origin: 'a.eth', webContentsId: 1 });
+  });
+
+  test('cancelStaleByWebContents keeps the subscriptions of the origin now loaded', async () => {
+    await subscribeEstablished({ origin: 'a.eth', webContentsId: 1, kind: 'gsoc', key: GSOC_KEY });
+    await subscribeEstablished({ origin: 'b.eth', webContentsId: 1, kind: 'gsoc', key: 'bb'.repeat(32) });
+    await subscribeEstablished({ origin: 'a.eth', webContentsId: 2, kind: 'gsoc', key: 'cc'.repeat(32) });
+
+    // The webview turned out to be hosting b.eth: a.eth's subscription on
+    // that webview is stale, b.eth's is live, and other tabs are untouched.
+    registry.cancelStaleByWebContents(1, 'b.eth');
+
+    expect(registry.countByOrigin('b.eth')).toBe(1);
+    expect(registry.countByOrigin('a.eth')).toBe(1);
   });
 
   test('enforces the per-origin cap', async () => {

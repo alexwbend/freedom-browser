@@ -49,11 +49,13 @@ const mockRegistrySubscribe = jest.fn();
 const mockRegistryUnsubscribe = jest.fn();
 const mockRegistryConfigure = jest.fn();
 const mockRegistryCancelByWebContents = jest.fn();
+const mockRegistryCancelStaleByWebContents = jest.fn();
 jest.mock('./subscription-registry', () => ({
   configure: mockRegistryConfigure,
   subscribe: mockRegistrySubscribe,
   unsubscribe: mockRegistryUnsubscribe,
   cancelByWebContents: mockRegistryCancelByWebContents,
+  cancelStaleByWebContents: mockRegistryCancelStaleByWebContents,
   cancelByOrigin: jest.fn(),
 }));
 
@@ -189,10 +191,11 @@ async function invokeProvider(method, params, origin, meta) {
   });
 }
 
-// The committed URL of the subscribing document. A webview keeps its
-// webContents across navigations, so this is what tells main whether the
-// page that subscribed is still the page on screen.
-const PAGE_URL = 'http://127.0.0.1:1633/bzz/aabb/index.html';
+// The live URL of the subscribing document (a bzz:// page keyed to
+// ORIGIN below). A webview keeps its webContents across navigations, so
+// its permission key is what tells main whether the origin that
+// subscribed is still the origin on screen.
+const PAGE_URL = 'bzz://myapp.eth/#/lobby';
 
 function fakeWebContents(url = PAGE_URL) {
   return {
@@ -2187,8 +2190,6 @@ describe('swarm-provider-ipc', () => {
           webContentsId: 7,
           kind: 'gsoc',
           key: GSOC_ADDRESS,
-          // Snapshot of the subscribing document, re-checked on delivery.
-          pageUrl: PAGE_URL,
         });
       });
 
@@ -2277,6 +2278,36 @@ describe('swarm-provider-ipc', () => {
         expect(result.error.data.reason).toBe('subscription_cancelled');
       });
 
+      test('refuses to bind the subscription when the page navigated while we waited', async () => {
+        mockMessagingGranted();
+        mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
+        mockGetBeeApiUrl.mockReturnValue('http://127.0.0.1:1633');
+
+        // The grant prompt and the reachability probe are user-paced: the
+        // tab can land on another site before subscribe() resumes. The
+        // webview reports the new page from then on.
+        let currentUrl = PAGE_URL;
+        global.fetch.mockImplementationOnce(async () => {
+          currentUrl = 'bzz://evil.eth/index.html';
+          return { ok: true, json: async () => ({ beeMode: 'light' }) };
+        });
+        mockWebContentsFromId.mockReturnValue({
+          isDestroyed: () => false,
+          getURL: () => currentUrl,
+          on: jest.fn(),
+          once: jest.fn(),
+          send: jest.fn(),
+        });
+
+        const result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
+
+        // Retryable 4900, same as any other teardown-while-establishing —
+        // and crucially no registry entry aimed at the new page.
+        expect(result.error.code).toBe(4900);
+        expect(result.error.data.reason).toBe('subscription_cancelled');
+        expect(mockRegistrySubscribe).not.toHaveBeenCalled();
+      });
+
       test('rejects a webContents that is already gone', async () => {
         mockMessagingGranted();
         mockReachable();
@@ -2329,7 +2360,7 @@ describe('swarm-provider-ipc', () => {
         const send = jest.fn();
         mockWebContentsFromId.mockReturnValue({ isDestroyed: () => false, getURL: () => PAGE_URL, send });
 
-        const subscription = { id: 'sub-1', webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS, pageUrl: PAGE_URL };
+        const subscription = { id: 'sub-1', origin: ORIGIN, webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS };
         deliver(subscription, Buffer.from('hello'));
 
         expect(mockWebContentsFromId).toHaveBeenCalledWith(7);
@@ -2349,26 +2380,53 @@ describe('swarm-provider-ipc', () => {
         });
       });
 
-      test('delivery is dropped (and torn down) once the page has navigated away', () => {
+      test('delivery is dropped (and torn down) once another origin has navigated in', () => {
         registerSwarmProviderIpc();
         const { deliver } = mockRegistryConfigure.mock.calls[0][0];
 
         const send = jest.fn();
-        // Same webContents, different document: the user navigated to
+        // Same webContents, different origin: the user navigated to
         // another site while the subscription was still live.
         mockWebContentsFromId.mockReturnValue({
           isDestroyed: () => false,
-          getURL: () => 'http://127.0.0.1:1633/bzz/ccdd/index.html',
+          getURL: () => 'bzz://evil.eth/index.html',
           send,
         });
 
         deliver(
-          { id: 'sub-1', webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS, pageUrl: PAGE_URL },
+          { id: 'sub-1', origin: ORIGIN, webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS },
           Buffer.from('secret')
         );
 
         expect(send).not.toHaveBeenCalled();
-        expect(mockRegistryCancelByWebContents).toHaveBeenCalledWith(7);
+        // Only the origins that are gone — a subscription the page now on
+        // screen already opened on this webview stays live.
+        expect(mockRegistryCancelStaleByWebContents).toHaveBeenCalledWith(7, 'evil.eth');
+        expect(mockRegistryCancelByWebContents).not.toHaveBeenCalled();
+      });
+
+      test('delivery survives an in-page navigation (hash route / pushState)', () => {
+        registerSwarmProviderIpc();
+        const { deliver } = mockRegistryConfigure.mock.calls[0][0];
+
+        const send = jest.fn();
+        // A hash-routed SPA moving from #/lobby to #/room/42: no
+        // did-navigate, same document, same grant — messaging must keep
+        // working (and nothing may be torn down).
+        mockWebContentsFromId.mockReturnValue({
+          isDestroyed: () => false,
+          getURL: () => 'bzz://myapp.eth/#/room/42',
+          send,
+        });
+
+        deliver(
+          { id: 'sub-1', origin: ORIGIN, webContentsId: 7, kind: 'pss', key: PSS_TOPIC_HEX },
+          Buffer.from('hello')
+        );
+
+        expect(send).toHaveBeenCalledTimes(1);
+        expect(mockRegistryCancelStaleByWebContents).not.toHaveBeenCalled();
+        expect(mockRegistryCancelByWebContents).not.toHaveBeenCalled();
       });
 
       test('delivery is dropped for destroyed webContents', () => {
