@@ -1192,6 +1192,15 @@ async function deleteDerivedWallet(index) {
     derivedWallets: wallets,
     activeWalletIndex: activeIndex,
   });
+
+  // A dApp permission is a standing authorisation to sign with this one
+  // account (plus any auto-approve rules on top). It cannot outlive the
+  // account: the stored index would dangle, and for a hardware account it
+  // would dangle into an index that has no signer at all.
+  // Lazy require: dapp-permissions pulls in electron's `app` for its
+  // storage path, which identity-manager must not need at load time.
+  const { revokePermissionsForWalletIndex } = require('./wallet/dapp-permissions');
+  revokePermissionsForWalletIndex(index);
 }
 
 /**
@@ -1376,8 +1385,11 @@ function registerIdentityIpc() {
       if (!password) {
         return { success: false, error: 'Password is required to export private key' };
       }
+      // Same two-part guard as withVaultPrivateKey: the index range alone
+      // is decisive, so a deleted device account (no record) cannot export
+      // a phantom mnemonic key derived at its index.
       const record = getWalletRecord(accountIndex);
-      if (record && record.type !== WALLET_TYPES.MNEMONIC) {
+      if (isHardwareWalletIndex(accountIndex) || (record && record.type !== WALLET_TYPES.MNEMONIC)) {
         return {
           success: false,
           error: 'Hardware wallet accounts have no exportable private key — the key never leaves the device',
@@ -1534,6 +1546,7 @@ module.exports = {
   // Multi-wallet operations
   WALLET_TYPES,
   HARDWARE_INDEX_BASE,
+  isHardwareWalletIndex,
   getWalletRecord,
   getDerivedWallets,
   getActiveWalletIndex,

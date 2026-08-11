@@ -191,6 +191,35 @@ describe('dapp-tx approval lifecycle', () => {
     expect(addTransactionAutoApprove).toHaveBeenCalledTimes(1);
   });
 
+  test('a second request cannot take the screen from an in-flight signature', async () => {
+    const { elements, send, openApproval } = await loadDappTx();
+    const first = await openApproval();
+
+    elements['dapp-tx-approve'].dispatch('click');
+    await flush();
+    expect(elements['dapp-tx-reject'].disabled).toBe(true);
+
+    // The device prompt for the first tx is still up: the newcomer is
+    // refused rather than repainting the screen and re-enabling the way
+    // out from under it.
+    const second = await openApproval();
+    expect(second.settled.state).toBe('rejected');
+    expect(second.settled.value).toMatchObject({ code: -32002 });
+    expect(elements['dapp-tx-reject'].disabled).toBe(true);
+    expect(elements['dapp-tx-back'].disabled).toBe(true);
+    expect(elements['dapp-tx-approve'].disabled).toBe(true);
+    expect(elements['dapp-tx-approve'].textContent).toBe('Confirm on your Ledger…');
+
+    // Cancelling now still cannot settle the first request behind the device.
+    elements['dapp-tx-reject'].dispatch('click');
+    await flush();
+    expect(first.settled.state).toBe('pending');
+
+    send.resolve({ success: true, hash: '0xhash' });
+    await first.promise;
+    expect(first.settled).toMatchObject({ state: 'resolved', value: '0xhash' });
+  });
+
   test('rejecting before confirming settles 4001 and installs no auto-approve rule', async () => {
     const { elements, addTransactionAutoApprove, openApproval } = await loadDappTx();
     const { settled, promise } = await openApproval();

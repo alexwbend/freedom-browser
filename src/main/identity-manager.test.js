@@ -234,6 +234,45 @@ describe('identity-manager wallet deletion', () => {
     expect(readVaultMeta().derivedWallets.map((wallet) => wallet.index)).toEqual([0]);
     expect(readVaultMeta().activeWalletIndex).toBe(0);
   });
+
+  test('revokes dApp permissions bound to the deleted wallet', async () => {
+    // A permission is a standing authorisation to sign with one account
+    // (plus its auto-approve rules). Left behind, its walletIndex dangles
+    // — for a deleted hardware account, at an index with no signer at all.
+    fs.writeFileSync(
+      path.join(tmpDir, 'dapp-permissions.json'),
+      JSON.stringify({
+        'https://swap.example': {
+          origin: 'https://swap.example',
+          walletIndex: 2,
+          chainId: 1,
+          autoApprove: { signing: true, transactions: [] },
+        },
+        'https://keep.example': {
+          origin: 'https://keep.example',
+          walletIndex: 0,
+          chainId: 1,
+          autoApprove: { signing: false, transactions: [] },
+        },
+      }, null, 2),
+      'utf-8'
+    );
+
+    writeVaultMeta({
+      activeWalletIndex: 0,
+      derivedWallets: [
+        { index: 0, name: 'Main Wallet', address: '0x0' },
+        { index: 2, name: 'Trading Wallet', address: '0x2' },
+      ],
+    });
+
+    await identityManager.deleteDerivedWallet(2);
+
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, 'dapp-permissions.json'), 'utf-8')
+    );
+    expect(Object.keys(stored)).toEqual(['https://keep.example']);
+  });
 });
 
 describe('identity-manager ledger accounts', () => {

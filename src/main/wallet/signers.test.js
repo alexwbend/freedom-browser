@@ -22,6 +22,9 @@ const mockCreateLedgerBackend = jest.fn(() => mockLedgerBackend);
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
   getWalletRecord: (...args) => mockGetWalletRecord(...args),
+  // Mirrors identity-manager's HARDWARE_INDEX_BASE (inlined: jest.mock
+  // factories may not close over out-of-scope constants).
+  isHardwareWalletIndex: (index) => Number.isInteger(index) && index >= 1000000,
   WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger' },
 }));
 jest.mock('../vault-timer', () => ({
@@ -181,5 +184,16 @@ describe('getSigner (ledger-backed dispatch)', () => {
     // JSON-string typed data reaches the backend parsed
     await signer.signTypedData('{"domain":{},"types":{},"message":{}}');
     expect(mockLedgerBackend.signTypedData).toHaveBeenCalledWith({ domain: {}, types: {}, message: {} });
+  });
+
+  test('a deleted hardware account fails loudly instead of falling through to the vault', async () => {
+    // Deleting a Ledger leaves no record, so the type check can't fire.
+    // A stale reference to its index (dApp permission, publisher identity)
+    // must not reach the vault backend, which would derive and sign with a
+    // phantom mnemonic key at that index.
+    mockGetWalletRecord.mockReturnValue(null);
+    expect(() => getSigner(1000000)).toThrow('Hardware wallet account no longer exists');
+    expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
+    expect(mockCreateLedgerBackend).not.toHaveBeenCalled();
   });
 });

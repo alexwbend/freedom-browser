@@ -115,9 +115,29 @@ function setupDappTxScreen() {
 }
 
 /**
+ * The approval screen is a single shared surface, and an in-flight
+ * signature owns it: the device prompt it produced cannot be recalled, so
+ * a later request must not repaint the screen, reset `dappTxPending` and
+ * re-enable Reject/Back/Confirm underneath it — the user would then be
+ * cancelling (or confirming) request B while the device is still showing
+ * request A. Refuse the newcomer with the standard "already pending"
+ * JSON-RPC error instead; the dApp can retry once the device is done.
+ */
+function assertNoSignatureInFlight() {
+  if (dappTxPending?.signing) {
+    throw Object.assign(
+      new Error('A signature is already in progress — finish it on your device first'),
+      { code: -32002 }
+    );
+  }
+}
+
+/**
  * Show dApp transaction approval screen
  */
 export async function showDappTxApproval(webview, permissionKey, txParams) {
+  assertNoSignatureInFlight();
+
   const permission = await window.dappPermissions.getPermission(permissionKey);
   if (!permission) {
     throw Object.assign(new Error('Unauthorized - not connected'), { code: 4100 });
@@ -127,6 +147,9 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
   const selector = extractSelector(txParams.data);
 
   return new Promise((resolve, reject) => {
+    // Re-checked after the awaits above: the screen must still be free at
+    // the moment we take it over.
+    assertNoSignatureInFlight();
     dappTxPending = { permissionKey, walletIndex: permission.walletIndex, txParams, resolve, reject, webview, chainId, selector };
 
     if (dappTxSite) {

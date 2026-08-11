@@ -315,6 +315,18 @@ function wireButtons() {
 }
 
 async function showApproval({ webContentsId, detectionId, url, resourceType }) {
+  // The card is a single shared surface and an in-flight signature owns
+  // it: the device prompt it produced cannot be recalled, so a second 402
+  // must not overwrite `pending` and re-enable Pay/Reject/Back underneath
+  // it — the user would be cancelling (or paying) the newcomer while the
+  // device still shows the first payment, and the first payment's own
+  // result would land on the wrong card. Leave the detection with main;
+  // it is re-offered the next time the page asks.
+  if (pending?.signing) {
+    console.warn('[x402] approval-needed ignored: a payment signature is already in flight');
+    return;
+  }
+
   // Re-fetch the canonical details via IPC so the sidebar trusts main's
   // view (asset allowlist, autoPay state, per-accept balances).
   // detectionId routes to the specific 402 we got the event for, immune
@@ -323,6 +335,13 @@ async function showApproval({ webContentsId, detectionId, url, resourceType }) {
   const details = await window.electronAPI.x402GetDetails({ webContentsId, detectionId });
   if (!details?.success) {
     console.warn('[x402] approval-needed event for an unknown tab:', details?.error);
+    return;
+  }
+
+  // Re-checked after the await: the user may have hit Pay on the card
+  // that is currently up while the details round-trip was in flight.
+  if (pending?.signing) {
+    console.warn('[x402] approval-needed ignored: a payment signature is already in flight');
     return;
   }
 

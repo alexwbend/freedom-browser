@@ -102,15 +102,38 @@ function setupDappSignScreen() {
 }
 
 /**
+ * The signing screen is a single shared surface, and an in-flight
+ * signature owns it: the device prompt it produced cannot be recalled, so
+ * a later request must not repaint the screen, reset `dappSignPending`
+ * and re-enable Reject/Back/Sign underneath it — the user would then be
+ * cancelling (or confirming) request B while the device is still showing
+ * request A. Refuse the newcomer with the standard "already pending"
+ * JSON-RPC error instead; the dApp can retry once the device is done.
+ */
+function assertNoSignatureInFlight() {
+  if (dappSignPending?.signing) {
+    throw Object.assign(
+      new Error('A signature is already in progress — finish it on your device first'),
+      { code: -32002 }
+    );
+  }
+}
+
+/**
  * Show dApp signing screen
  */
 export async function showDappSignApproval(webview, permissionKey, method, params) {
+  assertNoSignatureInFlight();
+
   const permission = await window.dappPermissions.getPermission(permissionKey);
   if (!permission) {
     throw Object.assign(new Error('Unauthorized - not connected'), { code: 4100 });
   }
 
   return new Promise((resolve, reject) => {
+    // Re-checked after the awaits above: the screen must still be free at
+    // the moment we take it over.
+    assertNoSignatureInFlight();
     dappSignPending = { permissionKey, walletIndex: permission.walletIndex, method, params, resolve, reject, webview };
     if (dappSignAutoApproveCheckbox) dappSignAutoApproveCheckbox.checked = false;
     setDappSignCancelEnabled(true);

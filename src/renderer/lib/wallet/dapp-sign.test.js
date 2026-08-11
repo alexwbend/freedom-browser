@@ -129,6 +129,34 @@ describe('dapp-sign approval lifecycle', () => {
     expect(elements['dapp-sign-auto-approve'].checked).toBe(false);
   });
 
+  test('a second request cannot take the screen from an in-flight signature', async () => {
+    const { elements, sign, openApproval } = await loadDappSign();
+    const first = await openApproval();
+
+    elements['dapp-sign-approve'].dispatch('click');
+    await flush();
+    expect(elements['dapp-sign-reject'].disabled).toBe(true);
+
+    // The device prompt for the first message is still up: the newcomer is
+    // refused rather than repainting the screen and re-enabling the way
+    // out from under it.
+    const second = await openApproval();
+    expect(second.settled.state).toBe('rejected');
+    expect(second.settled.value).toMatchObject({ code: -32002 });
+    expect(elements['dapp-sign-reject'].disabled).toBe(true);
+    expect(elements['dapp-sign-back'].disabled).toBe(true);
+    expect(elements['dapp-sign-approve'].disabled).toBe(true);
+    expect(elements['dapp-sign-approve'].textContent).toBe('Confirm on your Ledger…');
+
+    elements['dapp-sign-reject'].dispatch('click');
+    await flush();
+    expect(first.settled.state).toBe('pending');
+
+    sign.resolve('0xsignature');
+    await first.promise;
+    expect(first.settled).toMatchObject({ state: 'resolved', value: '0xsignature' });
+  });
+
   test('rejecting before confirming settles 4001 and enables no signing auto-approve', async () => {
     const { elements, setSigningAutoApprove, openApproval } = await loadDappSign();
     const { settled, promise } = await openApproval();
