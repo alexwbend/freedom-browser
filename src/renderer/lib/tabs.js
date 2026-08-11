@@ -7,6 +7,8 @@ import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl, getInternalPageName, internalPages } from './page-urls.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
+import { setupRadicleProvider } from './radicle-provider.js';
+import { closeFindBar, notifyFindBarNavigated } from './find-bar.js';
 import {
   clearLinkStatus,
   clearHoverStatus,
@@ -523,6 +525,12 @@ const createWebview = (tabId, initialUrl) => {
           renderTabs();
         }
       }
+      // Navigation invalidates find-in-page results for the foreground
+      // tab; the bar stays open with its query so Enter re-searches on
+      // the new page.
+      if (tabId === tabState.activeTabId) {
+        notifyFindBarNavigated();
+      }
       if (tabId === tabState.activeTabId && onWebviewEvent) {
         onWebviewEvent('did-navigate', { tabId, event });
       }
@@ -682,6 +690,7 @@ const createWebview = (tabId, initialUrl) => {
   // Set up providers (window.ethereum + window.swarm)
   setupWebviewProvider(webview);
   setupSwarmProvider(webview);
+  setupRadicleProvider(webview);
 
   return webview;
 };
@@ -1346,6 +1355,9 @@ export const hideTabContextMenu = () => {
 export const switchTab = (tabId, options = {}) => {
   const tab = tabState.tabs.find((t) => t.id === tabId);
   if (!tab) return;
+  // Already foreground — nothing to swap, and running the swap anyway has
+  // real side effects (closing an open find bar, re-hiding webviews).
+  if (tabState.activeTabId === tabId) return;
 
   // Reset the link-hover preview before swapping active tabs:
   // - immediate clear so the previous tab's URL never trails into the new tab
@@ -1360,6 +1372,12 @@ export const switchTab = (tabId, options = {}) => {
   clearLinkStatus({ immediate: true });
   setLinkStatusSide(tab.linkStatusInLeftZone ? 'right' : 'left');
   tabState.activeTabId = tabId;
+
+  // Find state follows the foreground page: close the bar and clear the
+  // outgoing tab's highlights. Called after the activeTabId flip so the
+  // close never returns focus to the (now background) searched webview —
+  // the find module captured that webview when its session started.
+  closeFindBar();
 
   // Hide all webviews, show active one
   for (const t of tabState.tabs) {
