@@ -5,6 +5,13 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
+import {
+  assertNoSignatureInFlight,
+  isSignatureInFlight,
+  signatureInFlightError,
+  beginSignatureFlight,
+  endSignatureFlight,
+} from './signature-flight.js';
 import { open as openSidebarPanel } from '../sidebar.js';
 import { bypassUnlockGateForHardware, signingButtonLabel } from './wallet-utils.js';
 
@@ -115,25 +122,17 @@ function setupDappTxScreen() {
 }
 
 /**
- * The approval screen is a single shared surface, and an in-flight
- * signature owns it: the device prompt it produced cannot be recalled, so
- * a later request must not repaint the screen, reset `dappTxPending` and
- * re-enable Reject/Back/Confirm underneath it — the user would then be
- * cancelling (or confirming) request B while the device is still showing
- * request A. Refuse the newcomer with the standard "already pending"
- * JSON-RPC error instead; the dApp can retry once the device is done.
- */
-function assertNoSignatureInFlight() {
-  if (dappTxPending?.signing) {
-    throw Object.assign(
-      new Error('A signature is already in progress — finish it on your device first'),
-      { code: -32002 }
-    );
-  }
-}
-
-/**
  * Show dApp transaction approval screen
+ *
+ * The sidebar is a single shared surface, and an in-flight signature owns
+ * it: the device prompt it produced cannot be recalled, so a later request
+ * must not repaint the screen, reset `dappTxPending` and re-enable
+ * Reject/Back/Confirm underneath it — the user would then be cancelling
+ * (or confirming) request B while the device is still showing request A.
+ * The lock is global (see signature-flight.js), so this refuses the
+ * newcomer whichever surface is holding the device: a sibling transaction,
+ * a dapp-sign request, or an x402 payment. The dApp can retry once the
+ * device is done.
  */
 export async function showDappTxApproval(webview, permissionKey, txParams) {
   assertNoSignatureInFlight();
@@ -150,7 +149,8 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
     // Re-checked after the awaits above: the screen must still be free at
     // the moment we take it over.
     assertNoSignatureInFlight();
-    dappTxPending = { permissionKey, walletIndex: permission.walletIndex, txParams, resolve, reject, webview, chainId, selector };
+    const request = { permissionKey, walletIndex: permission.walletIndex, txParams, resolve, reject, webview, chainId, selector };
+    dappTxPending = request;
 
     if (dappTxSite) {
       dappTxSite.textContent = permissionKey;
@@ -167,6 +167,15 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
       populateDappTxDetails(txParams, chainId),
       checkDappTxUnlockStatus(),
     ]).then(() => {
+      // Another surface may have started a device signature while we were
+      // estimating fees / checking vault status (the user could still
+      // click Pay on an x402 card, say). It owns the sidebar now — refuse
+      // rather than paint over a live confirmation.
+      if (isSignatureInFlight()) {
+        if (dappTxPending === request) dappTxPending = null;
+        reject(signatureInFlightError());
+        return;
+      }
       hideAllSubscreens();
       walletState.identityView?.classList.add('hidden');
       dappTxScreen?.classList.remove('hidden');
@@ -354,6 +363,9 @@ async function approveDappTx() {
 
   try {
     request.signing = true;
+    // Claim the sidebar for the whole flight: no other approval surface
+    // may repaint over or tear down a live device confirmation.
+    beginSignatureFlight(request);
     if (dappTxApproveBtn) {
       dappTxApproveBtn.disabled = true;
       dappTxApproveBtn.textContent = signingButtonLabel(walletIndex);
@@ -411,6 +423,7 @@ async function approveDappTx() {
     setDappTxCancelEnabled(true);
   } finally {
     request.signing = false;
+    endSignatureFlight(request);
   }
 }
 

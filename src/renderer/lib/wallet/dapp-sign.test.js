@@ -157,6 +157,29 @@ describe('dapp-sign approval lifecycle', () => {
     expect(first.settled).toMatchObject({ state: 'resolved', value: '0xsignature' });
   });
 
+  // The per-module guard above only stops a second *signing* request. Every
+  // other approval surface (dapp-tx, dapp-connect, x402, vault-unlock)
+  // shares the same sidebar and takes it over via hideAllSubscreens(), so
+  // the flight also has to hold the shared lock — that is what refuses
+  // them while the device prompt is up.
+  test('an in-flight signature holds the shared sidebar lock until it settles', async () => {
+    const { elements, sign, openApproval } = await loadDappSign();
+    // After loadDappSign's resetModules, so this is the same lock instance
+    // the module under test holds.
+    const flight = await import('./signature-flight.js');
+    const { promise } = await openApproval();
+
+    expect(flight.isSignatureInFlight()).toBe(false);
+
+    elements['dapp-sign-approve'].dispatch('click');
+    await flush();
+    expect(flight.isSignatureInFlight()).toBe(true);
+
+    sign.resolve('0xsignature');
+    await promise;
+    expect(flight.isSignatureInFlight()).toBe(false);
+  });
+
   test('rejecting before confirming settles 4001 and enables no signing auto-approve', async () => {
     const { elements, setSigningAutoApprove, openApproval } = await loadDappSign();
     const { settled, promise } = await openApproval();

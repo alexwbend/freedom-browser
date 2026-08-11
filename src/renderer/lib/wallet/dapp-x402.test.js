@@ -259,6 +259,7 @@ async function loadDappX402(options = {}) {
   const approvalResultHandlers = [];
   const balancesUpdatedHandlers = [];
   const hideAllSubscreens = jest.fn();
+  const screenHiders = [];
   const openSidebarPanel = jest.fn();
   const updatePermissionSubscreen = jest.fn();
   const refreshBalances = jest.fn().mockResolvedValue(undefined);
@@ -320,7 +321,7 @@ async function loadDappX402(options = {}) {
       identityView,
       registeredChains: { 8453: { name: 'Base' } },
     },
-    registerScreenHider: jest.fn(),
+    registerScreenHider: jest.fn((fn) => screenHiders.push(fn)),
     hideAllSubscreens,
   }));
   jest.doMock('../sidebar.js', () => ({
@@ -348,6 +349,7 @@ async function loadDappX402(options = {}) {
     balancesUpdatedHandlers,
     identityView,
     hideAllSubscreens,
+    screenHiders,
     openSidebarPanel,
   };
 }
@@ -440,5 +442,62 @@ describe('dapp-x402 approval card lifecycle', () => {
     expect(ctx.elements['x402-approval-reject'].disabled).toBe(false);
     expect(ctx.elements['x402-approval-error'].textContent).toBe('Payment settlement failed.');
     expect(ctx.elements['x402-approval-error'].classList.contains('hidden')).toBe(false);
+  });
+
+  // The card's own screen hider force-cancels the payment (x402:reject /
+  // x402:cancel + card teardown). Firing it mid-signature would cancel the
+  // detection in main while the device is still showing the payment the
+  // user is confirming — so it must exempt an in-flight signature. The
+  // global lock (signature-flight.js) stops hideAllSubscreens() from
+  // reaching the hider at all; this covers a direct hider call.
+  test('a screen hider fired mid-payment leaves the card and the detection alone', async () => {
+    const ctx = await loadDappX402({ approveResult: { success: true, pending: true } });
+    // After loadDappX402's resetModules, so this is the same lock instance
+    // the module under test holds.
+    const flight = await import('./signature-flight.js');
+
+    await ctx.approvalNeededHandlers[0]({
+      webContentsId: 7,
+      detectionId: 'event-det',
+      url: 'https://pay.example/article',
+      resourceType: 'image',
+    });
+    await ctx.elements['x402-approval-approve'].fire('click');
+    expect(ctx.elements['x402-approval-approve'].textContent).toMatch(/^Signing/);
+    // The payment owns the sidebar for the whole flight.
+    expect(flight.isSignatureInFlight()).toBe(true);
+
+    ctx.screenHiders.forEach((hide) => hide());
+
+    expect(ctx.electronAPI.x402Reject).not.toHaveBeenCalled();
+    expect(ctx.electronAPI.x402Cancel).not.toHaveBeenCalled();
+    expect(ctx.elements['sidebar-x402-approval'].classList.contains('hidden')).toBe(false);
+    expect(ctx.elements['x402-approval-approve'].textContent).toMatch(/^Signing/);
+    expect(ctx.elements['x402-approval-reject'].disabled).toBe(true);
+    expect(ctx.elements['x402-approval-back'].disabled).toBe(true);
+
+    // Settling the payment releases the sidebar for the next surface.
+    ctx.approvalResultHandlers[0]({ detectionId: 'det-1', success: true });
+    expect(flight.isSignatureInFlight()).toBe(false);
+  });
+
+  // Once idle again the hider keeps its original meaning: an unanswered
+  // card being replaced by another screen is a cancel.
+  test('a screen hider fired on an unsigned card still cancels the payment', async () => {
+    const ctx = await loadDappX402();
+
+    await ctx.approvalNeededHandlers[0]({
+      webContentsId: 7,
+      detectionId: 'event-det',
+      url: 'https://pay.example/article',
+      resourceType: 'mainFrame',
+    });
+    await flushMicrotasks();
+
+    ctx.screenHiders.forEach((hide) => hide());
+    await flushMicrotasks();
+
+    expect(ctx.electronAPI.x402Cancel).toHaveBeenCalledWith({ webContentsId: 7 });
+    expect(ctx.elements['sidebar-x402-approval'].classList.contains('hidden')).toBe(true);
   });
 });

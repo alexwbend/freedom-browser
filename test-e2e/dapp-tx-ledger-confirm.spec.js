@@ -50,6 +50,7 @@ function stubMainIpc(electronApp, ledger) {
       chains: { 8453: { chainId: 8453, name: 'Base', nativeSymbol: 'ETH' } },
     }));
     replace('dapp:add-transaction-auto-approve', () => ({ success: true }));
+    replace('identity:get-status', () => ({ isUnlocked: true }));
     // Never settles on its own: this is the window where the device prompt
     // is up and the user is deciding.
     globalThis.__resolveLedgerSend = null;
@@ -171,4 +172,69 @@ test('a second request cannot take the screen from an in-flight Ledger confirmat
   await expect(window.locator('#sidebar-dapp-tx')).toBeHidden();
   expect(await settledState(window, 'a')).toBe('resolved:0xabc123');
   expect(await settledState(window, 'b')).toBe('rejected:-32002');
+});
+
+// Same steal, different thief. The sidebar is shared by *every* approval
+// surface, and each of them takes it over by calling hideAllSubscreens() —
+// so a per-module "already pending" guard only stops a sibling request of
+// the same kind. A personal_sign, or a permissionless eth_requestAccounts,
+// would otherwise paint its own screen over the live confirmation with
+// Reject/Sign/Connect fully enabled: the user cancels what they believe the
+// device is showing, and the first transaction broadcasts anyway.
+test('other approval surfaces cannot take the screen from an in-flight Ledger confirmation', async ({
+  electronApp,
+  window,
+}) => {
+  await stubMainIpc(electronApp, LEDGER);
+  await requestApproval(window, 'a', TX_PARAMS);
+
+  await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+  await window.click('#dapp-tx-approve');
+  await expect(window.locator('#dapp-tx-approve')).toHaveText('Confirm on your Ledger…');
+  await expect(window.locator('#dapp-tx-reject')).toBeDisabled();
+
+  // The page now asks for a signature and for accounts while the device
+  // prompt for the transaction is still up.
+  await window.evaluate(async () => {
+    const dappSign = await import('./lib/wallet/dapp-sign.js');
+    const dappConnect = await import('./lib/wallet/dapp-connect.js');
+    window.__otherSurfaces = {};
+    dappSign
+      .showDappSignApproval({}, 'https://swap.example', 'personal_sign', ['0xdeadbeef', '0xledger'])
+      .then(
+        (sig) => { window.__otherSurfaces.sign = `resolved:${sig}`; },
+        (err) => { window.__otherSurfaces.sign = `rejected:${err.code || err.message}`; }
+      );
+    await new Promise((resolve, reject) => {
+      dappConnect.showDappConnect('https://swap.example', 'https://swap.example', resolve, reject, {});
+    }).then(
+      () => { window.__otherSurfaces.connect = 'resolved'; },
+      (err) => { window.__otherSurfaces.connect = `rejected:${err.code || err.message}`; }
+    );
+  });
+
+  await expect
+    .poll(() => window.evaluate(() => window.__otherSurfaces?.sign))
+    .toBe('rejected:-32002');
+  await expect
+    .poll(() => window.evaluate(() => window.__otherSurfaces?.connect))
+    .toBe('rejected:-32002');
+
+  // Neither screen took the sidebar; the transaction confirmation is
+  // untouched, with both ways out still closed.
+  await expect(window.locator('#sidebar-dapp-sign')).toBeHidden();
+  await expect(window.locator('#sidebar-dapp-connect')).toBeHidden();
+  await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+  await expect(window.locator('#dapp-tx-to')).toHaveAttribute('title', TX_PARAMS.to);
+  await expect(window.locator('#dapp-tx-approve')).toHaveText('Confirm on your Ledger…');
+  await expect(window.locator('#dapp-tx-reject')).toBeDisabled();
+  await expect(window.locator('#dapp-tx-back')).toBeDisabled();
+  await window.screenshot({ path: 'test-results/dapp-tx-ledger-other-surfaces-refused.png' });
+
+  // The device approves: the transaction — and only it — settles.
+  await electronApp.evaluate(() => {
+    globalThis.__resolveLedgerSend({ success: true, hash: '0xabc123', recorded: true });
+  });
+  await expect(window.locator('#sidebar-dapp-tx')).toBeHidden();
+  expect(await settledState(window, 'a')).toBe('resolved:0xabc123');
 });

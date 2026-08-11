@@ -20,6 +20,11 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
+import {
+  isSignatureInFlight,
+  beginSignatureFlight,
+  endSignatureFlight,
+} from './signature-flight.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
 import {
   escapeHtml,
@@ -134,6 +139,13 @@ export function initDappX402() {
   bannerDisconnectBtn = document.getElementById('x402-connection-disconnect');
 
   registerScreenHider(() => {
+    // An in-flight payment signature owns the card: the device prompt it
+    // produced cannot be recalled, so cancelling here would tear down the
+    // detection in main (x402:cancel navigates the paywall away) while the
+    // user is still confirming the very payment on the device.
+    // hideAllSubscreens() already refuses to run while a signature is in
+    // flight; this is the second line of defence for a direct hider call.
+    if (pending?.signing) return;
     if (pending) {
       reject().catch((err) => console.error('[x402] hide reject failed:', err));
     } else {
@@ -315,15 +327,17 @@ function wireButtons() {
 }
 
 async function showApproval({ webContentsId, detectionId, url, resourceType }) {
-  // The card is a single shared surface and an in-flight signature owns
+  // The sidebar is a single shared surface and an in-flight signature owns
   // it: the device prompt it produced cannot be recalled, so a second 402
   // must not overwrite `pending` and re-enable Pay/Reject/Back underneath
   // it — the user would be cancelling (or paying) the newcomer while the
   // device still shows the first payment, and the first payment's own
-  // result would land on the wrong card. Leave the detection with main;
-  // it is re-offered the next time the page asks.
-  if (pending?.signing) {
-    console.warn('[x402] approval-needed ignored: a payment signature is already in flight');
+  // result would land on the wrong card. The lock is global (see
+  // signature-flight.js), so a dapp-tx/dapp-sign confirmation blocks the
+  // card too. Leave the detection with main; it is re-offered the next
+  // time the page asks.
+  if (isSignatureInFlight()) {
+    console.warn('[x402] approval-needed ignored: a signature is already in flight');
     return;
   }
 
@@ -339,9 +353,10 @@ async function showApproval({ webContentsId, detectionId, url, resourceType }) {
   }
 
   // Re-checked after the await: the user may have hit Pay on the card
-  // that is currently up while the details round-trip was in flight.
-  if (pending?.signing) {
-    console.warn('[x402] approval-needed ignored: a payment signature is already in flight');
+  // that is currently up (or confirmed on another surface) while the
+  // details round-trip was in flight.
+  if (isSignatureInFlight()) {
+    console.warn('[x402] approval-needed ignored: a signature is already in flight');
     return;
   }
 
@@ -770,6 +785,10 @@ async function handlePasswordUnlock() {
 async function approve() {
   if (!pending) return;
   pending.signing = true;
+  // Claim the sidebar for the whole flight: no other approval surface may
+  // repaint over the card or tear it down (which would cancel the
+  // detection in main) while the device confirmation is live.
+  beginSignatureFlight(pending);
   approveBtn.disabled = true;
   rejectBtn.disabled = true;
   // Back is the other way out of the card and must be disabled too: the
@@ -812,7 +831,10 @@ async function approve() {
 // behaviour worth centralising — without it the unlock UI won't re-
 // appear when the vault auto-locked between render and click.
 function restoreCardWithError(error) {
-  if (pending) pending.signing = false;
+  if (pending) {
+    pending.signing = false;
+    endSignatureFlight(pending);
+  }
   approveBtn.textContent = 'Pay';
   approveBtn.disabled = false;
   rejectBtn.disabled = false;
@@ -865,6 +887,9 @@ async function reject() {
 function closeAndReset() {
   screen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
+  // The card is gone, so whatever signature it owned is settled — release
+  // the sidebar (no-op unless this card holds the lock).
+  endSignatureFlight(pending);
   pending = null;
   resetGrantEditor();
   approveBtn.textContent = 'Pay';

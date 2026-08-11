@@ -220,6 +220,29 @@ describe('dapp-tx approval lifecycle', () => {
     expect(first.settled).toMatchObject({ state: 'resolved', value: '0xhash' });
   });
 
+  // The per-module guard above only stops a second *transaction*. Every
+  // other approval surface (dapp-sign, dapp-connect, x402, vault-unlock)
+  // shares the same sidebar and takes it over via hideAllSubscreens(), so
+  // the flight also has to hold the shared lock — that is what refuses
+  // them while the device prompt is up.
+  test('an in-flight signature holds the shared sidebar lock until it settles', async () => {
+    const { elements, send, openApproval } = await loadDappTx();
+    // After loadDappTx's resetModules, so this is the same lock instance
+    // the module under test holds.
+    const flight = await import('./signature-flight.js');
+    const { promise } = await openApproval();
+
+    expect(flight.isSignatureInFlight()).toBe(false);
+
+    elements['dapp-tx-approve'].dispatch('click');
+    await flush();
+    expect(flight.isSignatureInFlight()).toBe(true);
+
+    send.resolve({ success: true, hash: '0xhash' });
+    await promise;
+    expect(flight.isSignatureInFlight()).toBe(false);
+  });
+
   test('rejecting before confirming settles 4001 and installs no auto-approve rule', async () => {
     const { elements, addTransactionAutoApprove, openApproval } = await loadDappTx();
     const { settled, promise } = await openApproval();
