@@ -45,9 +45,14 @@
  */
 
 const log = require('../logger');
-const { resolveEnsContent } = require('../ens-resolver');
+const {
+  joinPublishedPath,
+  nameSystemLabelForHost,
+  nameSystemLabelForResult,
+  resolveContentName,
+} = require('../content-name-resolver');
 const { serveNativeGatewayRequest } = require('../ipfs-manager');
-const { isEnsHost } = require('../../shared/origin-utils');
+const { isDwebNameHost } = require('../../shared/origin-utils');
 const {
   cidV0ToV1Base32,
   cidV1B58btcToBase32,
@@ -252,7 +257,7 @@ async function buildGatewayUrl(namespace, sourceUrl) {
     };
   }
 
-  if (effectiveNs === 'ipns' && !isEnsHost(host) && IPNS_HOST_RE.test(host)) {
+  if (effectiveNs === 'ipns' && !isDwebNameHost(host) && IPNS_HOST_RE.test(host)) {
     // base58btc IPNS peer-ID hosts (`12D3Koo...`, `16Uiu2H...`, `Qm...`)
     // and CIDv1-base58btc IPNS keys (`z...` libp2p-key) are case-
     // sensitive; same recovery / rejection rule as CIDv0 above. Already-
@@ -296,7 +301,7 @@ async function buildGatewayUrl(namespace, sourceUrl) {
     };
   }
 
-  if (isEnsHost(host) && !hasEmptyLabel(host)) {
+  if (isDwebNameHost(host) && !hasEmptyLabel(host)) {
     return resolveEnsToGatewayUrl(effectiveNs, host, { pathname, search: parsed.search }, gw);
   }
 
@@ -380,19 +385,6 @@ function hasEmptyLabel(host) {
   return host.split('.').some((label) => label.length === 0);
 }
 
-function nameSystemLabelForHost(host) {
-  const lower = String(host || '').toLowerCase();
-  if (lower.endsWith('.wei')) return 'WNS';
-  if (lower.endsWith('.gwei')) return 'GNS';
-  return 'ENS';
-}
-
-function nameSystemLabelForResult(result, host) {
-  if (result?.system === 'wns') return 'WNS';
-  if (result?.system === 'gns') return 'GNS';
-  return nameSystemLabelForHost(host);
-}
-
 // Second arg is destructured to `{ pathname, search }` so both the
 // non-rewritten path (top-level `ipfs://name.eth/...`) and the rewritten
 // path (sub-resource `ipfs://localhost/ipfs/<cid>/...` → effectively
@@ -401,7 +393,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   let result;
   const fallbackSystemLabel = nameSystemLabelForHost(host);
   try {
-    result = await resolveEnsContent(host);
+    result = await resolveContentName(host);
   } catch (err) {
     log.warn(
       `[${namespace}-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`
@@ -432,7 +424,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
     }
     return {
       ok: true,
-      url: `${gw}/${namespace}/${result.decoded}${parsed.pathname}${parsed.search}`,
+      url: `${gw}/${namespace}/${result.decoded}${joinPublishedPath(result.basePath, parsed.pathname)}${parsed.search}`,
     };
   }
 

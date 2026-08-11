@@ -181,6 +181,7 @@ const {
 const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
   createAntLifecycle,
@@ -274,6 +275,7 @@ async function bootstrap() {
   registerDownloadsIpc();
   registerFaviconsIpc();
   registerEnsIpc();
+  registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
   registerRadicleIpc();

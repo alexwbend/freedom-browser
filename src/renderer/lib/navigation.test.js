@@ -319,6 +319,8 @@ const loadNavigationModule = async (options = {}) => {
     }),
     resolveEns: jest.fn(),
     invalidateEnsContent: jest.fn().mockResolvedValue(true),
+    resolveTezosDomain: jest.fn(),
+    invalidateTezosDomain: jest.fn().mockResolvedValue(true),
   };
 
   const addressInput = createElement('input');
@@ -1276,6 +1278,10 @@ describe('navigation', () => {
         const m = value.match(/^(?:(?:ens|bzz|ipfs|ipns):\/\/)?([^?/]+)(.*)?$/i);
         if (!m) return null;
         const host = m[1].toLowerCase();
+        if (host.endsWith('.tez')) {
+          if (prefixMatch?.[1]?.toLowerCase() === 'ens') return null;
+          return { name: host, suffix: m[2] || '', assertedTransport, system: 'tezos' };
+        }
         if (
           !host.endsWith('.eth') &&
           !host.endsWith('.box') &&
@@ -1386,6 +1392,107 @@ describe('navigation', () => {
       expect(ctx.state.ensTrustByName.get('vitalik.eth')).toEqual(verifiedTrust);
       expect(loadCalls.find(([u]) => u.includes('ens-conflict.html'))).toBeUndefined();
       expect(loadCalls.find(([u]) => u.includes('ens-unverified.html'))).toBeUndefined();
+    });
+
+    test('native .tez resolution keeps the name origin for IPFS content', async () => {
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'ipfs',
+        decoded: 'QmTezosSite',
+        uri: 'ipfs://QmTezosSite/published',
+        basePath: '/published',
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('docs.example.tez/guide');
+      await flushMicrotasks();
+
+      expect(ctx.electronAPI.resolveTezosDomain).toHaveBeenCalledWith('docs.example.tez');
+      expect(ctx.electronAPI.resolveEns).not.toHaveBeenCalled();
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'ipfs://docs.example.tez/guide'
+      );
+      expect(ctx.elements.addressInput.value).toBe('ipfs://docs.example.tez/guide');
+    });
+
+    test('a self-referential .tez website record cannot loop resolve→navigate forever', async () => {
+      // A domain owner controls the website record: publishing
+      // `ipns://loop.tez` used to make loadTarget re-resolve the same name
+      // on every hop, spinning IPC until the tab was closed.
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'ipns',
+        decoded: 'loop.tez',
+        uri: 'ipns://loop.tez',
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('loop.tez');
+      for (let i = 0; i < 20; i += 1) await flushMicrotasks();
+
+      expect(ctx.electronAPI.resolveTezosDomain.mock.calls.length).toBeLessThanOrEqual(3);
+      expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('resolves in a loop'));
+    });
+
+    test('Tezos redirect_url takes precedence and ignores the address-bar suffix', async () => {
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'https',
+        uri: 'https://example.com/landing',
+        redirect: true,
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('docs.example.tez/ignored');
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://example.com/landing'
+      );
+    });
+
+    test('Tezos HTTP content appends the requested path to its published base path', async () => {
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'https',
+        uri: 'https://example.com/published/site',
+        redirect: false,
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('docs.example.tez/guide?q=1#intro');
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://example.com/published/site/guide?q=1#intro'
+      );
+    });
+
+    test('Tezos HTTP content keeps the published query when the suffix has none', async () => {
+      const ctx = await setupEnsDispatch();
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'https',
+        uri: 'https://example.com/page?v=2',
+        redirect: false,
+        trust: { level: 'verified', system: 'tezos', agreed: ['a', 'b'] },
+      });
+
+      ctx.mod.loadTarget('docs.example.tez/guide');
+      await flushMicrotasks();
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        'https://example.com/page/guide?v=2'
+      );
     });
 
     test('protocol icon and address bar update immediately when an ENS-Swarm name is dispatched, before resolution completes', async () => {
@@ -1725,6 +1832,39 @@ describe('navigation', () => {
       await flushMicrotasks();
 
       expect(ctx.electronAPI.resolveEns).toHaveBeenCalledWith('retry.eth');
+    });
+
+    test('ipc-message ens:continue-unverified re-dispatches a .tez name without the ens:// prefix', async () => {
+      // `ens://<name>.tez` is rejected by parseEnsInput, so prefixing the
+      // name would make "Continue once" a silent no-op for Tezos names.
+      const ctx = await setupEnsDispatch({ blockUnverifiedEns: true });
+      ctx.electronAPI.resolveTezosDomain.mockResolvedValue({
+        type: 'ok',
+        system: 'tezos',
+        protocol: 'ipfs',
+        decoded: 'QmRetryTez',
+        uri: 'ipfs://QmRetryTez',
+        trust: { level: 'unverified', system: 'tezos', agreed: ['a'] },
+      });
+
+      ctx.mod.loadTarget('retry.tez');
+      await flushMicrotasks();
+      expect(
+        ctx.activeRef.tab.webview.loadURL.mock.calls.find(([u]) => u.includes('ens-unverified.html'))
+      ).toBeDefined();
+
+      ctx.electronAPI.resolveTezosDomain.mockClear();
+      ctx.activeRef.tab.webview.loadURL.mockClear();
+      ctx.tabsMocks.webviewEventHandler('ipc-message', {
+        tabId: ctx.activeRef.tab.id,
+        channel: 'ens:continue-unverified',
+        args: [{ name: 'retry.tez' }],
+      });
+      await flushMicrotasks();
+
+      expect(ctx.electronAPI.resolveTezosDomain).toHaveBeenCalledWith('retry.tez');
+      expect(ctx.electronAPI.resolveEns).not.toHaveBeenCalledWith('retry.tez');
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith('ipfs://retry.tez');
     });
 
     test('ipc-message ens:open-settings navigates to freedom://settings', async () => {

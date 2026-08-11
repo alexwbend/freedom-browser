@@ -55,6 +55,7 @@ import {
   parseEnsInput,
   buildInternalPageUrl,
 } from './page-urls.js';
+import { isTezosDomainHost } from './origin-utils.js';
 import { parseEthereumUri } from './ethereum-uri.js';
 import { openSendFlow } from './wallet-ui.js';
 import { walletState } from './wallet/wallet-state.js';
@@ -65,6 +66,12 @@ import { TOOLTIP_HOVER_DELAY_MS } from './hover-tooltip.js';
 // Helper to get active tab's navigation state (with fallback to empty object)
 const getNavState = () => getActiveTabState() || {};
 
+// Maximum number of name-resolution hops a single navigation may take before
+// loadTarget gives up. One hop is the normal case (name → content URI); a
+// second is slack for a legitimate redirect. Anything beyond that is a
+// resolve→navigate loop, not a real site.
+const MAX_NAME_RESOLUTION_DEPTH = 3;
+
 const isIpfsProgressUrl = (value) => {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
   return normalized.startsWith('ipfs://') || normalized.startsWith('ipns://');
@@ -72,9 +79,46 @@ const isIpfsProgressUrl = (value) => {
 
 const nameSystemLabelForName = (name = '') => {
   const lower = String(name).toLowerCase();
+  if (lower.endsWith('.tez')) return 'Tezos Domains';
   if (lower.endsWith('.wei')) return 'WNS';
   if (lower.endsWith('.gwei')) return 'GNS';
   return 'ENS';
+};
+
+const resolverForNameInput = (input) =>
+  input?.system === 'tezos' ? electronAPI?.resolveTezosDomain : electronAPI?.resolveEns;
+
+const appendPublishedWebsiteSuffix = (targetUri, suffix = '') => {
+  if (!suffix) return targetUri;
+  try {
+    const target = new URL(targetUri);
+    const requested = new URL(suffix, 'https://name.invalid/');
+    if (suffix.startsWith('/')) {
+      const basePath = target.pathname === '/' ? '' : target.pathname.replace(/\/$/, '');
+      target.pathname = `${basePath}${requested.pathname}`;
+    }
+    // Only override query/fragment the suffix actually carries, so a
+    // published content URL like `…/page?v=2` keeps its query when the
+    // address bar appends a bare path.
+    if (requested.search) target.search = requested.search;
+    if (requested.hash) target.hash = requested.hash;
+    return target.toString();
+  } catch {
+    return `${targetUri.replace(/\/+$/, '')}${suffix}`;
+  }
+};
+
+const invalidateContentName = (input) => {
+  if (!input?.name) return;
+  if (input.system === 'tezos') {
+    electronAPI?.invalidateTezosDomain?.(input.name).catch((err) => {
+      pushDebug(`[Tezos Domains] cache invalidation failed: ${err?.message || err}`);
+    });
+    return;
+  }
+  electronAPI?.invalidateEnsContent?.(input.name).catch((err) => {
+    pushDebug(`[ENS] invalidateEnsContent failed: ${err?.message || err}`);
+  });
 };
 
 // Experimental opt-in (Settings → Experimental, default off). Mirrors the
@@ -1018,7 +1062,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     // If inner URL is a dweb URL, we need to resolve it first
     // Check for ENS
     const ens = parseEnsInput(innerUrl);
-    if (ens && electronAPI?.resolveEns) {
+    const resolveName = resolverForNameInput(ens);
+    if (ens && resolveName) {
       const systemLabel = nameSystemLabelForName(ens.name);
       const capturedWebview = webview;
       // Tab id pinned for the duration of this async resolution so a tab
@@ -1033,12 +1078,11 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       // background-tab dispatch restores the resolved value rather than
       // clobbering the foreground tab.
       setAddressDisplayForTab(
-        `view-source:ens://${ens.name}${ens.suffix || ''}`,
+        `view-source:${ens.system === 'tezos' ? '' : 'ens://'}${ens.name}${ens.suffix || ''}`,
         capturedTabId,
         { isViewingSourceForTab: true }
       );
-      electronAPI
-        .resolveEns(ens.name)
+      resolveName(ens.name)
         .then((result) => {
           setLoading(false, capturedTabId);
           if (!result || result.type !== 'ok') {
@@ -1134,8 +1178,23 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try Ethereum names first (legacy ens:// plus supported name suffixes)
   const ens = parseEnsInput(value);
-  if (ens && electronAPI?.resolveEns) {
+  const resolveName = resolverForNameInput(ens);
+  if (ens && resolveName) {
     const systemLabel = nameSystemLabelForName(ens.name);
+    // Defence in depth against a resolve→navigate loop. A name record is
+    // attacker-controlled: if it points back at another dweb name (e.g. a
+    // .tez whose website record is `ipns://self.tez`) the recursive
+    // loadTarget below re-enters this branch and never terminates. The
+    // resolvers reject name-hosted records at the source; this bounds the
+    // renderer regardless of what a resolver hands back.
+    const resolutionDepth = options.nameResolutionDepth || 0;
+    if (resolutionDepth >= MAX_NAME_RESOLUTION_DEPTH) {
+      pushDebug(
+        `${systemLabel} resolution loop detected for ${ens.name} (depth ${resolutionDepth}) — aborting`
+      );
+      alert(`${systemLabel} name ${ens.name} resolves in a loop. Navigation aborted.`);
+      return;
+    }
     // Capture the webview reference before async operation to prevent loading in wrong tab
     const capturedWebview = webview;
     // Capture the tab id too so async callbacks can route per-tab UI
@@ -1172,8 +1231,7 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         alert(alertMessage);
       }
     };
-    electronAPI
-      .resolveEns(ens.name)
+    resolveName(ens.name)
       .then((result) => {
         setLoading(false, capturedTabId);
         if (!result) {
@@ -1215,6 +1273,36 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
             `${systemLabel} resolution failed for ${ens.name}: ${reason}`,
             `${systemLabel} resolution failed for ${ens.name}: ${reason}`
           );
+          return;
+        }
+
+        const isExternalTezosWebsite =
+          ens.system === 'tezos' && (result.protocol === 'http' || result.protocol === 'https');
+        if (isExternalTezosWebsite) {
+          if (assertedTransport) {
+            failEnsResolution(
+              `${systemLabel} transport mismatch for ${ens.name}: asserted ${assertedTransport}, got ${result.protocol}`,
+              `${systemLabel} name ${ens.name} resolves to ${result.protocol}, not ${assertedTransport}.`
+            );
+            return;
+          }
+          const targetUri = result.redirect
+            ? result.uri
+            : appendPublishedWebsiteSuffix(result.uri, ens.suffix);
+          if (
+            result.trust?.level === 'unverified'
+            && state.blockUnverifiedEns
+            && !options.allowUnverifiedOnce
+          ) {
+            capturedWebview.loadURL(
+              buildInternalPageUrl('ens-unverified.html', { name: ens.name, uri: targetUri })
+            );
+            return;
+          }
+          pushDebug(`${systemLabel} resolved: ${ens.name} -> ${targetUri}`);
+          loadTarget(targetUri, displayOverride || targetUri, capturedWebview, {
+            nameResolutionDepth: resolutionDepth + 1,
+          });
           return;
         }
 
@@ -1278,11 +1366,12 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         // rather than the resolved CID/hash. For Swarm the probe still
         // needs the actual hash to gate navigation on Bee warmth, so we
         // pass it separately as `swarmHash`.
-        let innerOptions = {};
+        const innerOptions = { nameResolutionDepth: resolutionDepth + 1 };
         if (result.protocol === 'bzz') {
-          innerOptions = { bzzLoadUrl: transportDisplay, swarmHash: result.decoded };
+          innerOptions.bzzLoadUrl = transportDisplay;
+          innerOptions.swarmHash = result.decoded;
         } else if (result.protocol === 'ipfs' || result.protocol === 'ipns') {
-          innerOptions = { ipfsLoadUrl: transportDisplay };
+          innerOptions.ipfsLoadUrl = transportDisplay;
         }
 
         // Pass captured webview to ensure we load in the correct tab
@@ -1586,14 +1675,6 @@ export const loadHomePage = () => {
 // re-resolves rather than returning the cached result. Fire-and-forget IPC —
 // the subsequent `loadTarget` call kicks off a fresh `resolveEns` that misses
 // the now-empty cache.
-const invalidateEnsContentForHardReload = (ensName) => {
-  if (!ensName || !electronAPI?.invalidateEnsContent) return;
-  pushDebug(`Hard reload: invalidating ENS contenthash cache for ${ensName}`);
-  electronAPI.invalidateEnsContent(ensName).catch((err) => {
-    pushDebug(`[ENS] invalidateEnsContent failed: ${err?.message || err}`);
-  });
-};
-
 // Shared error-page retry logic used by both reload variants and the reload button
 const retryErrorPageOrReload = (webview, hard) => {
   const current = webview.getURL();
@@ -1604,7 +1685,7 @@ const retryErrorPageOrReload = (webview, hard) => {
     // rather than returning the cached contenthash from the failed attempt.
     if (hard) {
       const errorEns = parseEnsInput(originalUrl);
-      if (errorEns) invalidateEnsContentForHardReload(errorEns.name);
+      if (errorEns) invalidateContentName(errorEns);
     }
     pushDebug(`Retrying original URL from error page: ${originalUrl}`);
     loadTarget(originalUrl);
@@ -1638,8 +1719,8 @@ const retryErrorPageOrReload = (webview, hard) => {
   const committedDisplay = (navState.committedDisplayUrl || '').trim();
   const ensInput = committedDisplay ? parseEnsInput(committedDisplay) : null;
   if (ensInput) {
-    if (hard) invalidateEnsContentForHardReload(ensInput.name);
-    pushDebug(`${hard ? 'Hard reload' : 'Reload'} re-resolving ENS: ${committedDisplay}`);
+    if (hard) invalidateContentName(ensInput);
+    pushDebug(`${hard ? 'Hard reload' : 'Reload'} re-resolving ${nameSystemLabelForName(ensInput.name)}: ${committedDisplay}`);
     loadTarget(committedDisplay);
     return;
   }
@@ -2211,7 +2292,11 @@ export const initNavigation = () => {
           const name = data.args?.[0]?.name;
           if (name) {
             pushDebug(`ENS continue-unverified requested for ${name}`);
-            loadTarget('ens://' + name, null, webview, { allowUnverifiedOnce: true });
+            // `ens://` is the legacy Ethereum-name form; parseEnsInput
+            // deliberately rejects `ens://<name>.tez`, so Tezos names have to
+            // go back through loadTarget bare or the continue is a no-op.
+            const target = isTezosDomainHost(name) ? name : 'ens://' + name;
+            loadTarget(target, null, webview, { allowUnverifiedOnce: true });
           }
         } else if (data.channel === 'ens:open-settings') {
           loadTarget('freedom://settings', null, webview);
