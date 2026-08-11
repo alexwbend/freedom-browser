@@ -27,7 +27,10 @@ let dappSignRejectBtn;
 let dappSignApproveBtn;
 let dappSignAutoApproveCheckbox;
 
-// Local state
+// Local state. `dappSignPending.signing` is true while the signature is
+// in flight: a hardware signature is a device prompt we cannot recall, so
+// there is no cancellation path once it starts — rejecting behind it
+// would settle the dApp promise with 4001 while the device still signs.
 let dappSignPending = null;
 
 export function initDappSign() {
@@ -57,6 +60,7 @@ export function initDappSign() {
 function setupDappSignScreen() {
   if (dappSignBackBtn) {
     dappSignBackBtn.addEventListener('click', () => {
+      if (dappSignPending?.signing) return;
       rejectDappSign();
       closeDappSign();
     });
@@ -64,6 +68,7 @@ function setupDappSignScreen() {
 
   if (dappSignRejectBtn) {
     dappSignRejectBtn.addEventListener('click', () => {
+      if (dappSignPending?.signing) return;
       rejectDappSign();
       closeDappSign();
     });
@@ -108,6 +113,7 @@ export async function showDappSignApproval(webview, permissionKey, method, param
   return new Promise((resolve, reject) => {
     dappSignPending = { permissionKey, walletIndex: permission.walletIndex, method, params, resolve, reject, webview };
     if (dappSignAutoApproveCheckbox) dappSignAutoApproveCheckbox.checked = false;
+    setDappSignCancelEnabled(true);
 
     if (dappSignSite) {
       dappSignSite.textContent = permissionKey;
@@ -294,26 +300,35 @@ async function handleDappSignPasswordUnlock() {
 }
 
 async function approveDappSign() {
-  if (!dappSignPending) return;
+  if (!dappSignPending || dappSignPending.signing) return;
 
-  const { permissionKey, walletIndex, method, params, resolve } = dappSignPending;
+  const request = dappSignPending;
+  const { permissionKey, walletIndex, method, params, resolve } = request;
+  // Snapshot the auto-approve intent now: the checkbox is shared DOM that
+  // a later request can repopulate while this signature is in flight.
+  const autoApprove = Boolean(dappSignAutoApproveCheckbox?.checked);
 
   try {
+    request.signing = true;
     if (dappSignApproveBtn) {
       dappSignApproveBtn.disabled = true;
       dappSignApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
+    setDappSignCancelEnabled(false);
 
     const signature = await executeSign(method, params, walletIndex);
 
-    if (dappSignAutoApproveCheckbox?.checked && permissionKey) {
+    if (autoApprove && permissionKey) {
       await window.dappPermissions.setSigningAutoApprove(permissionKey, true);
       console.log('[WalletUI] Signing auto-approve enabled for:', permissionKey);
     }
 
     console.log('[WalletUI] dApp message signed');
     resolve(signature);
-    closeDappSign();
+    // Only tear down the screen if it is still showing *this* request.
+    if (dappSignPending === request) {
+      closeDappSign();
+    }
   } catch (err) {
     console.error('[WalletUI] dApp signing failed:', err);
     showDappSignError(err.message || 'Signing failed');
@@ -321,7 +336,19 @@ async function approveDappSign() {
       dappSignApproveBtn.disabled = false;
       dappSignApproveBtn.textContent = 'Sign';
     }
+    setDappSignCancelEnabled(true);
+  } finally {
+    request.signing = false;
   }
+}
+
+/**
+ * Enable/disable the two ways out of the signing screen (Reject, Back).
+ * Both are disabled while a signature is in flight.
+ */
+function setDappSignCancelEnabled(enabled) {
+  if (dappSignRejectBtn) dappSignRejectBtn.disabled = !enabled;
+  if (dappSignBackBtn) dappSignBackBtn.disabled = !enabled;
 }
 
 function rejectDappSign() {
@@ -336,10 +363,12 @@ function closeDappSign() {
   dappSignPending = null;
   hideDappSignError();
   if (dappSignPasswordInput) dappSignPasswordInput.value = '';
+  if (dappSignAutoApproveCheckbox) dappSignAutoApproveCheckbox.checked = false;
   if (dappSignApproveBtn) {
     dappSignApproveBtn.disabled = false;
     dappSignApproveBtn.textContent = 'Sign';
   }
+  setDappSignCancelEnabled(true);
 }
 
 function showDappSignError(message) {

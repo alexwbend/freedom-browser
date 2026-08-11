@@ -708,8 +708,13 @@
   transition: background-color 0.15s ease;
 }
 
-.subscreen-back-btn:hover {
+.subscreen-back-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.subscreen-back-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .subscreen-back-btn svg {
@@ -6130,8 +6135,15 @@
   transition: background-color 0.15s;
 }
 
-.dapp-tx-reject-btn:hover {
+.dapp-tx-reject-btn:hover:not(:disabled) {
   background: var(--toolbar-hover);
+}
+
+/* Disabled while a signature is in flight (see dapp-tx.js): the request
+   can no longer be recalled, so the way out has to read as unavailable. */
+.dapp-tx-reject-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dapp-tx-approve-btn {
@@ -6169,7 +6181,7 @@
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-theme="light"] .dapp-tx-reject-btn:hover {
+[data-theme="light"] .dapp-tx-reject-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -6365,8 +6377,13 @@
   transition: background-color 0.15s;
 }
 
-.dapp-sign-reject-btn:hover {
+.dapp-sign-reject-btn:hover:not(:disabled) {
   background: var(--toolbar-hover);
+}
+
+.dapp-sign-reject-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dapp-sign-approve-btn {
@@ -6408,6 +6425,6 @@
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-theme="light"] .dapp-sign-reject-btn:hover {
+[data-theme="light"] .dapp-sign-reject-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
 }

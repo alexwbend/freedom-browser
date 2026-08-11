@@ -1,0 +1,108 @@
+// dApp transaction approval with a hardware account — once Confirm is
+// pressed the signature lives on the device and cannot be recalled, so
+// Reject and Back must stop being a way out: settling the dApp promise
+// with 4001 behind an in-flight signature would tell the site the user
+// declined while the transaction still broadcasts (and would still install
+// the "always allow" rule when the continuation resumed).
+//
+// Driven through the real renderer screen: the main-process IPC the screen
+// talks to is replaced for this app instance, and the send handler is left
+// hanging to hold the UI in the device-prompt state.
+
+const { test, expect } = require('./fixtures');
+
+const LEDGER = {
+  index: 1000000,
+  name: 'Ledger 1',
+  address: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+  type: 'ledger',
+  path: "44'/60'/0'/0/0",
+};
+
+const TX_PARAMS = {
+  to: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  value: '0',
+  // approve(address,uint256) — a contract call, so the auto-approve row shows.
+  data: '0x095ea7b3' + '0'.repeat(56) + 'deadbeef' + 'f'.repeat(64),
+};
+
+test('reject and back are inert while a Ledger confirmation is in flight', async ({
+  electronApp,
+  window,
+}) => {
+  await electronApp.evaluate(({ ipcMain }, ledger) => {
+    const replace = (channel, handler) => {
+      ipcMain.removeHandler(channel);
+      ipcMain.handle(channel, handler);
+    };
+    replace('dapp:get-permission', () => ({
+      origin: 'https://swap.example',
+      walletIndex: ledger.index,
+      chainId: 8453,
+    }));
+    replace('wallet:get-derived-wallets', () => ({ success: true, wallets: [ledger] }));
+    replace('wallet:estimate-gas', () => ({ success: true, gasLimit: '21000' }));
+    replace('wallet:get-gas-price', () => ({
+      success: true,
+      type: 'legacy',
+      gasPrice: '1000000000',
+      effectiveGasPrice: '1000000000',
+    }));
+    replace('networks:get-chains', () => ({
+      success: true,
+      chains: { 8453: { chainId: 8453, name: 'Base', nativeSymbol: 'ETH' } },
+    }));
+    replace('dapp:add-transaction-auto-approve', () => ({ success: true }));
+    // Never settles on its own: this is the window where the device prompt
+    // is up and the user is deciding.
+    globalThis.__resolveLedgerSend = null;
+    replace('wallet:dapp-send-transaction', () => new Promise((resolve) => {
+      globalThis.__resolveLedgerSend = resolve;
+    }));
+  }, LEDGER);
+
+  await window.evaluate(async ({ ledger, txParams }) => {
+    const dappTx = await import('./lib/wallet/dapp-tx.js');
+    const { walletState } = await import('./lib/wallet/wallet-state.js');
+    // The account type is what makes the screen skip the vault-unlock gate.
+    walletState.derivedWallets = [ledger];
+
+    window.__dappTxSettled = 'pending';
+    dappTx.showDappTxApproval({}, 'https://swap.example', txParams).then(
+      (hash) => { window.__dappTxSettled = `resolved:${hash}`; },
+      (err) => { window.__dappTxSettled = `rejected:${err.code || err.message}`; }
+    );
+  }, { ledger: LEDGER, txParams: TX_PARAMS });
+
+  await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+  await expect(window.locator('#dapp-tx-approve')).toBeEnabled();
+  await expect(window.locator('#dapp-tx-reject')).toBeEnabled();
+  await window.screenshot({ path: 'test-results/dapp-tx-ledger-before-confirm.png' });
+
+  await window.check('#dapp-tx-auto-approve');
+  await window.click('#dapp-tx-approve');
+
+  await expect(window.locator('#dapp-tx-approve')).toHaveText('Confirm on your Ledger…');
+  await expect(window.locator('#dapp-tx-reject')).toBeDisabled();
+  await expect(window.locator('#dapp-tx-back')).toBeDisabled();
+  await window.screenshot({ path: 'test-results/dapp-tx-ledger-in-flight.png' });
+
+  // Clicking them anyway (a stray programmatic click, or a click that raced
+  // the disable) must not settle the dApp promise or close the screen.
+  await window.evaluate(() => {
+    document.getElementById('dapp-tx-reject').click();
+    document.getElementById('dapp-tx-back').click();
+  });
+  await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+  expect(await window.evaluate(() => window.__dappTxSettled)).toBe('pending');
+
+  // The device approves: the tx resolves for the dApp and the screen closes
+  // with the auto-approve checkbox cleared for the next request.
+  await electronApp.evaluate(() => {
+    globalThis.__resolveLedgerSend({ success: true, hash: '0xabc123', recorded: true });
+  });
+  await expect(window.locator('#sidebar-dapp-tx')).toBeHidden();
+  expect(await window.evaluate(() => window.__dappTxSettled)).toBe('resolved:0xabc123');
+  expect(await window.isChecked('#dapp-tx-auto-approve')).toBe(false);
+  await expect(window.locator('#dapp-tx-reject')).toBeEnabled();
+});

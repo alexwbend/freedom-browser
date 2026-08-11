@@ -753,6 +753,9 @@ async function approve() {
   pending.signing = true;
   approveBtn.disabled = true;
   rejectBtn.disabled = true;
+  // Back is the other way out of the card and must be disabled too: the
+  // signature is already in flight and cannot be recalled.
+  if (backBtn) backBtn.disabled = true;
   approveBtn.textContent = signingButtonLabel(walletState.activeWalletIndex);
   hideError();
 
@@ -794,6 +797,7 @@ function restoreCardWithError(error) {
   approveBtn.textContent = 'Pay';
   approveBtn.disabled = false;
   rejectBtn.disabled = false;
+  if (backBtn) backBtn.disabled = false;
   showError(error || 'Payment failed.');
   if (/locked/i.test(error || '')) {
     checkUnlockState();
@@ -847,6 +851,7 @@ function closeAndReset() {
   approveBtn.textContent = 'Pay';
   approveBtn.disabled = false;
   rejectBtn.disabled = false;
+  if (backBtn) backBtn.disabled = false;
   hideError();
   hideUnlockError();
   if (passwordInput) passwordInput.value = '';
