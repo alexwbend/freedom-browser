@@ -7,6 +7,7 @@ import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl, getInternalPageName, internalPages } from './page-urls.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
+import { setupRadicleProvider } from './radicle-provider.js';
 import { closeFindBar, notifyFindBarNavigated } from './find-bar.js';
 import {
   clearLinkStatus,
@@ -689,6 +690,7 @@ const createWebview = (tabId, initialUrl) => {
   // Set up providers (window.ethereum + window.swarm)
   setupWebviewProvider(webview);
   setupSwarmProvider(webview);
+  setupRadicleProvider(webview);
 
   return webview;
 };

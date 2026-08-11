@@ -83,7 +83,7 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(21);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(23);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
@@ -105,6 +105,8 @@ describe('preload', () => {
       'dappPermissions',
       'swarmPermissions',
       'swarmProvider',
+      'radiclePermissions',
+      'radicleProvider',
       'swarmFeedStore',
     ]);
     expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.GET_INTERNAL_PAGES);

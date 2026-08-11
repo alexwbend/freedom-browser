@@ -87,9 +87,7 @@ const profileFocusWatcher = startProfileFocusRequestWatcher(
       if (typeof focusCurrentProfileWindow !== 'function') {
         throw new Error('Main window focus handler is not ready');
       }
-      return focusCurrentProfileWindow(
-        request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null
-      );
+      return focusCurrentProfileWindow(request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null);
     }),
   {
     logger: console,
@@ -140,6 +138,7 @@ const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
+const { registerRadProtocol } = require('./radicle/rad-protocol');
 
 // Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
@@ -158,6 +157,19 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // `rad` is deliberately NOT `standard`: standard schemes get their host
+  // lowercased by URL canonicalization, which would destroy case-sensitive
+  // base58 RIDs (`rad://z3gqcJUoA1n9…`). Non-standard keeps the URL opaque
+  // and case-intact; the handler parses it by hand. See rad-protocol.js.
+  {
+    scheme: 'rad',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
 ]);
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
 const { registerBookmarksIpc } = require('./bookmarks-store');
@@ -209,6 +221,8 @@ const paymentHistory = require('./payment-history');
 const { getTransactionStatus: getTxStatus } = require('./wallet/transaction-service');
 const { registerSwarmPermissionsIpc } = require('./swarm/swarm-permissions');
 const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
+const { registerRadiclePermissionsIpc } = require('./radicle/radicle-permissions');
+const { registerRadicleProviderIpc } = require('./radicle/radicle-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
@@ -285,6 +299,8 @@ async function bootstrap() {
   registerPublishHistoryIpc();
   registerSwarmPermissionsIpc();
   registerSwarmProviderIpc();
+  registerRadiclePermissionsIpc();
+  registerRadicleProviderIpc();
   registerFeedStoreIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
@@ -303,6 +319,7 @@ async function bootstrap() {
     registerBzzProtocol(defaultSession);
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
+    registerRadProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
@@ -357,9 +374,7 @@ async function bootstrap() {
   const settings = loadSettings();
   // A profile cold-started from another window's "edit" button (Profiles
   // manager) carries --open-settings; land its first tab on Profile settings.
-  const coldStartUrl = process.argv.includes('--open-settings')
-    ? PROFILE_SETTINGS_DEEPLINK
-    : null;
+  const coldStartUrl = process.argv.includes('--open-settings') ? PROFILE_SETTINGS_DEEPLINK : null;
   const mainWindow = createMainWindow(coldStartUrl);
 
   if (!TEST_MODE) {
