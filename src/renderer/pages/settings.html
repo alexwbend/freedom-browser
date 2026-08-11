@@ -769,6 +769,22 @@
             </svg>
             Name Resolution
           </button>
+          <button type="button" class="nav-item" data-target="permissions">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 2 L4 6 L4 12 C4 17 7.5 21 12 22 C16.5 21 20 17 20 12 L20 6 Z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+            Site Permissions
+          </button>
           <button type="button" class="nav-item" data-target="experimental" id="nav-experimental">
             <svg
               width="16"
@@ -1070,6 +1086,12 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- Site Permissions -->
+        <section class="section" id="permissions">
+          <h2 class="section-title">Site Permissions</h2>
+          <div id="permissions-view"></div>
         </section>
 
         <!-- Experimental -->
@@ -2823,6 +2845,145 @@
         window.addEventListener('hashchange', () => {
           if (resolveSection(location.hash) !== 'rpc') return;
           keyFor = null;
+          reload();
+        });
+
+        reload();
+      })();
+
+      // Controller for the #permissions section: stored per-site
+      // permission decisions (permissions.json) grouped by origin, with
+      // per-permission revoke, per-site revoke, and revoke-all. Session-only
+      // (unremembered) decisions live in main-process memory and are not
+      // listed here — they expire with the app anyway.
+      (() => {
+        const view = $('permissions-view');
+        if (!view) return;
+
+        const PERMISSION_LABELS = {
+          camera: 'Camera',
+          microphone: 'Microphone',
+          notifications: 'Notifications',
+          'clipboard-read': 'Clipboard reading',
+          geolocation: 'Location',
+          midi: 'MIDI devices',
+        };
+        const label = (key) => PERMISSION_LABELS[key] || key;
+
+        const render = (all) => {
+          const origins = Object.keys(all || {}).sort();
+
+          const intro = `
+            <div class="card" style="margin-bottom: 16px">
+              <div class="row">
+                <div class="row-body">
+                  <p class="row-label">Decisions you asked Freedom to remember</p>
+                  <p class="row-help">
+                    When a site asks to use your camera, microphone, notifications,
+                    clipboard, location, or MIDI devices, Freedom prompts you.
+                    Remembered answers are listed here. Everything else is denied
+                    by default.
+                  </p>
+                </div>
+                <div class="row-control">
+                  <button class="btn danger" data-action="revoke-all" ${
+                    origins.length === 0 ? 'disabled' : ''
+                  }>
+                    Remove all
+                  </button>
+                </div>
+              </div>
+            </div>`;
+
+          if (origins.length === 0) {
+            view.innerHTML =
+              intro +
+              `<div class="card"><div class="row"><div class="row-body">
+                 <p class="row-label">No stored site permissions</p>
+                 <p class="row-help">Allow or Block a site's request with
+                 “Remember for this site” checked and the decision appears here.</p>
+               </div></div></div>`;
+            return;
+          }
+
+          const cards = origins
+            .map((origin) => {
+              const rows = Object.entries(all[origin] || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(
+                  ([permission, decision]) => `
+                    <div class="row sub">
+                      <div class="row-body">
+                        <p class="row-label">${esc(label(permission))}</p>
+                        <p class="row-help" ${
+                          decision === 'deny' ? 'style="color: var(--danger)"' : ''
+                        }>${decision === 'allow' ? 'Allowed' : 'Blocked'}</p>
+                      </div>
+                      <div class="row-control">
+                        <button class="btn" data-action="revoke"
+                          data-origin="${esc(origin)}"
+                          data-permission="${esc(permission)}">Remove</button>
+                      </div>
+                    </div>`
+                )
+                .join('');
+              return `
+                <div class="card" style="margin-bottom: 12px">
+                  <div class="row">
+                    <div class="row-body">
+                      <p class="row-label" style="word-break: break-all">${esc(origin)}</p>
+                    </div>
+                    <div class="row-control">
+                      <button class="btn" data-action="revoke-origin"
+                        data-origin="${esc(origin)}">Remove site</button>
+                    </div>
+                  </div>
+                  ${rows}
+                </div>`;
+            })
+            .join('');
+
+          view.innerHTML = intro + cards;
+        };
+
+        const reload = async () => {
+          try {
+            render(await freedomAPI.getSitePermissions());
+          } catch (err) {
+            view.innerHTML = `<div class="card"><div class="row"><div class="row-body">
+              <p class="row-label">Could not load site permissions</p>
+              <p class="row-help">${esc(err?.message || String(err))}</p>
+            </div></div></div>`;
+          }
+        };
+
+        view.addEventListener('click', async (e) => {
+          const btn = e.target.closest('button[data-action]');
+          if (!btn) return;
+          const { action, origin, permission } = btn.dataset;
+          try {
+            if (action === 'revoke') {
+              await freedomAPI.revokeSitePermission(origin, permission);
+            } else if (action === 'revoke-origin') {
+              await freedomAPI.revokeSitePermissionOrigin(origin);
+            } else if (action === 'revoke-all') {
+              await freedomAPI.revokeAllSitePermissions();
+            }
+          } catch (err) {
+            console.error('[settings] site-permission revoke failed:', err);
+          }
+          reload();
+        });
+
+        // Live refresh when decisions change elsewhere (prompt answers,
+        // the address-bar indicator's quick revoke).
+        freedomAPI.onSitePermissionsChanged?.(() => {
+          reload();
+        });
+
+        // Re-sync on navigation into this section.
+        window.addEventListener('hashchange', () => {
+          if (resolveSection(location.hash) !== 'permissions') return;
           reload();
         });
 

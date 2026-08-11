@@ -200,6 +200,63 @@
               </div>
               <div class="trust-popover-tooltip" id="trust-popover-tooltip" hidden>Copy</div>
             </div>
+            <!-- Site permission prompt, anchored under the address bar. Shown
+                 when a page requests a web permission (camera, mic,
+                 notifications, …) that has no stored decision. Also doubles
+                 as the macOS "OS blocked camera/mic" notice. -->
+            <div
+              id="permission-prompt"
+              class="permission-prompt"
+              role="dialog"
+              aria-label="Site permission request"
+              data-test="permission-prompt"
+              hidden
+            >
+              <div class="permission-prompt-text">
+                <span id="permission-prompt-origin" data-test="permission-prompt-origin"></span>
+                <span id="permission-prompt-action"></span>
+              </div>
+              <div class="permission-prompt-note hidden" id="permission-prompt-note"></div>
+              <label class="permission-prompt-remember" id="permission-prompt-remember-label">
+                <input
+                  type="checkbox"
+                  id="permission-prompt-remember"
+                  data-test="permission-remember"
+                  checked
+                />
+                Remember for this site
+              </label>
+              <div class="permission-prompt-actions">
+                <button
+                  id="permission-prompt-block"
+                  class="permission-btn"
+                  type="button"
+                  data-test="permission-block"
+                >
+                  Block
+                </button>
+                <button
+                  id="permission-prompt-allow"
+                  class="permission-btn primary"
+                  type="button"
+                  data-test="permission-allow"
+                >
+                  Allow
+                </button>
+              </div>
+            </div>
+            <!-- Popover behind the permission indicator: the current site's
+                 granted/blocked permissions with quick revoke. -->
+            <div
+              id="permission-popover"
+              class="permission-popover"
+              role="dialog"
+              aria-label="Site permissions"
+              hidden
+            >
+              <div class="permission-popover-title" id="permission-popover-title"></div>
+              <div class="permission-popover-list" id="permission-popover-list"></div>
+            </div>
             <span id="protocol-icon" class="protocol-icon" aria-hidden="true">
               <!-- Swarm icon (official logo) -->
               <svg class="icon-swarm" viewBox="18 34 44 45" fill="currentColor">
@@ -266,6 +323,36 @@
               spellcheck="false"
               data-test="address-input"
             />
+            <button
+              id="permission-indicator"
+              class="icon-btn input-action-btn permission-indicator hidden"
+              type="button"
+              aria-label="Site permissions"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="permission-popover"
+              data-test="permission-indicator"
+            >
+              <!-- Sliders icon: this site holds granted permissions -->
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="4" y1="21" x2="4" y2="14" />
+                <line x1="4" y1="10" x2="4" y2="3" />
+                <line x1="12" y1="21" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12" y2="3" />
+                <line x1="20" y1="21" x2="20" y2="16" />
+                <line x1="20" y1="12" x2="20" y2="3" />
+                <line x1="1" y1="14" x2="7" y2="14" />
+                <line x1="9" y1="8" x2="15" y2="8" />
+                <line x1="17" y1="16" x2="23" y2="16" />
+              </svg>
+            </button>
             <button
               id="github-bridge-btn"
               class="icon-btn input-action-btn github-bridge-btn hidden"

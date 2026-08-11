@@ -55,6 +55,7 @@ import { initGithubBridgeUi, setOnOpenRadicleUrl } from './lib/github-bridge-ui.
 import { initDownloadsUi } from './lib/downloads-ui.js';
 import { initMenuBackdrop } from './lib/menu-backdrop.js';
 import { initLinkStatus } from './lib/link-status.js';
+import { initSitePermissionsUi } from './lib/site-permissions-ui.js';
 import { initFindBar } from './lib/find-bar.js';
 import { initPageContextMenu, hidePageContextMenu } from './lib/page-context-menu.js';
 import {
@@ -729,6 +730,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
   initBookmarks();
   initNavigation(); // Sets up event handler with tabs module
+  initSitePermissionsUi(); // Permission prompt + address-bar indicator
   initLinkStatus();
   initFindBar({ getActiveWebview }); // In-page find bar (Cmd/Ctrl+F)
   initTabs(); // Creates first tab and starts loading home page

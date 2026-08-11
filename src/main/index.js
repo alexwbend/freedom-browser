@@ -195,6 +195,10 @@ const { registerTokenRegistryIpc } = require('./token-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerNetworkConfigIpc } = require('./networks/network-ipc');
 const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
+const {
+  installPermissionHandlers,
+  registerPermissionsIpc,
+} = require('./permissions/permissions-manager');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
 const {
@@ -238,20 +242,6 @@ app.on('will-quit', () => {
   }
 });
 
-function allowInteractivePermissions(targetSession) {
-  if (!targetSession || !targetSession.setPermissionRequestHandler) {
-    return;
-  }
-  targetSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'pointerLock' || permission === 'fullscreen') {
-      log.info(`[permissions] granting ${permission} for`, webContents.getURL());
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
-}
-
 async function bootstrap() {
   // Carry the injected Swarm identity from the Bee-era bee-data/ into
   // ant-data/. Must run before the Ant node is started below, or antd
@@ -287,6 +277,7 @@ async function bootstrap() {
   registerRpcManagerIpc();
   registerNetworkConfigIpc();
   registerDappPermissionsIpc();
+  registerPermissionsIpc();
   registerX402Ipc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
@@ -318,12 +309,15 @@ async function bootstrap() {
   installRequestRewriter();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
+  // Per-site permission prompts (camera, mic, notifications, …) with
+  // deny-by-default for everything unhandled. Webviews don't set a
+  // `partition` attribute, so the default session is the one they use.
+  installPermissionHandlers(defaultSession);
   // All webviews run on the default session (no partitions today), so this
   // one hook covers every download source — including the bzz:/ipfs:/ipns:
   // protocol handlers, whose responses route through Chromium's download
   // manager like any http(s) response.
   attachDownloadsManager(defaultSession);
-  allowInteractivePermissions(defaultSession);
   registerWebContentsHandlers();
   setupApplicationMenu();
 
