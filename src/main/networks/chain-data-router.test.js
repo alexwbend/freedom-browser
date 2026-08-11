@@ -312,6 +312,67 @@ describe('chain-data-router', () => {
     );
   });
 
+  test('executes the standardized "input" calldata alias on the Myotis path', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0x2a' });
+
+    await expect(
+      request(1, 'eth_call', [{ to: '0xabc', input: '0x70a08231' }, 'latest'])
+    ).resolves.toEqual({ result: '0x2a', source: 'myotis', verified: true });
+    expect(mockMyotis.ethCall).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '0xabc', data: '0x70a08231' })
+    );
+  });
+
+  test('estimates gas against the "input" calldata alias rather than an empty call', async () => {
+    mockMyotis.estimateGas.mockResolvedValue({ gasLimit: '54000' });
+
+    await expect(
+      request(1, 'eth_estimateGas', [{ to: '0xabc', input: '0xa9059cbb' }])
+    ).resolves.toMatchObject({ result: '0xd2f0', source: 'myotis' });
+    expect(mockMyotis.estimateGas).toHaveBeenCalledWith(
+      expect.objectContaining({ to: '0xabc', data: '0xa9059cbb' })
+    );
+  });
+
+  test('carries the "input" alias into the calldata every RPC tier reads', async () => {
+    mockMyotis.isReady.mockReturnValue(false);
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['direct'] },
+      quorum: { timeoutMs: 1000 },
+    });
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ result: '0x1' }) });
+
+    await expect(
+      request(1, 'eth_call', [{ to: '0xabc', input: '0x70a08231' }, 'latest'])
+    ).resolves.toMatchObject({ result: '0x1', source: 'direct' });
+    const [call] = JSON.parse(global.fetch.mock.calls[0][1].body).params;
+    expect(call).toEqual({ to: '0xabc', input: '0x70a08231', data: '0x70a08231' });
+  });
+
+  test('prefers "input" over an empty "data" placeholder', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0x2a' });
+
+    await expect(
+      request(1, 'eth_call', [{ to: '0xabc', data: '0x', input: '0x70a08231' }, 'latest'])
+    ).resolves.toMatchObject({ source: 'myotis' });
+    expect(mockMyotis.ethCall).toHaveBeenCalledWith(
+      expect.objectContaining({ data: '0x70a08231' })
+    );
+  });
+
+  test('sends calls with conflicting data/input calldata to a source that can reject them', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0xhead' });
+    mockRequestViaColibri.mockResolvedValue('0xstrict');
+
+    await expect(
+      request(100, 'eth_call', [
+        { to: '0xabc', data: '0x70a08231', input: '0xa9059cbb' },
+        'latest',
+      ])
+    ).resolves.toMatchObject({ result: '0xstrict', source: 'colibri' });
+    expect(mockMyotis.ethCall).not.toHaveBeenCalled();
+  });
+
   test('falls back to direct RPC when Myotis is not ready', async () => {
     mockMyotis.isReady.mockReturnValue(false);
     global.fetch = jest.fn().mockResolvedValue({

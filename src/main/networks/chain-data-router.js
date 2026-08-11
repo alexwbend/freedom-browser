@@ -77,9 +77,28 @@ const CALL_QUANTITY_FIELDS = [
   'nonce',
 ];
 
+// `input` is the standardised calldata field of a call object and `data` the
+// legacy alias; libraries send one or the other (web3.js v4 sends `input`).
+// Sources read `data` — the Myotis path most of all, where a missing alias
+// would execute empty calldata against head state and return that answer as
+// verified. Canonicalise the alias into `data` here so every tier, including
+// the byte-identical quorum bodies, sees the same calldata.
+function calldata(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed || trimmed === '0x') return null;
+  return trimmed;
+}
+
 function normalizeCallObject(call) {
   if (!call || typeof call !== 'object' || Array.isArray(call)) return call;
   let normalized = call;
+  const data = calldata(call.data);
+  const input = calldata(call.input);
+  if (input && !data) {
+    normalized = { ...call };
+    normalized.data = call.input;
+  }
   for (const field of CALL_QUANTITY_FIELDS) {
     const value = call[field];
     if (value == null || value === '') continue;
@@ -200,6 +219,16 @@ function assertMyotisCallShape(method, params) {
     throw new SourceUnavailableError(`Myotis cannot serve ${method} with state overrides`);
   }
   const call = params[0] || {};
+  // A call carrying both calldata aliases with different payloads is ambiguous:
+  // strict nodes reject the pair outright, so pick neither here rather than
+  // executing one of them against head state and calling the answer verified.
+  const data = calldata(call.data);
+  const input = calldata(call.input);
+  if (data && input && data !== input) {
+    throw new SourceUnavailableError(
+      `Myotis cannot serve ${method} with conflicting "data" and "input" calldata`
+    );
+  }
   for (const field of MYOTIS_UNSUPPORTED_CALL_FIELDS) {
     const value = call[field];
     if (value == null || value === '') continue;
