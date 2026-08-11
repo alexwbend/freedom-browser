@@ -266,6 +266,29 @@ describe('acceleratorFromEvent (recording)', () => {
 });
 
 describe('validateBinding', () => {
+  test('rejects key names Electron accelerators silently ignore', () => {
+    // Dead keys / media keys / unmapped codes pass through canonicalKey
+    // unchanged; Menu accepts and silently ignores such accelerators, so a
+    // stored binding would look bound but never fire.
+    for (const accel of ['Ctrl+Dead', 'Ctrl+AudioVolumeUp', 'Ctrl+IntlBackslash']) {
+      expect(validateBinding('tab.new', accel, 'linux')).toEqual({
+        ok: false,
+        reason: 'invalid',
+      });
+    }
+    // Known named keys and function keys stay bindable.
+    expect(validateBinding('tab.new', 'Ctrl+PageDown', 'linux').ok).toBe(true);
+    expect(validateBinding('tab.new', 'Ctrl+Up', 'linux').ok).toBe(true);
+  });
+
+  test('rejects Escape with or without modifiers, matching the recorder', () => {
+    // The recorder cancels on Escape regardless of held modifiers, so no
+    // Escape combo may validate through any other path either.
+    for (const accel of ['Escape', 'Ctrl+Escape', 'Alt+Escape']) {
+      expect(validateBinding('tab.new', accel, 'linux').ok).toBe(false);
+    }
+  });
+
   test('rejects reserved combos (quit, edit roles, F12)', () => {
     expect(validateBinding('tab.new', 'CmdOrCtrl+Q', 'darwin')).toEqual({
       ok: false,
@@ -327,8 +350,9 @@ describe('validateBinding', () => {
     expect(validateBinding('view.toggleSidebar', 'Shift+Enter', 'linux').reason).toBe(
       'needs-modifier'
     );
-    // …Escape is the universal cancel/dismiss key, also not bindable bare…
-    expect(validateBinding('tab.new', 'Escape', 'linux').reason).toBe('needs-modifier');
+    // …Escape is the universal cancel/dismiss key, not bindable at all now
+    // (the recorder cancels on it, so validation rejects it outright)…
+    expect(validateBinding('tab.new', 'Escape', 'linux').reason).toBe('invalid');
     // …but a real modifier makes named keys fine.
     expect(validateBinding('tab.new', 'Ctrl+Enter', 'linux').ok).toBe(true);
     expect(validateBinding('view.toggleSidebar', 'Alt+Delete', 'darwin').ok).toBe(true);

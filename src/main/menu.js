@@ -577,10 +577,30 @@ function setupApplicationMenu() {
   closeTabMenuItem = menu.getMenuItemById('close-tab');
   toggleBookmarkBarMenuItem = menu.getMenuItemById('toggle-bookmark-bar');
   updateTabMenuItems();
+  // Restore renderer-pushed state the rebuild just reset.
+  if (lastTabState) applyTabState(lastTabState);
+  if (toggleBookmarkBarMenuItem && lastBookmarkBarEnabled !== null) {
+    toggleBookmarkBarMenuItem.enabled = lastBookmarkBarEnabled;
+  }
+  if (toggleBookmarkBarMenuItem && lastBookmarkBarChecked !== null) {
+    toggleBookmarkBarMenuItem.checked = lastBookmarkBarChecked;
+  }
 }
+
+// Last renderer-pushed dynamic state, re-applied after any menu rebuild
+// (shortcut remap, fullscreen label flip) — rebuilt items otherwise reset
+// to template defaults until the renderer's next push.
+let lastTabState = null;
+let lastBookmarkBarEnabled = null;
+let lastBookmarkBarChecked = null;
 
 // Receive tab state updates from the renderer and apply to menu items immediately
 ipcMain.on('menu:update-tab-state', (_event, state) => {
+  lastTabState = state;
+  applyTabState(state);
+});
+
+function applyTabState(state) {
   const menu = Menu.getApplicationMenu();
   if (!menu) return;
 
@@ -600,7 +620,7 @@ ipcMain.on('menu:update-tab-state', (_event, state) => {
   setEnabled('move-tab-left', hasMultipleTabs && activeIndex > 0);
   setEnabled('reopen-closed-tab', hasClosedTabs);
   setEnabled('toggle-devtools', hasTabs);
-});
+}
 
 // Track fullscreen state changes from any window to update menu label
 app.on('browser-window-created', (_event, win) => {
@@ -610,6 +630,7 @@ app.on('browser-window-created', (_event, win) => {
 
 // Allow renderer to enable/disable the bookmark bar toggle menu item
 ipcMain.on('menu:set-bookmark-bar-toggle-enabled', (_event, enabled) => {
+  lastBookmarkBarEnabled = enabled;
   if (toggleBookmarkBarMenuItem) {
     toggleBookmarkBarMenuItem.enabled = enabled;
   }
@@ -617,6 +638,7 @@ ipcMain.on('menu:set-bookmark-bar-toggle-enabled', (_event, enabled) => {
 
 // Allow renderer to update the bookmark bar checked state
 ipcMain.on('menu:set-bookmark-bar-checked', (_event, checked) => {
+  lastBookmarkBarChecked = checked;
   if (toggleBookmarkBarMenuItem) {
     toggleBookmarkBarMenuItem.checked = checked;
   }

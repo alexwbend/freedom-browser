@@ -481,6 +481,23 @@ function acceleratorFromEvent(event, platform) {
   return parts.join('+');
 }
 
+// Named keys Electron's accelerator parser actually accepts. canonicalKey
+// passes unknown names through untouched (media keys, 'Dead' from intl
+// dead-key layouts) and Menu silently ignores accelerators built from them
+// — the binding would look bound in settings but never fire. Reject those
+// at validation instead. Escape is excluded here on purpose: the recorder
+// cancels on Escape (with or without modifiers), so accepting it from any
+// other path would create bindings the recorder can never produce.
+const KNOWN_NAMED_KEYS = new Set(
+  Object.values(KEY_ALIASES).filter((key) => key !== 'Escape')
+);
+function isRecognizedKey(key) {
+  if (typeof key !== 'string' || key.length === 0) return false;
+  if (key.length === 1) return true;
+  if (/^F([1-9]|1\d|2[0-4])$/.test(key)) return true;
+  return KNOWN_NAMED_KEYS.has(key);
+}
+
 /**
  * Whether `accelerator` is assignable to `entry` on `platform`.
  * Returns { ok: true } or { ok: false, reason }, with reason one of
@@ -495,6 +512,7 @@ function validateBinding(entryOrId, accelerator, platform) {
 
   const parsed = parseAccelerator(accelerator, platform);
   if (!parsed) return { ok: false, reason: 'invalid' };
+  if (!isRecognizedKey(parsed.key)) return { ok: false, reason: 'invalid' };
   if (isReservedAccelerator(accelerator, platform)) return { ok: false, reason: 'reserved' };
 
   // Every scope must carry a real modifier for typing/editing keys: a bare
