@@ -189,6 +189,43 @@ describe('runUpdateOnce', () => {
     expect(settled.activate).not.toHaveBeenCalled();
   });
 
+  test('backfill reuses applied copies and downloads only the missing list', async () => {
+    // v3 lands with ads only; enabling privacy backfills at the same version.
+    getEnabledCategories.mockReturnValue(['ads']);
+    await runUpdateOnce(io({ readFeed: async () => signedManifest(3) }));
+
+    getEnabledCategories.mockReturnValue(['ads', 'privacy']);
+    const opts = io({ readFeed: async () => signedManifest(3) });
+    expect(await runUpdateOnce(opts)).toEqual({ status: 'applied', version: 3 });
+    // Only the missing privacy list is fetched — the applied ads copy is
+    // reused after hash verification, not re-downloaded.
+    expect(opts.downloadBlob).toHaveBeenCalledTimes(1);
+    expect(opts.downloadBlob).toHaveBeenCalledWith(REF_PRIV);
+    expect(fs.readFileSync(path.join(root, 'updated', 'easylist.txt'))).toEqual(ADS);
+    expect(fs.readFileSync(path.join(root, 'updated', 'easyprivacy.txt'))).toEqual(PRIV);
+  });
+
+  test('a backfill apply retains still-valid applied categories that are disabled', async () => {
+    // v3 applied with ads+privacy; user disables privacy and enables ads only
+    // — then a backfill (cookies-style scenario via re-apply) must not throw
+    // away the still-valid privacy copy from updated/.
+    getEnabledCategories.mockReturnValue(['ads', 'privacy']);
+    await runUpdateOnce(io({ readFeed: async () => signedManifest(3) }));
+
+    // Force a rewrite of updated/ while privacy is disabled: bump to v4.
+    getEnabledCategories.mockReturnValue(['ads']);
+    const opts = io({ readFeed: async () => signedManifest(4) });
+    expect(await runUpdateOnce(opts)).toEqual({ status: 'applied', version: 4 });
+
+    // The disabled privacy list rides along (same hashes at v4), so
+    // re-enabling it serves the fresh copy instead of the bundled floor.
+    expect(fs.readFileSync(path.join(root, 'updated', 'easyprivacy.txt'))).toEqual(PRIV);
+    const staged = JSON.parse(
+      fs.readFileSync(path.join(root, 'updated', 'manifest.json'), 'utf-8')
+    );
+    expect(Object.keys(staged.categories).sort()).toEqual(['ads', 'privacy']);
+  });
+
   test('does not re-download every tick when the feed has no list for the new category', async () => {
     await runUpdateOnce(io({ readFeed: async () => signedManifest(3) }));
 

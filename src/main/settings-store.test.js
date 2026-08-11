@@ -45,6 +45,8 @@ describe('settings-store', () => {
         startRadicleAtLaunch: false,
         autoUpdate: true,
         showBookmarkBar: false,
+        searchProvider: 'duckduckgo',
+        customSearchProviders: [],
         sidebarOpen: false,
         sidebarWidth: 320,
         blockUnverifiedEns: true,
@@ -144,6 +146,77 @@ describe('settings-store', () => {
     expect(nativeTheme.themeSource).toBe('light');
   });
 
+  test('saveSettings persists the search provider and it survives a reload', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(
+      mod.saveSettings({
+        searchProvider: 'custom:searx',
+        customSearchProviders: [
+          {
+            id: 'searx',
+            name: 'SearxNG',
+            searchUrlTemplate: 'https://search.example/?q=%s',
+          },
+        ],
+      })
+    ).toBe(true);
+
+    const { mod: reloaded } = loadSettingsStore({ userDataDir });
+    expect(reloaded.loadSettings()).toEqual(
+      expect.objectContaining({
+        searchProvider: 'custom:searx',
+        customSearchProviders: [
+          {
+            id: 'searx',
+            name: 'SearxNG',
+            searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+          },
+        ],
+      })
+    );
+  });
+
+  test('normalizes malformed custom providers loaded from disk', () => {
+    const settingsPath = path.join(userDataDir, 'settings.json');
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        customSearchProviders: [
+          {
+            id: 'valid',
+            name: ' Valid Search ',
+            searchUrlTemplate: 'https://search.example/?q=%s',
+          },
+          {
+            id: 'unsafe',
+            name: 'Unsafe',
+            searchUrlTemplate: 'javascript:{searchTerms}',
+          },
+          {
+            id: 'valid',
+            name: 'Duplicate',
+            searchUrlTemplate: 'https://duplicate.example/?q={searchTerms}',
+          },
+        ],
+      }),
+      'utf-8'
+    );
+
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(mod.loadSettings().customSearchProviders).toEqual([
+      {
+        id: 'valid',
+        name: 'Valid Search',
+        searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+      },
+    ]);
+    expect(JSON.parse(fs.readFileSync(settingsPath, 'utf-8')).customSearchProviders).toEqual(
+      mod.loadSettings().customSearchProviders
+    );
+  });
+
   test('saveSettings broadcasts settings:updated to all webContents', () => {
     const send = jest.fn();
     const webContents = {
@@ -181,6 +254,30 @@ describe('settings-store', () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(fs.statSync(filePath).size).toBe(sizeBefore);
+  });
+
+  test('saveSettings treats an equivalent custom provider list as unchanged', () => {
+    const providers = [
+      {
+        id: 'searx',
+        name: 'SearxNG',
+        searchUrlTemplate: 'https://search.example/?q={searchTerms}',
+      },
+    ];
+    fs.writeFileSync(
+      path.join(userDataDir, 'settings.json'),
+      JSON.stringify({ customSearchProviders: providers }),
+      'utf-8'
+    );
+    const send = jest.fn();
+    const webContents = { getAllWebContents: jest.fn(() => [{ send }]) };
+    const { mod } = loadSettingsStore({ userDataDir, webContents });
+    mod.loadSettings();
+
+    expect(
+      mod.saveSettings({ customSearchProviders: providers.map((entry) => ({ ...entry })) })
+    ).toBe(true);
+    expect(send).not.toHaveBeenCalled();
   });
 
   test('saveSettings drops keys that are not part of DEFAULT_SETTINGS', () => {
@@ -242,5 +339,57 @@ describe('settings-store', () => {
     ).resolves.toBe(true);
 
     expect(nativeTheme.themeSource).toBe('dark');
+  });
+});
+
+// The search-template validator exists in three copies: here (main), the
+// renderer's search-utils.js, and inline in settings.html. If the renderer
+// copy drifts looser than this one, a template the form accepts is silently
+// dropped by normalizeCustomSearchProviders while the UI reports "saved".
+// This parity suite pins main vs search-utils over the tricky vectors (the
+// settings.html inline copy has no import seam — keep it in sync by hand).
+describe('normalizeSearchUrlTemplate parity (main vs renderer)', () => {
+  const {
+    normalizeSearchUrlTemplate: rendererNormalize,
+  } = require('../renderer/lib/search-utils.js');
+
+  let userDataDir;
+  beforeEach(() => {
+    userDataDir = createTempUserDataDir();
+  });
+  afterEach(() => {
+    removeTempUserDataDir(userDataDir);
+  });
+
+  const VECTORS = [
+    'https://example.com/search?q={searchTerms}',
+    'https://example.com/search?q=%s',
+    '  https://example.com/?q={searchTerms}  ',
+    'https://example.com/search', // no placeholder
+    'https://example.com/?a={searchTerms}&b={searchTerms}', // two placeholders
+    'https://example.com/?a={searchTerms}&b=%s', // mixed placeholder forms
+    'http://example.com/?q={searchTerms}', // http non-loopback
+    'http://localhost:3000/?q={searchTerms}',
+    'http://127.0.0.1/?q={searchTerms}',
+    'http://[::1]:8080/?q={searchTerms}',
+    'https://user:pass@example.com/?q={searchTerms}', // credentials
+    'ftp://example.com/?q={searchTerms}',
+    'not a url {searchTerms}',
+    '{searchTerms}',
+    '',
+    'https://example.com/?q={SEARCHTERMS}', // wrong case
+    `https://example.com/?q={searchTerms}&pad=${'x'.repeat(2048)}`, // over length cap
+  ];
+
+  test.each(VECTORS.map((v) => [v]))('agrees on %s', (vector) => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    expect(mod.normalizeSearchUrlTemplate(vector)).toBe(rendererNormalize(vector));
+  });
+
+  test('agrees on non-string inputs', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    for (const vector of [null, undefined, 42, {}, []]) {
+      expect(mod.normalizeSearchUrlTemplate(vector)).toBe(rendererNormalize(vector));
+    }
   });
 });

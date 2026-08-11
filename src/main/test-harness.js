@@ -212,6 +212,23 @@ function overrideEnsIpc() {
   });
 
   replaceHandler(IPC.ENS_INVALIDATE_CONTENT, async () => true);
+
+  // Tezos Domains shares the ENS fixture map — `.tez` and `.eth` names can
+  // never collide — so a spec drives both name systems through
+  // `setEnsFixture`. Without this override a harness spec that navigates to
+  // a `.tez` name would reach out to the real public Tezos RPCs.
+  replaceHandler(IPC.TEZOS_DOMAINS_RESOLVE, async (_event, payload = {}) => {
+    const name = (payload?.name || '').trim().toLowerCase();
+    if (!name) {
+      return { type: 'not_found', reason: 'EMPTY', system: 'tezos' };
+    }
+    if (ensFixtures.has(name)) {
+      return ensFixtures.get(name);
+    }
+    return { type: 'not_found', reason: 'NO_FIXTURE', system: 'tezos' };
+  });
+
+  replaceHandler(IPC.TEZOS_DOMAINS_INVALIDATE, async () => ({ ok: true }));
 }
 
 function overrideProbeIpc() {

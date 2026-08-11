@@ -49,19 +49,22 @@ function getUpdateRoot() {
   return path.join(app.getPath('userData'), 'adblock');
 }
 
-// What's already applied on disk: the feed version (0 if none) and the
+// What's already applied on disk: the feed version (0 if none), the
 // categories that update carried — only the ones enabled at download time, so
-// a category enabled later is absent and needs backfilling.
+// a category enabled later is absent and needs backfilling — and the raw
+// per-category entries so an apply can reuse still-valid local copies.
 function readAppliedState(updatedDir) {
   try {
     const raw = fs.readFileSync(path.join(updatedDir, 'manifest.json'), 'utf-8');
     const local = JSON.parse(raw);
+    const entries = local.categories && typeof local.categories === 'object' ? local.categories : {};
     return {
       version: Number.isInteger(local.feedVersion) ? local.feedVersion : 0,
-      categories: Object.keys(local.categories || {}),
+      categories: Object.keys(entries),
+      entries,
     };
   } catch {
-    return { version: 0, categories: [] };
+    return { version: 0, categories: [], entries: {} };
   }
 }
 
@@ -140,18 +143,56 @@ async function runUpdateOnce(io = {}) {
       log.warn(`[adblock-update] unsafe list_id ${JSON.stringify(entry.list_id)} — aborting`);
       return { status: 'rejected', reason: 'unsafe_list_id' };
     }
-    let blob;
-    try {
-      blob = await downloadBlob(entry.ref);
-    } catch (err) {
-      log.warn(`[adblock-update] download failed for ${entry.category}: ${err.message}`);
-      return { status: 'download_failed', reason: entry.category };
+    // Reuse the applied copy when its hash already matches the manifest —
+    // on a backfill only the newly-enabled category is actually missing, so
+    // re-downloading the rest wastes bandwidth and re-opens the window for a
+    // differently-signed same-version manifest to rewrite applied lists. The
+    // read bytes are still hash-verified below like a download would be.
+    let blob = null;
+    const appliedEntry = applied.entries[entry.category];
+    if (appliedEntry?.sha256 === entry.sha256 && appliedEntry.file) {
+      try {
+        blob = await fs.promises.readFile(path.join(updatedDir, path.basename(appliedEntry.file)));
+      } catch {
+        blob = null; // applied file missing/unreadable — fall through to download
+      }
+      if (blob && sha256Hex(blob) !== entry.sha256) blob = null;
     }
-    if (sha256Hex(blob) !== entry.sha256) {
-      log.warn(`[adblock-update] sha256 mismatch for ${entry.category} — aborting`);
-      return { status: 'hash_mismatch', reason: entry.category };
+    if (!blob) {
+      try {
+        blob = await downloadBlob(entry.ref);
+      } catch (err) {
+        log.warn(`[adblock-update] download failed for ${entry.category}: ${err.message}`);
+        return { status: 'download_failed', reason: entry.category };
+      }
+      if (sha256Hex(blob) !== entry.sha256) {
+        log.warn(`[adblock-update] sha256 mismatch for ${entry.category} — aborting`);
+        return { status: 'hash_mismatch', reason: entry.category };
+      }
     }
     files.push({ entry, blob, file });
+  }
+
+  // Retain applied categories that are currently disabled but still valid at
+  // this manifest version — discarding them would serve the older bundled
+  // list for up to a tick if the user re-enables one.
+  for (const [category, appliedEntry] of Object.entries(applied.entries)) {
+    if (files.some(({ entry }) => entry.category === category)) continue;
+    const manifestEntry = manifest.platforms.desktop.lists.find(
+      (candidate) => candidate.category === category
+    );
+    if (!manifestEntry || manifestEntry.sha256 !== appliedEntry?.sha256 || !appliedEntry.file) {
+      continue;
+    }
+    const file = path.basename(appliedEntry.file);
+    let blob;
+    try {
+      blob = await fs.promises.readFile(path.join(updatedDir, file));
+    } catch {
+      continue; // nothing local to retain
+    }
+    if (sha256Hex(blob) !== manifestEntry.sha256) continue;
+    files.push({ entry: manifestEntry, blob, file });
   }
 
   // Stage, then promote atomically. Keep the prior updated dir as last-known-good.
