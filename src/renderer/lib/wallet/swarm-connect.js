@@ -86,13 +86,72 @@ let swarmFeedPasswordInput;
 let swarmFeedPasswordSubmit;
 let swarmFeedUnlockError;
 
+/**
+ * Each approval prompt owns a single sidebar screen, so only one request can
+ * be on screen at a time. Concurrent dApp requests (two swarm.subscribe()
+ * calls at page load, two sends back to back) queue up and are shown in turn.
+ * Without a queue the newer request would overwrite the pending one, which
+ * both orphans the first request and auto-rejects the new one when
+ * hideAllSubscreens() fires this screen's hider during the transition.
+ *
+ * @param {(entry: Object) => void} present - renders and shows the screen
+ */
+function createPromptQueue(present) {
+  const waiting = [];
+  let current = null;
+
+  return {
+    /** The request currently on screen, or null. */
+    get current() {
+      return current;
+    },
+
+    /** Show `entry` now, or queue it behind the request already on screen. */
+    show(entry) {
+      waiting.push(entry);
+      if (!current) this.showNext();
+    },
+
+    /** Show the next queued request, if there is one. */
+    showNext() {
+      const next = waiting.shift();
+      if (!next) return;
+      // present() calls hideAllSubscreens(), which runs every screen hider —
+      // including this screen's. `current` stays null until that has run so
+      // the hider cannot mistake the incoming request for a dismissed one.
+      present(next);
+      current = next;
+    },
+
+    /** The request on screen settled (approve/cancel): show the next one. */
+    settle() {
+      current = null;
+      this.showNext();
+    },
+
+    /** The screen was dismissed: hand back every request so all get rejected. */
+    drain() {
+      const dropped = current ? [current, ...waiting] : waiting.slice();
+      current = null;
+      waiting.length = 0;
+      return dropped;
+    },
+  };
+}
+
 // Local state
-let swarmConnectPending = null;
-let swarmPublishPending = null;
-let swarmMessagingPending = null;
-let swarmFeedPending = null;
+const swarmConnectQueue = createPromptQueue(presentSwarmConnect);
+const swarmPublishQueue = createPromptQueue(presentSwarmPublishApproval);
+const swarmMessagingQueue = createPromptQueue(presentSwarmMessagingApproval);
+const swarmFeedQueue = createPromptQueue(presentSwarmFeedApproval);
 let swarmFeedIdentityState = null;
 let currentBannerPermissionKey = null;
+
+function rejectDismissed(queue) {
+  for (const pending of queue.drain()) {
+    pending.reject({ code: 4001, message: 'User dismissed prompt' });
+  }
+}
 
 export function initSwarmConnect() {
   swarmConnectScreen = document.getElementById('sidebar-swarm-connect');
@@ -126,18 +185,14 @@ export function initSwarmConnect() {
     // showing a new screen, so we must not reject during that transition.
     const wasVisible = swarmConnectScreen && !swarmConnectScreen.classList.contains('hidden');
     swarmConnectScreen?.classList.add('hidden');
-    if (wasVisible && swarmConnectPending) {
-      swarmConnectPending.reject({ code: 4001, message: 'User dismissed prompt' });
-      swarmConnectPending = null;
-    }
+    // Dismissing the screen drops queued requests too — the user never sees
+    // them, so leaving them pending would hang the page.
+    if (wasVisible) rejectDismissed(swarmConnectQueue);
   });
   registerScreenHider(() => {
     const wasVisible = swarmPublishScreen && !swarmPublishScreen.classList.contains('hidden');
     swarmPublishScreen?.classList.add('hidden');
-    if (wasVisible && swarmPublishPending) {
-      swarmPublishPending.reject({ code: 4001, message: 'User dismissed prompt' });
-      swarmPublishPending = null;
-    }
+    if (wasVisible) rejectDismissed(swarmPublishQueue);
   });
 
   swarmMessagingScreen = document.getElementById('sidebar-swarm-messaging-approve');
@@ -158,10 +213,7 @@ export function initSwarmConnect() {
   registerScreenHider(() => {
     const wasVisible = swarmMessagingScreen && !swarmMessagingScreen.classList.contains('hidden');
     swarmMessagingScreen?.classList.add('hidden');
-    if (wasVisible && swarmMessagingPending) {
-      swarmMessagingPending.reject({ code: 4001, message: 'User dismissed prompt' });
-      swarmMessagingPending = null;
-    }
+    if (wasVisible) rejectDismissed(swarmMessagingQueue);
   });
 
   swarmFeedScreen = document.getElementById('sidebar-swarm-feed-approve');
@@ -190,10 +242,7 @@ export function initSwarmConnect() {
   registerScreenHider(() => {
     const wasVisible = swarmFeedScreen && !swarmFeedScreen.classList.contains('hidden');
     swarmFeedScreen?.classList.add('hidden');
-    if (wasVisible && swarmFeedPending) {
-      swarmFeedPending.reject({ code: 4001, message: 'User dismissed prompt' });
-      swarmFeedPending = null;
-    }
+    if (wasVisible) rejectDismissed(swarmFeedQueue);
   });
 
   setupSwarmConnectScreen();
@@ -245,11 +294,14 @@ function setupSwarmConnectScreen() {
 }
 
 /**
- * Show the Swarm connect approval screen.
+ * Show the Swarm connect approval screen (queued behind any prompt already
+ * on screen).
  */
 export function showSwarmConnect(displayUrl, permissionKey, resolve, reject, webview) {
-  swarmConnectPending = { permissionKey, resolve, reject, webview };
+  swarmConnectQueue.show({ displayUrl, permissionKey, resolve, reject, webview });
+}
 
+function presentSwarmConnect({ displayUrl, permissionKey }) {
   if (swarmConnectSite) {
     swarmConnectSite.textContent = permissionKey || displayUrl || 'Unknown';
   }
@@ -264,13 +316,14 @@ export function showSwarmConnect(displayUrl, permissionKey, resolve, reject, web
 function closeSwarmConnect() {
   swarmConnectScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
-  swarmConnectPending = null;
+  swarmConnectQueue.settle();
 }
 
 async function approveSwarmConnect() {
-  if (!swarmConnectPending) return;
+  const pending = swarmConnectQueue.current;
+  if (!pending) return;
 
-  const { permissionKey, resolve, webview } = swarmConnectPending;
+  const { permissionKey, resolve, webview } = pending;
 
   try {
     await window.swarmPermissions.grantPermission(permissionKey);
@@ -300,9 +353,10 @@ async function approveSwarmConnect() {
 }
 
 function rejectSwarmConnect() {
-  if (!swarmConnectPending) return;
+  const pending = swarmConnectQueue.current;
+  if (!pending) return;
 
-  const { reject } = swarmConnectPending;
+  const { reject } = pending;
   reject({ code: 4001, message: 'User rejected Swarm access' });
   console.log('[SwarmConnect] Rejected');
 }
@@ -410,11 +464,14 @@ function setupSwarmPublishScreen() {
 }
 
 /**
- * Show the per-publish approval prompt.
- * Resolves on "Publish", rejects (code 4001) on "Cancel".
+ * Show the per-publish approval prompt (queued behind any prompt already on
+ * screen). Resolves on "Publish", rejects (code 4001) on "Cancel".
  */
 export function showSwarmPublishApproval(permissionKey, params, resolve, reject, method) {
-  swarmPublishPending = { permissionKey, resolve, reject };
+  swarmPublishQueue.show({ permissionKey, params, resolve, reject, method });
+}
+
+function presentSwarmPublishApproval({ permissionKey, params, method }) {
   if (swarmPublishAutoApproveCheckbox) swarmPublishAutoApproveCheckbox.checked = false;
 
   if (swarmPublishSite) {
@@ -475,12 +532,13 @@ export function showSwarmPublishApproval(permissionKey, params, resolve, reject,
 function closeSwarmPublishApproval() {
   swarmPublishScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
-  swarmPublishPending = null;
+  swarmPublishQueue.settle();
 }
 
 async function approveSwarmPublish() {
-  if (!swarmPublishPending) return;
-  const { permissionKey, resolve } = swarmPublishPending;
+  const pending = swarmPublishQueue.current;
+  if (!pending) return;
+  const { permissionKey, resolve } = pending;
 
   if (swarmPublishAutoApproveCheckbox?.checked && permissionKey) {
     await window.swarmPermissions.setAutoApprove(permissionKey, 'publish', true);
@@ -492,8 +550,9 @@ async function approveSwarmPublish() {
 }
 
 function rejectSwarmPublish() {
-  if (!swarmPublishPending) return;
-  const { reject } = swarmPublishPending;
+  const pending = swarmPublishQueue.current;
+  if (!pending) return;
+  const { reject } = pending;
   reject({ code: 4001, message: 'User rejected publish' });
   console.log('[SwarmConnect] Publish rejected');
 }
@@ -539,15 +598,19 @@ function messagingRequestLabel(method) {
 }
 
 /**
- * Show the messaging approval prompt.
+ * Show the messaging approval prompt (queued behind any prompt already on
+ * screen — a page can fire several messaging calls at once).
  *
  * Grant mode (first messaging call for the origin) asks for the
  * messaging tier as a whole; send mode asks per message and offers the
  * messaging auto-approve. Resolves on approve, rejects (4001) on cancel.
  */
 export function showSwarmMessagingApproval(permissionKey, params, resolve, reject, options = {}) {
-  const { method, grantMode } = options;
-  swarmMessagingPending = { permissionKey, resolve, reject };
+  swarmMessagingQueue.show({ permissionKey, params, resolve, reject, options });
+}
+
+function presentSwarmMessagingApproval({ permissionKey, params, options }) {
+  const { method, grantMode } = options || {};
 
   if (swarmMessagingSite) swarmMessagingSite.textContent = permissionKey || 'Unknown';
   if (swarmMessagingTitle) {
@@ -600,12 +663,13 @@ export function showSwarmMessagingApproval(permissionKey, params, resolve, rejec
 function closeSwarmMessagingApproval() {
   swarmMessagingScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
-  swarmMessagingPending = null;
+  swarmMessagingQueue.settle();
 }
 
 async function approveSwarmMessaging() {
-  if (!swarmMessagingPending) return;
-  const { permissionKey, resolve } = swarmMessagingPending;
+  const pending = swarmMessagingQueue.current;
+  if (!pending) return;
+  const { permissionKey, resolve } = pending;
 
   if (swarmMessagingAutoApproveCheckbox?.checked && permissionKey) {
     await window.swarmPermissions.setAutoApprove(permissionKey, 'messaging', true);
@@ -617,8 +681,9 @@ async function approveSwarmMessaging() {
 }
 
 function rejectSwarmMessaging() {
-  if (!swarmMessagingPending) return;
-  const { reject } = swarmMessagingPending;
+  const pending = swarmMessagingQueue.current;
+  if (!pending) return;
+  const { reject } = pending;
   reject({ code: 4001, message: 'User rejected the request' });
   console.log('[SwarmConnect] Messaging rejected');
 }
@@ -673,16 +738,19 @@ function setupSwarmFeedScreen() {
 }
 
 /**
- * Show the feed access approval prompt.
- * On approval, establishes or re-grants feed access for the origin.
+ * Show the feed access approval prompt (queued behind any prompt already on
+ * screen). On approval, establishes or re-grants feed access for the origin.
  */
-export async function showSwarmFeedApproval(permissionKey, params, resolve, reject, options = {}) {
+export function showSwarmFeedApproval(permissionKey, params, resolve, reject, options = {}) {
   const autoApproveType = options.autoApproveType === 'signing' ? 'signing' : 'feeds';
-  swarmFeedPending = { permissionKey, resolve, reject, autoApproveType };
+  swarmFeedQueue.show({ permissionKey, params, resolve, reject, autoApproveType, method: options.method });
+}
+
+function presentSwarmFeedApproval({ permissionKey, params, autoApproveType, method }) {
   swarmFeedIdentityState = null;
   if (swarmFeedAutoApproveCheckbox) swarmFeedAutoApproveCheckbox.checked = false;
 
-  applyFeedPromptCopy(options.method, params, autoApproveType);
+  applyFeedPromptCopy(method, params, autoApproveType);
 
   if (swarmFeedSite) {
     swarmFeedSite.textContent = permissionKey || 'Unknown';
@@ -753,9 +821,9 @@ function renderFeedIdentitySelector() {
 }
 
 async function refreshFeedIdentitySelector() {
-  if (!swarmFeedPending?.permissionKey) return;
+  if (!swarmFeedQueue.current?.permissionKey) return;
   try {
-    swarmFeedIdentityState = await loadFeedIdentityState(swarmFeedPending.permissionKey);
+    swarmFeedIdentityState = await loadFeedIdentityState(swarmFeedQueue.current.permissionKey);
     renderFeedIdentitySelector();
   } catch (err) {
     console.error('[SwarmConnect] Failed to load publisher identities:', err);
@@ -774,7 +842,7 @@ async function loadFeedIdentityState(permissionKey) {
 }
 
 async function activateFeedPromptIdentity(identity) {
-  if (!swarmFeedPending?.permissionKey || !identity) return;
+  if (!swarmFeedQueue.current?.permissionKey || !identity) return;
   if (identity.id === swarmFeedIdentityState?.activeIdentityId) return;
 
   swarmFeedIdentityState = {
@@ -786,8 +854,8 @@ async function activateFeedPromptIdentity(identity) {
 }
 
 async function createFeedPromptIdentity() {
-  if (!swarmFeedPending?.permissionKey) return;
-  const { permissionKey } = swarmFeedPending;
+  if (!swarmFeedQueue.current?.permissionKey) return;
+  const { permissionKey } = swarmFeedQueue.current;
   try {
     const preview = await window.swarmFeedStore.previewAppScopedIdentity(permissionKey);
     swarmFeedIdentityState = addOrReplaceIdentity(swarmFeedIdentityState, preview);
@@ -914,24 +982,28 @@ function hideFeedUnlockError() {
 function closeSwarmFeedApproval() {
   swarmFeedScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
-  swarmFeedPending = null;
   swarmFeedIdentityState = null;
   if (swarmFeedIdentitySelector) swarmFeedIdentitySelector.innerHTML = '';
   // Reset unlock state
   if (swarmFeedPasswordInput) swarmFeedPasswordInput.value = '';
   hideFeedUnlockError();
+  swarmFeedQueue.settle();
 }
 
 async function approveSwarmFeed() {
-  if (!swarmFeedPending) return;
+  const pending = swarmFeedQueue.current;
+  if (!pending) return;
 
-  const { permissionKey, resolve, reject, autoApproveType } = swarmFeedPending;
+  const { permissionKey, resolve, reject, autoApproveType } = pending;
+  // Snapshot the identity state: closing this prompt (and showing any queued
+  // one) resets the shared state while this approval is still in flight.
+  let identityState = swarmFeedIdentityState;
 
   try {
-    if (!swarmFeedIdentityState?.activeIdentityId) {
-      swarmFeedIdentityState = await loadFeedIdentityState(permissionKey);
+    if (!identityState?.activeIdentityId) {
+      identityState = await loadFeedIdentityState(permissionKey);
     }
-    const activeIdentity = getActivePublisherIdentity(swarmFeedIdentityState);
+    const activeIdentity = getActivePublisherIdentity(identityState);
     const entry = await persistFeedPromptIdentity(permissionKey, activeIdentity);
     const effectiveMode = entry?.identityMode || activeIdentity?.mode || 'app-scoped';
 
@@ -974,8 +1046,9 @@ async function persistFeedPromptIdentity(permissionKey, identity) {
 }
 
 function rejectSwarmFeed() {
-  if (!swarmFeedPending) return;
-  const { reject } = swarmFeedPending;
+  const pending = swarmFeedQueue.current;
+  if (!pending) return;
+  const { reject } = pending;
   reject({ code: 4001, message: 'User rejected feed access' });
   console.log('[SwarmConnect] Feed access rejected');
 }
