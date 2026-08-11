@@ -54,6 +54,45 @@ describe('chain-data-router', () => {
     expect(mockRequestViaColibri).not.toHaveBeenCalled();
   });
 
+  test('sends pending nonce reads to a source that honours the block tag', async () => {
+    mockMyotis.getAccount.mockResolvedValue({ status: 'ok', nonce: 3 });
+    mockRequestViaColibri.mockResolvedValue('0x5');
+
+    await expect(
+      request(100, 'eth_getTransactionCount', ['0xabc', 'pending'])
+    ).resolves.toEqual({
+      result: '0x5',
+      source: 'colibri',
+      verified: true,
+    });
+    expect(mockMyotis.getAccount).not.toHaveBeenCalled();
+    expect(mockRequestViaColibri).toHaveBeenCalledWith(100, 'eth_getTransactionCount', [
+      '0xabc',
+      'pending',
+    ]);
+  });
+
+  test('sends historical balance reads to a source that honours the block tag', async () => {
+    mockMyotis.getAccount.mockResolvedValue({ status: 'ok', balanceWei: '42' });
+    mockRequestViaColibri.mockResolvedValue('0x1');
+
+    await expect(request(100, 'eth_getBalance', ['0xabc', '0x1234'])).resolves.toMatchObject({
+      result: '0x1',
+      source: 'colibri',
+    });
+    expect(mockMyotis.getAccount).not.toHaveBeenCalled();
+  });
+
+  test('sends non-latest gas estimates to a source that honours the block tag', async () => {
+    mockMyotis.estimateGas.mockResolvedValue({ gasLimit: '21000' });
+    mockRequestViaColibri.mockResolvedValue('0x5208');
+
+    await expect(
+      request(100, 'eth_estimateGas', [{ to: '0xabc' }, 'pending'])
+    ).resolves.toMatchObject({ source: 'colibri' });
+    expect(mockMyotis.estimateGas).not.toHaveBeenCalled();
+  });
+
   test('falls through unsupported Myotis reads to the per-chain Colibri client', async () => {
     mockRequestViaColibri.mockResolvedValue('0x6000');
 
@@ -88,7 +127,9 @@ describe('chain-data-router', () => {
       type: 'eip1559',
       baseFee: '98',
       maxPriorityFeePerGas: '2',
-      maxFeePerGas: '100',
+      // 2x base fee + priority fee: headroom for a base fee that rises
+      // between the quote and inclusion.
+      maxFeePerGas: '198',
       effectiveGasPrice: '100',
       source: 'myotis',
       verified: true,
@@ -132,8 +173,10 @@ describe('chain-data-router', () => {
 
     await expect(getFeeQuote(100)).resolves.toMatchObject({
       type: 'eip1559',
-      maxFeePerGas: '3773',
+      baseFee: '3772',
+      maxFeePerGas: '7545',
       maxPriorityFeePerGas: '1',
+      effectiveGasPrice: '3773',
       source: 'direct',
     });
     expect(global.fetch).toHaveBeenCalledTimes(2);

@@ -114,20 +114,33 @@ function feeQuote(source, gasPriceValue, priorityValue = null) {
     };
   }
 
+  const baseFee = gasPrice - priority;
   return {
     type: 'eip1559',
-    baseFee: (gasPrice - priority).toString(),
+    baseFee: baseFee.toString(),
     maxPriorityFeePerGas: priority.toString(),
-    maxFeePerGas: gasPrice.toString(),
+    // The base fee can rise 12.5% per block between quoting and inclusion, so
+    // the signed cap needs headroom the quoted gas price does not have. Two
+    // full blocks of growth is the market preset the wallet has always used.
+    maxFeePerGas: (baseFee * 2n + priority).toString(),
     effectiveGasPrice: gasPrice.toString(),
     ...metadata,
   };
+}
+
+// Myotis answers account reads from its verified head state and takes no block
+// parameter. Any explicit tag other than `latest` — notably the `pending` nonce
+// a new transaction needs — has to come from a source that honours the tag.
+function assertMyotisBlockTag(method, blockTag) {
+  if (blockTag == null || blockTag === 'latest') return;
+  throw new SourceUnavailableError(`Myotis cannot serve ${method} at block "${blockTag}"`);
 }
 
 async function requestMyotis(chainId, method, params) {
   if (!myotis.isReady(chainId)) throw new SourceUnavailableError('Myotis is not ready');
 
   if (method === 'eth_getBalance' || method === 'eth_getTransactionCount') {
+    assertMyotisBlockTag(method, params[1]);
     const account = await myotis.getAccount(params[0], chainId);
     const value = method === 'eth_getBalance'
       ? nativeResult(account, 'balanceWei', 'balance')
@@ -149,6 +162,9 @@ async function requestMyotis(chainId, method, params) {
   }
 
   if (method === 'eth_estimateGas') {
+    // Same constraint as the account reads: the estimate is taken against the
+    // verified head, so an explicit non-`latest` tag cannot be honoured here.
+    assertMyotisBlockTag(method, params[1]);
     const call = params[0] || {};
     const result = await myotis.estimateGas({
       chainId,
