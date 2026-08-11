@@ -201,6 +201,66 @@ describe('chain-data-router', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
+  test('hex-encodes decimal call quantities so the quorum tier can serve them', async () => {
+    mockMyotis.isReady.mockReturnValue(false);
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['quorum', 'direct'] },
+      quorum: { k: 2, m: 2, timeoutMs: 1000 },
+    });
+    mockRegistry.getEndpoints.mockImplementation((_chainId, role) =>
+      role === 'prover' ? [] : ['https://a.example', 'https://b.example']
+    );
+    global.fetch = jest.fn().mockImplementation(async (_url, options) => {
+      const { params } = JSON.parse(options.body);
+      // A spec-compliant node rejects a decimal QUANTITY outright.
+      if (!/^0x[0-9a-f]+$/.test(params[0].value)) {
+        return {
+          ok: true,
+          json: async () => ({
+            error: { code: -32602, message: 'invalid argument 0: hex string without 0x prefix' },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ result: '0x5208' }) };
+    });
+
+    await expect(
+      request(1, 'eth_estimateGas', [
+        { from: '0xabc', to: '0xdef', value: '1000000000000000000' },
+      ])
+    ).resolves.toEqual({ result: '0x5208', source: 'quorum', verified: true });
+    expect(
+      global.fetch.mock.calls.map(([, options]) => JSON.parse(options.body).params[0].value)
+    ).toEqual(['0xde0b6b3a7640000', '0xde0b6b3a7640000']);
+  });
+
+  test('hex-encodes decimal quantities on eth_call as well', async () => {
+    mockMyotis.isReady.mockReturnValue(false);
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['direct'] },
+      quorum: { timeoutMs: 1000 },
+    });
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ result: '0x1' }) });
+
+    await expect(
+      request(1, 'eth_call', [{ to: '0xabc', value: '10', gas: '21000' }, 'latest'])
+    ).resolves.toMatchObject({ result: '0x1', source: 'direct' });
+    const [call, blockTag] = JSON.parse(global.fetch.mock.calls[0][1].body).params;
+    expect(call).toEqual({ to: '0xabc', value: '0xa', gas: '0x5208' });
+    expect(blockTag).toBe('latest');
+  });
+
+  test('keeps normalized call quantities usable by the Myotis estimator', async () => {
+    mockMyotis.estimateGas.mockResolvedValue({ gasLimit: '21000' });
+
+    await expect(
+      request(100, 'eth_estimateGas', [{ to: '0xabc', value: '1000000000000000000' }])
+    ).resolves.toMatchObject({ result: '0x5208', source: 'myotis' });
+    expect(mockMyotis.estimateGas).toHaveBeenCalledWith(
+      expect.objectContaining({ value: '1000000000000000000' })
+    );
+  });
+
   test('falls back to direct RPC when Myotis is not ready', async () => {
     mockMyotis.isReady.mockReturnValue(false);
     global.fetch = jest.fn().mockResolvedValue({

@@ -62,6 +62,49 @@ function decimal(value) {
   return BigInt(value).toString(10);
 }
 
+// Numeric fields of a JSON-RPC call object are QUANTITYs and have to travel as
+// hex. Internal callers work in decimal wei (ethers' parseUnits output), and a
+// raw decimal makes strict nodes answer -32602, which silently drops the read
+// out of the quorum tier. Normalise once here — the boundary every source
+// shares — so all endpoints also see a byte-identical body to agree on.
+const CALL_OBJECT_METHODS = new Set(['eth_call', 'eth_estimateGas']);
+const CALL_QUANTITY_FIELDS = [
+  'value',
+  'gas',
+  'gasPrice',
+  'maxFeePerGas',
+  'maxPriorityFeePerGas',
+  'nonce',
+];
+
+function normalizeCallObject(call) {
+  if (!call || typeof call !== 'object' || Array.isArray(call)) return call;
+  let normalized = call;
+  for (const field of CALL_QUANTITY_FIELDS) {
+    const value = call[field];
+    if (value == null || value === '') continue;
+    if (!['string', 'number', 'bigint'].includes(typeof value)) continue;
+    let hex;
+    try {
+      hex = quantity(value);
+    } catch {
+      // Not a number we can encode; leave it for the node to reject.
+      continue;
+    }
+    if (hex === value) continue;
+    if (normalized === call) normalized = { ...call };
+    normalized[field] = hex;
+  }
+  return normalized;
+}
+
+function normalizeParams(method, params) {
+  if (!CALL_OBJECT_METHODS.has(method) || !Array.isArray(params) || !params.length) return params;
+  const call = normalizeCallObject(params[0]);
+  if (call === params[0]) return params;
+  return [call, ...params.slice(1)];
+}
+
 function nativeResult(payload, ...keys) {
   if (!payload || payload.error || payload.status === 'error') {
     throw new Error(payload?.error || payload?.message || 'Myotis request failed');
@@ -306,10 +349,11 @@ async function requestSource(source, chainId, method, params) {
   throw new SourceUnavailableError(`Unknown chain source: ${source}`);
 }
 
-async function request(chainId, method, params = []) {
+async function request(chainId, method, rawParams = []) {
   if (!isReadMethod(method)) throw new Error(`Unsupported read method: ${method}`);
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
+  const params = normalizeParams(method, rawParams);
   const order = network.access?.readOrder || DEFAULT_READ_ORDER;
   const failures = [];
   for (const source of order) {
