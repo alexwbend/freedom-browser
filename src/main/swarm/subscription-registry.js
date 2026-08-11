@@ -11,11 +11,22 @@
  * node-wide pool (8 neighborhoods), so the registry opens at most one
  * socket per (kind, key) and fans messages out to every subscription on
  * it. The socket is closed when its last subscription goes away.
+ *
+ * Establishment is bounded: the socket layer reconnects forever, so a
+ * node that stops answering would otherwise leave a subscription pending
+ * for the life of the app while still holding a slot in the per-origin
+ * cap. subscribe() gives up after `establishTimeoutMs` and releases
+ * everything it allocated.
  */
 
 const crypto = require('crypto');
 
-// id → { id, origin, webContentsId, kind, key, socketKey }
+// A subscription that has not established yet holds a slot but must never
+// receive messages (its id hasn't reached the page and, for a socket that
+// is still connecting, the page may already be gone).
+const DEFAULT_ESTABLISH_TIMEOUT_MS = 30_000;
+
+// id → { id, origin, webContentsId, kind, key, socketKey, pageUrl, pending }
 const subscriptions = new Map();
 // socketKey (`${kind}:${key}`) → { handle, established, subIds: Set }
 const sockets = new Map();
@@ -25,6 +36,7 @@ let deliver = null;
 // configure() owns the real cap (advertised via getCapabilities limits);
 // no shadow default here that could drift from it.
 let maxSubscriptionsPerOrigin = Infinity;
+let establishTimeoutMs = DEFAULT_ESTABLISH_TIMEOUT_MS;
 
 function semanticError(reason, message) {
   const err = new Error(message);
@@ -38,12 +50,16 @@ function semanticError(reason, message) {
  * @param {(target: {kind, key}, handlers: {onMessage}) => {established, cancel}} config.openSocket
  * @param {(subscription: Object, payload: Buffer) => void} config.deliver
  * @param {number} config.maxSubscriptionsPerOrigin
+ * @param {number} [config.establishTimeoutMs]
  */
 function configure(config) {
   openSocket = config.openSocket;
   deliver = config.deliver;
   if (typeof config.maxSubscriptionsPerOrigin === 'number') {
     maxSubscriptionsPerOrigin = config.maxSubscriptionsPerOrigin;
+  }
+  if (typeof config.establishTimeoutMs === 'number') {
+    establishTimeoutMs = config.establishTimeoutMs;
   }
 }
 
@@ -58,19 +74,56 @@ function countByOrigin(origin) {
 function fanOut(socketKey, payload) {
   const socket = sockets.get(socketKey);
   if (!socket) return;
-  for (const subId of socket.subIds) {
+  for (const subId of [...socket.subIds]) {
     const sub = subscriptions.get(subId);
-    if (sub) deliver(sub, payload);
+    // `pending` subscriptions have not been acknowledged to the page yet:
+    // the caller is still awaiting establishment, so the page has no id to
+    // correlate the message with — and may not even be on screen any more.
+    if (sub && !sub.pending) deliver(sub, payload);
   }
 }
 
 /**
- * Open (or join) a subscription.
- * @param {{ origin: string, webContentsId: number, kind: 'gsoc'|'pss', key: string }} params
- * @returns {Promise<{ subscriptionId: string }>}
- * @throws {Error} reason 'too_many_subscriptions' | 'node_subscription_limit' | socket errors
+ * Reject if `established` has not settled within the configured window.
+ * The socket layer reconnects indefinitely, so without this a subscription
+ * to an unreachable node stays pending (and slot-holding) forever.
  */
-async function subscribe({ origin, webContentsId, kind, key }) {
+function withEstablishTimeout(established) {
+  if (!Number.isFinite(establishTimeoutMs)) return established;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        semanticError(
+          'establish_timeout',
+          `Subscription did not establish within ${establishTimeoutMs}ms`
+        )
+      );
+    }, establishTimeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
+    established.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
+ * Open (or join) a subscription.
+ * @param {{ origin: string, webContentsId: number, kind: 'gsoc'|'pss', key: string, pageUrl?: string }} params
+ *   `pageUrl` is the committed URL of the subscribing document; the
+ *   deliverer re-checks it so messages can never land in a page that
+ *   navigated in after the subscription was opened.
+ * @returns {Promise<{ subscriptionId: string }>}
+ * @throws {Error} reason 'too_many_subscriptions' | 'node_subscription_limit'
+ *   | 'establish_timeout' | 'subscription_cancelled' | socket errors
+ */
+async function subscribe({ origin, webContentsId, kind, key, pageUrl }) {
   if (countByOrigin(origin) >= maxSubscriptionsPerOrigin) {
     throw semanticError(
       'too_many_subscriptions',
@@ -87,17 +140,34 @@ async function subscribe({ origin, webContentsId, kind, key }) {
   }
 
   const subscriptionId = crypto.randomBytes(16).toString('hex');
-  const subscription = { id: subscriptionId, origin, webContentsId, kind, key, socketKey };
+  const subscription = {
+    id: subscriptionId,
+    origin,
+    webContentsId,
+    kind,
+    key,
+    socketKey,
+    pageUrl,
+    pending: true,
+  };
   subscriptions.set(subscriptionId, subscription);
   socket.subIds.add(subscriptionId);
 
   try {
-    await socket.handle.established;
+    await withEstablishTimeout(socket.handle.established);
   } catch (err) {
     removeSubscription(subscription);
     throw err;
   }
 
+  // Cancelled while we waited (page navigated away, tab closed, grant
+  // revoked): the slot is already released — don't hand the page an id
+  // for a subscription that no longer exists.
+  if (!subscriptions.has(subscriptionId)) {
+    throw semanticError('subscription_cancelled', 'Subscription was cancelled before it was established');
+  }
+
+  subscription.pending = false;
   return { subscriptionId };
 }
 

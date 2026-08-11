@@ -189,6 +189,21 @@ async function invokeProvider(method, params, origin, meta) {
   });
 }
 
+// The committed URL of the subscribing document. A webview keeps its
+// webContents across navigations, so this is what tells main whether the
+// page that subscribed is still the page on screen.
+const PAGE_URL = 'http://127.0.0.1:1633/bzz/aabb/index.html';
+
+function fakeWebContents(url = PAGE_URL) {
+  return {
+    isDestroyed: () => false,
+    getURL: () => url,
+    on: jest.fn(),
+    once: jest.fn(),
+    send: jest.fn(),
+  };
+}
+
 describe('swarm-provider-ipc', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -2163,7 +2178,7 @@ describe('swarm-provider-ipc', () => {
         mockReachable();
         mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
         mockRegistrySubscribe.mockResolvedValue({ subscriptionId: 'sub-1' });
-        mockWebContentsFromId.mockReturnValue({ isDestroyed: () => false, on: jest.fn(), once: jest.fn() });
+        mockWebContentsFromId.mockReturnValue(fakeWebContents());
 
         const result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 'room:doc' }, ORIGIN, META);
         expect(result.result).toEqual({ subscriptionId: 'sub-1', kind: 'gsoc', key: GSOC_ADDRESS });
@@ -2172,6 +2187,8 @@ describe('swarm-provider-ipc', () => {
           webContentsId: 7,
           kind: 'gsoc',
           key: GSOC_ADDRESS,
+          // Snapshot of the subscribing document, re-checked on delivery.
+          pageUrl: PAGE_URL,
         });
       });
 
@@ -2180,7 +2197,7 @@ describe('swarm-provider-ipc', () => {
         mockReachable();
         mockResolvePssTopicHex.mockReturnValue(PSS_TOPIC_HEX);
         mockRegistrySubscribe.mockResolvedValue({ subscriptionId: 'sub-2' });
-        mockWebContentsFromId.mockReturnValue({ isDestroyed: () => false, on: jest.fn(), once: jest.fn() });
+        mockWebContentsFromId.mockReturnValue(fakeWebContents());
 
         const result = await invokeProvider('swarm_subscribe', { kind: 'pss', topic: 'dm:alice' }, ORIGIN, META);
         expect(result.result).toEqual({ subscriptionId: 'sub-2', kind: 'pss', key: PSS_TOPIC_HEX });
@@ -2190,6 +2207,7 @@ describe('swarm-provider-ipc', () => {
         mockMessagingGranted();
         mockReachable();
         mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
+        mockWebContentsFromId.mockReturnValue(fakeWebContents());
         const capError = new Error('cap');
         capError.reason = 'too_many_subscriptions';
         mockRegistrySubscribe.mockRejectedValueOnce(capError);
@@ -2208,6 +2226,66 @@ describe('swarm-provider-ipc', () => {
         result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
         expect(result.error.code).toBe(4900);
         expect(result.error.data.reason).toBe('node_subscription_limit');
+      });
+
+      test('arms teardown before establishment settles', async () => {
+        mockMessagingGranted();
+        mockReachable();
+        mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
+
+        // Establishment that never settles — a node that stopped answering
+        // while its socket reconnects forever.
+        mockRegistrySubscribe.mockReturnValue(new Promise(() => {}));
+        const listeners = {};
+        mockWebContentsFromId.mockReturnValue({
+          isDestroyed: () => false,
+          getURL: () => PAGE_URL,
+          on: (event, handler) => { listeners[event] = handler; },
+          once: (event, handler) => { listeners[event] = handler; },
+        });
+
+        invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, { webContentsId: 77 });
+        await new Promise((resolve) => setImmediate(resolve));
+
+        // Navigating away or closing the tab must tear the pending
+        // subscription down even though subscribe() has not returned.
+        expect(typeof listeners['did-navigate']).toBe('function');
+        listeners['did-navigate']();
+        expect(mockRegistryCancelByWebContents).toHaveBeenCalledWith(77);
+        mockRegistrySubscribe.mockReset();
+      });
+
+      test('maps a stuck or cancelled establishment to a retryable 4900', async () => {
+        mockMessagingGranted();
+        mockReachable();
+        mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
+        mockWebContentsFromId.mockReturnValue(fakeWebContents());
+
+        const timeout = new Error('Subscription did not establish within 30000ms');
+        timeout.reason = 'establish_timeout';
+        mockRegistrySubscribe.mockRejectedValueOnce(timeout);
+        let result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
+        expect(result.error.code).toBe(4900);
+        expect(result.error.data.reason).toBe('establish_timeout');
+
+        mockReachable();
+        const cancelled = new Error('Subscription was cancelled before it was established');
+        cancelled.reason = 'subscription_cancelled';
+        mockRegistrySubscribe.mockRejectedValueOnce(cancelled);
+        result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
+        expect(result.error.code).toBe(4900);
+        expect(result.error.data.reason).toBe('subscription_cancelled');
+      });
+
+      test('rejects a webContents that is already gone', async () => {
+        mockMessagingGranted();
+        mockReachable();
+        mockDeriveGsoc.mockReturnValue({ address: GSOC_ADDRESS });
+        mockWebContentsFromId.mockReturnValue(null);
+
+        const result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, META);
+        expect(result.error.code).toBe(-32602);
+        expect(mockRegistrySubscribe).not.toHaveBeenCalled();
       });
 
       test('requires a webContents target from the renderer', async () => {
@@ -2249,9 +2327,9 @@ describe('swarm-provider-ipc', () => {
         expect(maxSubscriptionsPerOrigin).toBe(32);
 
         const send = jest.fn();
-        mockWebContentsFromId.mockReturnValue({ isDestroyed: () => false, send });
+        mockWebContentsFromId.mockReturnValue({ isDestroyed: () => false, getURL: () => PAGE_URL, send });
 
-        const subscription = { id: 'sub-1', webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS };
+        const subscription = { id: 'sub-1', webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS, pageUrl: PAGE_URL };
         deliver(subscription, Buffer.from('hello'));
 
         expect(mockWebContentsFromId).toHaveBeenCalledWith(7);
@@ -2269,6 +2347,28 @@ describe('swarm-provider-ipc', () => {
             },
           },
         });
+      });
+
+      test('delivery is dropped (and torn down) once the page has navigated away', () => {
+        registerSwarmProviderIpc();
+        const { deliver } = mockRegistryConfigure.mock.calls[0][0];
+
+        const send = jest.fn();
+        // Same webContents, different document: the user navigated to
+        // another site while the subscription was still live.
+        mockWebContentsFromId.mockReturnValue({
+          isDestroyed: () => false,
+          getURL: () => 'http://127.0.0.1:1633/bzz/ccdd/index.html',
+          send,
+        });
+
+        deliver(
+          { id: 'sub-1', webContentsId: 7, kind: 'gsoc', key: GSOC_ADDRESS, pageUrl: PAGE_URL },
+          Buffer.from('secret')
+        );
+
+        expect(send).not.toHaveBeenCalled();
+        expect(mockRegistryCancelByWebContents).toHaveBeenCalledWith(7);
       });
 
       test('delivery is dropped for destroyed webContents', () => {
@@ -2289,6 +2389,7 @@ describe('swarm-provider-ipc', () => {
         const listeners = {};
         mockWebContentsFromId.mockReturnValue({
           isDestroyed: () => false,
+          getURL: () => PAGE_URL,
           on: (event, handler) => { listeners[event] = handler; },
           once: (event, handler) => { listeners[event] = handler; },
         });

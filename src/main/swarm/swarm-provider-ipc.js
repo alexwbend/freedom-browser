@@ -1655,6 +1655,16 @@ function attachWebContentsTeardown(webContentsId) {
 function deliverSubscriptionMessage(subscription, payload) {
   const contents = webContents.fromId(subscription.webContentsId);
   if (!contents || contents.isDestroyed()) return;
+  // A webview keeps its webContents across navigations, so the document
+  // on screen may no longer be the one that subscribed. Delivering here
+  // would hand another origin's page the messages of a subscription it
+  // never asked for (and has no grant for). The did-navigate teardown
+  // below normally wins this race; this check is what makes it safe when
+  // a message and a commit land in the same tick.
+  if (subscription.pageUrl && contents.getURL() !== subscription.pageUrl) {
+    subscriptionRegistry.cancelByWebContents(subscription.webContentsId);
+    return;
+  }
   // The webview preload bridges this channel to the page (the preload
   // itself keeps the literal string — sandboxed preloads cannot require
   // shared modules).
@@ -1743,17 +1753,42 @@ async function handleSubscribe(params, origin, meta) {
     }
   }
 
+  const contents = webContents.fromId(webContentsId);
+  if (!contents || contents.isDestroyed()) {
+    return invalidParams('subscribe requires a live webContents target', 'invalid_params');
+  }
+
+  // Teardown must be armed *before* the registry can hold a slot on this
+  // page's behalf: establishment can take seconds (or, against a node
+  // that stopped answering, never settle), and the page can navigate away
+  // or be closed in the meantime. Attaching only on success leaked the
+  // subscription — and its share of the per-origin cap — forever.
+  attachWebContentsTeardown(webContentsId);
+
   try {
     const { subscriptionId } = await subscriptionRegistry.subscribe({
       origin,
       webContentsId,
       kind,
       key,
+      pageUrl: contents.getURL(),
     });
-    attachWebContentsTeardown(webContentsId);
     log.info(`[SwarmProvider] subscribe succeeded for ${origin}: ${kind}:${key}`);
     return { result: { subscriptionId, kind, key } };
   } catch (err) {
+    if (err.reason === 'establish_timeout' || err.reason === 'subscription_cancelled' || err.reason === 'cancelled') {
+      // Never established within the window, or torn down while we waited
+      // (navigation, tab close, grant revoke). Retryable, like any other
+      // node-availability failure — the slot has already been released.
+      log.warn(`[SwarmProvider] subscribe did not establish for ${origin} (${err.reason}): ${kind}:${key}`);
+      return {
+        error: {
+          ...ERRORS.NODE_UNAVAILABLE,
+          message: err.message,
+          data: { reason: err.reason },
+        },
+      };
+    }
     if (err.reason === 'too_many_subscriptions') {
       return invalidParams(err.message, 'too_many_subscriptions', {
         limit: LIMITS.maxSubscriptions,

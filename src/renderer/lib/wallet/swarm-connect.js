@@ -87,6 +87,15 @@ let swarmFeedPasswordSubmit;
 let swarmFeedUnlockError;
 
 /**
+ * Input protection: a queued prompt is presented by the very click that
+ * settles the one before it, so without a dead window the second click of a
+ * double-click would land on a prompt the user has not had a chance to read
+ * — approving (or cancelling) a stamp-spending, network-visible request
+ * sight unseen. Browsers apply the same guard to permission dialogs.
+ */
+const PROMPT_ARM_DELAY_MS = 500;
+
+/**
  * Each approval prompt owns a single sidebar screen, so only one request can
  * be on screen at a time. Concurrent dApp requests (two swarm.subscribe()
  * calls at page load, two sends back to back) queue up and are shown in turn.
@@ -94,11 +103,27 @@ let swarmFeedUnlockError;
  * both orphans the first request and auto-rejects the new one when
  * hideAllSubscreens() fires this screen's hider during the transition.
  *
+ * Settling goes through claim(): it hands the on-screen request to exactly
+ * one caller, so a double-click cannot settle the same request twice (which
+ * silently consumed the request queued behind it) and cannot act on a prompt
+ * that only just appeared.
+ *
  * @param {(entry: Object) => void} present - renders and shows the screen
+ * @param {(armed: boolean) => void} [onArmedChange] - reflect the input-protection
+ *   window in the screen's buttons
  */
-function createPromptQueue(present) {
+function createPromptQueue(present, onArmedChange) {
   const waiting = [];
   let current = null;
+  let armed = false;
+  let armTimer = null;
+  let settling = false;
+  let presenting = false;
+
+  function setArmed(next) {
+    armed = next;
+    onArmedChange?.(next);
+  }
 
   return {
     /** The request currently on screen, or null. */
@@ -106,10 +131,22 @@ function createPromptQueue(present) {
       return current;
     },
 
+    /** True while this queue is mid-transition to a queued request. */
+    get presenting() {
+      return presenting;
+    },
+
+    /** False during a freshly-presented prompt's input-protection window. */
+    get armed() {
+      return armed;
+    },
+
     /** Show `entry` now, or queue it behind the request already on screen. */
     show(entry) {
       waiting.push(entry);
-      if (!current) this.showNext();
+      // `settling` covers the gap between claim() and settle(): the settling
+      // request is still on screen, so the newcomer waits for its turn.
+      if (!current && !settling) this.showNext();
     },
 
     /** Show the next queued request, if there is one. */
@@ -118,14 +155,41 @@ function createPromptQueue(present) {
       if (!next) return;
       // present() calls hideAllSubscreens(), which runs every screen hider —
       // including this screen's. `current` stays null until that has run so
-      // the hider cannot mistake the incoming request for a dismissed one.
-      present(next);
+      // the hider cannot mistake the incoming request for a dismissed one,
+      // and `presenting` tells the hider the still-queued requests are not
+      // being dismissed either.
+      presenting = true;
+      if (armTimer) clearTimeout(armTimer);
+      setArmed(false);
+      try {
+        present(next);
+      } finally {
+        presenting = false;
+      }
       current = next;
+      armTimer = setTimeout(() => {
+        armTimer = null;
+        setArmed(true);
+      }, PROMPT_ARM_DELAY_MS);
     },
 
-    /** The request on screen settled (approve/cancel): show the next one. */
-    settle() {
+    /**
+     * Take the on-screen request for settling. Returns null when there is
+     * nothing on screen, when the request was already claimed (the second
+     * click of a double-click), or while the prompt is still inside its
+     * input-protection window — callers must then do nothing at all.
+     */
+    claim() {
+      if (!current || !armed) return null;
+      const claimed = current;
       current = null;
+      settling = true;
+      return claimed;
+    },
+
+    /** The claimed request finished settling: show the next one. */
+    settle() {
+      settling = false;
       this.showNext();
     },
 
@@ -134,18 +198,50 @@ function createPromptQueue(present) {
       const dropped = current ? [current, ...waiting] : waiting.slice();
       current = null;
       waiting.length = 0;
+      if (armTimer) {
+        clearTimeout(armTimer);
+        armTimer = null;
+      }
+      setArmed(false);
       return dropped;
     },
   };
 }
 
+// Buttons are disabled for the input-protection window so the dead click is
+// visible rather than mysterious.
+function setButtonsDisabled(buttons, disabled) {
+  for (const button of buttons) {
+    if (button) button.disabled = disabled;
+  }
+}
+
 // Local state
-const swarmConnectQueue = createPromptQueue(presentSwarmConnect);
-const swarmPublishQueue = createPromptQueue(presentSwarmPublishApproval);
-const swarmMessagingQueue = createPromptQueue(presentSwarmMessagingApproval);
-const swarmFeedQueue = createPromptQueue(presentSwarmFeedApproval);
+const swarmConnectQueue = createPromptQueue(presentSwarmConnect, (armed) => {
+  setButtonsDisabled([swarmConnectApproveBtn, swarmConnectRejectBtn], !armed);
+});
+const swarmPublishQueue = createPromptQueue(presentSwarmPublishApproval, (armed) => {
+  setButtonsDisabled([swarmPublishConfirmBtn, swarmPublishRejectBtn], !armed);
+});
+const swarmMessagingQueue = createPromptQueue(presentSwarmMessagingApproval, (armed) => {
+  setButtonsDisabled([swarmMessagingConfirmBtn, swarmMessagingRejectBtn], !armed);
+});
+const swarmFeedQueue = createPromptQueue(presentSwarmFeedApproval, (armed) => {
+  setButtonsDisabled([swarmFeedRejectBtn], !armed);
+  // Approve is additionally gated on the vault being unlocked.
+  syncFeedApproveButton();
+});
 let swarmFeedIdentityState = null;
+// Feed approval needs vault access; the button is enabled only once the
+// vault is confirmed unlocked *and* the prompt is past its arm window.
+let swarmFeedVaultUnlocked = false;
 let currentBannerPermissionKey = null;
+
+function syncFeedApproveButton() {
+  if (swarmFeedApproveBtn) {
+    swarmFeedApproveBtn.disabled = !(swarmFeedVaultUnlocked && swarmFeedQueue.armed);
+  }
+}
 
 function rejectDismissed(queue) {
   for (const pending of queue.drain()) {
@@ -183,6 +279,10 @@ export function initSwarmConnect() {
     // Only reject if the screen was actually visible (not already hidden).
     // hideAllSubscreens() fires all hiders — including this one — when
     // showing a new screen, so we must not reject during that transition.
+    // `presenting` means this queue is showing its own next request — the
+    // hideAllSubscreens() inside present() is our transition, not a dismissal
+    // (queued requests behind it must survive it).
+    if (swarmConnectQueue.presenting) return;
     const wasVisible = swarmConnectScreen && !swarmConnectScreen.classList.contains('hidden');
     swarmConnectScreen?.classList.add('hidden');
     // Dismissing the screen drops queued requests too — the user never sees
@@ -190,6 +290,7 @@ export function initSwarmConnect() {
     if (wasVisible) rejectDismissed(swarmConnectQueue);
   });
   registerScreenHider(() => {
+    if (swarmPublishQueue.presenting) return;
     const wasVisible = swarmPublishScreen && !swarmPublishScreen.classList.contains('hidden');
     swarmPublishScreen?.classList.add('hidden');
     if (wasVisible) rejectDismissed(swarmPublishQueue);
@@ -211,6 +312,7 @@ export function initSwarmConnect() {
   swarmMessagingConfirmBtn = document.getElementById('swarm-messaging-confirm');
 
   registerScreenHider(() => {
+    if (swarmMessagingQueue.presenting) return;
     const wasVisible = swarmMessagingScreen && !swarmMessagingScreen.classList.contains('hidden');
     swarmMessagingScreen?.classList.add('hidden');
     if (wasVisible) rejectDismissed(swarmMessagingQueue);
@@ -240,6 +342,7 @@ export function initSwarmConnect() {
   swarmFeedUnlockError = document.getElementById('swarm-feed-unlock-error');
 
   registerScreenHider(() => {
+    if (swarmFeedQueue.presenting) return;
     const wasVisible = swarmFeedScreen && !swarmFeedScreen.classList.contains('hidden');
     swarmFeedScreen?.classList.add('hidden');
     if (wasVisible) rejectDismissed(swarmFeedQueue);
@@ -252,22 +355,33 @@ export function initSwarmConnect() {
 }
 
 function setupSwarmConnectScreen() {
+  // Every settling path claims the on-screen request first: claim() hands it
+  // out once, so a repeated click can neither settle it twice nor act on the
+  // queued request that takes its place.
   if (swarmConnectBackBtn) {
     swarmConnectBackBtn.addEventListener('click', () => {
-      rejectSwarmConnect();
+      const pending = swarmConnectQueue.claim();
+      if (!pending) return;
+      rejectSwarmConnect(pending);
       closeSwarmConnect();
     });
   }
 
   if (swarmConnectRejectBtn) {
     swarmConnectRejectBtn.addEventListener('click', () => {
-      rejectSwarmConnect();
+      const pending = swarmConnectQueue.claim();
+      if (!pending) return;
+      rejectSwarmConnect(pending);
       closeSwarmConnect();
     });
   }
 
   if (swarmConnectApproveBtn) {
-    swarmConnectApproveBtn.addEventListener('click', approveSwarmConnect);
+    swarmConnectApproveBtn.addEventListener('click', () => {
+      const pending = swarmConnectQueue.claim();
+      if (!pending) return;
+      approveSwarmConnect(pending);
+    });
   }
 
   if (swarmConnectionDisconnect) {
@@ -319,10 +433,7 @@ function closeSwarmConnect() {
   swarmConnectQueue.settle();
 }
 
-async function approveSwarmConnect() {
-  const pending = swarmConnectQueue.current;
-  if (!pending) return;
-
+async function approveSwarmConnect(pending) {
   const { permissionKey, resolve, webview } = pending;
 
   try {
@@ -352,10 +463,7 @@ async function approveSwarmConnect() {
   closeSwarmConnect();
 }
 
-function rejectSwarmConnect() {
-  const pending = swarmConnectQueue.current;
-  if (!pending) return;
-
+function rejectSwarmConnect(pending) {
   const { reject } = pending;
   reject({ code: 4001, message: 'User rejected Swarm access' });
   console.log('[SwarmConnect] Rejected');
@@ -443,21 +551,27 @@ function payloadByteSize(data) {
 function setupSwarmPublishScreen() {
   if (swarmPublishBackBtn) {
     swarmPublishBackBtn.addEventListener('click', () => {
-      rejectSwarmPublish();
+      const pending = swarmPublishQueue.claim();
+      if (!pending) return;
+      rejectSwarmPublish(pending);
       closeSwarmPublishApproval();
     });
   }
 
   if (swarmPublishRejectBtn) {
     swarmPublishRejectBtn.addEventListener('click', () => {
-      rejectSwarmPublish();
+      const pending = swarmPublishQueue.claim();
+      if (!pending) return;
+      rejectSwarmPublish(pending);
       closeSwarmPublishApproval();
     });
   }
 
   if (swarmPublishConfirmBtn) {
     swarmPublishConfirmBtn.addEventListener('click', () => {
-      approveSwarmPublish();
+      const pending = swarmPublishQueue.claim();
+      if (!pending) return;
+      approveSwarmPublish(pending);
       closeSwarmPublishApproval();
     });
   }
@@ -535,12 +649,13 @@ function closeSwarmPublishApproval() {
   swarmPublishQueue.settle();
 }
 
-async function approveSwarmPublish() {
-  const pending = swarmPublishQueue.current;
-  if (!pending) return;
+async function approveSwarmPublish(pending) {
   const { permissionKey, resolve } = pending;
+  // Read the shared checkbox before the first await: closing this prompt
+  // presents any queued one, which resets it.
+  const alwaysAllow = !!swarmPublishAutoApproveCheckbox?.checked;
 
-  if (swarmPublishAutoApproveCheckbox?.checked && permissionKey) {
+  if (alwaysAllow && permissionKey) {
     await window.swarmPermissions.setAutoApprove(permissionKey, 'publish', true);
     console.log('[SwarmConnect] Auto-approve publish enabled for:', permissionKey);
   }
@@ -549,9 +664,7 @@ async function approveSwarmPublish() {
   console.log('[SwarmConnect] Publish approved');
 }
 
-function rejectSwarmPublish() {
-  const pending = swarmPublishQueue.current;
-  if (!pending) return;
+function rejectSwarmPublish(pending) {
   const { reject } = pending;
   reject({ code: 4001, message: 'User rejected publish' });
   console.log('[SwarmConnect] Publish rejected');
@@ -564,21 +677,27 @@ function rejectSwarmPublish() {
 function setupSwarmMessagingScreen() {
   if (swarmMessagingBackBtn) {
     swarmMessagingBackBtn.addEventListener('click', () => {
-      rejectSwarmMessaging();
+      const pending = swarmMessagingQueue.claim();
+      if (!pending) return;
+      rejectSwarmMessaging(pending);
       closeSwarmMessagingApproval();
     });
   }
 
   if (swarmMessagingRejectBtn) {
     swarmMessagingRejectBtn.addEventListener('click', () => {
-      rejectSwarmMessaging();
+      const pending = swarmMessagingQueue.claim();
+      if (!pending) return;
+      rejectSwarmMessaging(pending);
       closeSwarmMessagingApproval();
     });
   }
 
   if (swarmMessagingConfirmBtn) {
     swarmMessagingConfirmBtn.addEventListener('click', () => {
-      approveSwarmMessaging();
+      const pending = swarmMessagingQueue.claim();
+      if (!pending) return;
+      approveSwarmMessaging(pending);
       closeSwarmMessagingApproval();
     });
   }
@@ -666,12 +785,12 @@ function closeSwarmMessagingApproval() {
   swarmMessagingQueue.settle();
 }
 
-async function approveSwarmMessaging() {
-  const pending = swarmMessagingQueue.current;
-  if (!pending) return;
+async function approveSwarmMessaging(pending) {
   const { permissionKey, resolve } = pending;
+  // Read the shared checkbox before the first await (see approveSwarmPublish).
+  const alwaysAllow = !!swarmMessagingAutoApproveCheckbox?.checked;
 
-  if (swarmMessagingAutoApproveCheckbox?.checked && permissionKey) {
+  if (alwaysAllow && permissionKey) {
     await window.swarmPermissions.setAutoApprove(permissionKey, 'messaging', true);
     console.log('[SwarmConnect] Auto-approve messaging enabled for:', permissionKey);
   }
@@ -680,9 +799,7 @@ async function approveSwarmMessaging() {
   console.log('[SwarmConnect] Messaging approved');
 }
 
-function rejectSwarmMessaging() {
-  const pending = swarmMessagingQueue.current;
-  if (!pending) return;
+function rejectSwarmMessaging(pending) {
   const { reject } = pending;
   reject({ code: 4001, message: 'User rejected the request' });
   console.log('[SwarmConnect] Messaging rejected');
@@ -695,21 +812,27 @@ function rejectSwarmMessaging() {
 function setupSwarmFeedScreen() {
   if (swarmFeedBackBtn) {
     swarmFeedBackBtn.addEventListener('click', () => {
-      rejectSwarmFeed();
+      const pending = swarmFeedQueue.claim();
+      if (!pending) return;
+      rejectSwarmFeed(pending);
       closeSwarmFeedApproval();
     });
   }
 
   if (swarmFeedRejectBtn) {
     swarmFeedRejectBtn.addEventListener('click', () => {
-      rejectSwarmFeed();
+      const pending = swarmFeedQueue.claim();
+      if (!pending) return;
+      rejectSwarmFeed(pending);
       closeSwarmFeedApproval();
     });
   }
 
   if (swarmFeedApproveBtn) {
     swarmFeedApproveBtn.addEventListener('click', () => {
-      approveSwarmFeed();
+      const pending = swarmFeedQueue.claim();
+      if (!pending) return;
+      approveSwarmFeed(pending);
       closeSwarmFeedApproval();
     });
   }
@@ -758,8 +881,10 @@ function presentSwarmFeedApproval({ permissionKey, params, autoApproveType, meth
 
   renderFeedIdentitySelector();
 
-  // Disable Allow until vault status is confirmed
-  if (swarmFeedApproveBtn) swarmFeedApproveBtn.disabled = true;
+  // Disable Allow until vault status is confirmed (and until the prompt's
+  // input-protection window has elapsed — see syncFeedApproveButton).
+  swarmFeedVaultUnlocked = false;
+  syncFeedApproveButton();
 
   hideAllSubscreens();
   walletState.identityView?.classList.add('hidden');
@@ -882,13 +1007,15 @@ async function checkFeedUnlockStatus() {
 
     if (status.isUnlocked) {
       swarmFeedUnlock?.classList.add('hidden');
-      if (swarmFeedApproveBtn) swarmFeedApproveBtn.disabled = false;
+      swarmFeedVaultUnlocked = true;
+      syncFeedApproveButton();
       await refreshFeedIdentitySelector();
       return;
     }
 
     swarmFeedUnlock?.classList.remove('hidden');
-    if (swarmFeedApproveBtn) swarmFeedApproveBtn.disabled = true;
+    swarmFeedVaultUnlocked = false;
+    syncFeedApproveButton();
 
     const canUseTouchId = await window.quickUnlock.canUseTouchId();
     const touchIdEnabled = await window.quickUnlock.isEnabled();
@@ -933,7 +1060,8 @@ async function handleFeedTouchIdUnlock() {
     }
 
     swarmFeedUnlock?.classList.add('hidden');
-    if (swarmFeedApproveBtn) swarmFeedApproveBtn.disabled = false;
+    swarmFeedVaultUnlocked = true;
+    syncFeedApproveButton();
     hideFeedUnlockError();
     await refreshFeedIdentitySelector();
   } catch (err) {
@@ -955,7 +1083,8 @@ async function handleFeedPasswordUnlock() {
     }
 
     swarmFeedUnlock?.classList.add('hidden');
-    if (swarmFeedApproveBtn) swarmFeedApproveBtn.disabled = false;
+    swarmFeedVaultUnlocked = true;
+    syncFeedApproveButton();
     if (swarmFeedPasswordInput) swarmFeedPasswordInput.value = '';
     hideFeedUnlockError();
     await refreshFeedIdentitySelector();
@@ -983,6 +1112,7 @@ function closeSwarmFeedApproval() {
   swarmFeedScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
   swarmFeedIdentityState = null;
+  swarmFeedVaultUnlocked = false;
   if (swarmFeedIdentitySelector) swarmFeedIdentitySelector.innerHTML = '';
   // Reset unlock state
   if (swarmFeedPasswordInput) swarmFeedPasswordInput.value = '';
@@ -990,14 +1120,13 @@ function closeSwarmFeedApproval() {
   swarmFeedQueue.settle();
 }
 
-async function approveSwarmFeed() {
-  const pending = swarmFeedQueue.current;
-  if (!pending) return;
-
+async function approveSwarmFeed(pending) {
   const { permissionKey, resolve, reject, autoApproveType } = pending;
-  // Snapshot the identity state: closing this prompt (and showing any queued
-  // one) resets the shared state while this approval is still in flight.
+  // Snapshot the shared prompt state before the first await: closing this
+  // prompt (and showing any queued one) resets both the identity state and
+  // the Always-allow checkbox while this approval is still in flight.
   let identityState = swarmFeedIdentityState;
+  const alwaysAllow = !!swarmFeedAutoApproveCheckbox?.checked;
 
   try {
     if (!identityState?.activeIdentityId) {
@@ -1007,7 +1136,7 @@ async function approveSwarmFeed() {
     const entry = await persistFeedPromptIdentity(permissionKey, activeIdentity);
     const effectiveMode = entry?.identityMode || activeIdentity?.mode || 'app-scoped';
 
-    if (swarmFeedAutoApproveCheckbox?.checked && permissionKey) {
+    if (alwaysAllow && permissionKey) {
       await window.swarmPermissions.setAutoApprove(permissionKey, autoApproveType, true);
       console.log(`[SwarmConnect] Auto-approve ${autoApproveType} enabled for:`, permissionKey);
     }
@@ -1045,9 +1174,7 @@ async function persistFeedPromptIdentity(permissionKey, identity) {
   return window.swarmFeedStore.setFeedIdentity(permissionKey, identity.mode);
 }
 
-function rejectSwarmFeed() {
-  const pending = swarmFeedQueue.current;
-  if (!pending) return;
+function rejectSwarmFeed(pending) {
   const { reject } = pending;
   reject({ code: 4001, message: 'User rejected feed access' });
   console.log('[SwarmConnect] Feed access rejected');

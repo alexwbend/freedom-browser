@@ -19,9 +19,16 @@
  * refusal close (1013) before the subscription is established rejects
  * the subscribe call; after establishment it is retried like any other
  * close, since slots free up as other subscriptions close.
+ *
+ * Delivery is at-least-once and payload-transparent: every frame the node
+ * pushes is relayed to the page as-is. We deliberately do NOT suppress
+ * byte-identical payloads — at the wire level a redelivery and a genuine
+ * repeat (an empty PSS keep-alive ping, a second "ok" in a GSOC chat) are
+ * indistinguishable, so dropping one would silently swallow the other.
+ * Applications that need exactly-once semantics carry their own message
+ * id, as the messaging SWIP requires.
  */
 
-const crypto = require('crypto');
 const { Topic, Identifier, Bytes } = require('@ethersphere/bee-js');
 const { getBee, selectBestBatch, toHex } = require('./swarm-service');
 const log = require('electron-log');
@@ -68,8 +75,6 @@ const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 // WS close code the Ant gateway uses for "lurker slots full, try later".
 const WS_CLOSE_TRY_AGAIN = 1013;
-// Recently-seen payload hashes kept per socket for at-least-once dedup.
-const DEDUP_RING_SIZE = 128;
 
 // topic → { identifier, signer, address } — mining is deterministic, so
 // this is a pure cache to avoid re-mining on every send/subscribe. Topics
@@ -193,8 +198,6 @@ function openSubscriptionSocket({ kind, key }, { onMessage }) {
   let ws = null;
   let reconnectTimer = null;
   let reconnectDelay = RECONNECT_BASE_DELAY_MS;
-  const seenHashes = [];
-  const seenSet = new Set();
 
   let resolveEstablished;
   let rejectEstablished;
@@ -206,14 +209,6 @@ function openSubscriptionSocket({ kind, key }, { onMessage }) {
   // awaiting it — that must not surface as an unhandled rejection.
   established.catch(() => {});
   let isEstablished = false;
-
-  const markSeen = (hash) => {
-    seenSet.add(hash);
-    seenHashes.push(hash);
-    if (seenHashes.length > DEDUP_RING_SIZE) {
-      seenSet.delete(seenHashes.shift());
-    }
-  };
 
   const connect = () => {
     if (cancelled) return;
@@ -236,9 +231,6 @@ function openSubscriptionSocket({ kind, key }, { onMessage }) {
 
     ws.onmessage = (event) => {
       const payload = toPayloadBuffer(event.data);
-      const hash = crypto.createHash('sha256').update(payload).digest('hex');
-      if (seenSet.has(hash)) return;
-      markSeen(hash);
       try {
         onMessage(payload);
       } catch (err) {
