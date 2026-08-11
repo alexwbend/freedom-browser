@@ -15,9 +15,18 @@
  *   (b) The renderer derives origin from the per-webview display URL
  *       (via getDisplayUrlForWebview), not from the page's window.location
  *       which is http://127.0.0.1:port for all dweb pages.
- *   (c) webContents.getURL() cannot be used because dweb pages resolve
- *       through the request-rewriter — the internal URL doesn't carry
- *       the dweb protocol identity (bzz://, ens://, ipfs://).
+ *   (c) The renderer-supplied origin is the *authority* for grant checks;
+ *       webContents.getURL() is used only as an independent cross-check that
+ *       the subscribing/receiving document still belongs to that origin (see
+ *       the delivery guard and the subscribe post-await re-check below). This
+ *       works because bzz://, ipfs:// and ipns:// are served by custom
+ *       protocol handlers that preserve the dweb URL — getURL() carries the
+ *       dweb identity, so normalizeOrigin(getURL()) matches the renderer key.
+ *       NOTE: those two guards depend on that invariant. If a future transport
+ *       reintroduces gateway-URL loading (http://127.0.0.1:port) for a dweb
+ *       scheme, getURL() would stop carrying the identity and the guards would
+ *       fail *closed* for it (messaging blocked, not leaked) — update them here
+ *       rather than assuming this comment still holds.
  *   The renderer is the only process that can map webview → tab → display URL.
  */
 
@@ -1639,6 +1648,34 @@ async function handleSendGsoc(params, origin) {
 // is very much still there.
 const teardownAttached = new Set();
 
+// Per-webContents navigation counter. A webview keeps its webContents across
+// navigations, so a same-origin *cross-document* navigation during the
+// subscribe awaits (grant prompt + reachability probe) fires did-navigate but
+// leaves the origin re-check happy (chat.eth → chat.eth) — binding the new
+// document a subscription it never asked for. Snapshot this at request entry
+// and compare after the awaits: a cross-document navigation bumps it (in-page
+// hash/pushState does not fire did-navigate, so a live page's own routing is
+// unaffected). Listener attached once per webContents, cleared on destroy.
+const navEpochs = new Map();
+const navEpochAttached = new Set();
+
+function navEpoch(webContentsId) {
+  if (!navEpochAttached.has(webContentsId)) {
+    const contents = webContents.fromId(webContentsId);
+    if (contents && !contents.isDestroyed()) {
+      navEpochAttached.add(webContentsId);
+      contents.on('did-navigate', () => {
+        navEpochs.set(webContentsId, (navEpochs.get(webContentsId) || 0) + 1);
+      });
+      contents.once('destroyed', () => {
+        navEpochAttached.delete(webContentsId);
+        navEpochs.delete(webContentsId);
+      });
+    }
+  }
+  return navEpochs.get(webContentsId) || 0;
+}
+
 function attachWebContentsTeardown(webContentsId) {
   if (teardownAttached.has(webContentsId)) return;
   const contents = webContents.fromId(webContentsId);
@@ -1745,6 +1782,11 @@ async function handleSubscribe(params, origin, meta) {
     return invalidParams('subscribe requires a webContents target', 'invalid_params');
   }
 
+  // Snapshot before the user-paced grant prompt and the reachability probe, so
+  // a cross-document navigation during either is detected below even when it
+  // stays on the same origin (which the origin re-check alone cannot catch).
+  const entryNavEpoch = navEpoch(webContentsId);
+
   if (!hasMessagingGrant(origin)) {
     return messagingNotGranted();
   }
@@ -1780,7 +1822,12 @@ async function handleSubscribe(params, origin, meta) {
   // then happily validate it: every message for this topic would land in
   // the other site. did-navigate cannot save us here — it fired before
   // any entry existed. Re-check the live page instead.
-  if (normalizeOrigin(contents.getURL()) !== origin) {
+  // Two shapes of "navigated away during the awaits": a different origin now
+  // holds the webContents (origin check), or a same-origin cross-document
+  // navigation replaced the subscribing document (epoch check — did-navigate
+  // fired with no entry yet to cancel). Either way the requesting document is
+  // gone; binding now would hand its slot to a page that never subscribed.
+  if (normalizeOrigin(contents.getURL()) !== origin || navEpoch(webContentsId) !== entryNavEpoch) {
     log.warn(`[SwarmProvider] subscribe target navigated away from ${origin}: ${kind}:${key}`);
     return {
       error: {

@@ -762,7 +762,7 @@ function presentSwarmMessagingApproval({ permissionKey, params, options }) {
 
   if (swarmMessagingWarning) {
     swarmMessagingWarning.textContent = grantMode
-      ? 'Messaging discloses a stable identity key to this site. Sending uses your stamps; open subscriptions use bandwidth while the page is loaded.'
+      ? 'Messaging discloses a stable identity key to this site. Sending uses your stamps; open subscriptions use bandwidth while the page is loaded. A subscription can also read any PSS traffic your node decrypts for the topic it joins, not only this site’s own messages.'
       : 'Sending this message uses your stamps and is visible to the Swarm network.';
   }
 

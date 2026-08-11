@@ -2308,6 +2308,43 @@ describe('swarm-provider-ipc', () => {
         expect(mockRegistrySubscribe).not.toHaveBeenCalled();
       });
 
+      test('refuses a same-origin cross-document navigation during the awaits', async () => {
+        mockMessagingGranted();
+        mockReachable();
+
+        // The URL stays on the same origin the whole time (myapp.eth), so the
+        // origin re-check passes — but a cross-document navigation fires
+        // did-navigate mid-await, replacing the subscribing document. The
+        // navigation-epoch snapshot must catch it. Fire the navigation from
+        // the (post-reachability, pre-re-check) key-derivation step so the
+        // epoch is bumped inside the await window without depending on mock
+        // ordering. Use a webContents id no other test uses: the epoch
+        // listener attaches once per id and that state is module-level, so a
+        // shared id would already be wired to an earlier test's mock.
+        const wcId = 90901;
+        const listeners = {};
+        mockWebContentsFromId.mockReturnValue({
+          isDestroyed: () => false,
+          getURL: () => PAGE_URL, // same origin throughout
+          on: (event, handler) => { listeners[event] = handler; },
+          once: (event, handler) => { listeners[event] = handler; },
+          send: jest.fn(),
+        });
+        // Reset first: clearAllMocks() does not drain queued *Once implementations,
+        // so an unconsumed mockReturnValueOnce from an earlier test would win here.
+        mockDeriveGsoc.mockReset();
+        mockDeriveGsoc.mockImplementation(() => {
+          listeners['did-navigate']?.(); // cross-document nav while we waited
+          return { address: GSOC_ADDRESS };
+        });
+
+        const result = await invokeProvider('swarm_subscribe', { kind: 'gsoc', topic: 't' }, ORIGIN, { webContentsId: wcId });
+
+        expect(result.error.code).toBe(4900);
+        expect(result.error.data.reason).toBe('subscription_cancelled');
+        expect(mockRegistrySubscribe).not.toHaveBeenCalled();
+      });
+
       test('rejects a webContents that is already gone', async () => {
         mockMessagingGranted();
         mockReachable();
