@@ -232,6 +232,7 @@ describe('preload', () => {
       [exposures.electronAPI, 'onMoveTabLeft', 'tab:move-left', [], []],
       [exposures.electronAPI, 'onMoveTabRight', 'tab:move-right', [], []],
       [exposures.electronAPI, 'onReopenClosedTab', 'tab:reopen-closed', [], []],
+      [exposures.electronAPI, 'onOpenFindBar', IPC.FIND_IN_PAGE_OPEN, [], []],
       [exposures.electronAPI, 'onToggleBookmarkBar', IPC.BOOKMARKS_TOGGLE_BAR, [], []],
       [exposures.electronAPI, 'onUpdateNotification', 'show-update-notification', [{ version: '1.2.3' }], [{ version: '1.2.3' }]],
       [exposures.sitePermissions, 'onPromptRequest', IPC.PERMISSIONS_PROMPT_REQUEST, [{ id: 1, origin: 'https://example.com', keys: ['camera'], guestId: 7 }], [{ id: 1, origin: 'https://example.com', keys: ['camera'], guestId: 7 }]],

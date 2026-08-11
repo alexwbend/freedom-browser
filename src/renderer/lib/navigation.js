@@ -29,6 +29,7 @@ import {
   isEnsBackedDisplay,
   isSupportedEnsTransport,
 } from './url-utils.js';
+import { buildSearchUrl } from './search-utils.js';
 import {
   getActiveWebview,
   getActiveTab,
@@ -1508,6 +1509,17 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     pushDebug(`Loading ${value}`);
     syncBzzBase(null);
     syncRadBase(null);
+    return;
+  }
+
+  // Fall back to web search: every protocol matcher above (view-source,
+  // freedom://, ENS, rad, ipfs/ipns, bzz/hash/domain, http) has rejected the
+  // input, so treat it as a query for the user's search provider. The
+  // recursive call routes the built https URL through the HTTP branch.
+  const searchUrl = buildSearchUrl(value, state.searchProvider, state.customSearchProviders);
+  if (searchUrl) {
+    pushDebug(`[AddressBar] Searching for input via ${searchUrl}`);
+    loadTarget(searchUrl, null, webview);
     return;
   }
 

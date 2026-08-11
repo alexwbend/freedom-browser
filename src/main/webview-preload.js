@@ -245,6 +245,30 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   removeHistory: guardInternal('removeHistory', (id) => ipcRenderer.invoke('history:remove', id)),
   clearHistory: guardInternal('clearHistory', () => ipcRenderer.invoke('history:clear')),
 
+  // Downloads (freedom://downloads page). Open / show-in-folder resolve the
+  // file path in the main process from the stored row id — no path crosses
+  // this boundary.
+  getDownloads: guardInternal('getDownloads', (options) =>
+    ipcRenderer.invoke('downloads:get', options)
+  ),
+  pauseDownload: guardInternal('pauseDownload', (id) => ipcRenderer.invoke('downloads:pause', id)),
+  resumeDownload: guardInternal('resumeDownload', (id) =>
+    ipcRenderer.invoke('downloads:resume', id)
+  ),
+  cancelDownload: guardInternal('cancelDownload', (id) =>
+    ipcRenderer.invoke('downloads:cancel', id)
+  ),
+  openDownloadedFile: guardInternal('openDownloadedFile', (id) =>
+    ipcRenderer.invoke('downloads:open-file', id)
+  ),
+  showDownloadInFolder: guardInternal('showDownloadInFolder', (id) =>
+    ipcRenderer.invoke('downloads:show-in-folder', id)
+  ),
+  removeDownload: guardInternal('removeDownload', (id) =>
+    ipcRenderer.invoke('downloads:remove', id)
+  ),
+  clearDownloads: guardInternal('clearDownloads', () => ipcRenderer.invoke('downloads:clear')),
+
   // Unified payment history (read-only — producers record in main directly).
   getPayments: guardInternal('getPayments', (filters) =>
     ipcRenderer.invoke('payments:get-recent', filters)
@@ -354,6 +378,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 
   // Auto-unsubscribed on pagehide.
   onSettingsUpdated: guardInternalSubscription('onSettingsUpdated', 'settings:updated'),
+  // freedom://downloads uses this for live progress — the row is already
+  // written when it fires, so the page just re-queries.
+  onDownloadsChanged: guardInternalSubscription('onDownloadsChanged', 'downloads:changed'),
   // freedom://payments uses this for live refresh on settlements (no
   // user-driven event for a server-acknowledged paid request).
   onPaymentRecorded: guardInternalSubscription('onPaymentRecorded', 'payments:tx-recorded'),

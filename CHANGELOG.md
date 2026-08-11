@@ -11,6 +11,11 @@ All notable changes to Freedom will be documented in this file.
   - Remembered decisions per profile under Settings > Site Permissions, with per-site and remove-all revocation
   - Indicator icon in the address bar with quick revoke on sites holding granted permissions
   - Location prompts note that positioning may be unreliable
+- Download manager covering every download source, including `bzz://` and `ipfs://` content:
+  - Shelf card with live progress and cancel; Open / Show in Folder on completion
+  - `freedom://downloads` page (Cmd/Ctrl+Shift+J) with search, pause/resume, and Clear All
+  - "Ask where to save each file" toggle under Settings > Downloads
+- Find in page (`Cmd+F` / `Ctrl+F`, also under Edit in the menu): overlay bar over the page with a live match counter, `Enter` / `Shift+Enter` to cycle matches, `Esc` to close
 - Audio indicator on tabs playing sound; click it or use "Mute Tab" in the tab context menu to mute/unmute (mute survives navigation)
 
 ### Changed
