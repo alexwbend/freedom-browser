@@ -64,6 +64,11 @@ const loadFindBarModule = async ({ webview = createFakeWebview(), initOptions } 
     },
   };
 
+  // Pin the shortcut matcher to macOS semantics (the Cmd-based events these
+  // tests dispatch) so assertions don't depend on the host platform.
+  const shortcuts = await import('./shortcuts.js');
+  shortcuts.configureShortcuts({ platform: 'darwin', overrides: {} });
+
   const mod = await import('./find-bar.js');
   mod.initFindBar(initOptions ?? { getActiveWebview: () => webview });
 

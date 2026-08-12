@@ -49,6 +49,21 @@ module.exports = {
   SETTINGS_SAVE: 'settings:save',
   SETTINGS_UPDATED: 'settings:updated',
 
+  // Ad blocking
+  ADBLOCK_GET_STATUS: 'adblock:get-status',
+  ADBLOCK_GET_ALLOWLIST: 'adblock:get-allowlist',
+  ADBLOCK_ADD_ALLOWLIST_HOST: 'adblock:add-allowlist-host',
+  ADBLOCK_REMOVE_ALLOWLIST_HOST: 'adblock:remove-allowlist-host',
+  ADBLOCK_COSMETIC: 'adblock:cosmetic',
+  // Keyboard shortcuts (Settings > Shortcuts page ↔ main). State/preview
+  // are reads; set/reset persist overrides into the settings store, whose
+  // SETTINGS_UPDATED broadcast then rebuilds the menu and refreshes the
+  // renderer keydown matcher.
+  SHORTCUTS_GET_STATE: 'shortcuts:get-state',
+  SHORTCUTS_PREVIEW_BINDING: 'shortcuts:preview-binding',
+  SHORTCUTS_SET_OVERRIDE: 'shortcuts:set-override',
+  SHORTCUTS_RESET: 'shortcuts:reset',
+
   // Bzz routing (Swarm)
   BZZ_SET_BASE: 'bzz:set-base',
   BZZ_CLEAR_BASE: 'bzz:clear-base',

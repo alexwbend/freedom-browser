@@ -409,6 +409,11 @@ const loadNavigationModule = async (options = {}) => {
   jest.doMock('./page-urls.js', () => pageUrlsMocks);
   jest.doMock('./ipfs-progress-status.js', () => ipfsProgressMocks);
 
+  // Pin the shortcut matcher to Linux semantics (Ctrl-based combos) so the
+  // keyboard-shortcut assertions below don't depend on the host platform.
+  const shortcuts = await import('./shortcuts.js');
+  shortcuts.configureShortcuts({ platform: 'linux', overrides: {} });
+
   const mod = await import('./navigation.js');
 
   return {

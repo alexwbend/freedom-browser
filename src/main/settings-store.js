@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const IPC = require('../shared/ipc-channels');
 const { broadcastToAllWebContents } = require('./lib/broadcast-to-all-webcontents');
+const { sanitizeOverrides } = require('../shared/shortcuts');
 
 // Apply theme to nativeTheme so webviews get correct prefers-color-scheme
 function applyNativeTheme(theme) {
@@ -61,6 +62,23 @@ const DEFAULT_SETTINGS = {
   // Linux only: render the tab strip as the window titlebar (frameless window).
   // Off by default so Linux users get the native OS frame; opt in via Settings.
   tabsInTitlebar: false,
+  // Ad blocking (src/main/adblock/). Category defaults mirror Freedom iOS:
+  // ads (EasyList) and trackers (EasyPrivacy) on, cookie banners and
+  // annoyances opt-in. saveSettings() rebuilds the filter engine when any
+  // of these change.
+  adblockEnabled: true,
+  adblockAds: true,
+  adblockPrivacy: true,
+  adblockCookies: false,
+  adblockAnnoyances: false,
+  // Pull refreshed filter lists from Swarm on a schedule (WP5). On by
+  // default; dormant anyway until a feed trust anchor is compiled in.
+  adblockAutoUpdate: true,
+  // Keyboard-shortcut remaps: shortcut id → accelerator string. Only ids
+  // from the shared registry (src/shared/shortcuts.js) with valid, non-
+  // reserved accelerators survive sanitization. The one non-primitive
+  // settings value — saveSettings compares it by JSON, not ===.
+  shortcutOverrides: {},
 };
 
 let cachedSettings = null;
@@ -173,6 +191,13 @@ function loadSettings() {
     cachedSettings = { ...DEFAULT_SETTINGS };
   }
 
+  // Defense against hand-edited or stale files: only registry-known,
+  // editable, valid shortcut remaps survive into the live settings.
+  cachedSettings.shortcutOverrides = sanitizeOverrides(
+    cachedSettings.shortcutOverrides,
+    process.platform
+  );
+
   // Apply theme to nativeTheme
   applyNativeTheme(cachedSettings.theme);
 
@@ -183,10 +208,33 @@ function broadcastSettingsUpdated(merged) {
   broadcastToAllWebContents(IPC.SETTINGS_UPDATED, merged);
 }
 
+// Main-process subscribers to committed settings changes (e.g. the
+// application menu rebuilding on shortcut remaps). Renderers keep using
+// the SETTINGS_UPDATED broadcast instead.
+const changeListeners = new Set();
+
+function onSettingsChanged(listener) {
+  changeListeners.add(listener);
+  return () => changeListeners.delete(listener);
+}
+
+function notifySettingsChanged(merged, previous) {
+  for (const listener of changeListeners) {
+    try {
+      listener(merged, previous);
+    } catch (err) {
+      log.error('Settings change listener failed:', err);
+    }
+  }
+}
+
 // Walks DEFAULT_SETTINGS keys in one pass: drops unknown input keys (defense
 // against a buggy or compromised internal page persisting junk to disk) and
-// detects no-op saves at the same time. customSearchProviders is the one
-// structured setting and is normalized before it reaches disk or a renderer.
+// detects no-op saves at the same time. Two structured settings get special
+// handling: customSearchProviders is normalized before it reaches disk or a
+// renderer, and shortcutOverrides is sanitized against the shortcut registry;
+// both compare by JSON, everything else is primitive-valued and compares
+// by === .
 function saveSettings(newSettings) {
   try {
     const previous = loadSettings();
@@ -196,6 +244,15 @@ function saveSettings(newSettings) {
     if (newSettings && typeof newSettings === 'object') {
       for (const key of Object.keys(DEFAULT_SETTINGS)) {
         if (!Object.prototype.hasOwnProperty.call(newSettings, key)) continue;
+
+        if (key === 'shortcutOverrides') {
+          const sanitized = sanitizeOverrides(newSettings[key], process.platform);
+          if (JSON.stringify(sanitized) !== JSON.stringify(previous[key] || {})) {
+            merged[key] = sanitized;
+            changed = true;
+          }
+          continue;
+        }
 
         const nextValue =
           key === 'customSearchProviders'
@@ -223,7 +280,20 @@ function saveSettings(newSettings) {
       applyNativeTheme(merged.theme);
     }
 
+    // Same keyed side-effect shape as theme above: a changed adblock flag
+    // rebuilds the filter engine, so toggles take effect without a
+    // restart. Lazy require — adblock/service requires this module back.
+    const adblockChanged = Object.keys(DEFAULT_SETTINGS).some(
+      (key) => key.startsWith('adblock') && merged[key] !== previous[key]
+    );
+    if (adblockChanged) {
+      require('./adblock/service')
+        .refreshEngine()
+        .catch((err) => log.error('[adblock] engine refresh after settings change failed:', err));
+    }
+
     broadcastSettingsUpdated(merged);
+    notifySettingsChanged(merged, previous);
 
     return true;
   } catch (err) {
@@ -248,4 +318,5 @@ module.exports = {
   registerSettingsIpc,
   // Exported for the parity test against the renderer copy in search-utils.js.
   normalizeSearchUrlTemplate,
+  onSettingsChanged,
 };
