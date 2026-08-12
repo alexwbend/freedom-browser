@@ -76,6 +76,17 @@ function responseFor(value, status = 200) {
   });
 }
 
+// A 200 whose body dies partway through: bee restart, dropped socket. The
+// headers already landed, so only the read fails.
+function severedResponse(prefix = '{"schema":"freedom-mani') {
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(prefix));
+      controller.error(new Error('socket hang up'));
+    },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'permission-manifests-'));
   app.getPath.mockReturnValue(tempDir);
@@ -115,6 +126,11 @@ describe('permission manifests', () => {
       .resolves.toMatchObject({ status: 'invalid' });
     await expect(discover('bzz://app.eth/', async () => new Response('x'.repeat(8193))))
       .resolves.toMatchObject({ status: 'invalid', error: 'manifest exceeds 8 KiB' });
+  });
+
+  test('treats a body severed mid-stream as transient, not as a bad manifest', async () => {
+    await expect(discover('bzz://app.eth/', async () => severedResponse()))
+      .resolves.toMatchObject({ status: 'unresolved' });
   });
 
   test('projects an allow decision and creates identity metadata before the feed grant', async () => {
@@ -325,6 +341,31 @@ describe('permission manifests', () => {
     }, { fetchManifest: async () => responseFor({}, 503) });
     expect(result).toMatchObject({ kind: 'unresolved', retryAt: expect.any(Number) });
     expect(mockPermissionState['app.eth'].autoApprove.publish).toBe(true);
+    expect(getRecord('app.eth')).not.toBeNull();
+  });
+
+  test('keeps managed grants when the manifest body dies mid-stream', async () => {
+    const initial = await checkManifest({
+      origin: 'app.eth',
+      committedUrl: 'bzz://app.eth/',
+      eager: true,
+    }, { fetchManifest: async () => responseFor(manifest({
+      publish: { why: 'Publish releases' },
+      feeds: { why: 'Update feed' },
+    })) });
+    decideManifest(initial.token, 'allow');
+    expect(mockFeedState['app.eth'].granted).toBe(true);
+
+    const result = await checkManifest({
+      origin: 'app.eth',
+      committedUrl: 'bzz://app.eth/',
+      eager: false,
+    }, { fetchManifest: async () => severedResponse() });
+
+    expect(result).toMatchObject({ kind: 'unresolved', retryAt: expect.any(Number) });
+    expect(mockPermissionState['app.eth'].autoApprove.publish).toBe(true);
+    expect(mockPermissionState['app.eth'].autoApprove.feeds).toBe(true);
+    expect(mockFeedState['app.eth'].granted).toBe(true);
     expect(getRecord('app.eth')).not.toBeNull();
   });
 

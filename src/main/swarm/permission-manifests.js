@@ -134,26 +134,55 @@ function validateManifest(value) {
   };
 }
 
-async function readLimitedJson(response) {
+// A body that starts arriving and then dies — bee restart, dropped socket — is
+// a transport failure, indistinguishable in outcome from one that never got
+// past the request. It must feed the `unresolved` backoff like any other
+// transient hiccup, never the `invalid` path that prunes the origin's
+// manifest-managed authority. Only bytes we actually hold and cannot accept
+// (oversized, non-JSON, schema-violating) are `invalid`.
+function transportError(err) {
+  const wrapped = new Error(err?.message || String(err));
+  wrapped.transport = true;
+  return wrapped;
+}
+
+async function readLimitedBody(response) {
   const reader = response.body?.getReader?.();
   if (!reader) {
-    const buffer = Buffer.from(await response.arrayBuffer());
+    let buffer;
+    try {
+      buffer = Buffer.from(await response.arrayBuffer());
+    }
+    catch (err) {
+      throw transportError(err);
+    }
     if (buffer.length > MAX_BYTES) throw new Error('manifest exceeds 8 KiB');
-    return { raw: buffer, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer)) };
+    return buffer;
   }
   const chunks = [];
   let length = 0;
   while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    length += value.byteLength;
+    let chunk;
+    try {
+      chunk = await reader.read();
+    }
+    catch (err) {
+      await reader.cancel().catch(() => {});
+      throw transportError(err);
+    }
+    if (chunk.done) break;
+    length += chunk.value.byteLength;
     if (length > MAX_BYTES) {
-      await reader.cancel();
+      await reader.cancel().catch(() => {});
       throw new Error('manifest exceeds 8 KiB');
     }
-    chunks.push(Buffer.from(value));
+    chunks.push(Buffer.from(chunk.value));
   }
-  const raw = Buffer.concat(chunks);
+  return Buffer.concat(chunks);
+}
+
+async function readLimitedJson(response) {
+  const raw = await readLimitedBody(response);
   return { raw, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) };
 }
 
@@ -192,7 +221,7 @@ async function discover(committedUrl, fetchManifest = handleBzzRequest) {
       fingerprint: fingerprint(manifest),
     };
   } catch (err) {
-    return { status: 'invalid', error: err.message };
+    return { status: err.transport ? 'unresolved' : 'invalid', error: err.message };
   }
 }
 
