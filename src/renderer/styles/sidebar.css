@@ -93,8 +93,15 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.sidebar-tab:hover {
+.sidebar-tab:hover:not(:disabled) {
   color: var(--text);
+}
+
+/* A device confirmation owns the sidebar until it is answered, so the
+   header chrome that would tear it down goes dead with it. */
+.sidebar-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sidebar-tab.active {
@@ -212,9 +219,14 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.sidebar-close:hover {
+.sidebar-close:hover:not(:disabled) {
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--text);
+}
+
+.sidebar-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sidebar-close svg {
@@ -281,9 +293,14 @@
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.wallet-toggle-btn:hover,
+.wallet-toggle-btn:hover:not(:disabled),
 .wallet-toggle-btn[aria-expanded='true'] {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+.wallet-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .wallet-toggle-btn svg {
@@ -474,7 +491,8 @@
   transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
-.node-identity-row:hover .node-copy-btn {
+.node-identity-row:hover .node-copy-btn,
+.node-info-row:hover .node-copy-btn {
   opacity: 1;
 }
 
@@ -627,11 +645,11 @@
   background-color: var(--toolbar);
 }
 
-[data-theme="light"] .sidebar-close:hover {
+[data-theme="light"] .sidebar-close:hover:not(:disabled) {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
-[data-theme="light"] .wallet-toggle-btn:hover,
+[data-theme="light"] .wallet-toggle-btn:hover:not(:disabled),
 [data-theme="light"] .wallet-toggle-btn[aria-expanded='true'] {
   background-color: rgba(0, 0, 0, 0.1);
 }
@@ -708,8 +726,13 @@
   transition: background-color 0.15s ease;
 }
 
-.subscreen-back-btn:hover {
+.subscreen-back-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.05);
+}
+
+.subscreen-back-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .subscreen-back-btn svg {
@@ -2796,6 +2819,12 @@
   font-weight: 500;
 }
 
+.x402-grant-ledger-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .x402-grant-fields {
   display: flex;
   flex-direction: column;
@@ -3551,6 +3580,16 @@
   color: var(--muted);
 }
 
+.publisher-identity-unavailable {
+  font-size: 11px;
+  color: var(--danger);
+}
+
+.publisher-identity-selector-item.unavailable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .publisher-identity-create-actions {
   display: flex;
   gap: 8px;
@@ -3910,6 +3949,188 @@
 
 .create-wallet-done-btn:hover {
   opacity: 0.9;
+}
+
+/* Connect Ledger sub-screen */
+/* Same pill recipe as .auto-approve-badge, sized for the selector rows */
+.wallet-selector-item-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--accent, #6366f1);
+  background: var(--accent-muted, rgba(99, 102, 241, 0.15));
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+
+.connect-ledger-illustration {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px auto 16px;
+  width: 72px;
+  height: 72px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.connect-ledger-illustration svg {
+  width: 40px;
+  height: 40px;
+}
+
+.connect-ledger-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.connect-ledger-status-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+.connect-ledger-scheme-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.connect-ledger-scheme-select {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.connect-ledger-account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-ledger-loading {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.connect-ledger-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.connect-ledger-account:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.connect-ledger-account.selected {
+  border-color: var(--accent);
+  background: rgba(138, 180, 248, 0.1);
+}
+
+.connect-ledger-account.added {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.connect-ledger-account-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.connect-ledger-account-address {
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  color: var(--text);
+}
+
+.connect-ledger-account-path {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.connect-ledger-account-added {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.connect-ledger-load-more {
+  display: block;
+  width: 100%;
+  margin: 8px 0 12px;
+  padding: 8px;
+  font-size: 12px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.connect-ledger-load-more:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.connect-ledger-load-more:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+[data-theme="light"] .connect-ledger-illustration,
+[data-theme="light"] .connect-ledger-account {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="light"] .connect-ledger-account:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] .connect-ledger-account.selected {
+  background: rgba(26, 115, 232, 0.08);
+}
+
+[data-theme="light"] .connect-ledger-scheme-select {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* Light theme wallet selector */
@@ -5964,8 +6185,15 @@
   transition: background-color 0.15s;
 }
 
-.dapp-tx-reject-btn:hover {
+.dapp-tx-reject-btn:hover:not(:disabled) {
   background: var(--toolbar-hover);
+}
+
+/* Disabled while a signature is in flight (see dapp-tx.js): the request
+   can no longer be recalled, so the way out has to read as unavailable. */
+.dapp-tx-reject-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dapp-tx-approve-btn {
@@ -6003,7 +6231,7 @@
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-theme="light"] .dapp-tx-reject-btn:hover {
+[data-theme="light"] .dapp-tx-reject-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
 }
 
@@ -6199,8 +6427,13 @@
   transition: background-color 0.15s;
 }
 
-.dapp-sign-reject-btn:hover {
+.dapp-sign-reject-btn:hover:not(:disabled) {
   background: var(--toolbar-hover);
+}
+
+.dapp-sign-reject-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .dapp-sign-approve-btn {
@@ -6242,6 +6475,6 @@
   background: rgba(0, 0, 0, 0.03);
 }
 
-[data-theme="light"] .dapp-sign-reject-btn:hover {
+[data-theme="light"] .dapp-sign-reject-btn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.06);
 }

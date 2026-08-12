@@ -20,7 +20,7 @@ function toAtomicDecimal(value) {
 
 /**
  * @param {object} params       Same shape as signAndSendTransaction.
- * @param {string} privateKey
+ * @param {import('./signers').Signer} signer
  * @param {object} context
  * @param {string} context.kind         paymentHistory.KINDS member
  * @param {string} [context.origin]     normalised origin (dapp sends only)
@@ -36,8 +36,8 @@ function toAtomicDecimal(value) {
  *                                      you have the real recipient)
  * @param {object} [context.metadata]   free-form per-kind extras
  */
-async function signAndRecord(params, privateKey, context) {
-  const response = await signAndSendTransaction(params, privateKey);
+async function signAndRecord(params, signer, context) {
+  const response = await signAndSendTransaction(params, signer);
 
   let row;
   try {

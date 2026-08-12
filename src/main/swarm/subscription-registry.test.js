@@ -33,7 +33,7 @@ describe('subscription-registry', () => {
     registry._reset();
     ({ openSocket, opened } = makeSocketFactory());
     deliver = jest.fn();
-    registry.configure({ openSocket, deliver, maxSubscriptionsPerOrigin: 3 });
+    registry.configure({ openSocket, deliver, maxSubscriptionsPerOrigin: 3, establishTimeoutMs: 5000 });
   });
 
   async function subscribeEstablished(params) {
@@ -75,6 +75,79 @@ describe('subscription-registry', () => {
     expect(deliveredIds).toEqual([subA, subB].sort());
     expect(deliver.mock.calls[0][1]).toBe(payload);
     expect(deliver.mock.calls[0][0]).toMatchObject({ kind: 'gsoc', key: GSOC_KEY });
+  });
+
+  test('does not fan out to a subscription that has not established yet', async () => {
+    const pending = registry.subscribe({ origin: 'a.eth', webContentsId: 1, kind: 'gsoc', key: GSOC_KEY });
+
+    // A message arriving before establishment has no id the page could
+    // correlate it with, and the page may already be gone.
+    opened[0].handlers.onMessage(Buffer.from('early'));
+    expect(deliver).not.toHaveBeenCalled();
+
+    opened[0].resolveEstablished();
+    await pending;
+
+    opened[0].handlers.onMessage(Buffer.from('late'));
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0][1].toString()).toBe('late');
+  });
+
+  test('gives up on an establishment that never settles and releases the slot', async () => {
+    jest.useFakeTimers();
+    try {
+      registry.configure({ openSocket, deliver, maxSubscriptionsPerOrigin: 3, establishTimeoutMs: 100 });
+      // The socket layer reconnects forever, so `established` never settles.
+      const promise = registry.subscribe({ origin: 'a.eth', webContentsId: 1, kind: 'gsoc', key: GSOC_KEY });
+      const assertion = expect(promise).rejects.toMatchObject({ reason: 'establish_timeout' });
+
+      jest.advanceTimersByTime(100);
+      await assertion;
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // Slot released and the socket closed — the origin is not bricked.
+    expect(registry.countByOrigin('a.eth')).toBe(0);
+    expect(opened[0].cancel).toHaveBeenCalledTimes(1);
+  });
+
+  test('a subscription cancelled while establishing never reaches the page', async () => {
+    const promise = registry.subscribe({ origin: 'a.eth', webContentsId: 1, kind: 'gsoc', key: GSOC_KEY });
+
+    // The page navigated away (or the tab closed) mid-establishment.
+    registry.cancelByWebContents(1);
+    opened[0].resolveEstablished();
+
+    await expect(promise).rejects.toMatchObject({ reason: 'subscription_cancelled' });
+    expect(registry.countByOrigin('a.eth')).toBe(0);
+  });
+
+  test('carries the subscribing origin through to the deliverer', async () => {
+    await subscribeEstablished({
+      origin: 'a.eth',
+      webContentsId: 1,
+      kind: 'gsoc',
+      key: GSOC_KEY,
+    });
+
+    opened[0].handlers.onMessage(Buffer.from('hi'));
+    // The deliverer re-checks this against the webContents' live URL, so
+    // it must reach it — messages can never land in another origin's page.
+    expect(deliver.mock.calls[0][0]).toMatchObject({ origin: 'a.eth', webContentsId: 1 });
+  });
+
+  test('cancelStaleByWebContents keeps the subscriptions of the origin now loaded', async () => {
+    await subscribeEstablished({ origin: 'a.eth', webContentsId: 1, kind: 'gsoc', key: GSOC_KEY });
+    await subscribeEstablished({ origin: 'b.eth', webContentsId: 1, kind: 'gsoc', key: 'bb'.repeat(32) });
+    await subscribeEstablished({ origin: 'a.eth', webContentsId: 2, kind: 'gsoc', key: 'cc'.repeat(32) });
+
+    // The webview turned out to be hosting b.eth: a.eth's subscription on
+    // that webview is stale, b.eth's is live, and other tabs are untouched.
+    registry.cancelStaleByWebContents(1, 'b.eth');
+
+    expect(registry.countByOrigin('b.eth')).toBe(1);
+    expect(registry.countByOrigin('a.eth')).toBe(1);
   });
 
   test('enforces the per-origin cap', async () => {

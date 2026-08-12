@@ -27,6 +27,7 @@ jest.mock('../identity-manager', () => ({
   getDerivedKeys: (...args) => mockGetDerivedKeys(...args),
   getPublisherKey: (...args) => mockGetPublisherKey(...args),
   getDerivedWallets: (...args) => mockGetDerivedWallets(...args),
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger' },
 }));
 
 const { app } = require('electron');
@@ -49,6 +50,7 @@ const {
   setOriginEntry,
   allocatePublisherKeyIndex,
   getOriginIdentityState,
+  getOriginIdentityStateWithOwners,
   previewAppScopedIdentity,
   createAppScopedIdentity,
   ensureAntWalletIdentity,
@@ -250,6 +252,53 @@ describe('feed-store', () => {
     test('ensureEthereumWalletIdentity rejects missing browser wallets', async () => {
       await expect(ensureEthereumWalletIdentity('myapp.eth', 99))
         .rejects.toThrow('Wallet with index 99 does not exist');
+    });
+
+    test('ensureEthereumWalletIdentity rejects hardware wallet accounts', async () => {
+      mockGetDerivedWallets.mockResolvedValue([
+        { index: 0, name: 'Main Wallet', address: '0xWallet000000000000000000000000000000000000', type: 'mnemonic' },
+        { index: 1, name: 'Ledger 1', address: '0xLedger11111111111111111111111111111111111', type: 'ledger' },
+      ]);
+
+      await expect(ensureEthereumWalletIdentity('myapp.eth', 1, { activate: true }))
+        .rejects.toThrow('Hardware wallet accounts cannot be used as a Swarm publisher identity');
+      // Nothing persisted: the origin never gets a broken active identity.
+      expect(getOriginEntry('myapp.eth')).toBeNull();
+    });
+
+    test('hardware wallet accounts are not offered as publisher identities', async () => {
+      mockGetDerivedWallets.mockResolvedValue([
+        { index: 0, name: 'Main Wallet', address: '0xWallet000000000000000000000000000000000000', type: 'mnemonic' },
+        { index: 1, name: 'Ledger 1', address: '0xLedger11111111111111111111111111111111111', type: 'ledger' },
+      ]);
+      setOriginEntry('myapp.eth', { identityMode: 'app-scoped', publisherKeyIndex: 0 });
+
+      const state = await getOriginIdentityStateWithOwners('myapp.eth');
+      const walletIndexes = state.identities
+        .filter((identity) => identity.mode === 'ethereum-wallet')
+        .map((identity) => identity.walletIndex);
+
+      expect(walletIndexes).toEqual([0]);
+    });
+
+    test('an already-stored hardware wallet identity is reported as unavailable', async () => {
+      mockGetDerivedWallets.mockResolvedValue([
+        { index: 0, name: 'Main Wallet', address: '0xWallet000000000000000000000000000000000000', type: 'mnemonic' },
+        { index: 1, name: 'Ledger 1', address: '0xLedger11111111111111111111111111111111111', type: 'mnemonic' },
+      ]);
+      setOriginEntry('myapp.eth', { identityMode: 'app-scoped', publisherKeyIndex: 0 });
+      await ensureEthereumWalletIdentity('myapp.eth', 1, { activate: true });
+
+      // The account later turns out to be (or is replaced by) a Ledger one.
+      mockGetDerivedWallets.mockResolvedValue([
+        { index: 0, name: 'Main Wallet', address: '0xWallet000000000000000000000000000000000000', type: 'mnemonic' },
+        { index: 1, name: 'Ledger 1', address: '0xLedger11111111111111111111111111111111111', type: 'ledger' },
+      ]);
+
+      const state = await getOriginIdentityStateWithOwners('myapp.eth');
+      const stored = state.identities.find((identity) => identity.id === 'ethereum-wallet:1');
+
+      expect(stored).toMatchObject({ unavailable: true });
     });
 
     test('getEthereumWalletIdentityReferences lists active and feed-pinned identities', async () => {

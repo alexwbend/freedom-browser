@@ -80,6 +80,7 @@ const {
   openSubscriptionSocket,
   MAX_MESSAGE_BYTES,
   MAX_TARGET_DEPTH,
+  DEFAULT_TARGET_DEPTH,
   _resetGsocCache,
 } = require('./messaging-service');
 
@@ -99,6 +100,7 @@ describe('limits', () => {
   test('match the Ant node constants', () => {
     expect(MAX_MESSAGE_BYTES).toBe(4000); // 4096 - 3*32
     expect(MAX_TARGET_DEPTH).toBe(3);
+    expect(DEFAULT_TARGET_DEPTH).toBe(2); // L=16 convention, ≥ storability floor
   });
 });
 
@@ -267,19 +269,29 @@ describe('openSubscriptionSocket', () => {
     expect(sockets).toHaveLength(1);
   });
 
-  test('delivers payloads and dedups byte-identical redeliveries', async () => {
+  test('delivers every frame, including byte-identical repeats', async () => {
     const onMessage = jest.fn();
     const handle = openSubscriptionSocket({ kind: 'pss', key: 'cd'.repeat(32) }, { onMessage });
 
     sockets[0].emitOpen();
     jest.advanceTimersByTime(600);
+    // A repeated 'ok' in a chat and an empty presence ping are legitimate
+    // messages: on the wire they are indistinguishable from a redelivery,
+    // so suppressing them would silently swallow real traffic.
     sockets[0].emitMessage('hello');
     sockets[0].emitMessage('hello');
+    sockets[0].emitMessage('');
+    sockets[0].emitMessage('');
     sockets[0].emitMessage('world');
 
-    expect(onMessage).toHaveBeenCalledTimes(2);
-    expect(onMessage.mock.calls[0][0].toString('utf-8')).toBe('hello');
-    expect(onMessage.mock.calls[1][0].toString('utf-8')).toBe('world');
+    expect(onMessage).toHaveBeenCalledTimes(5);
+    expect(onMessage.mock.calls.map(([payload]) => payload.toString('utf-8'))).toEqual([
+      'hello',
+      'hello',
+      '',
+      '',
+      'world',
+    ]);
     handle.cancel();
   });
 

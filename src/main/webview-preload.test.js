@@ -25,6 +25,10 @@ const flushMicrotasks = async () => {
   await Promise.resolve();
 };
 
+// The context-menu interceptor defers its send with setTimeout(0) so the
+// defaultPrevented check runs after the full event dispatch.
+const flushTimers = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function loadWebviewPreloadModule(options = {}) {
   jest.resetModules();
 
@@ -73,10 +77,15 @@ function loadWebviewPreloadModule(options = {}) {
 
   global.document = document;
   const windowFetch = options.fetch || jest.fn();
+  const windowCaptureHandlers = {};
   global.window = {
     location,
     getSelection: jest.fn(() => selection),
-    addEventListener: jest.fn(),
+    addEventListener: jest.fn((event, handler, useCapture) => {
+      if (useCapture === true) {
+        windowCaptureHandlers[event] = handler;
+      }
+    }),
     fetch: windowFetch,
   };
   global.location = location;
@@ -97,6 +106,7 @@ function loadWebviewPreloadModule(options = {}) {
     document,
     documentHandlers,
     documentCaptureHandlers,
+    windowCaptureHandlers,
     exposures: contextBridge.exposedValues,
     ipcRenderer,
     location,
@@ -174,7 +184,7 @@ describe('webview-preload', () => {
     }
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)'
+      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
     );
   });
 
@@ -323,14 +333,20 @@ describe('webview-preload', () => {
     await expect(exposures.freedomAPI.getHistory({ limit: 5 })).rejects.toThrow(
       'freedomAPI is only available on internal pages'
     );
-    expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    // The blocked freedomAPI call must not reach IPC. (The preload's
+    // cosmetic-filtering client does invoke 'adblock:cosmetic' on this
+    // real web page — that's expected and unrelated to freedomAPI.)
+    const historyInvokes = ipcRenderer.invoke.mock.calls.filter(
+      ([channel]) => channel !== 'adblock:cosmetic'
+    );
+    expect(historyInvokes).toHaveLength(0);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       '[freedomAPI] blocked "getHistory" on non-internal page: https://example.com/articles/1'
     );
   });
 
-  test('collects rich context menu data and forwards it to the host renderer', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('collects rich context menu data and forwards it to the host renderer', async () => {
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       selectionText: 'Selected text',
       title: 'Article Title',
       location: {
@@ -360,12 +376,14 @@ describe('webview-preload', () => {
       clientX: 12,
       clientY: 34,
       target: image,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     };
 
-    documentHandlers.contextmenu(event);
+    // Registered in the capture phase so page-level stopPropagation()
+    // cannot starve the interceptor.
+    windowCaptureHandlers.contextmenu(event);
+    await flushTimers();
 
-    expect(event.preventDefault).toHaveBeenCalled();
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('context-menu', {
       x: 12,
       y: 34,
@@ -379,6 +397,46 @@ describe('webview-preload', () => {
       isEditable: true,
       mediaType: 'image',
     });
+  });
+
+  test('skips the native context menu when the page calls preventDefault', async () => {
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://example.com/dapp',
+        protocol: 'https:',
+        pathname: '/dapp',
+      },
+    });
+    const event = {
+      clientX: 5,
+      clientY: 6,
+      target: global.document.body,
+      defaultPrevented: false,
+    };
+
+    windowCaptureHandlers.contextmenu(event);
+    // A page handler runs after the capture-phase interceptor and
+    // suppresses the menu; the deferred check must honor it.
+    event.defaultPrevented = true;
+    await flushTimers();
+
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith(
+      'context-menu',
+      expect.anything()
+    );
+  });
+
+  test('registers the contextmenu interceptor on window in the capture phase', () => {
+    const { windowCaptureHandlers, document } = loadWebviewPreloadModule();
+
+    // window-capture is the only spot no page handler can run before: the
+    // preload registers before any page script, and window is the first node
+    // in the capture path. A document-level or bubble-phase listener could be
+    // starved by a page calling stopPropagation() without preventDefault().
+    expect(typeof windowCaptureHandlers.contextmenu).toBe('function');
+    expect(
+      document.addEventListener.mock.calls.filter(([event]) => event === 'contextmenu')
+    ).toHaveLength(0);
   });
 
   test('intercepts ipfs/ipns anchor clicks before Chromium lowercases the host', () => {
@@ -538,8 +596,8 @@ describe('webview-preload', () => {
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
   });
 
-  test('context menu preserves raw dweb href before anchor.href normalisation', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('context menu preserves raw dweb href before anchor.href normalisation', async () => {
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'file:///app/pages/links.html',
         protocol: 'file:',
@@ -556,12 +614,13 @@ describe('webview-preload', () => {
       parentElement: global.document.body,
     };
 
-    documentHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: anchor,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
 
     expect(ipcRenderer.sendToHost).toHaveBeenCalledWith(
       'context-menu',
@@ -572,8 +631,8 @@ describe('webview-preload', () => {
     );
   });
 
-  test('detects video and audio media sources in the context menu handler', () => {
-    const { documentHandlers, ipcRenderer } = loadWebviewPreloadModule({
+  test('detects video and audio media sources in the context menu handler', async () => {
+    const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
         href: 'https://example.com/media',
         protocol: 'https:',
@@ -596,12 +655,13 @@ describe('webview-preload', () => {
       parentElement: body,
     };
 
-    documentHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 1,
       clientY: 2,
       target: video,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
     expect(ipcRenderer.sendToHost).toHaveBeenLastCalledWith(
       'context-menu',
       expect.objectContaining({
@@ -610,12 +670,13 @@ describe('webview-preload', () => {
       })
     );
 
-    documentHandlers.contextmenu({
+    windowCaptureHandlers.contextmenu({
       clientX: 3,
       clientY: 4,
       target: audio,
-      preventDefault: jest.fn(),
+      defaultPrevented: false,
     });
+    await flushTimers();
     expect(ipcRenderer.sendToHost).toHaveBeenLastCalledWith(
       'context-menu',
       expect.objectContaining({
@@ -645,5 +706,74 @@ describe('webview-preload', () => {
     ipcRenderer.emit('context-menu-action', 'copy-text', { text: 'Failure case' });
     await flushMicrotasks();
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
+  });
+});
+
+// The page-side provider scripts are injected as source strings, so they are
+// exercised here by extracting and evaluating them in a sandbox rather than
+// through loadWebviewPreloadModule().
+describe('injected provider request timeouts', () => {
+  const fs = require('fs');
+  const preloadSource = fs.readFileSync(require.resolve('./webview-preload'), 'utf8');
+
+  function extractScript(varName) {
+    const start = preloadSource.indexOf(`${varName}.textContent = \``);
+    const bodyStart = preloadSource.indexOf('`', start) + 1;
+    const bodyEnd = preloadSource.indexOf('\n  `;', bodyStart);
+    expect(bodyStart).toBeGreaterThan(0);
+    expect(bodyEnd).toBeGreaterThan(bodyStart);
+    return preloadSource.slice(bodyStart, bodyEnd);
+  }
+
+  /** Evaluate an injected provider and report the timeout it arms per method. */
+  function timeoutFor(varName, globalName, method) {
+    let armed = null;
+    const sandboxWindow = {
+      postMessage: () => {},
+      addEventListener: () => {},
+      location: { origin: 'https://dapp.example' },
+    };
+    new Function('window', 'setTimeout', 'Map', extractScript(varName))(
+      sandboxWindow,
+      (_fn, ms) => {
+        armed = ms;
+      },
+      Map
+    );
+    sandboxWindow[globalName].request({ method }).catch(() => {});
+    return armed;
+  }
+
+  // A consent prompt blocks the response until the user decides. Timing that
+  // out page-side rejects the dApp's promise while main still records the
+  // grant and performs the write — the dApp retries and duplicates the COB.
+  test.each([
+    'radicle_requestAccess',
+    'radicle_seed',
+    'radicle_getIdentity',
+    'radicle_createIssue',
+    'radicle_commentIssue',
+    'radicle_editIssueState',
+    'radicle_commentPatch',
+  ])('radicle %s (can prompt) gets the 300s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(300000);
+  });
+
+  test.each([
+    'radicle_getCapabilities',
+    'radicle_getNodeStatus',
+    'radicle_listSeededRepos',
+    'radicle_unseed',
+    'radicle_sync',
+    'radicle_getSeedStatus',
+    'radicle_disconnect',
+  ])('radicle %s (never prompts) keeps the 60s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(60000);
+  });
+
+  // Parity with the sibling provider the radicle one was modelled on.
+  test('swarm prompt/long-running methods use the same 300s budget', () => {
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_getSigningIdentity')).toBe(300000);
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_readChunk')).toBe(60000);
   });
 });

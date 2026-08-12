@@ -536,6 +536,97 @@
         border-color: var(--danger);
       }
 
+      .search-provider-actions {
+      /* Shortcuts */
+      .shortcut-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .shortcut-toolbar input {
+        flex: 1;
+        font-family: inherit;
+      }
+
+      .shortcut-category {
+        margin: 20px 0 8px 0;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .shortcut-category:first-child {
+        margin-top: 0;
+      }
+
+      .shortcut-kbd {
+        display: inline-block;
+        padding: 3px 8px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        color: var(--text);
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .shortcut-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .shortcut-binding {
+        padding: 5px 8px;
+      }
+
+      .shortcut-binding.recording {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .shortcut-locked {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-subtle);
+        font-size: 12px;
+      }
+
+      .shortcut-note {
+        margin: 6px 0 0 0;
+        font-size: 12px;
+        color: var(--warn);
+      }
+
+      .row.shortcut-conflict {
+        justify-content: space-between;
+        background: rgba(210, 153, 34, 0.08);
+        font-size: 13px;
+      }
+
+      .shortcut-conflict-actions {
+        display: flex;
+        flex-shrink: 0;
+        gap: 8px;
+      }
+
+      .search-provider-form[hidden] {
+        display: none;
+      }
+
+      .search-provider-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
       /* Light theme */
       @media (prefers-color-scheme: light) {
         :root {
@@ -622,6 +713,22 @@
             </svg>
             Appearance
           </button>
+          <button type="button" class="nav-item" data-target="search">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            Search
+          </button>
           <button type="button" class="nav-item" data-target="profile">
             <svg
               width="16"
@@ -669,6 +776,43 @@
               <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
             </svg>
             Startup
+          </button>
+          <button type="button" class="nav-item" data-target="downloads">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Downloads
+          </button>
+          <button type="button" class="nav-item" data-target="shortcuts">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <line x1="6" y1="10" x2="6" y2="10"></line>
+              <line x1="10" y1="10" x2="10" y2="10"></line>
+              <line x1="14" y1="10" x2="14" y2="10"></line>
+              <line x1="18" y1="10" x2="18" y2="10"></line>
+              <line x1="7" y1="14" x2="17" y2="14"></line>
+            </svg>
+            Shortcuts
           </button>
           <button type="button" class="nav-item" data-target="chains">
             <svg
@@ -719,6 +863,26 @@
               <polygon points="4 14 12 22 20 14 12 18 4 14"></polygon>
             </svg>
             Name Resolution
+          </button>
+          <button type="button" class="nav-item" data-target="adblock">
+          <button type="button" class="nav-item" data-target="permissions">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            Ad Blocking
+              <path d="M12 2 L4 6 L4 12 C4 17 7.5 21 12 22 C16.5 21 20 17 20 12 L20 6 Z"></path>
+              <path d="m9 12 2 2 4-4"></path>
+            </svg>
+            Site Permissions
           </button>
           <button type="button" class="nav-item" data-target="experimental" id="nav-experimental">
             <svg
@@ -795,6 +959,74 @@
           </div>
         </section>
 
+        <!-- Search -->
+        <section class="section" id="search">
+          <h2 class="section-title">Search</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Search engine</p>
+                <p class="row-help">Used when the address bar input is not a URL, hash, or name.</p>
+              </div>
+              <div class="row-control">
+                <!-- Values mirror SEARCH_PROVIDERS in renderer/lib/search-utils.js -->
+                <select id="search-provider">
+                  <optgroup label="Built-in">
+                    <option value="google">Google</option>
+                    <option value="duckduckgo">DuckDuckGo</option>
+                    <option value="bing">Bing</option>
+                    <option value="brave">Brave Search</option>
+                    <option value="ecosia">Ecosia</option>
+                    <option value="startpage">Startpage</option>
+                  </optgroup>
+                  <optgroup
+                    id="custom-search-provider-options"
+                    label="Your search engines"
+                    hidden
+                  ></optgroup>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div id="custom-search-provider-list"></div>
+            <div class="rpc-block" style="border-top: none">
+              <button type="button" class="btn" id="add-search-provider">
+                + Add a search engine
+              </button>
+            </div>
+            <div class="rpc-block search-provider-form" id="search-provider-form" hidden>
+              <div class="search-provider-fields">
+                <input
+                  type="text"
+                  class="rpc-input"
+                  id="custom-search-provider-name"
+                  maxlength="64"
+                  placeholder="Search engine name"
+                  spellcheck="false"
+                />
+                <input
+                  type="text"
+                  class="rpc-input"
+                  id="custom-search-provider-template"
+                  maxlength="2048"
+                  placeholder="https://search.example/?q={searchTerms}"
+                  spellcheck="false"
+                />
+              </div>
+              <p class="rpc-hint">
+                Put <code>{searchTerms}</code> where the encoded query belongs. HTTPS is required
+                except for localhost.
+              </p>
+              <div style="margin-top: 12px">
+                <button type="button" class="btn" id="save-search-provider">Save</button>
+                <button type="button" class="btn" id="cancel-search-provider">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <p id="search-provider-status" class="rpc-status"></p>
+        </section>
+
         <!-- Profile (current profile identity) -->
         <section class="section" id="profile">
           <h2 class="section-title">Profile</h2>
@@ -863,6 +1095,50 @@
           </div>
         </section>
 
+        <!-- Downloads -->
+        <section class="section" id="downloads">
+          <h2 class="section-title">Downloads</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Ask where to save each file</p>
+                <p class="row-help">
+                  When off, files are saved to your Downloads folder automatically.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="ask-where-to-save" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Shortcuts -->
+        <section class="section" id="shortcuts">
+          <h2 class="section-title">Shortcuts</h2>
+          <p class="row-help" style="margin-bottom: 16px">
+            Click a binding, press the new key combination, done — changes apply immediately. Press
+            Esc while recording to cancel.
+          </p>
+          <div class="shortcut-toolbar">
+            <input
+              type="search"
+              id="shortcut-search"
+              class="rpc-input"
+              placeholder="Search shortcuts"
+              spellcheck="false"
+            />
+            <button type="button" class="btn" id="shortcuts-restore-defaults">
+              Restore defaults
+            </button>
+          </div>
+          <div id="shortcuts-view"></div>
+          <p id="shortcuts-status" class="rpc-status"></p>
+        </section>
+
         <!-- Chains -->
         <section class="section" id="chains">
           <div id="chains-view"></div>
@@ -879,9 +1155,9 @@
         <section class="section" id="ens">
           <h2 class="section-title">Ethereum Name Resolution</h2>
           <p class="row-help" style="margin-bottom: 16px">
-            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>,
-            and <code>.gwei</code> names. These records live on Ethereum — manage RPC
-            endpoints under <a href="#chains">Chains settings</a>.
+            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>, and
+            <code>.gwei</code> names. These records live on Ethereum — manage RPC endpoints under
+            <a href="#chains">Chains settings</a>.
           </p>
           <div class="card">
             <div class="row">
@@ -919,9 +1195,9 @@
               <div class="row-body">
                 <p class="row-label">Block unverified name navigation</p>
                 <p class="row-help">
-                  Show a warning page before navigating to a name that resolved without
-                  verification (for example, when only one RPC answered). Turn off to navigate
-                  straight through with only the amber shield indicator.
+                  Show a warning page before navigating to a name that resolved without verification
+                  (for example, when only one RPC answered). Turn off to navigate straight through
+                  with only the amber shield indicator.
                 </p>
               </div>
               <div class="row-control">
@@ -934,7 +1210,118 @@
           </div>
         </section>
 
+        <!-- Site Permissions -->
+        <section class="section" id="permissions">
+          <h2 class="section-title">Site Permissions</h2>
+          <div id="permissions-view"></div>
+        </section>
+
         <!-- Experimental -->
+        <!-- Ad Blocking -->
+        <section class="section" id="adblock">
+          <h2 class="section-title">Ad Blocking</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Enable ad blocking</p>
+                <p class="row-help" id="adblock-status">Loading…</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-enabled" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-ads-row">
+              <div class="row-body">
+                <p class="row-label">Block ads</p>
+                <p class="row-help" id="adblock-ads-help">EasyList</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-ads" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-privacy-row">
+              <div class="row-body">
+                <p class="row-label">Block trackers</p>
+                <p class="row-help" id="adblock-privacy-help">EasyPrivacy</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-privacy" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-cookies-row">
+              <div class="row-body">
+                <p class="row-label">Block cookie banners</p>
+                <p class="row-help" id="adblock-cookies-help">Fanboy Cookiemonster</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-cookies" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-annoyances-row">
+              <div class="row-body">
+                <p class="row-label">Block other annoyances</p>
+                <p class="row-help" id="adblock-annoyances-help">Fanboy Annoyances</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-annoyances" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-autoupdate-row">
+              <div class="row-body">
+                <p class="row-label">Keep filter lists up to date</p>
+                <p class="row-help">Pulls refreshed lists from Swarm automatically.</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-autoupdate" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Allowlisted sites</p>
+                <p class="row-help">
+                  Ad blocking is turned off on these sites, including their subdomains. Changes
+                  apply to pages loaded afterwards — reload open tabs.
+                </p>
+              </div>
+              <div class="row-control">
+                <input
+                  type="text"
+                  id="adblock-allowlist-input"
+                  class="rpc-input"
+                  spellcheck="false"
+                  placeholder="example.com"
+                />
+                <button type="button" class="btn" id="adblock-allowlist-add">Add</button>
+              </div>
+            </div>
+            <div id="adblock-allowlist-list"></div>
+          </div>
+          <p class="row-help" style="margin-top: 16px">
+            Filter lists © The EasyList authors (https://easylist.to/), redistributed under CC
+            BY-SA.
+          </p>
+        </section>
+
         <section class="section" id="experimental">
           <h2 class="section-title">Experimental</h2>
           <div class="card">
@@ -1026,9 +1413,11 @@
 
       const fields = {
         themeMode: $('theme-mode'),
+        searchProvider: $('search-provider'),
         tabsInTitlebar: $('tabs-in-titlebar'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
+        askWhereToSave: $('ask-where-to-save'),
         blockUnverifiedEns: $('block-unverified-ens'),
         enableRadicle: $('enable-radicle-integration'),
         startRadicleRow: $('start-radicle-row'),
@@ -1036,6 +1425,32 @@
         enableIdentity: $('enable-identity-wallet'),
         showIpfsProgressStatus: $('show-ipfs-progress-status'),
         autoUpdate: $('auto-update'),
+        adblockEnabled: $('adblock-enabled'),
+        adblockAds: $('adblock-ads'),
+        adblockPrivacy: $('adblock-privacy'),
+        adblockCookies: $('adblock-cookies'),
+        adblockAnnoyances: $('adblock-annoyances'),
+        adblockAutoUpdate: $('adblock-autoupdate'),
+      };
+
+      // id ties together the manifest category, the #adblock-<id>-row
+      // element, and the status field; field is the checkbox input.
+      const ADBLOCK_CATEGORIES = [
+        { id: 'ads', field: fields.adblockAds },
+        { id: 'privacy', field: fields.adblockPrivacy },
+        { id: 'cookies', field: fields.adblockCookies },
+        { id: 'annoyances', field: fields.adblockAnnoyances },
+      ];
+      const searchFields = {
+        customOptions: $('custom-search-provider-options'),
+        customList: $('custom-search-provider-list'),
+        addButton: $('add-search-provider'),
+        form: $('search-provider-form'),
+        name: $('custom-search-provider-name'),
+        template: $('custom-search-provider-template'),
+        saveButton: $('save-search-provider'),
+        cancelButton: $('cancel-search-provider'),
+        status: $('search-provider-status'),
       };
 
       const swarmModeHelp = $('swarm-mode-help');
@@ -1071,6 +1486,235 @@
           /[&<>"]/g,
           (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]
         );
+
+      const DEFAULT_SEARCH_PROVIDER = 'duckduckgo';
+      const SEARCH_TERMS_PLACEHOLDER = '{searchTerms}';
+      const LOOPBACK_SEARCH_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+      let customSearchProviders = [];
+      let editingSearchProviderId = null;
+      let searchProviderFormDirty = false;
+      // Keep in sync with CUSTOM_SEARCH_PROVIDER_LIMIT in src/main/settings-store.js —
+      // main silently drops anything past it, so the form must refuse first.
+      const CUSTOM_SEARCH_PROVIDER_LIMIT = 50;
+
+      // Latest cross-window provider list. cachedSettings is refreshed by every
+      // settings broadcast even while this form is dirty (applySearchSettings
+      // skips only the re-render), so writes rebase on it rather than on this
+      // window's render snapshot — otherwise a save here would resurrect
+      // entries another settings window removed meanwhile.
+      const latestCustomSearchProviders = () =>
+        (Array.isArray(cachedSettings?.customSearchProviders)
+          ? cachedSettings.customSearchProviders
+          : customSearchProviders
+        ).map((provider) => ({ ...provider }));
+
+      const setSearchProviderStatus = (message, kind) => {
+        searchFields.status.textContent = message || '';
+        searchFields.status.className = 'rpc-status' + (kind ? ' ' + kind : '');
+      };
+
+      const normalizeSearchTemplateInput = (value) => {
+        const trimmed = typeof value === 'string' ? value.trim() : '';
+        if (!trimmed || trimmed.length > 2048) return null;
+        const openSearchCount = trimmed.split(SEARCH_TERMS_PLACEHOLDER).length - 1;
+        const percentCount = trimmed.split('%s').length - 1;
+        if (openSearchCount + percentCount !== 1) return null;
+        const normalized =
+          percentCount === 1 ? trimmed.replace('%s', SEARCH_TERMS_PLACEHOLDER) : trimmed;
+
+        try {
+          const parsed = new URL(normalized.replace(SEARCH_TERMS_PLACEHOLDER, 'test'));
+          const secure = parsed.protocol === 'https:';
+          const loopbackHttp =
+            parsed.protocol === 'http:' && LOOPBACK_SEARCH_HOSTS.has(parsed.hostname);
+          if ((!secure && !loopbackHttp) || parsed.username || parsed.password) return null;
+        } catch {
+          return null;
+        }
+
+        return normalized;
+      };
+
+      const renderSearchProviderOptions = (selectedId) => {
+        searchFields.customOptions.innerHTML = customSearchProviders
+          .map(
+            (provider) =>
+              `<option value="custom:${esc(provider.id)}">${esc(provider.name)}</option>`
+          )
+          .join('');
+        searchFields.customOptions.hidden = customSearchProviders.length === 0;
+
+        const available = [...fields.searchProvider.options].some(
+          (option) => option.value === selectedId
+        );
+        fields.searchProvider.value = available ? selectedId : DEFAULT_SEARCH_PROVIDER;
+      };
+
+      const renderCustomSearchProviders = () => {
+        searchFields.customList.innerHTML = customSearchProviders.length
+          ? customSearchProviders
+              .map(
+                (provider) => `
+                  <div class="row">
+                    <div class="row-body">
+                      <p class="row-label">${esc(provider.name)}</p>
+                      <p class="row-help" style="overflow-wrap: anywhere">
+                        ${esc(provider.searchUrlTemplate)}
+                      </p>
+                    </div>
+                    <div class="search-provider-actions">
+                      <button type="button" class="btn" data-search-action="edit" data-id="${esc(provider.id)}">Edit</button>
+                      <button type="button" class="btn danger" data-search-action="remove" data-id="${esc(provider.id)}">Remove</button>
+                    </div>
+                  </div>`
+              )
+              .join('')
+          : '<div class="profile-node-empty">No custom search engines yet.</div>';
+      };
+
+      const applySearchSettings = (settings) => {
+        if (!settings || searchProviderFormDirty) return;
+        customSearchProviders = Array.isArray(settings.customSearchProviders)
+          ? settings.customSearchProviders.map((provider) => ({ ...provider }))
+          : [];
+        renderSearchProviderOptions(settings.searchProvider || DEFAULT_SEARCH_PROVIDER);
+        renderCustomSearchProviders();
+      };
+
+      const closeSearchProviderForm = () => {
+        editingSearchProviderId = null;
+        searchProviderFormDirty = false;
+        searchFields.name.value = '';
+        searchFields.template.value = '';
+        searchFields.form.hidden = true;
+      };
+
+      const openSearchProviderForm = (provider = null) => {
+        editingSearchProviderId = provider?.id || null;
+        searchProviderFormDirty = false;
+        searchFields.name.value = provider?.name || '';
+        searchFields.template.value = provider?.searchUrlTemplate || '';
+        searchFields.form.hidden = false;
+        searchFields.name.focus();
+      };
+
+      searchFields.addButton.addEventListener('click', () => {
+        setSearchProviderStatus('', null);
+        openSearchProviderForm();
+      });
+
+      searchFields.cancelButton.addEventListener('click', closeSearchProviderForm);
+      for (const input of [searchFields.name, searchFields.template]) {
+        input.addEventListener('input', () => {
+          searchProviderFormDirty = true;
+        });
+      }
+
+      searchFields.saveButton.addEventListener('click', async () => {
+        const name = searchFields.name.value.trim();
+        const searchUrlTemplate = normalizeSearchTemplateInput(searchFields.template.value);
+        if (!name) {
+          setSearchProviderStatus('Enter a search engine name.', 'error');
+          return;
+        }
+        if (!searchUrlTemplate) {
+          setSearchProviderStatus(
+            'Enter a valid HTTPS search URL with one {searchTerms} placeholder.',
+            'error'
+          );
+          return;
+        }
+
+        const baseProviders = latestCustomSearchProviders();
+        if (!editingSearchProviderId && baseProviders.length >= CUSTOM_SEARCH_PROVIDER_LIMIT) {
+          setSearchProviderStatus(
+            `Limit of ${CUSTOM_SEARCH_PROVIDER_LIMIT} custom search engines reached. Remove one first.`,
+            'error'
+          );
+          return;
+        }
+        const id = editingSearchProviderId || crypto.randomUUID();
+        const nextProvider = { id, name, searchUrlTemplate };
+        const nextProviders = editingSearchProviderId
+          ? baseProviders.some((provider) => provider.id === editingSearchProviderId)
+            ? baseProviders.map((provider) =>
+                provider.id === editingSearchProviderId ? nextProvider : provider
+              )
+            : [...baseProviders, nextProvider]
+          : [...baseProviders, nextProvider];
+        const selectedProvider = editingSearchProviderId
+          ? fields.searchProvider.value
+          : `custom:${id}`;
+
+        searchFields.saveButton.disabled = true;
+        const ok = await freedomAPI.saveSettings({
+          searchProvider: selectedProvider,
+          customSearchProviders: nextProviders,
+        });
+        searchFields.saveButton.disabled = false;
+        if (!ok) {
+          setSearchProviderStatus('The search engine could not be saved.', 'error');
+          return;
+        }
+
+        customSearchProviders = nextProviders;
+        renderSearchProviderOptions(selectedProvider);
+        renderCustomSearchProviders();
+        closeSearchProviderForm();
+        setSearchProviderStatus('Search engine saved.', 'success');
+      });
+
+      searchFields.customList.addEventListener('click', async (event) => {
+        const button = event.target.closest('[data-search-action]');
+        if (!button) return;
+        const provider = customSearchProviders.find(
+          (candidate) => candidate.id === button.dataset.id
+        );
+        if (!provider) return;
+
+        if (button.dataset.searchAction === 'edit') {
+          setSearchProviderStatus('', null);
+          openSearchProviderForm(provider);
+          return;
+        }
+
+        if (button.dataset.searchAction !== 'remove') return;
+        if (!confirm(`Remove ${provider.name}?`)) return;
+
+        const nextProviders = latestCustomSearchProviders().filter(
+          (candidate) => candidate.id !== provider.id
+        );
+        const removedProviderId = `custom:${provider.id}`;
+        const selectedProvider =
+          fields.searchProvider.value === removedProviderId
+            ? DEFAULT_SEARCH_PROVIDER
+            : fields.searchProvider.value;
+        const ok = await freedomAPI.saveSettings({
+          searchProvider: selectedProvider,
+          customSearchProviders: nextProviders,
+        });
+        if (!ok) {
+          setSearchProviderStatus('The search engine could not be removed.', 'error');
+          return;
+        }
+
+        customSearchProviders = nextProviders;
+        renderSearchProviderOptions(selectedProvider);
+        renderCustomSearchProviders();
+        if (editingSearchProviderId === provider.id) closeSearchProviderForm();
+        setSearchProviderStatus('Search engine removed.', 'success');
+      });
+
+      fields.searchProvider.addEventListener('change', async () => {
+        const selectedProvider = fields.searchProvider.value || DEFAULT_SEARCH_PROVIDER;
+        const ok = await freedomAPI.saveSettings({ searchProvider: selectedProvider });
+        if (!ok) {
+          renderSearchProviderOptions(cachedSettings?.searchProvider || DEFAULT_SEARCH_PROVIDER);
+          setSearchProviderStatus('The default search engine could not be changed.', 'error');
+          return;
+        }
+        setSearchProviderStatus('Default search engine updated.', 'success');
+      });
 
       // Each sidebar entry maps to one section; the active section is driven
       // by location.hash so the URL is the source of truth and the outer
@@ -1421,12 +2065,19 @@
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
+        askWhereToSave: fields.askWhereToSave.checked,
         enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
         startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
         showIpfsProgressStatus: fields.showIpfsProgressStatus.checked,
         autoUpdate: fields.autoUpdate.checked,
         blockUnverifiedEns: fields.blockUnverifiedEns.checked,
+        adblockEnabled: fields.adblockEnabled.checked,
+        adblockAds: fields.adblockAds.checked,
+        adblockPrivacy: fields.adblockPrivacy.checked,
+        adblockCookies: fields.adblockCookies.checked,
+        adblockAnnoyances: fields.adblockAnnoyances.checked,
+        adblockAutoUpdate: fields.adblockAutoUpdate.checked,
       });
 
       const applyFormState = (settings) => {
@@ -1435,13 +2086,106 @@
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
+        fields.askWhereToSave.checked = settings.askWhereToSave === true;
         fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableIdentity.checked = settings.enableIdentityWallet === true;
         fields.showIpfsProgressStatus.checked = settings.showIpfsProgressStatus === true;
         fields.autoUpdate.checked = settings.autoUpdate !== false;
         fields.blockUnverifiedEns.checked = settings.blockUnverifiedEns !== false;
+        fields.adblockEnabled.checked = settings.adblockEnabled !== false;
+        fields.adblockAds.checked = settings.adblockAds !== false;
+        fields.adblockPrivacy.checked = settings.adblockPrivacy !== false;
+        fields.adblockCookies.checked = settings.adblockCookies === true;
+        fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
+        fields.adblockAutoUpdate.checked = settings.adblockAutoUpdate !== false;
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
+        applyAdblockGating();
+      };
+
+      const applyAdblockGating = () => {
+        for (const { id, field } of ADBLOCK_CATEGORIES) {
+          setFieldEnabled(fields.adblockEnabled, $(`adblock-${id}-row`), field);
+        }
+        setFieldEnabled(
+          fields.adblockEnabled,
+          $('adblock-autoupdate-row'),
+          fields.adblockAutoUpdate
+        );
+      };
+
+      // Rule counts / list version come from the main-process engine, not
+      // settings. The engine rebuilds asynchronously after a toggle, so
+      // refresh once more shortly after a save.
+      const renderAdblockStatus = async () => {
+        try {
+          const status = await freedomAPI.adblockGetStatus();
+          $('adblock-status').textContent = status.engineReady
+            ? `Filter lists ${status.listsVersion} · engine active`
+            : status.listsVersion
+              ? `Filter lists ${status.listsVersion} · engine preparing…`
+              : 'No filter lists bundled — blocking is inactive.';
+          for (const { id } of ADBLOCK_CATEGORIES) {
+            const meta = status.categories?.[id];
+            if (meta?.ruleCount) {
+              $(`adblock-${id}-help`).textContent =
+                `${meta.title} · ${meta.ruleCount.toLocaleString()} rules`;
+            }
+          }
+        } catch {
+          $('adblock-status').textContent = 'Status unavailable.';
+        }
+      };
+      let adblockStatusTimer = null;
+      const refreshAdblockStatusSoon = () => {
+        clearTimeout(adblockStatusTimer);
+        adblockStatusTimer = setTimeout(renderAdblockStatus, 1500);
+      };
+
+      const renderAdblockAllowlist = async () => {
+        const list = $('adblock-allowlist-list');
+        let hosts = [];
+        try {
+          hosts = await freedomAPI.adblockGetAllowlist();
+        } catch {
+          return;
+        }
+        list.textContent = '';
+        for (const host of hosts) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const body = document.createElement('div');
+          body.className = 'row-body';
+          const label = document.createElement('p');
+          label.className = 'row-label';
+          label.textContent = host;
+          body.appendChild(label);
+          const control = document.createElement('div');
+          control.className = 'row-control';
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'btn danger';
+          removeBtn.textContent = 'Remove';
+          removeBtn.addEventListener('click', async () => {
+            await freedomAPI.adblockRemoveAllowlistHost(host).catch(() => {});
+            renderAdblockAllowlist();
+          });
+          control.appendChild(removeBtn);
+          row.appendChild(body);
+          row.appendChild(control);
+          list.appendChild(row);
+        }
+      };
+
+      const addAllowlistHostFromInput = async () => {
+        const input = $('adblock-allowlist-input');
+        const host = input.value.trim();
+        if (!host) return;
+        const ok = await freedomAPI.adblockAddAllowlistHost(host).catch(() => false);
+        if (ok) {
+          input.value = '';
+          renderAdblockAllowlist();
+        }
       };
 
       let cachedSettings = null;
@@ -1542,6 +2286,7 @@
       $('tabs-titlebar-restart').addEventListener('click', () => freedomAPI.relaunchApp());
       fields.startAnt.addEventListener('change', save);
       fields.startIpfs.addEventListener('change', save);
+      fields.askWhereToSave.addEventListener('change', save);
       fields.enableRadicle.addEventListener('change', () => {
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         save();
@@ -1551,6 +2296,22 @@
       fields.showIpfsProgressStatus.addEventListener('change', save);
       fields.autoUpdate.addEventListener('change', save);
       fields.blockUnverifiedEns.addEventListener('change', save);
+      fields.adblockEnabled.addEventListener('change', () => {
+        applyAdblockGating();
+        save();
+        refreshAdblockStatusSoon();
+      });
+      for (const { field } of ADBLOCK_CATEGORIES) {
+        field.addEventListener('change', () => {
+          save();
+          refreshAdblockStatusSoon();
+        });
+      }
+      fields.adblockAutoUpdate.addEventListener('change', save);
+      $('adblock-allowlist-add').addEventListener('click', addAllowlistHostFromInput);
+      $('adblock-allowlist-input').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') addAllowlistHostFromInput();
+      });
 
       const formStateMatches = (settings) => {
         const form = currentFormState();
@@ -1565,6 +2326,7 @@
       freedomAPI.onSettingsUpdated?.((settings) => {
         if (!settings) return;
         cachedSettings = settings;
+        applySearchSettings(settings);
         if (!formStateMatches(settings)) {
           applyFormState(settings);
         }
@@ -1598,11 +2360,292 @@
           ]);
           cachedSettings = settings;
           cachedRegistry = registry;
+          applySearchSettings(settings);
           applyFormState(settings);
           renderSwarmModeRow(settings, registry);
         } catch {
           console.error('[settings] failed to load settings');
         }
+
+        renderAdblockStatus();
+        renderAdblockAllowlist();
+      })();
+
+      // ── Shortcuts settings page ─────────────────────────────────────
+      // Render-only controller: the registry state, validation, conflict
+      // detection, and persistence all live in the main process behind
+      // freedomAPI.getShortcuts / previewShortcutBinding /
+      // setShortcutOverride / resetShortcut(s). This page captures
+      // keydowns in recording mode and paints whatever main answers.
+      (() => {
+        const view = $('shortcuts-view');
+        const searchInput = $('shortcut-search');
+        const restoreBtn = $('shortcuts-restore-defaults');
+        const statusEl = $('shortcuts-status');
+        if (!view) return;
+
+        let entries = [];
+        let query = '';
+        let recordingId = null; // shortcut currently capturing a new combo
+        let conflictState = null; // { id, accelerator, formatted, conflict }
+        let rowNotice = null; // { id, message } transient validation notice
+        let recordingHandler = null;
+
+        const REASON_MESSAGES = {
+          reserved: 'That combination is reserved and cannot be assigned.',
+          'needs-modifier':
+            'Combine that key with Ctrl, Alt or Cmd. Only function keys work on their own.',
+          invalid: 'That key cannot be used as a shortcut.',
+          'not-editable': 'This shortcut cannot be changed.',
+          conflict: 'That combination is already in use.',
+          'save-failed': 'Could not save the shortcut. Try again.',
+        };
+
+        const setStatus = (message, kind) => {
+          if (!statusEl) return;
+          statusEl.textContent = message || '';
+          statusEl.className = 'rpc-status' + (kind ? ' ' + kind : '');
+        };
+
+        const matchesQuery = (entry) => {
+          const q = query.trim().toLowerCase();
+          if (!q) return true;
+          return [entry.description, entry.category, entry.formatted, entry.accelerator]
+            .concat(entry.aliases)
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        };
+
+        const kbd = (text) => `<kbd class="shortcut-kbd">${esc(text)}</kbd>`;
+
+        const renderConflict = (state) => {
+          const { conflict } = state;
+          const message = conflict.fixed
+            ? `${esc(state.formatted)} is already used by “${esc(conflict.description)}” and cannot be reassigned. Pick a different combination.`
+            : `${esc(state.formatted)} is already used by “${esc(conflict.description)}”. Swap the bindings so “${esc(conflict.description)}” becomes ${kbd(conflict.swapFormatted)}?`;
+          return `
+            <div class="row shortcut-conflict" data-shortcut-id="${esc(state.id)}">
+              <div class="row-body"><p class="row-label">${message}</p></div>
+              <span class="shortcut-conflict-actions">
+                ${conflict.fixed ? '' : '<button type="button" class="btn" data-action="swap">Swap</button>'}
+                <button type="button" class="btn" data-action="cancel-conflict">Cancel</button>
+              </span>
+            </div>`;
+        };
+
+        const renderRow = (entry) => {
+          const isRecording = recordingId === entry.id;
+          const notice = rowNotice?.id === entry.id ? rowNotice.message : null;
+          const aliasLine = entry.aliases.length
+            ? `<p class="row-help">Also ${entry.aliases.map(kbd).join(' ')}</p>`
+            : '';
+          const warnLine =
+            isRecording && entry.warnOnEdit
+              ? '<p class="shortcut-note">Heads up: this is a common close gesture across apps — remapping it changes deep muscle memory.</p>'
+              : '';
+          const control = !entry.editable
+            ? `<span class="shortcut-locked">${kbd(entry.formatted)} Locked</span>`
+            : `<button type="button" class="btn shortcut-binding${isRecording ? ' recording' : ''}" data-action="record">
+                 ${isRecording ? 'Press new shortcut… (Esc cancels)' : kbd(entry.formatted)}
+               </button>`;
+          const resetBtn =
+            entry.editable && entry.isOverridden && !isRecording
+              ? `<button type="button" class="btn" data-action="reset" title="Reset to ${esc(entry.defaultFormatted)}">Reset</button>`
+              : '';
+          const conflictRow =
+            conflictState && conflictState.id === entry.id ? renderConflict(conflictState) : '';
+          return `
+            <div class="row" data-shortcut-id="${esc(entry.id)}">
+              <div class="row-body">
+                <p class="row-label">${esc(entry.description)}</p>
+                ${aliasLine}
+                ${warnLine}
+                ${notice ? `<p class="shortcut-note">${esc(notice)}</p>` : ''}
+              </div>
+              <div class="row-control shortcut-controls">${resetBtn}${control}</div>
+            </div>
+            ${conflictRow}`;
+        };
+
+        const render = () => {
+          const visible = entries.filter(matchesQuery);
+          if (!visible.length) {
+            view.innerHTML =
+              '<div class="card"><div class="profile-node-empty">No shortcuts match your search.</div></div>';
+            return;
+          }
+          const categories = [];
+          for (const entry of visible) {
+            if (!categories.includes(entry.category)) categories.push(entry.category);
+          }
+          view.innerHTML = categories
+            .map(
+              (category) => `
+                <h3 class="shortcut-category">${esc(category)}</h3>
+                <div class="card">
+                  ${visible
+                    .filter((entry) => entry.category === category)
+                    .map(renderRow)
+                    .join('')}
+                </div>`
+            )
+            .join('');
+        };
+
+        const load = async () => {
+          try {
+            const state = await freedomAPI.getShortcuts();
+            entries = (state?.entries || []).filter((entry) => !entry.hidden);
+          } catch {
+            entries = [];
+            setStatus('Could not load shortcuts.', 'error');
+          }
+          render();
+        };
+
+        const stopRecording = () => {
+          if (recordingHandler) {
+            window.removeEventListener('keydown', recordingHandler, true);
+            recordingHandler = null;
+          }
+          recordingId = null;
+        };
+
+        const applyBinding = async (id, accelerator, swapWithConflict = false) => {
+          let result;
+          try {
+            result = await freedomAPI.setShortcutOverride({ id, accelerator, swapWithConflict });
+          } catch {
+            result = { ok: false, reason: 'save-failed' };
+          }
+          if (!result?.ok) {
+            rowNotice = { id, message: REASON_MESSAGES[result?.reason] || REASON_MESSAGES.invalid };
+          } else {
+            setStatus('Shortcut updated.', 'success');
+          }
+          await load();
+        };
+
+        const startRecording = (id) => {
+          const entry = entries.find((item) => item.id === id);
+          if (!entry?.editable || recordingId === id) return;
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          setStatus('');
+          recordingId = id;
+          render();
+
+          recordingHandler = async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+              stopRecording();
+              render();
+              return;
+            }
+            const captured = {
+              key: event.key,
+              code: event.code,
+              ctrlKey: event.ctrlKey,
+              altKey: event.altKey,
+              shiftKey: event.shiftKey,
+              metaKey: event.metaKey,
+            };
+            let preview;
+            try {
+              preview = await freedomAPI.previewShortcutBinding({ id, event: captured });
+            } catch {
+              preview = { ok: false, reason: 'invalid' };
+            }
+            // Only modifiers held so far — keep listening.
+            if (!preview.ok && preview.reason === 'incomplete') return;
+
+            stopRecording();
+            if (!preview.ok) {
+              rowNotice = {
+                id,
+                message: REASON_MESSAGES[preview.reason] || REASON_MESSAGES.invalid,
+              };
+              render();
+              return;
+            }
+            if (preview.conflict) {
+              conflictState = {
+                id,
+                accelerator: preview.accelerator,
+                formatted: preview.formatted,
+                conflict: preview.conflict,
+              };
+              render();
+              return;
+            }
+            await applyBinding(id, preview.accelerator);
+          };
+          window.addEventListener('keydown', recordingHandler, true);
+        };
+
+        view.addEventListener('click', async (event) => {
+          const button = event.target.closest('[data-action]');
+          if (!button) return;
+          const id = event.target.closest('[data-shortcut-id]')?.dataset.shortcutId;
+          if (!id) return;
+
+          switch (button.dataset.action) {
+            case 'record':
+              startRecording(id);
+              break;
+            case 'reset': {
+              stopRecording();
+              conflictState = null;
+              rowNotice = null;
+              const result = await freedomAPI.resetShortcut(id).catch(() => null);
+              setStatus(
+                result?.ok ? 'Shortcut reset to default.' : 'Could not reset.',
+                result?.ok ? 'success' : 'error'
+              );
+              await load();
+              break;
+            }
+            case 'swap': {
+              const pending = conflictState;
+              conflictState = null;
+              if (pending) await applyBinding(pending.id, pending.accelerator, true);
+              break;
+            }
+            case 'cancel-conflict':
+              conflictState = null;
+              render();
+              break;
+          }
+        });
+
+        searchInput?.addEventListener('input', () => {
+          query = searchInput.value || '';
+          render();
+        });
+
+        restoreBtn?.addEventListener('click', async () => {
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          const result = await freedomAPI.resetAllShortcuts().catch(() => null);
+          setStatus(
+            result?.ok ? 'All shortcuts restored to defaults.' : 'Could not restore defaults.',
+            result?.ok ? 'success' : 'error'
+          );
+          await load();
+        });
+
+        // Keep a second open settings tab (or a remap made elsewhere) in
+        // sync — but never clobber an in-progress recording or conflict
+        // prompt.
+        freedomAPI.onSettingsUpdated?.(() => {
+          if (!recordingId && !conflictState) load();
+        });
+
+        load();
       })();
 
       // ── Chains settings page ────────────────────────────────────────
@@ -1726,31 +2769,36 @@
           <div class="card" id="chain-search-results" style="margin-top: 12px">${searchResultsHtml()}</div>
           ${cardButton('Enter a chain manually', 'add-manual')}`;
 
-        const manualHtml = () => `
-          <div class="card">
-            <div class="rpc-block" style="border-top: none">
-              <p class="row-help" style="margin: 0 0 8px">
-                For a chain not in the catalogue — your own devnet or a private network.
-              </p>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-chainid" placeholder="Chain ID (e.g. 8453)" spellcheck="false" />
+        const manualHtml = () => {
+          const f = addState.manual || {};
+          const decimals = f.decimalsRaw ?? '18';
+          return `
+            <div class="card">
+              <div class="rpc-block" style="border-top: none">
+                <p class="row-help" style="margin: 0 0 8px">
+                  For a chain not in the catalogue — your own devnet or a private network.
+                </p>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-chainid" placeholder="Chain ID (e.g. 8453)" spellcheck="false" value="${esc(f.chainId || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-name" placeholder="Chain name" spellcheck="false" value="${esc(f.name || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-symbol" placeholder="Currency symbol (e.g. ETH)" spellcheck="false" value="${esc(f.symbol || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="number" class="rpc-input" id="man-decimals" placeholder="Currency decimals (e.g. 18)" value="${esc(decimals)}" min="0" step="1" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-rpc" placeholder="RPC URL (https://… or http://localhost:8545)" spellcheck="false" value="${esc(f.rpc || '')}" />
+                </div>
+                ${addState.error ? `<p class="rpc-status error" style="margin-bottom: 8px">${esc(addState.error)}</p>` : ''}
+                <button type="button" class="btn" data-action="submit-manual">Add chain</button>
+                <button type="button" class="btn" data-action="add-search" style="margin-left: 8px">Back to search</button>
               </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-name" placeholder="Chain name" spellcheck="false" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-symbol" placeholder="Currency symbol (e.g. ETH)" spellcheck="false" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="number" class="rpc-input" id="man-decimals" placeholder="Currency decimals (e.g. 18)" value="18" min="0" step="1" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-rpc" placeholder="RPC URL (https://…)" spellcheck="false" />
-              </div>
-              <button type="button" class="btn" data-action="submit-manual">Add chain</button>
-              <button type="button" class="btn" data-action="add-search" style="margin-left: 8px">Back to search</button>
-            </div>
-          </div>`;
+            </div>`;
+        };
 
         const renderAddConfirm = () => {
           const c = addState.picked;
@@ -1774,6 +2822,7 @@
             <h2 class="section-title">${esc(c.name)}</h2>
             <p class="row-help" style="margin-bottom: 16px">Review and confirm.</p>
             <div class="card">${rowsHtml}</div>
+            ${addState.error ? `<p class="rpc-status error" style="margin: 8px 0 0">${esc(addState.error)}</p>` : ''}
             ${cardButton('Add chain', 'confirm-add')}`;
         };
 
@@ -1839,8 +2888,9 @@
               <div class="rpc-block" style="border-top: none">
                 <p class="row-label" style="margin-bottom: 8px">${f.mode === 'edit' ? 'Edit endpoint' : 'Add endpoint'}</p>
                 <div class="rpc-row" style="margin-bottom: 8px">
-                  <input type="text" class="rpc-input" id="ep-url" placeholder="https://..." spellcheck="false" value="${esc(f.url)}" />
+                  <input type="text" class="rpc-input" id="ep-url" placeholder="https://... or http://localhost:8545" spellcheck="false" value="${esc(f.url)}" />
                 </div>
+                ${f.error ? `<p class="rpc-status error" style="margin-bottom: 8px">${esc(f.error)}</p>` : ''}
                 <button type="button" class="btn" data-action="save-endpoint">Save</button>
                 <button type="button" class="btn" data-action="cancel-endpoint" style="margin-left: 8px">Cancel</button>
               </div>
@@ -1973,11 +3023,13 @@
         };
 
         // Persist a new chain (+ its RPC endpoints), then open its detail.
-        const submitAddChain = async (def, rpcUrls) => {
+        const submitAddChain = async (def, rpcUrls, onError) => {
           try {
             const res = await freedomAPI.addChain(def, rpcUrls);
             if (res && res.success === false) {
-              setStatus(res.error || 'Could not add chain', 'error');
+              const message = res.error || 'Could not add chain';
+              if (onError) onError(message);
+              else setStatus(message, 'error');
               return;
             }
             setStatus('', '');
@@ -1985,7 +3037,9 @@
             await reload();
             location.hash = 'chains/' + def.chainId;
           } catch (err) {
-            setStatus(err?.message || 'Could not add chain', 'error');
+            const message = err?.message || 'Could not add chain';
+            if (onError) onError(message);
+            else setStatus(message, 'error');
           }
         };
 
@@ -2037,8 +3091,16 @@
           } else if (action === 'save-endpoint') {
             const url = ($('ep-url')?.value || '').trim();
             const cid = openChainId();
+            // Keep the form open on failure and show the error next to the input
+            // (a global status bar at the page bottom is easy to miss).
+            const failForm = (error) => {
+              endpointForm = { ...endpointForm, url, error };
+              setStatus('', '');
+              render();
+              $('ep-url')?.focus();
+            };
             if (!url) {
-              setStatus('Enter an endpoint URL', 'error');
+              failForm('Enter an endpoint URL');
               return;
             }
             if (!cid) {
@@ -2050,14 +3112,23 @@
               endpointForm?.mode === 'edit' && endpointForm.id
                 ? endpointForm.id
                 : 'user-' + Date.now();
-            endpointForm = null;
-            await mutate(() =>
-              freedomAPI.upsertEndpointSource(sourceId, {
+            try {
+              const res = await freedomAPI.upsertEndpointSource(sourceId, {
                 role: 'rpc',
                 keyed: false,
                 coverage: { [cid]: url },
-              })
-            );
+              });
+              if (res && res.success === false) {
+                failForm(res.error || 'Could not save endpoint');
+                return;
+              }
+            } catch (err) {
+              failForm(err?.message || 'Could not save endpoint');
+              return;
+            }
+            endpointForm = null;
+            setStatus('', '');
+            await reload();
           } else if (action === 'delete-source') {
             await mutate(() => freedomAPI.removeEndpointSource(id));
           } else if (action === 'open-rpc-page') {
@@ -2089,12 +3160,15 @@
           } else if (action === 'add-manual') {
             if (addState) {
               addState.mode = 'manual';
+              addState.error = null;
+              addState.manual = addState.manual || { decimalsRaw: '18' };
               render();
             }
           } else if (action === 'add-search') {
             if (addState) {
               addState.mode = 'search';
               addState.results = null;
+              addState.error = null;
               render();
               runChainSearch('');
             }
@@ -2105,6 +3179,7 @@
           } else if (action === 'add-back') {
             if (addState) {
               addState.picked = null;
+              addState.error = null;
               render();
               runChainSearch($('chain-search-input')?.value || '');
             }
@@ -2127,6 +3202,11 @@
           } else if (action === 'confirm-add') {
             const c = addState?.picked;
             if (!c) return;
+            const failConfirm = (error) => {
+              if (!addState) { setStatus(error, 'error'); return; }
+              addState.error = error;
+              render();
+            };
             await submitAddChain(
               {
                 chainId: c.chainId,
@@ -2135,7 +3215,8 @@
                 nativeCurrency: c.nativeCurrency || null,
                 blockExplorer: c.explorerUrl || '',
               },
-              c.rpcUrls || []
+              c.rpcUrls || [],
+              failConfirm
             );
           } else if (action === 'submit-manual') {
             const chainId = ($('man-chainid')?.value || '').trim();
@@ -2144,12 +3225,20 @@
             const decimalsRaw = ($('man-decimals')?.value || '').trim();
             const rpc = ($('man-rpc')?.value || '').trim();
             const decimals = decimalsRaw === '' ? 18 : Number(decimalsRaw);
-            if (!chainId || !name || !symbol || !rpc) {
-              setStatus('Chain ID, name, currency symbol and RPC URL are required', 'error');
-              return;
-            }
+            const manual = { chainId, name, symbol, decimalsRaw, rpc };
+            const failManual = (error, focusId = 'man-rpc') => {
+              if (!addState) { setStatus(error, 'error'); return; }
+              addState.manual = manual;
+              addState.error = error;
+              render();
+              $(focusId)?.focus();
+            };
+            if (!chainId) { failManual('Chain ID is required', 'man-chainid'); return; }
+            if (!name) { failManual('Chain name is required', 'man-name'); return; }
+            if (!symbol) { failManual('Currency symbol is required', 'man-symbol'); return; }
+            if (!rpc) { failManual('RPC URL is required'); return; }
             if (!Number.isInteger(decimals) || decimals < 0) {
-              setStatus('Currency decimals must be a non-negative whole number', 'error');
+              failManual('Currency decimals must be a non-negative whole number', 'man-decimals');
               return;
             }
             await submitAddChain(
@@ -2160,7 +3249,8 @@
                 nativeCurrency: { name: symbol, symbol, decimals },
                 blockExplorer: '',
               },
-              [rpc]
+              [rpc],
+              failManual
             );
           }
         });
@@ -2437,6 +3527,145 @@
         window.addEventListener('hashchange', () => {
           if (resolveSection(location.hash) !== 'rpc') return;
           keyFor = null;
+          reload();
+        });
+
+        reload();
+      })();
+
+      // Controller for the #permissions section: stored per-site
+      // permission decisions (permissions.json) grouped by origin, with
+      // per-permission revoke, per-site revoke, and revoke-all. Session-only
+      // (unremembered) decisions live in main-process memory and are not
+      // listed here — they expire with the app anyway.
+      (() => {
+        const view = $('permissions-view');
+        if (!view) return;
+
+        const PERMISSION_LABELS = {
+          camera: 'Camera',
+          microphone: 'Microphone',
+          notifications: 'Notifications',
+          'clipboard-read': 'Clipboard reading',
+          geolocation: 'Location',
+          midi: 'MIDI devices',
+        };
+        const label = (key) => PERMISSION_LABELS[key] || key;
+
+        const render = (all) => {
+          const origins = Object.keys(all || {}).sort();
+
+          const intro = `
+            <div class="card" style="margin-bottom: 16px">
+              <div class="row">
+                <div class="row-body">
+                  <p class="row-label">Decisions you asked Freedom to remember</p>
+                  <p class="row-help">
+                    When a site asks to use your camera, microphone, notifications,
+                    clipboard, location, or MIDI devices, Freedom prompts you.
+                    Remembered answers are listed here. Everything else is denied
+                    by default.
+                  </p>
+                </div>
+                <div class="row-control">
+                  <button class="btn danger" data-action="revoke-all" ${
+                    origins.length === 0 ? 'disabled' : ''
+                  }>
+                    Remove all
+                  </button>
+                </div>
+              </div>
+            </div>`;
+
+          if (origins.length === 0) {
+            view.innerHTML =
+              intro +
+              `<div class="card"><div class="row"><div class="row-body">
+                 <p class="row-label">No stored site permissions</p>
+                 <p class="row-help">Allow or Block a site's request with
+                 “Remember for this site” checked and the decision appears here.</p>
+               </div></div></div>`;
+            return;
+          }
+
+          const cards = origins
+            .map((origin) => {
+              const rows = Object.entries(all[origin] || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(
+                  ([permission, decision]) => `
+                    <div class="row sub">
+                      <div class="row-body">
+                        <p class="row-label">${esc(label(permission))}</p>
+                        <p class="row-help" ${
+                          decision === 'deny' ? 'style="color: var(--danger)"' : ''
+                        }>${decision === 'allow' ? 'Allowed' : 'Blocked'}</p>
+                      </div>
+                      <div class="row-control">
+                        <button class="btn" data-action="revoke"
+                          data-origin="${esc(origin)}"
+                          data-permission="${esc(permission)}">Remove</button>
+                      </div>
+                    </div>`
+                )
+                .join('');
+              return `
+                <div class="card" style="margin-bottom: 12px">
+                  <div class="row">
+                    <div class="row-body">
+                      <p class="row-label" style="word-break: break-all">${esc(origin)}</p>
+                    </div>
+                    <div class="row-control">
+                      <button class="btn" data-action="revoke-origin"
+                        data-origin="${esc(origin)}">Remove site</button>
+                    </div>
+                  </div>
+                  ${rows}
+                </div>`;
+            })
+            .join('');
+
+          view.innerHTML = intro + cards;
+        };
+
+        const reload = async () => {
+          try {
+            render(await freedomAPI.getSitePermissions());
+          } catch (err) {
+            view.innerHTML = `<div class="card"><div class="row"><div class="row-body">
+              <p class="row-label">Could not load site permissions</p>
+              <p class="row-help">${esc(err?.message || String(err))}</p>
+            </div></div></div>`;
+          }
+        };
+
+        view.addEventListener('click', async (e) => {
+          const btn = e.target.closest('button[data-action]');
+          if (!btn) return;
+          const { action, origin, permission } = btn.dataset;
+          try {
+            if (action === 'revoke') {
+              await freedomAPI.revokeSitePermission(origin, permission);
+            } else if (action === 'revoke-origin') {
+              await freedomAPI.revokeSitePermissionOrigin(origin);
+            } else if (action === 'revoke-all') {
+              await freedomAPI.revokeAllSitePermissions();
+            }
+          } catch (err) {
+            console.error('[settings] site-permission revoke failed:', err);
+          }
+          reload();
+        });
+
+        // Live refresh when decisions change elsewhere (prompt answers,
+        // the address-bar indicator's quick revoke).
+        freedomAPI.onSitePermissionsChanged?.(() => {
+          reload();
+        });
+
+        // Re-sync on navigation into this section.
+        window.addEventListener('hashchange', () => {
+          if (resolveSection(location.hash) !== 'permissions') return;
           reload();
         });
 

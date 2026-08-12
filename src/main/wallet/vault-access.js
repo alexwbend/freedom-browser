@@ -16,7 +16,12 @@
  * incidentally by the consolidation.
  */
 
-const { loadIdentityModule } = require('../identity-manager');
+const {
+  loadIdentityModule,
+  getWalletRecord,
+  isHardwareWalletIndex,
+  WALLET_TYPES,
+} = require('../identity-manager');
 const { resetVaultAutoLockTimer } = require('../vault-timer');
 const { VAULT_LOCKED_MESSAGE } = require('./vault-errors');
 
@@ -53,6 +58,19 @@ function isValidWalletIndex(walletIndex) {
 async function withVaultPrivateKey(walletIndex, callback) {
   if (!isValidWalletIndex(walletIndex)) {
     throw new Error('Invalid wallet index');
+  }
+  // Hard stop for non-mnemonic accounts at the key-derivation chokepoint:
+  // deriving a mnemonic key at a hardware account's index would silently
+  // sign with a key whose address the user has never seen.
+  //
+  // The index-range half of the check stands on its own and must come
+  // first: a *deleted* device account has no record at all, and a stale
+  // reference to it (dApp permission, publisher identity, an index from
+  // untrusted renderer code) would otherwise fall through to derivation
+  // at m/44'/60'/<hardware index>'/0/0 — a phantom account.
+  const record = getWalletRecord(walletIndex);
+  if (isHardwareWalletIndex(walletIndex) || (record && record.type !== WALLET_TYPES.MNEMONIC)) {
+    throw new Error('Hardware wallet accounts have no vault key; sign via their device signer');
   }
   const identity = await loadIdentityModule();
   if (!identity.isUnlocked()) {

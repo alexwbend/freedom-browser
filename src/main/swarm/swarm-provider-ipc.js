@@ -15,9 +15,18 @@
  *   (b) The renderer derives origin from the per-webview display URL
  *       (via getDisplayUrlForWebview), not from the page's window.location
  *       which is http://127.0.0.1:port for all dweb pages.
- *   (c) webContents.getURL() cannot be used because dweb pages resolve
- *       through the request-rewriter — the internal URL doesn't carry
- *       the dweb protocol identity (bzz://, ens://, ipfs://).
+ *   (c) The renderer-supplied origin is the *authority* for grant checks;
+ *       webContents.getURL() is used only as an independent cross-check that
+ *       the subscribing/receiving document still belongs to that origin (see
+ *       the delivery guard and the subscribe post-await re-check below). This
+ *       works because bzz://, ipfs:// and ipns:// are served by custom
+ *       protocol handlers that preserve the dweb URL — getURL() carries the
+ *       dweb identity, so normalizeOrigin(getURL()) matches the renderer key.
+ *       NOTE: those two guards depend on that invariant. If a future transport
+ *       reintroduces gateway-URL loading (http://127.0.0.1:port) for a dweb
+ *       scheme, getURL() would stop carrying the identity and the guards would
+ *       fail *closed* for it (messaging blocked, not leaked) — update them here
+ *       rather than assuming this comment still holds.
  *   The renderer is the only process that can map webview → tab → display URL.
  */
 
@@ -52,9 +61,13 @@ const LIMITS = {
   maxPathBytes: 100,
   maxChunkPayloadBytes: 4096,
   // Messaging extension — maxMessageBytes/maxTargetDepth mirror the Ant
-  // node's own enforcement (see messaging-service.js).
+  // node's own enforcement (see messaging-service.js). minTargetDepth is
+  // the SWIP storability floor (2 bytes); defaultTargetDepth is the L=16
+  // interop convention we emit as `pssTarget`.
   maxMessageBytes: messagingService.MAX_MESSAGE_BYTES,
   maxTargetDepth: messagingService.MAX_TARGET_DEPTH,
+  defaultTargetDepth: messagingService.DEFAULT_TARGET_DEPTH,
+  minTargetDepth: messagingService.DEFAULT_TARGET_DEPTH,
   maxSubscriptions: 32,
 };
 
@@ -1477,7 +1490,8 @@ function validateMessagingTopic(topic) {
  * The full node overlay MUST NOT cross the page boundary — it is
  * node-global (identical for every origin), so it would be a cross-origin
  * correlation handle and disclose the node's exact network position. Only
- * the first maxTargetDepth bytes leave as `pssTarget`. The PSS key itself
+ * the first defaultTargetDepth (2) bytes leave as `pssTarget` — the L=16
+ * routing convention, and enough neighborhood prefix to route. The PSS key itself
  * is the node key (the Ant lurker decrypts with it), i.e. bee-wallet mode:
  * origins that need unlinkable messaging identities must wait for
  * app-scoped PSS keys (node support required).
@@ -1497,7 +1511,7 @@ async function handleGetMessagingIdentity(origin) {
     return {
       result: {
         pssPublicKey: identity.pssPublicKey,
-        pssTarget: identity.overlay.slice(0, LIMITS.maxTargetDepth * 2),
+        pssTarget: identity.overlay.slice(0, LIMITS.defaultTargetDepth * 2),
         identityMode: 'bee-wallet',
       },
     };
@@ -1530,13 +1544,17 @@ async function handleSendPss(params, origin) {
   }
 
   const { targets } = params;
+  const targetByteLen = typeof targets === 'string' ? targets.length / 2 : NaN;
   const targetBytesValid =
     typeof targets === 'string' &&
     /^([0-9a-fA-F]{2})+$/.test(targets) &&
-    targets.length / 2 <= LIMITS.maxTargetDepth;
+    targetByteLen >= LIMITS.minTargetDepth &&
+    targetByteLen <= LIMITS.maxTargetDepth;
   if (!targetBytesValid) {
+    // Floor is the storability depth (a 1-byte target is too shallow to
+    // be retained by any storer); cap is the mining-cost ceiling.
     return invalidParams(
-      `targets must be hex encoding 1-${LIMITS.maxTargetDepth} whole bytes`,
+      `targets must be hex encoding ${LIMITS.minTargetDepth}-${LIMITS.maxTargetDepth} whole bytes`,
       'invalid_target'
     );
   }
@@ -1624,7 +1642,39 @@ async function handleSendGsoc(params, origin) {
 // webview keeps its webContents across navigations, so subscriptions are
 // torn down both on 'destroyed' (tab close) and 'did-navigate' (main-frame
 // navigation away — the page that subscribed is gone either way).
+// Deliberately not 'did-navigate-in-page': a hash route or pushState
+// leaves the same document, with the same grant and the same live
+// listeners, so tearing down there would break messaging on a page that
+// is very much still there.
 const teardownAttached = new Set();
+
+// Per-webContents navigation counter. A webview keeps its webContents across
+// navigations, so a same-origin *cross-document* navigation during the
+// subscribe awaits (grant prompt + reachability probe) fires did-navigate but
+// leaves the origin re-check happy (chat.eth → chat.eth) — binding the new
+// document a subscription it never asked for. Snapshot this at request entry
+// and compare after the awaits: a cross-document navigation bumps it (in-page
+// hash/pushState does not fire did-navigate, so a live page's own routing is
+// unaffected). Listener attached once per webContents, cleared on destroy.
+const navEpochs = new Map();
+const navEpochAttached = new Set();
+
+function navEpoch(webContentsId) {
+  if (!navEpochAttached.has(webContentsId)) {
+    const contents = webContents.fromId(webContentsId);
+    if (contents && !contents.isDestroyed()) {
+      navEpochAttached.add(webContentsId);
+      contents.on('did-navigate', () => {
+        navEpochs.set(webContentsId, (navEpochs.get(webContentsId) || 0) + 1);
+      });
+      contents.once('destroyed', () => {
+        navEpochAttached.delete(webContentsId);
+        navEpochs.delete(webContentsId);
+      });
+    }
+  }
+  return navEpochs.get(webContentsId) || 0;
+}
 
 function attachWebContentsTeardown(webContentsId) {
   if (teardownAttached.has(webContentsId)) return;
@@ -1646,6 +1696,25 @@ function attachWebContentsTeardown(webContentsId) {
 function deliverSubscriptionMessage(subscription, payload) {
   const contents = webContents.fromId(subscription.webContentsId);
   if (!contents || contents.isDestroyed()) return;
+  // A webview keeps its webContents across navigations, so the page on
+  // screen may no longer belong to the origin that subscribed. Delivering
+  // here would hand another origin's page the messages of a subscription
+  // it never asked for (and has no grant for). The did-navigate teardown
+  // below normally wins this race; this check is what makes it safe when
+  // a message and a commit land in the same tick.
+  //
+  // The comparison is on the permission key, not the exact URL: an
+  // in-page navigation (hash route, pushState) fires no did-navigate and
+  // leaves the very same document — and the same grant — in place, so
+  // keying on the URL would kill a live page's messaging on its first
+  // route change.
+  const currentOrigin = normalizeOrigin(contents.getURL());
+  if (currentOrigin !== subscription.origin) {
+    // Only the subscriptions whose origin is gone: a subscription the
+    // origin now loaded already opened on this webview is still valid.
+    subscriptionRegistry.cancelStaleByWebContents(subscription.webContentsId, currentOrigin);
+    return;
+  }
   // The webview preload bridges this channel to the page (the preload
   // itself keeps the literal string — sandboxed preloads cannot require
   // shared modules).
@@ -1713,6 +1782,11 @@ async function handleSubscribe(params, origin, meta) {
     return invalidParams('subscribe requires a webContents target', 'invalid_params');
   }
 
+  // Snapshot before the user-paced grant prompt and the reachability probe, so
+  // a cross-document navigation during either is detected below even when it
+  // stays on the same origin (which the origin re-check alone cannot catch).
+  const entryNavEpoch = navEpoch(webContentsId);
+
   if (!hasMessagingGrant(origin)) {
     return messagingNotGranted();
   }
@@ -1734,6 +1808,43 @@ async function handleSubscribe(params, origin, meta) {
     }
   }
 
+  const contents = webContents.fromId(webContentsId);
+  if (!contents || contents.isDestroyed()) {
+    return invalidParams('subscribe requires a live webContents target', 'invalid_params');
+  }
+
+  // Everything above this line can take arbitrarily long — the messaging
+  // grant prompt is user-paced and the reachability probe is a network
+  // round-trip — and a webview keeps its webContents across navigations.
+  // If the user navigated the tab elsewhere while we waited, the registry
+  // entry we are about to create would bind `origin`'s subscription to a
+  // webContents now hosting someone else, and the delivery check would
+  // then happily validate it: every message for this topic would land in
+  // the other site. did-navigate cannot save us here — it fired before
+  // any entry existed. Re-check the live page instead.
+  // Two shapes of "navigated away during the awaits": a different origin now
+  // holds the webContents (origin check), or a same-origin cross-document
+  // navigation replaced the subscribing document (epoch check — did-navigate
+  // fired with no entry yet to cancel). Either way the requesting document is
+  // gone; binding now would hand its slot to a page that never subscribed.
+  if (normalizeOrigin(contents.getURL()) !== origin || navEpoch(webContentsId) !== entryNavEpoch) {
+    log.warn(`[SwarmProvider] subscribe target navigated away from ${origin}: ${kind}:${key}`);
+    return {
+      error: {
+        ...ERRORS.NODE_UNAVAILABLE,
+        message: 'Page navigated away before the subscription was established',
+        data: { reason: 'subscription_cancelled' },
+      },
+    };
+  }
+
+  // Teardown must be armed *before* the registry can hold a slot on this
+  // page's behalf: establishment can take seconds (or, against a node
+  // that stopped answering, never settle), and the page can navigate away
+  // or be closed in the meantime. Attaching only on success leaked the
+  // subscription — and its share of the per-origin cap — forever.
+  attachWebContentsTeardown(webContentsId);
+
   try {
     const { subscriptionId } = await subscriptionRegistry.subscribe({
       origin,
@@ -1741,10 +1852,22 @@ async function handleSubscribe(params, origin, meta) {
       kind,
       key,
     });
-    attachWebContentsTeardown(webContentsId);
     log.info(`[SwarmProvider] subscribe succeeded for ${origin}: ${kind}:${key}`);
     return { result: { subscriptionId, kind, key } };
   } catch (err) {
+    if (err.reason === 'establish_timeout' || err.reason === 'subscription_cancelled' || err.reason === 'cancelled') {
+      // Never established within the window, or torn down while we waited
+      // (navigation, tab close, grant revoke). Retryable, like any other
+      // node-availability failure — the slot has already been released.
+      log.warn(`[SwarmProvider] subscribe did not establish for ${origin} (${err.reason}): ${kind}:${key}`);
+      return {
+        error: {
+          ...ERRORS.NODE_UNAVAILABLE,
+          message: err.message,
+          data: { reason: err.reason },
+        },
+      };
+    }
     if (err.reason === 'too_many_subscriptions') {
       return invalidParams(err.message, 'too_many_subscriptions', {
         limit: LIMITS.maxSubscriptions,

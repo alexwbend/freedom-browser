@@ -6,9 +6,11 @@
  */
 
 import { walletState, hideAllSubscreens, registerScreenHider } from './wallet-state.js';
+import { isSignatureInFlight } from './signature-flight.js';
 import { open as openSidebarPanel } from '../sidebar.js';
 import { updateConnectionBanner, disconnectDapp } from './dapp-connect.js';
 import { updateSwarmConnectionBanner, disconnectSwarmApp } from './swarm-connect.js';
+import { showVaultUnlock } from './vault-unlock.js';
 import { showPublisherIdentityCreate } from './publisher-identity-create.js';
 import {
   BEE_WALLET_IDENTITY_ID,
@@ -131,10 +133,26 @@ export function initPermissionManage() {
   registerScreenHider(() => closeX402Perms());
 }
 
+/**
+ * These management subscreens are opened from the connection banners, but
+ * the banners live in the identity view that an approval screen hides — so
+ * this is belt-and-braces against any future entry point: while a device
+ * confirmation is live it owns the sidebar (see signature-flight.js) and
+ * nothing may repaint over it.
+ */
+function signatureInFlightBlocks(what) {
+  if (!isSignatureInFlight()) return false;
+  console.warn(`[PermissionManage] ${what} not opened: a signature is already in flight`);
+  return true;
+}
+
 export async function showDappPermissions(permissionKey) {
+  if (signatureInFlightBlocks('dapp permissions')) return;
+
   const permission = await window.dappPermissions.getPermission(permissionKey);
   if (!permission) return;
 
+  if (signatureInFlightBlocks('dapp permissions')) return;
   hideAllSubscreens();
   dappPermsKey = permissionKey;
   if (dappPermsSite) dappPermsSite.textContent = permissionKey;
@@ -214,9 +232,17 @@ async function handleDappDisconnect() {
 }
 
 export async function showSwarmPermissions(permissionKey, options = {}) {
+  if (signatureInFlightBlocks('swarm permissions')) return;
+
   const permission = await window.swarmPermissions.getPermission(permissionKey);
   if (!permission) return;
 
+  const unlocked = await ensurePublisherIdentityUnlocked(permissionKey);
+  if (!unlocked) {
+    return;
+  }
+
+  if (signatureInFlightBlocks('swarm permissions')) return;
   hideAllSubscreens();
   swarmPermsKey = permissionKey;
   if (swarmPermsSite) swarmPermsSite.textContent = permissionKey;
@@ -310,6 +336,17 @@ async function handleSwarmDisconnect() {
   closeSwarmPerms();
 }
 
+async function ensurePublisherIdentityUnlocked(permissionKey) {
+  try {
+    const status = await window.identity.getStatus();
+    if (status.isUnlocked) return true;
+    await showVaultUnlock(permissionKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function refreshSwarmIdentitySection(note = '') {
   if (!swarmPermsKey) return;
   try {
@@ -387,6 +424,8 @@ async function createSwarmAppScopedIdentity() {
 }
 
 export async function showX402Permissions(originKey) {
+  if (signatureInFlightBlocks('x402 permissions')) return;
+
   hideAllSubscreens();
 
   x402PermsKey = originKey;

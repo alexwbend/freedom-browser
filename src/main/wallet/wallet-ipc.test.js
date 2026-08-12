@@ -13,7 +13,7 @@ jest.mock('./tx-recorder', () => ({
 }));
 jest.mock('../identity-manager', () => ({}));
 jest.mock('./rpc-manager', () => ({}));
-jest.mock('./vault-access', () => ({}));
+jest.mock('./signers', () => ({}));
 
 const { buildTxRecordContext } = require('./wallet-ipc');
 

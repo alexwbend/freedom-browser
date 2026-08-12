@@ -44,12 +44,15 @@ const IPFS_NATIVE_ADDON_PATH = resolveIpfsNativeAddonPath();
 const HAS_IPFS_NATIVE_ADDON = fs.existsSync(IPFS_NATIVE_ADDON_PATH);
 
 const test = base.extend({
-  // Playwright derives fixture dependencies from the first parameter's
-  // destructure; this fixture has none, but the empty `{}` is required
-  // so Playwright recognises it as a fixture function rather than a
-  // plain factory.
-  // eslint-disable-next-line no-empty-pattern
-  electronApp: async ({}, use) => {
+  // Seed settings.json before launch (same semantics as fixtures.js) —
+  // e.g. disable node autostart for specs that don't need Ant/IPFS.
+  seedSettings: [null, { option: true }],
+
+  // Extra environment variables for the app process (e.g.
+  // FREEDOM_ADBLOCK_DIR). The suite-critical vars below always win.
+  launchEnv: [null, { option: true }],
+
+  electronApp: async ({ seedSettings: settingsOverride, launchEnv }, use) => {
     // One temp root per run, with four subdirs:
     //   - userData/     → settings, bookmarks, history (FREEDOM_TEST_USER_DATA)
     //   - ant-data/     → Ant's identity, swarm key, peerstore (FREEDOM_ANT_DATA)
@@ -72,12 +75,20 @@ const test = base.extend({
     for (const dir of [userDataDir, beeDataDir, ipfsDataDir, identityDataDir]) {
       fs.mkdirSync(dir, { recursive: true });
     }
+    if (settingsOverride) {
+      fs.writeFileSync(
+        path.join(userDataDir, 'settings.json'),
+        JSON.stringify(settingsOverride, null, 2),
+        'utf-8'
+      );
+    }
 
     const app = await electron.launch({
       args: ['.'],
       cwd: repoRoot,
       env: {
         ...process.env,
+        ...(launchEnv || {}),
         // Deliberately NOT setting FREEDOM_TEST_MODE — this suite needs
         // the production code paths (actual Bee spawn, live ENS, real
         // protocol handlers).
