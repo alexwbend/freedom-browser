@@ -158,6 +158,7 @@ test('private window: badge, isolated partition, private start page, no wallet p
   await waitForStubPage(priv, 'https://dapp.example/');
   expect(await evalInActiveWebview(priv, 'typeof window.ethereum')).toBe('undefined');
   expect(await evalInActiveWebview(priv, 'typeof window.swarm')).toBe('undefined');
+  expect(await evalInActiveWebview(priv, 'typeof window.radicle')).toBe('undefined');
 
   // …but are injected on the same page in a normal window (sanity check
   // that the assertion above isn't vacuous).
@@ -165,6 +166,7 @@ test('private window: badge, isolated partition, private start page, no wallet p
   await waitForStubPage(window, 'https://dapp.example/');
   expect(await evalInActiveWebview(window, 'typeof window.ethereum')).toBe('object');
   expect(await evalInActiveWebview(window, 'typeof window.swarm')).toBe('object');
+  expect(await evalInActiveWebview(window, 'typeof window.radicle')).toBe('object');
 
   await closePrivateWindows(electronApp);
 });
