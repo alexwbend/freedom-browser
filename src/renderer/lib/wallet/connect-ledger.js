@@ -8,6 +8,7 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
+import { refuseSubscreenWhileInFlight } from './signature-flight.js';
 import { loadDerivedWallets, updateWalletSelectorDisplay } from './wallet-selector.js';
 import { refreshBalances } from './balance-display.js';
 import { escapeHtml, truncateAddress } from './wallet-utils.js';
@@ -68,6 +69,8 @@ export function initConnectLedger() {
 }
 
 export async function openConnectLedger() {
+  if (refuseSubscreenWhileInFlight('Connect Ledger screen')) return;
+
   walletState.identityView?.classList.add('hidden');
   screen?.classList.remove('hidden');
 

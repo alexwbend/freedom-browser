@@ -72,4 +72,38 @@ describe('signature-flight lock', () => {
     state.hideAllSubscreens();
     expect(hider).toHaveBeenCalledTimes(1);
   });
+
+  // The sidebar's close button, the toolbar toggle and the tab bar are not
+  // approval surfaces — they sit in the chrome above whichever screen is up
+  // — so they subscribe here to go visibly dead for the flight.
+  test('ownership changes are broadcast to chrome subscribers', async () => {
+    const { flight } = await load();
+    const seen = [];
+    const unsubscribe = flight.onSignatureFlightChange((inFlight) => seen.push(inFlight));
+    const request = { id: 'a' };
+
+    flight.beginSignatureFlight(request);
+    // A superseded release does not flip the state, so it does not notify.
+    flight.endSignatureFlight({ id: 'b' });
+    flight.endSignatureFlight(request);
+
+    expect(seen).toEqual([true, false]);
+
+    unsubscribe();
+    flight.beginSignatureFlight(request);
+    expect(seen).toEqual([true, false]);
+  });
+
+  test('a screen that takes the sidebar over directly refuses while in flight', async () => {
+    const { flight } = await load();
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(flight.refuseSubscreenWhileInFlight('Receive screen')).toBe(false);
+
+    flight.beginSignatureFlight({});
+    expect(flight.refuseSubscreenWhileInFlight('Receive screen')).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Receive screen'));
+
+    warn.mockRestore();
+  });
 });

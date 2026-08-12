@@ -21,15 +21,45 @@
 // request cannot release a lock it no longer holds.
 let owner = null;
 
+// Chrome that is not itself an approval surface — the sidebar's close
+// button, the toolbar toggle, the tab bar — has to *look* locked while the
+// device prompt is up, the same way Back/Reject do. Those controls live
+// outside any approval module, so they subscribe here instead of polling.
+const listeners = new Set();
+
+/**
+ * Subscribe to lock ownership changes. The listener is called with the new
+ * in-flight boolean whenever it flips. Returns an unsubscribe function.
+ */
+export function onSignatureFlightChange(listener) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function notify(wasInFlight) {
+  const inFlight = owner !== null;
+  if (inFlight === wasInFlight) return;
+  listeners.forEach((listener) => {
+    try {
+      listener(inFlight);
+    } catch (err) {
+      console.error('[SignatureFlight] listener failed:', err);
+    }
+  });
+}
+
 /** Take the lock for `token` (typically the module's `pending` object). */
 export function beginSignatureFlight(token) {
+  const wasInFlight = owner !== null;
   owner = token ?? null;
+  notify(wasInFlight);
 }
 
 /** Release the lock, but only if `token` still holds it. */
 export function endSignatureFlight(token) {
   if (token && owner === token) {
     owner = null;
+    notify(true);
   }
 }
 
@@ -53,4 +83,15 @@ export function assertNoSignatureInFlight() {
   if (owner !== null) {
     throw signatureInFlightError();
   }
+}
+
+/**
+ * Guard for a sub-screen that takes the sidebar over directly instead of
+ * going through hideAllSubscreens() (so the backstop there does not cover
+ * it). Returns true — "refuse to open" — while any surface owns the device.
+ */
+export function refuseSubscreenWhileInFlight(label) {
+  if (owner === null) return false;
+  console.warn(`[WalletUI] ${label} not opened: a signature is in flight`);
+  return true;
 }

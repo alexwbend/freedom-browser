@@ -93,8 +93,15 @@
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.sidebar-tab:hover {
+.sidebar-tab:hover:not(:disabled) {
   color: var(--text);
+}
+
+/* A device confirmation owns the sidebar until it is answered, so the
+   header chrome that would tear it down goes dead with it. */
+.sidebar-tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sidebar-tab.active {
@@ -212,9 +219,14 @@
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.sidebar-close:hover {
+.sidebar-close:hover:not(:disabled) {
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--text);
+}
+
+.sidebar-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sidebar-close svg {
@@ -281,9 +293,14 @@
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-.wallet-toggle-btn:hover,
+.wallet-toggle-btn:hover:not(:disabled),
 .wallet-toggle-btn[aria-expanded='true'] {
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+.wallet-toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .wallet-toggle-btn svg {
@@ -627,11 +644,11 @@
   background-color: var(--toolbar);
 }
 
-[data-theme="light"] .sidebar-close:hover {
+[data-theme="light"] .sidebar-close:hover:not(:disabled) {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
-[data-theme="light"] .wallet-toggle-btn:hover,
+[data-theme="light"] .wallet-toggle-btn:hover:not(:disabled),
 [data-theme="light"] .wallet-toggle-btn[aria-expanded='true'] {
   background-color: rgba(0, 0, 0, 0.1);
 }
