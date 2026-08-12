@@ -848,11 +848,20 @@ function restoreCardWithError(error) {
 // Finalises the subresource "Signing..." state when the detector's
 // async sign completes. detectionId-match guards against a stale event
 // for a previously-rendered card.
-function handleApprovalResult({ detectionId, success, error }) {
+function handleApprovalResult({ detectionId, success, error, cancelled }) {
   if (!pending || pending.detectionId !== detectionId) return;
   if (success) {
     closeAndReset();
     updateX402ConnectionBanner().catch(() => {});
+    return;
+  }
+  if (cancelled) {
+    // The request itself is gone (main sends this when the paying tab is
+    // destroyed). There is nothing left to retry, so tear the card down —
+    // which is also what releases the sidebar if the user had already
+    // sent the authorization to the device.
+    console.warn(`[x402] approval cancelled: ${error || 'request is gone'}`);
+    closeAndReset();
     return;
   }
   restoreCardWithError(error);

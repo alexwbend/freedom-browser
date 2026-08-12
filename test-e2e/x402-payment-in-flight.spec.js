@@ -161,3 +161,132 @@ test('a dApp request mid-payment cannot cancel an in-flight Ledger payment', asy
   expect(afterSettle).toBe('requested');
   await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
 });
+
+// The browser tab strip is chrome the signature lock deliberately does not
+// cover, so the paying tab can be closed while the device prompt is up. The
+// subresource card's only release is the x402:approval-result event, so if
+// that event is addressed through the (now dead) paying tab the sidebar
+// keeps the lock for the rest of the session: the card freezes, the X and
+// the toolbar toggle stay disabled, and every dApp request is refused
+// -32002. Driven through the REAL detector + the REAL webContents
+// 'destroyed' handler against a real tab; only get-details/approve are
+// stubbed (the sign itself needs a device).
+test('closing the paying tab mid-payment releases the sidebar instead of bricking it', async ({
+  electronApp,
+  window,
+}) => {
+  await stubMainIpc(electronApp, LEDGER);
+  // The card carries the detectionId get-details hands it, so the stub has
+  // to report the id the real detector below mints (`req-<request id>`).
+  await electronApp.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('x402:get-details');
+    ipcMain.handle('x402:get-details', () => ({
+      success: true,
+      detectionId: 'req-4242',
+      url: 'https://pay.example/segment/0',
+      accepts: [{
+        accept: {
+          amount: '2500000',
+          asset: '0xUSDC',
+          network: 'base',
+          payTo: '0x1111111111111111111111111111111111111111',
+        },
+        tuple: { amount: '2500000', chainId: 8453 },
+        balanceKey: '8453:0xUSDC',
+        asset: { symbol: 'USDC', decimals: 6 },
+        balance: '5000000',
+        fundable: true,
+      }],
+      initialSelectionIndex: 0,
+    }));
+  });
+  await window.evaluate(async (ledger) => {
+    const { walletState } = await import('./lib/wallet/wallet-state.js');
+    walletState.derivedWallets = [ledger];
+    walletState.activeWalletIndex = ledger.index;
+  }, LEDGER);
+
+  // A second tab is the paying tab, so closing it doesn't close the window.
+  await window.locator('[data-test="new-tab-btn"]').click();
+  await expect(window.locator('[data-test="tab"]')).toHaveCount(2);
+  const guestId = await window.evaluate(async () => {
+    const tabs = await import('./lib/tabs.js');
+    return tabs.getActiveWebview()?.getWebContentsId() ?? null;
+  });
+  expect(typeof guestId).toBe('number');
+
+  // Real 402 detection on that tab: mints the detectionId, stores the
+  // detection and fires x402:approval-needed through the real sendToHost.
+  await electronApp.evaluate(({ app }, guestId) => {
+    // `require` isn't in scope inside evaluate; go through the main
+    // module so we get the SAME intercept instance the app is running.
+    const nodeRequire = process.mainModule.require.bind(process.mainModule);
+    const intercept = nodeRequire(
+      nodeRequire('path').join(app.getAppPath(), 'src/main/x402/intercept.js')
+    );
+    const requirements = {
+      x402Version: 2,
+      resource: { url: 'https://pay.example/segment/0' },
+      accepts: [{
+        scheme: 'exact',
+        network: 'eip155:8453',
+        amount: '2500000',
+        asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+        payTo: '0x1111111111111111111111111111111111111111',
+        maxTimeoutSeconds: 60,
+        extra: { name: 'USD Coin', version: '2' },
+      }],
+    };
+    // Not awaited: the detector holds the response open until the user
+    // decides, exactly as it does in production.
+    intercept.detectPaymentRequiredHandler({
+      id: 4242,
+      webContentsId: guestId,
+      url: 'https://pay.example/segment/0',
+      statusLine: 'HTTP/1.1 402 Payment Required',
+      responseHeaders: {
+        'PAYMENT-REQUIRED': [Buffer.from(JSON.stringify(requirements)).toString('base64')],
+      },
+      resourceType: 'xhr',
+    });
+  }, guestId);
+
+  await expect(window.locator('#sidebar-x402-approval')).toBeVisible();
+  await window.click('#x402-approval-approve');
+
+  // Device prompt is up and the sidebar is locked to it.
+  await expect(window.locator('#x402-approval-approve')).toHaveText('Confirm on your Ledger…');
+  await expect(window.locator('#x402-approval-reject')).toBeDisabled();
+  await expect(window.locator('#sidebar-close')).toBeDisabled();
+  await window.screenshot({ path: 'test-results/x402-tab-close-before.png' });
+
+  // Main-side shape of "the authorization has left for the device": the
+  // approval entry is settled and gone, the sign is outstanding.
+  await electronApp.evaluate(({ app }) => {
+    const nodeRequire = process.mainModule.require.bind(process.mainModule);
+    nodeRequire(
+      nodeRequire('path').join(app.getAppPath(), 'src/main/x402/intercept.js')
+    ).clearAllPendingApprovals();
+  });
+
+  // User closes the paying tab. Real destroy → real cleanup → the card is
+  // told its request is gone, over a channel that doesn't need the tab.
+  await window.locator('[data-test="tab"][data-tab-id="2"] [data-test="tab-close"]').click();
+  await expect(window.locator('[data-test="tab"]')).toHaveCount(1);
+
+  await expect(window.locator('#sidebar-x402-approval')).toBeHidden();
+  await expect(window.locator('#sidebar-close')).toBeEnabled();
+  await expect(window.locator('#wallet-toggle-btn')).toBeEnabled();
+  expect(await cancelCounts(electronApp)).toEqual({ cancel: 0, reject: 0 });
+
+  // Acceptance: the wallet works again — a dApp request is served rather
+  // than refused -32002, and the sidebar can be closed normally.
+  const settled = await window.evaluate(async (txParams) => {
+    const dappTx = await import('./lib/wallet/dapp-tx.js');
+    dappTx.showDappTxApproval({}, 'https://swap.example', txParams).catch(() => {});
+    return 'requested';
+  }, TX_PARAMS);
+  expect(settled).toBe('requested');
+  await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+  await window.screenshot({ path: 'test-results/x402-tab-close-after.png' });
+});
