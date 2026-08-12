@@ -62,6 +62,18 @@ const DEFAULT_SETTINGS = {
   // Linux only: render the tab strip as the window titlebar (frameless window).
   // Off by default so Linux users get the native OS frame; opt in via Settings.
   tabsInTitlebar: false,
+  // Ad blocking (src/main/adblock/). Category defaults mirror Freedom iOS:
+  // ads (EasyList) and trackers (EasyPrivacy) on, cookie banners and
+  // annoyances opt-in. saveSettings() rebuilds the filter engine when any
+  // of these change.
+  adblockEnabled: true,
+  adblockAds: true,
+  adblockPrivacy: true,
+  adblockCookies: false,
+  adblockAnnoyances: false,
+  // Pull refreshed filter lists from Swarm on a schedule (WP5). On by
+  // default; dormant anyway until a feed trust anchor is compiled in.
+  adblockAutoUpdate: true,
   // Keyboard-shortcut remaps: shortcut id → accelerator string. Only ids
   // from the shared registry (src/shared/shortcuts.js) with valid, non-
   // reserved accelerators survive sanitization. The one non-primitive
@@ -266,6 +278,18 @@ function saveSettings(newSettings) {
 
     if (merged.theme !== previous.theme) {
       applyNativeTheme(merged.theme);
+    }
+
+    // Same keyed side-effect shape as theme above: a changed adblock flag
+    // rebuilds the filter engine, so toggles take effect without a
+    // restart. Lazy require — adblock/service requires this module back.
+    const adblockChanged = Object.keys(DEFAULT_SETTINGS).some(
+      (key) => key.startsWith('adblock') && merged[key] !== previous[key]
+    );
+    if (adblockChanged) {
+      require('./adblock/service')
+        .refreshEngine()
+        .catch((err) => log.error('[adblock] engine refresh after settings change failed:', err));
     }
 
     broadcastSettingsUpdated(merged);
