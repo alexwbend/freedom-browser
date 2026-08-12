@@ -388,4 +388,52 @@ describe('permission manifests', () => {
     await second;
     expect(mockHandleBzzRequest).toHaveBeenCalledTimes(2);
   });
+
+  test('two tabs of one app share a single consent instead of two stale-able tokens', async () => {
+    const fetchManifest = async () => responseFor(manifest({ publish: { why: 'Publish releases' } }));
+    const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+    const tabA = await checkManifest(request, { fetchManifest });
+    const tabB = await checkManifest(request, { fetchManifest });
+
+    expect(tabA.kind).toBe('consent');
+    expect(tabB.kind).toBe('consent');
+    expect(tabB.token).toBe(tabA.token);
+
+    // One sheet, one answer: the second tab's decide replays that answer
+    // rather than tripping the revision guard the first decision bumped.
+    const decision = decideManifest(tabA.token, 'allow');
+    expect(decision).toEqual({ allowed: true, mode: 'allow' });
+    expect(decideManifest(tabB.token, 'allow')).toEqual(decision);
+    expect(mockPermissionState['app.eth'].autoApprove.publish).toBe(true);
+    expect(getRecord('app.eth').receipts).toHaveLength(1);
+  });
+
+  test('a shared first-contact denial drops the observation for both tabs', async () => {
+    const fetchManifest = async () => responseFor(manifest({ messaging: { why: 'Receive updates' } }));
+    const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+    const tabA = await checkManifest(request, { fetchManifest });
+    const tabB = await checkManifest(request, { fetchManifest });
+
+    const decision = decideManifest(tabA.token, 'deny');
+    expect(decision).toEqual({ allowed: false, mode: 'deny' });
+    expect(decideManifest(tabB.token, 'deny')).toEqual(decision);
+    expect(getRecord('app.eth')).toBeNull();
+    expect(mockPermissionState['app.eth']).toBeUndefined();
+  });
+
+  test('a changed manifest still invalidates the outstanding consent', async () => {
+    const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+    const tabA = await checkManifest(request, {
+      fetchManifest: async () => responseFor(manifest({ publish: { why: 'Publish releases' } })),
+    });
+    const tabB = await checkManifest(request, {
+      fetchManifest: async () => responseFor(manifest({
+        publish: { why: 'Publish releases' },
+        messaging: { why: 'Receive updates' },
+      })),
+    });
+
+    expect(tabB.token).not.toBe(tabA.token);
+    expect(() => decideManifest(tabA.token, 'allow')).toThrow('stale');
+  });
 });

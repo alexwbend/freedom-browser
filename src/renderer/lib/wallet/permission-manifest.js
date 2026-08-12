@@ -50,10 +50,28 @@ export function initPermissionManifest() {
   });
 }
 
-export function showPermissionManifest(model) {
-  return new Promise((resolve) => {
-    manifestQueue.show({ model, resolve });
+// Concurrent tabs of the same app share one consent token (main hands the
+// outstanding one back), and one token means one sheet: a second request for a
+// token already queued, on screen, or just answered rides on that single
+// answer instead of asking the user the same question twice. Bounded like the
+// main process's completed-token replay — tokens live five minutes.
+const MAX_TRACKED_OUTCOMES = 100;
+const outcomesByToken = new Map();
+
+export function showPermissionManifest(model, token) {
+  if (!token) return new Promise((resolve) => manifestQueue.show({ model, resolve }));
+
+  const tracked = outcomesByToken.get(token);
+  if (tracked) return tracked;
+
+  const outcome = new Promise((resolve) => {
+    manifestQueue.show({ model, token, resolve });
   });
+  outcomesByToken.set(token, outcome);
+  if (outcomesByToken.size > MAX_TRACKED_OUTCOMES) {
+    outcomesByToken.delete(outcomesByToken.keys().next().value);
+  }
+  return outcome;
 }
 
 function presentPermissionManifest({ model }) {

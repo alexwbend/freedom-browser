@@ -307,6 +307,40 @@ function detachManaged(origin, projection) {
   runTransaction(key, record, []);
 }
 
+// `firstContact` is deliberately not compared: the first check of a fresh
+// origin persists its observation, so a sibling tab checking a moment later
+// sees a record and computes `false`. The outstanding token's value is the
+// truthful one — the record it sees exists only because of that check — and
+// keeping it is what still drops the observation on a denial.
+function sameConsent(left, right) {
+  return left.origin === right.origin
+    && left.fingerprint === right.fingerprint
+    && left.baseRevision === right.baseRevision
+    && left.changed.length === right.changed.length
+    && left.changed.every((capability, index) => capability === right.changed[index]);
+}
+
+/**
+ * Two tabs of the same app check concurrently, see identical state, and would
+ * otherwise each mint their own token off the same baseRevision. The user then
+ * answers two identical sheets, and the second decision fails the revision
+ * guard because the first one bumped the revision. One outstanding consent per
+ * (origin, manifest, state) instead: the second decide() replays the recorded
+ * result, and the renderer coalesces the duplicate sheet on the shared token.
+ */
+function outstandingToken(candidate) {
+  const now = Date.now();
+  let match = null;
+  for (const [token, pending] of tokens) {
+    if (pending.expiresAt < now) {
+      tokens.delete(token);
+      continue;
+    }
+    if (!match && sameConsent(pending, candidate)) match = token;
+  }
+  return match;
+}
+
 function buildConsentModel(origin, record, manifest, changed, removed) {
   return {
     origin,
@@ -383,8 +417,7 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
   }
 
   if (changed.length === 0) return { kind: 'ready' };
-  const token = crypto.randomBytes(24).toString('base64url');
-  tokens.set(token, {
+  const pending = {
     origin: key,
     manifest,
     fingerprint: found.fingerprint,
@@ -392,7 +425,12 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
     firstContact,
     changed,
     expiresAt: Date.now() + TOKEN_TTL_MS,
-  });
+  };
+  let token = outstandingToken(pending);
+  if (!token) {
+    token = crypto.randomBytes(24).toString('base64url');
+    tokens.set(token, pending);
+  }
   return { kind: 'consent', token, model: buildConsentModel(key, existing, manifest, changed, removed) };
 }
 

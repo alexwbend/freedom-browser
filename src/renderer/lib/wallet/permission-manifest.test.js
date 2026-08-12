@@ -237,4 +237,31 @@ describe('permission manifest consent queues concurrent requests', () => {
     await ctx.elements['swarm-manifest-allow'].fire('click');
     expect(await consent.promise).toBe('allow');
   });
+
+  test('two tabs sharing one consent token get one sheet and one answer', async () => {
+    const ctx = await loadPermissionManifest();
+    const screen = ctx.elements['sidebar-swarm-manifest'];
+
+    // Main hands both tabs the same outstanding token for the same origin.
+    const tabA = trackedConsent(ctx.mod.showPermissionManifest(manifestModel('bzz://alpha', 'Alpha'), 'tok-1'));
+    const tabB = trackedConsent(ctx.mod.showPermissionManifest(manifestModel('bzz://alpha', 'Alpha'), 'tok-1'));
+
+    await armPrompt();
+    await ctx.elements['swarm-manifest-allow'].fire('click');
+
+    // One answer settles both, and no duplicate sheet is left behind.
+    expect(await tabA.promise).toBe('allow');
+    expect(await tabB.promise).toBe('allow');
+    expect(screen.classList.contains('hidden')).toBe(true);
+
+    // A tab arriving late on the same token replays the answer, no sheet.
+    const tabC = trackedConsent(ctx.mod.showPermissionManifest(manifestModel('bzz://alpha', 'Alpha'), 'tok-1'));
+    expect(await tabC.promise).toBe('allow');
+    expect(screen.classList.contains('hidden')).toBe(true);
+
+    // A different consent still gets its own sheet.
+    trackedConsent(ctx.mod.showPermissionManifest(manifestModel('bzz://beta', 'Beta'), 'tok-2'));
+    expect(screen.classList.contains('hidden')).toBe(false);
+    expect(ctx.elements['swarm-manifest-site'].textContent).toBe('bzz://beta');
+  });
 });

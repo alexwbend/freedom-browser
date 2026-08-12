@@ -175,7 +175,7 @@ async function performManifestRefresh({ permissionKey, committedUrl, navigationK
   }
   if (result.kind !== 'consent') return;
 
-  const outcome = await showPermissionManifest(result.model);
+  const outcome = await showPermissionManifest(result.model, result.token);
   const decision = await window.swarmManifest.decide(result.token, outcome);
   if (!decision.allowed) throw ERRORS.USER_REJECTED;
 }
