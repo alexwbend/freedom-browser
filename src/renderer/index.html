@@ -3024,6 +3024,56 @@
               </div>
             </div>
 
+            <!-- Swarm Messaging Approval sub-screen (PSS/GSOC) -->
+            <div id="sidebar-swarm-messaging-approve" class="sidebar-subscreen sidebar-modal hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="swarm-messaging-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title" id="swarm-messaging-title">Messaging Access</h3>
+              </div>
+
+              <div class="subscreen-content">
+                <div class="swarm-connect-origin">
+                  <div class="swarm-connect-site" id="swarm-messaging-site">site.eth</div>
+                  <div class="swarm-connect-wants" id="swarm-messaging-wants">wants to send and receive real-time messages</div>
+                </div>
+
+                <div class="swarm-publish-details">
+                  <div class="swarm-publish-row hidden" id="swarm-messaging-topic-row">
+                    <span class="swarm-publish-label">Topic</span>
+                    <span class="swarm-publish-value" id="swarm-messaging-topic"></span>
+                  </div>
+                  <div class="swarm-publish-row hidden" id="swarm-messaging-size-row">
+                    <span class="swarm-publish-label">Size</span>
+                    <span class="swarm-publish-value" id="swarm-messaging-size"></span>
+                  </div>
+                </div>
+
+                <div class="swarm-connect-warning">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span id="swarm-messaging-warning">Sending messages uses your stamps. Open subscriptions use bandwidth while the page is loaded.</span>
+                </div>
+
+                <label class="auto-approve-checkbox hidden" id="swarm-messaging-auto-approve-label">
+                  <input type="checkbox" id="swarm-messaging-auto-approve" />
+                  <span>Always allow this site to send messages without asking</span>
+                </label>
+
+                <div class="swarm-connect-actions">
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-messaging-reject">Cancel</button>
+                  <button type="button" class="swarm-connect-approve-btn" id="swarm-messaging-confirm">Allow</button>
+                </div>
+              </div>
+            </div>
+
             <!-- Swarm Feed Approval sub-screen -->
             <div id="sidebar-swarm-feed-approve" class="sidebar-subscreen sidebar-modal hidden">
               <div class="subscreen-header">

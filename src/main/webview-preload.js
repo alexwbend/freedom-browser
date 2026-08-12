@@ -708,7 +708,7 @@ try {
     (function() {
       const pendingRequests = new Map();
       let requestId = 0;
-      const eventListeners = { connect: [], disconnect: [] };
+      const eventListeners = { connect: [], disconnect: [], message: [] };
 
       function emitEvent(event, data) {
         if (eventListeners[event]) {
@@ -726,11 +726,14 @@ try {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_SWARM_REQUEST', id, method, params: params || {} }, '*');
             const longRunning = method.startsWith('swarm_publish') ||
+              method.startsWith('swarm_send') ||
               method === 'swarm_createFeed' ||
               method === 'swarm_updateFeed' ||
               method === 'swarm_writeFeedEntry' ||
               method === 'swarm_writeSingleOwnerChunk' ||
-              method === 'swarm_getSigningIdentity';
+              method === 'swarm_getSigningIdentity' ||
+              method === 'swarm_getMessagingIdentity' ||
+              method === 'swarm_subscribe';
             const timeout = longRunning ? 300000 : 60000;
             setTimeout(() => {
               if (pendingRequests.has(id)) {
@@ -758,6 +761,11 @@ try {
         writeSingleOwnerChunk(params) { return this.request({ method: 'swarm_writeSingleOwnerChunk', params: params }); },
         readSingleOwnerChunk(params) { return this.request({ method: 'swarm_readSingleOwnerChunk', params: params }); },
         getSigningIdentity() { return this.request({ method: 'swarm_getSigningIdentity' }); },
+        getMessagingIdentity() { return this.request({ method: 'swarm_getMessagingIdentity' }); },
+        subscribe(params) { return this.request({ method: 'swarm_subscribe', params: params }); },
+        unsubscribe(params) { return this.request({ method: 'swarm_unsubscribe', params: params }); },
+        sendPss(params) { return this.request({ method: 'swarm_sendPss', params: params }); },
+        sendGsoc(params) { return this.request({ method: 'swarm_sendGsoc', params: params }); },
 
         on(event, handler) { if (eventListeners[event]) eventListeners[event].push(handler); return this; },
         removeListener(event, handler) {
