@@ -70,6 +70,7 @@ import { initRadicleAlias } from './lib/radicle-alias.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 import { attachSubmenuHover } from './lib/submenu-hover.js';
 import { bindHoverTooltip } from './lib/hover-tooltip.js';
+import { initShortcuts } from './lib/shortcuts.js';
 
 const electronAPI = window.electronAPI;
 
@@ -720,6 +721,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     applySettingsToState(event.detail);
   });
 
+  initShortcuts(); // Live shortcut bindings — before any keydown consumers
   initMenuBackdrop(closeAllOverlays);
   initMenus();
   initAntUi();

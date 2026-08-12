@@ -5,6 +5,8 @@
  * Fixed width (320px), toggle open/closed.
  */
 
+import { matchesShortcut } from './shortcuts.js';
+
 // State
 let isOpen = false;
 let featureEnabled = false;
@@ -67,9 +69,9 @@ export function initSidebar() {
     closeBtn.addEventListener('click', close);
   }
 
-  // Keyboard shortcut: Cmd/Ctrl+Shift+W
+  // Keyboard shortcut (default Cmd/Ctrl+Shift+W, remappable)
   document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'W') {
+    if (matchesShortcut(e, 'view.toggleSidebar')) {
       if (!featureEnabled) return;
       e.preventDefault();
       toggle();
