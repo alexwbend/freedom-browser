@@ -313,7 +313,6 @@ async function bootstrap() {
   registerRadicleProviderIpc();
   registerFeedStoreIpc();
   registerPermissionManifestIpc();
-  registerSwarmProviderIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
   // before the previous run exited. Fire-and-forget — the wallet stack
