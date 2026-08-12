@@ -84,8 +84,12 @@ test('an unavailable publisher identity renders inert and cannot be selected', a
   expect(result.selected).toEqual(['ethereum-wallet:0']);
 
   // Selecting closes the dropdown; reopen it so the shot shows the list.
+  // Wait for the close to settle before toggling — under load a reopen click
+  // that lands mid-close races the toggle and leaves the list hidden.
+  const list = window.locator('#e2e-identity-selector .wallet-selector-list');
+  await expect(list).toBeHidden();
   await window.click('#e2e-identity-selector .publisher-identity-selector-btn');
-  await expect(window.locator('#e2e-identity-selector .wallet-selector-list')).toBeVisible();
+  await expect(list).toBeVisible();
   const box = await window.locator('#e2e-identity-selector').boundingBox();
   await window.screenshot({
     path: '/tmp/publisher-identity-unavailable.png',

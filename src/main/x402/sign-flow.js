@@ -36,9 +36,15 @@ const { tupleFromAccept } = require('./payment-utils');
  * Runway an EIP-3009 authorization must still have when we hand it to the
  * dispatcher. `@x402/evm`'s exact facilitator rejects anything with
  * `validBefore < now + 6`, so a payload with less than that left is dead on
- * arrival however valid the signature is.
+ * arrival however valid the signature is. We gate on the *client's* clock at
+ * sign-completion, but the facilitator re-checks the same rule on *its* clock
+ * seconds later — after the mainFrame re-navigation, the server round-trip and
+ * the server→facilitator verify hop — so matching the bare 6 leaves no margin
+ * for transit or clock skew and can still be refused server-side (the exact
+ * burned-charge case this gate exists to prevent). Keep comfortably above it;
+ * a false positive only re-shows the same "try again" card.
  */
-const MIN_AUTHORIZATION_RUNWAY_SECONDS = 6;
+const MIN_AUTHORIZATION_RUNWAY_SECONDS = 20;
 
 /**
  * Seconds left on the signed authorization, or `null` when the payload has
