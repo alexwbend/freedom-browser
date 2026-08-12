@@ -449,6 +449,25 @@ describe('permission manifests', () => {
     expect(getRecord('app.eth').receipts).toHaveLength(1);
   });
 
+  test('a coalescing second tab refreshes the shared consent TTL', async () => {
+    jest.useFakeTimers({ now: Date.UTC(2026, 0, 1) });
+    try {
+      const fetchManifest = async () => responseFor(manifest({ publish: { why: 'Publish releases' } }));
+      const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+      const tabA = await checkManifest(request, { fetchManifest });
+      // Second tab arrives 4.5 min into the 5 min TTL and reuses the token.
+      jest.advanceTimersByTime(4.5 * 60 * 1000);
+      const tabB = await checkManifest(request, { fetchManifest });
+      expect(tabB.token).toBe(tabA.token);
+      // Past the ORIGINAL 5 min expiry but within the refreshed window: the
+      // reused token must still decide (without the refresh it would throw).
+      jest.advanceTimersByTime(1 * 60 * 1000);
+      expect(decideManifest(tabB.token, 'allow')).toEqual({ allowed: true, mode: 'allow' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('a shared first-contact denial drops the observation for both tabs', async () => {
     const fetchManifest = async () => responseFor(manifest({ messaging: { why: 'Receive updates' } }));
     const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };

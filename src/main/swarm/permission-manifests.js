@@ -407,11 +407,15 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
     return existing ? { kind: 'unresolved', retryAt } : { kind: 'legacy', reason: 'unresolved', retryAt };
   }
   unresolvedBackoff.delete(key);
+  // Defense-in-depth: bail before any prune if the origin and committedUrl
+  // don't agree, so origin A's record can never be pruned on origin B's
+  // manifest state. (Unreachable from today's renderer — both derive from the
+  // same displayUrl — but cheap to enforce here.)
+  if (normalizeOrigin(committedUrl) !== key) return { kind: 'legacy' };
   if (found.status !== 'found') {
     if (existing) pruneRecord(key);
     return { kind: 'legacy', pruned: !!existing, reason: found.status };
   }
-  if (normalizeOrigin(committedUrl) !== key) return { kind: 'legacy' };
 
   const manifest = found.manifest;
   const nextKeys = Object.keys(manifest.capabilities);
@@ -459,6 +463,11 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
   if (!token) {
     token = crypto.randomBytes(24).toString('base64url');
     tokens.set(token, pending);
+  } else {
+    // A fresh tab just coalesced onto this consent — extend the window so the
+    // shared token doesn't expire on the earliest requester's clock (a sheet
+    // reused 4.5 min into a 5 min TTL would otherwise die 30 s later).
+    tokens.get(token).expiresAt = pending.expiresAt;
   }
   return { kind: 'consent', token, model: buildConsentModel(key, existing, manifest, changed, removed) };
 }
