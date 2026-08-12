@@ -446,6 +446,7 @@ async function getFeeQuote(chainId) {
       ? DEFAULT_READ_ORDER
       : DEFAULT_NON_MYOTIS_READ_ORDER);
   const failures = [];
+  let lastRpcError = null;
 
   for (const source of order) {
     try {
@@ -474,10 +475,14 @@ async function getFeeQuote(chainId) {
       return feeQuote(source, gasPrice, priority);
     } catch (err) {
       failures.push(`${source}: ${err.message}`);
+      // Keep a real node error (with its JSON-RPC code/data) so the caller
+      // sees it rather than a stringified aggregate — same as request().
+      if (!(err instanceof SourceUnavailableError)) lastRpcError = err;
       log.verbose(`[chain-data] ${chainId} fee quote via ${source} failed: ${err.message}`);
     }
   }
 
+  if (lastRpcError) throw lastRpcError;
   throw new Error(`All chain sources failed for fee quote (${failures.join('; ')})`);
 }
 
@@ -487,6 +492,7 @@ async function broadcastRawTransaction(chainId, rawTransaction) {
   const order = network.access?.broadcastOrder ||
     (myotis.NETWORKS?.has(Number(chainId)) === true ? DEFAULT_BROADCAST_ORDER : ['direct']);
   const failures = [];
+  let lastRpcError = null;
   for (const source of order) {
     try {
       let result;
@@ -502,9 +508,14 @@ async function broadcastRawTransaction(chainId, rawTransaction) {
       return { result, source };
     } catch (err) {
       failures.push(`${source}: ${err.message}`);
+      // A node rejection (`nonce too low`, `already known`, …) carries a
+      // JSON-RPC code/data the wallet needs — surface the real error rather
+      // than the stringified aggregate, matching request().
+      if (!(err instanceof SourceUnavailableError)) lastRpcError = err;
       log.verbose(`[chain-data] ${chainId} transaction broadcast via ${source} failed: ${err.message}`);
     }
   }
+  if (lastRpcError) throw lastRpcError;
   throw new Error(`All transaction broadcasters failed (${failures.join('; ')})`);
 }
 

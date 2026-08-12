@@ -15,7 +15,6 @@ const PRIVACY_MODE = 'basic';
 const MAX_LATEST_AGE_SECONDS = 60;
 
 const clients = new Map();
-const providers = new Map();
 const inFlightBuilds = new Map();
 const clientReferences = new Map();
 const retiredClients = new Set();
@@ -89,11 +88,24 @@ function retireClient(client) {
   destroyClient(client);
 }
 
-async function useClient(client, operation) {
-  retainClient(client);
-  try {
-    return await operation();
-  } finally {
+// Obtain a live client + its provider with a reference already held, closing
+// the use-after-destroy window: retainClient only ran inside the old
+// useClient, i.e. after `await getClient` resolved, and in that microtask gap a
+// concurrent request's failure path could release the last ref and destroy the
+// very client this caller was about to use. Here we retain optimistically and
+// then re-validate that the retained client is still the cached one (and not
+// retired); if it was swapped/evicted during the gap, release and re-acquire.
+// The caller releases in a finally.
+async function acquireClient(chainId) {
+  const id = Number(chainId);
+  for (;;) {
+    const client = await getClient(id);
+    retainClient(client);
+    const cached = clients.get(id);
+    if (cached?.client === client && !retiredClients.has(client)) {
+      return { client, provider: cached.provider };
+    }
+    // Evicted or rebuilt during the acquire gap — drop our ref and retry.
     releaseClient(client);
   }
 }
@@ -147,7 +159,6 @@ function evictFailedClient(chainId, failedClient) {
   const cached = clients.get(chainId);
   if (cached?.client !== failedClient) return;
   clients.delete(chainId);
-  providers.delete(chainId);
   retireClient(failedClient);
 }
 
@@ -157,18 +168,27 @@ function evictFailedClient(chainId, failedClient) {
 // EVM revert data are never retried or reclassified.
 async function withColibriClientRetry(chainId, operation) {
   const id = Number(chainId);
-  let client = await getClient(id);
+  const first = await acquireClient(id);
   try {
-    return await useClient(client, () => operation({ client, provider: providers.get(id) }));
+    return await operation(first);
   } catch (err) {
     if (!retryableColibriError(err)) throw err;
     log.warn(
       `[colibri] chain ${id} request failed; rebuilding client and retrying once ` +
       colibriErrorForLog(err)
     );
-    evictFailedClient(id, client);
-    client = await getClient(id);
-    return useClient(client, () => operation({ client, provider: providers.get(id) }));
+    evictFailedClient(id, first.client);
+    const retry = await acquireClient(id);
+    try {
+      return await operation(retry);
+    } finally {
+      releaseClient(retry.client);
+    }
+  } finally {
+    // Always releases first's acquire ref — on success, on a rethrown
+    // non-retryable error, and after the retry path above. Dropping the last
+    // ref on an evicted/retired client is what finally destroys it.
+    releaseClient(first.client);
   }
 }
 
@@ -193,8 +213,11 @@ async function buildClient({ chainId, key, proverUrl, zkProof, generation }) {
   }
 
   const previousClient = clients.get(chainId)?.client;
-  clients.set(chainId, { client, key });
-  providers.set(chainId, new ethers.BrowserProvider(client));
+  // Co-locate the provider with its client in one entry so acquireClient
+  // captures the {client, provider} pair atomically — a separate providers
+  // map can return undefined mid-rebuild or a provider from another
+  // generation.
+  clients.set(chainId, { client, key, provider: new ethers.BrowserProvider(client) });
   retireClient(previousClient);
   log.info(`[colibri] chain ${chainId} client ready (prover=${hostOf(proverUrl)}, zk=${zkProof})`);
   return client;
@@ -275,7 +298,6 @@ function clearColibriClientForTest() {
     buildGenerations.set(chainId, (buildGenerations.get(chainId) || 0) + 1);
   }
   clients.clear();
-  providers.clear();
   inFlightBuilds.clear();
   for (const client of retiredClients) destroyClient(client);
   clientReferences.clear();

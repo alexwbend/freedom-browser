@@ -382,6 +382,30 @@ describe('mutation layer', () => {
     expect(registry.getEndpointSourceList().find((src) => src.id === 'bad-rpc')).toBeUndefined();
   });
 
+  test.each([
+    ['http://192.168.1.50'],
+    ['ftp://prover.example'],
+    ['https://user:pass@prover.example'],
+    ['http://prover.example'],
+  ])('upsertEndpointSource rejects unsafe prover URL %s', (url) => {
+    // Prover URLs are fetched by the main-process Colibri client, so they get
+    // the same https-or-loopback SSRF validation as rpc URLs.
+    const result = registry.upsertEndpointSource('bad-prover', {
+      role: 'prover', keyed: false, coverage: { '1': url },
+    });
+
+    expect(result.success).toBe(false);
+    expect(registry.getEndpointSourceList().find((src) => src.id === 'bad-prover')).toBeUndefined();
+  });
+
+  test('upsertEndpointSource accepts an https prover URL', () => {
+    const result = registry.upsertEndpointSource('good-prover', {
+      role: 'prover', keyed: false, coverage: { '1': 'https://prover.example/v1' },
+    });
+    expect(result.success).toBe(true);
+    expect(registry.getEndpoints(1, 'prover')).toContain('https://prover.example/v1');
+  });
+
   test('upsertEndpointSource accepts a NAT64 address embedding a public IPv4', () => {
     const url = 'https://[64:ff9b::8.8.8.8]:8545';
     const result = registry.upsertEndpointSource('nat64-rpc', {

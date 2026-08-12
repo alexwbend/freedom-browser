@@ -249,10 +249,15 @@ function normalizeRpcUrls(rpcUrls = []) {
   return { urls };
 }
 
+// rpc and prover coverage URLs are both fetched by the main process (the RPC
+// pool and the Colibri prover client), so both get the same https-or-loopback
+// SSRF validation. Other roles carry no network-fetched URL to guard.
+const URL_VALIDATED_ROLES = new Set(['rpc', 'prover']);
+
 function validateEndpointSourceForPersist(source) {
-  if (source?.role !== 'rpc') return null;
+  if (!URL_VALIDATED_ROLES.has(source?.role)) return null;
   if (!source.coverage || typeof source.coverage !== 'object') {
-    return 'RPC source coverage is required';
+    return `${source.role} source coverage is required`;
   }
   for (const url of Object.values(source.coverage)) {
     const error = validateRpcUrl(url);

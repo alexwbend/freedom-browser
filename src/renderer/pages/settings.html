@@ -2218,6 +2218,7 @@
         let config = { networks: {}, sources: [] };
         let myotisStatuses = {};
         let endpointForm = null; // null | { mode, id, url } — chain is the open detail; role is always rpc
+        let endpointSaveInFlight = false; // guards against a double-click adding two 'user-<Date.now()>' sources
         let addState = null; // null | { mode: 'search'|'manual', results, picked } — the add-chain flow
 
         const setStatus = (msg, kind) => {
@@ -2536,7 +2537,7 @@
           const supportsVerifiedSources = cid === '1' || cid === '100';
           const defaultReadOrder = supportsVerifiedSources
             ? ['myotis', 'colibri', 'quorum', 'direct']
-            : ['quorum', 'direct'];
+            : ['colibri', 'quorum', 'direct'];
           const defaultBroadcastOrder = supportsVerifiedSources
             ? ['myotis', 'direct']
             : ['direct'];
@@ -2676,15 +2677,20 @@
             ? (supportsVerifiedSources ? ['myotis', 'direct'] : ['direct'])
             : (supportsVerifiedSources
                 ? ['myotis', 'colibri', 'quorum', 'direct']
-                : ['quorum', 'direct']);
+                : ['colibri', 'quorum', 'direct']);
           const order = [...(network.access?.[key] || fallback)];
           const from = order.indexOf(source);
           let to = target ? order.indexOf(target) : from + direction;
           if (from < 0 || to < 0 || to >= order.length || from === to) return;
           order.splice(from, 1);
           order.splice(to, 0, source);
+          // Send only the changed key: main merges `access` one level deep,
+          // and `network.access` here is the builtin+override merged view —
+          // spreading it would freeze builtin defaults (e.g. broadcastOrder)
+          // into the user config, so a future app update to a builtin order
+          // would be silently ignored for this user.
           await mutate(() => freedomAPI.updateNetwork(cid, {
-            access: { ...(network.access || {}), [key]: order },
+            access: { [key]: order },
           }));
         };
         const runChainSearch = async (query) => {
@@ -2850,10 +2856,16 @@
               render();
               return;
             }
+            // Ignore a second Save while the first upsert is still in flight:
+            // in add mode each click mints a distinct 'user-<Date.now()>' id,
+            // so a double-click would persist two duplicate sources (which also
+            // lets one server satisfy the quorum tier twice).
+            if (endpointSaveInFlight) return;
             const sourceId =
               endpointForm?.mode === 'edit' && endpointForm.id
                 ? endpointForm.id
                 : 'user-' + Date.now();
+            endpointSaveInFlight = true;
             try {
               const res = await freedomAPI.upsertEndpointSource(sourceId, {
                 role: 'rpc',
@@ -2867,6 +2879,8 @@
             } catch (err) {
               failForm(err?.message || 'Could not save endpoint');
               return;
+            } finally {
+              endpointSaveInFlight = false;
             }
             endpointForm = null;
             setStatus('', '');
@@ -3429,12 +3443,20 @@
           const url = event.target.value.trim();
           if (url === currentProverUrl) return;
           try {
+            const proverSource = config.sources.find((source) => source.id === proverId);
             const result = url
               ? await freedomAPI.upsertEndpointSource(proverId, {
                   role: 'prover',
                   keyed: false,
+                  // Include `name` so an override built here collapses back to
+                  // the builtin (via resetEndpointSourceCoverage's structural
+                  // equality) when the URL is cleared — the builtin
+                  // colibri-corpus carries a name, so omitting it here pins the
+                  // override in the user layer forever. Matches the Chains-page
+                  // upsert.
+                  name: proverSource?.name || 'Colibri (corpus.core)',
                   coverage: {
-                    ...(config.sources.find((source) => source.id === proverId)?.coverage || {}),
+                    ...(proverSource?.coverage || {}),
                     1: url,
                   },
                 })
