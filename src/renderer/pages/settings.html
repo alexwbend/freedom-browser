@@ -537,6 +537,81 @@
       }
 
       .search-provider-actions {
+      /* Shortcuts */
+      .shortcut-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .shortcut-toolbar input {
+        flex: 1;
+        font-family: inherit;
+      }
+
+      .shortcut-category {
+        margin: 20px 0 8px 0;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .shortcut-category:first-child {
+        margin-top: 0;
+      }
+
+      .shortcut-kbd {
+        display: inline-block;
+        padding: 3px 8px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        color: var(--text);
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .shortcut-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .shortcut-binding {
+        padding: 5px 8px;
+      }
+
+      .shortcut-binding.recording {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .shortcut-locked {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-subtle);
+        font-size: 12px;
+      }
+
+      .shortcut-note {
+        margin: 6px 0 0 0;
+        font-size: 12px;
+        color: var(--warn);
+      }
+
+      .row.shortcut-conflict {
+        justify-content: space-between;
+        background: rgba(210, 153, 34, 0.08);
+        font-size: 13px;
+      }
+
+      .shortcut-conflict-actions {
         display: flex;
         flex-shrink: 0;
         gap: 8px;
@@ -718,6 +793,26 @@
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
             Downloads
+          </button>
+          <button type="button" class="nav-item" data-target="shortcuts">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <line x1="6" y1="10" x2="6" y2="10"></line>
+              <line x1="10" y1="10" x2="10" y2="10"></line>
+              <line x1="14" y1="10" x2="14" y2="10"></line>
+              <line x1="18" y1="10" x2="18" y2="10"></line>
+              <line x1="7" y1="14" x2="17" y2="14"></line>
+            </svg>
+            Shortcuts
           </button>
           <button type="button" class="nav-item" data-target="chains">
             <svg
@@ -1019,6 +1114,29 @@
               </div>
             </div>
           </div>
+        </section>
+
+        <!-- Shortcuts -->
+        <section class="section" id="shortcuts">
+          <h2 class="section-title">Shortcuts</h2>
+          <p class="row-help" style="margin-bottom: 16px">
+            Click a binding, press the new key combination, done — changes apply immediately. Press
+            Esc while recording to cancel.
+          </p>
+          <div class="shortcut-toolbar">
+            <input
+              type="search"
+              id="shortcut-search"
+              class="rpc-input"
+              placeholder="Search shortcuts"
+              spellcheck="false"
+            />
+            <button type="button" class="btn" id="shortcuts-restore-defaults">
+              Restore defaults
+            </button>
+          </div>
+          <div id="shortcuts-view"></div>
+          <p id="shortcuts-status" class="rpc-status"></p>
         </section>
 
         <!-- Chains -->
@@ -2253,6 +2371,283 @@
         renderAdblockAllowlist();
       })();
 
+      // ── Shortcuts settings page ─────────────────────────────────────
+      // Render-only controller: the registry state, validation, conflict
+      // detection, and persistence all live in the main process behind
+      // freedomAPI.getShortcuts / previewShortcutBinding /
+      // setShortcutOverride / resetShortcut(s). This page captures
+      // keydowns in recording mode and paints whatever main answers.
+      (() => {
+        const view = $('shortcuts-view');
+        const searchInput = $('shortcut-search');
+        const restoreBtn = $('shortcuts-restore-defaults');
+        const statusEl = $('shortcuts-status');
+        if (!view) return;
+
+        let entries = [];
+        let query = '';
+        let recordingId = null; // shortcut currently capturing a new combo
+        let conflictState = null; // { id, accelerator, formatted, conflict }
+        let rowNotice = null; // { id, message } transient validation notice
+        let recordingHandler = null;
+
+        const REASON_MESSAGES = {
+          reserved: 'That combination is reserved and cannot be assigned.',
+          'needs-modifier':
+            'Combine that key with Ctrl, Alt or Cmd. Only function keys work on their own.',
+          invalid: 'That key cannot be used as a shortcut.',
+          'not-editable': 'This shortcut cannot be changed.',
+          conflict: 'That combination is already in use.',
+          'save-failed': 'Could not save the shortcut. Try again.',
+        };
+
+        const setStatus = (message, kind) => {
+          if (!statusEl) return;
+          statusEl.textContent = message || '';
+          statusEl.className = 'rpc-status' + (kind ? ' ' + kind : '');
+        };
+
+        const matchesQuery = (entry) => {
+          const q = query.trim().toLowerCase();
+          if (!q) return true;
+          return [entry.description, entry.category, entry.formatted, entry.accelerator]
+            .concat(entry.aliases)
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        };
+
+        const kbd = (text) => `<kbd class="shortcut-kbd">${esc(text)}</kbd>`;
+
+        const renderConflict = (state) => {
+          const { conflict } = state;
+          const message = conflict.fixed
+            ? `${esc(state.formatted)} is already used by “${esc(conflict.description)}” and cannot be reassigned. Pick a different combination.`
+            : `${esc(state.formatted)} is already used by “${esc(conflict.description)}”. Swap the bindings so “${esc(conflict.description)}” becomes ${kbd(conflict.swapFormatted)}?`;
+          return `
+            <div class="row shortcut-conflict" data-shortcut-id="${esc(state.id)}">
+              <div class="row-body"><p class="row-label">${message}</p></div>
+              <span class="shortcut-conflict-actions">
+                ${conflict.fixed ? '' : '<button type="button" class="btn" data-action="swap">Swap</button>'}
+                <button type="button" class="btn" data-action="cancel-conflict">Cancel</button>
+              </span>
+            </div>`;
+        };
+
+        const renderRow = (entry) => {
+          const isRecording = recordingId === entry.id;
+          const notice = rowNotice?.id === entry.id ? rowNotice.message : null;
+          const aliasLine = entry.aliases.length
+            ? `<p class="row-help">Also ${entry.aliases.map(kbd).join(' ')}</p>`
+            : '';
+          const warnLine =
+            isRecording && entry.warnOnEdit
+              ? '<p class="shortcut-note">Heads up: this is a common close gesture across apps — remapping it changes deep muscle memory.</p>'
+              : '';
+          const control = !entry.editable
+            ? `<span class="shortcut-locked">${kbd(entry.formatted)} Locked</span>`
+            : `<button type="button" class="btn shortcut-binding${isRecording ? ' recording' : ''}" data-action="record">
+                 ${isRecording ? 'Press new shortcut… (Esc cancels)' : kbd(entry.formatted)}
+               </button>`;
+          const resetBtn =
+            entry.editable && entry.isOverridden && !isRecording
+              ? `<button type="button" class="btn" data-action="reset" title="Reset to ${esc(entry.defaultFormatted)}">Reset</button>`
+              : '';
+          const conflictRow =
+            conflictState && conflictState.id === entry.id ? renderConflict(conflictState) : '';
+          return `
+            <div class="row" data-shortcut-id="${esc(entry.id)}">
+              <div class="row-body">
+                <p class="row-label">${esc(entry.description)}</p>
+                ${aliasLine}
+                ${warnLine}
+                ${notice ? `<p class="shortcut-note">${esc(notice)}</p>` : ''}
+              </div>
+              <div class="row-control shortcut-controls">${resetBtn}${control}</div>
+            </div>
+            ${conflictRow}`;
+        };
+
+        const render = () => {
+          const visible = entries.filter(matchesQuery);
+          if (!visible.length) {
+            view.innerHTML =
+              '<div class="card"><div class="profile-node-empty">No shortcuts match your search.</div></div>';
+            return;
+          }
+          const categories = [];
+          for (const entry of visible) {
+            if (!categories.includes(entry.category)) categories.push(entry.category);
+          }
+          view.innerHTML = categories
+            .map(
+              (category) => `
+                <h3 class="shortcut-category">${esc(category)}</h3>
+                <div class="card">
+                  ${visible
+                    .filter((entry) => entry.category === category)
+                    .map(renderRow)
+                    .join('')}
+                </div>`
+            )
+            .join('');
+        };
+
+        const load = async () => {
+          try {
+            const state = await freedomAPI.getShortcuts();
+            entries = (state?.entries || []).filter((entry) => !entry.hidden);
+          } catch {
+            entries = [];
+            setStatus('Could not load shortcuts.', 'error');
+          }
+          render();
+        };
+
+        const stopRecording = () => {
+          if (recordingHandler) {
+            window.removeEventListener('keydown', recordingHandler, true);
+            recordingHandler = null;
+          }
+          recordingId = null;
+        };
+
+        const applyBinding = async (id, accelerator, swapWithConflict = false) => {
+          let result;
+          try {
+            result = await freedomAPI.setShortcutOverride({ id, accelerator, swapWithConflict });
+          } catch {
+            result = { ok: false, reason: 'save-failed' };
+          }
+          if (!result?.ok) {
+            rowNotice = { id, message: REASON_MESSAGES[result?.reason] || REASON_MESSAGES.invalid };
+          } else {
+            setStatus('Shortcut updated.', 'success');
+          }
+          await load();
+        };
+
+        const startRecording = (id) => {
+          const entry = entries.find((item) => item.id === id);
+          if (!entry?.editable || recordingId === id) return;
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          setStatus('');
+          recordingId = id;
+          render();
+
+          recordingHandler = async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+              stopRecording();
+              render();
+              return;
+            }
+            const captured = {
+              key: event.key,
+              code: event.code,
+              ctrlKey: event.ctrlKey,
+              altKey: event.altKey,
+              shiftKey: event.shiftKey,
+              metaKey: event.metaKey,
+            };
+            let preview;
+            try {
+              preview = await freedomAPI.previewShortcutBinding({ id, event: captured });
+            } catch {
+              preview = { ok: false, reason: 'invalid' };
+            }
+            // Only modifiers held so far — keep listening.
+            if (!preview.ok && preview.reason === 'incomplete') return;
+
+            stopRecording();
+            if (!preview.ok) {
+              rowNotice = {
+                id,
+                message: REASON_MESSAGES[preview.reason] || REASON_MESSAGES.invalid,
+              };
+              render();
+              return;
+            }
+            if (preview.conflict) {
+              conflictState = {
+                id,
+                accelerator: preview.accelerator,
+                formatted: preview.formatted,
+                conflict: preview.conflict,
+              };
+              render();
+              return;
+            }
+            await applyBinding(id, preview.accelerator);
+          };
+          window.addEventListener('keydown', recordingHandler, true);
+        };
+
+        view.addEventListener('click', async (event) => {
+          const button = event.target.closest('[data-action]');
+          if (!button) return;
+          const id = event.target.closest('[data-shortcut-id]')?.dataset.shortcutId;
+          if (!id) return;
+
+          switch (button.dataset.action) {
+            case 'record':
+              startRecording(id);
+              break;
+            case 'reset': {
+              stopRecording();
+              conflictState = null;
+              rowNotice = null;
+              const result = await freedomAPI.resetShortcut(id).catch(() => null);
+              setStatus(
+                result?.ok ? 'Shortcut reset to default.' : 'Could not reset.',
+                result?.ok ? 'success' : 'error'
+              );
+              await load();
+              break;
+            }
+            case 'swap': {
+              const pending = conflictState;
+              conflictState = null;
+              if (pending) await applyBinding(pending.id, pending.accelerator, true);
+              break;
+            }
+            case 'cancel-conflict':
+              conflictState = null;
+              render();
+              break;
+          }
+        });
+
+        searchInput?.addEventListener('input', () => {
+          query = searchInput.value || '';
+          render();
+        });
+
+        restoreBtn?.addEventListener('click', async () => {
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          const result = await freedomAPI.resetAllShortcuts().catch(() => null);
+          setStatus(
+            result?.ok ? 'All shortcuts restored to defaults.' : 'Could not restore defaults.',
+            result?.ok ? 'success' : 'error'
+          );
+          await load();
+        });
+
+        // Keep a second open settings tab (or a remap made elsewhere) in
+        // sync — but never clobber an in-progress recording or conflict
+        // prompt.
+        freedomAPI.onSettingsUpdated?.(() => {
+          if (!recordingId && !conflictState) load();
+        });
+
+        load();
+      })();
+
       // ── Chains settings page ────────────────────────────────────────
       // Master-detail controller for the #chains section: a list of
       // chains, each drilling into a per-chain detail view of that chain's
@@ -2374,31 +2769,36 @@
           <div class="card" id="chain-search-results" style="margin-top: 12px">${searchResultsHtml()}</div>
           ${cardButton('Enter a chain manually', 'add-manual')}`;
 
-        const manualHtml = () => `
-          <div class="card">
-            <div class="rpc-block" style="border-top: none">
-              <p class="row-help" style="margin: 0 0 8px">
-                For a chain not in the catalogue — your own devnet or a private network.
-              </p>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-chainid" placeholder="Chain ID (e.g. 8453)" spellcheck="false" />
+        const manualHtml = () => {
+          const f = addState.manual || {};
+          const decimals = f.decimalsRaw ?? '18';
+          return `
+            <div class="card">
+              <div class="rpc-block" style="border-top: none">
+                <p class="row-help" style="margin: 0 0 8px">
+                  For a chain not in the catalogue — your own devnet or a private network.
+                </p>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-chainid" placeholder="Chain ID (e.g. 8453)" spellcheck="false" value="${esc(f.chainId || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-name" placeholder="Chain name" spellcheck="false" value="${esc(f.name || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-symbol" placeholder="Currency symbol (e.g. ETH)" spellcheck="false" value="${esc(f.symbol || '')}" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="number" class="rpc-input" id="man-decimals" placeholder="Currency decimals (e.g. 18)" value="${esc(decimals)}" min="0" step="1" />
+                </div>
+                <div class="rpc-row" style="margin-bottom: 8px">
+                  <input type="text" class="rpc-input" id="man-rpc" placeholder="RPC URL (https://… or http://localhost:8545)" spellcheck="false" value="${esc(f.rpc || '')}" />
+                </div>
+                ${addState.error ? `<p class="rpc-status error" style="margin-bottom: 8px">${esc(addState.error)}</p>` : ''}
+                <button type="button" class="btn" data-action="submit-manual">Add chain</button>
+                <button type="button" class="btn" data-action="add-search" style="margin-left: 8px">Back to search</button>
               </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-name" placeholder="Chain name" spellcheck="false" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-symbol" placeholder="Currency symbol (e.g. ETH)" spellcheck="false" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="number" class="rpc-input" id="man-decimals" placeholder="Currency decimals (e.g. 18)" value="18" min="0" step="1" />
-              </div>
-              <div class="rpc-row" style="margin-bottom: 8px">
-                <input type="text" class="rpc-input" id="man-rpc" placeholder="RPC URL (https://…)" spellcheck="false" />
-              </div>
-              <button type="button" class="btn" data-action="submit-manual">Add chain</button>
-              <button type="button" class="btn" data-action="add-search" style="margin-left: 8px">Back to search</button>
-            </div>
-          </div>`;
+            </div>`;
+        };
 
         const renderAddConfirm = () => {
           const c = addState.picked;
@@ -2422,6 +2822,7 @@
             <h2 class="section-title">${esc(c.name)}</h2>
             <p class="row-help" style="margin-bottom: 16px">Review and confirm.</p>
             <div class="card">${rowsHtml}</div>
+            ${addState.error ? `<p class="rpc-status error" style="margin: 8px 0 0">${esc(addState.error)}</p>` : ''}
             ${cardButton('Add chain', 'confirm-add')}`;
         };
 
@@ -2487,8 +2888,9 @@
               <div class="rpc-block" style="border-top: none">
                 <p class="row-label" style="margin-bottom: 8px">${f.mode === 'edit' ? 'Edit endpoint' : 'Add endpoint'}</p>
                 <div class="rpc-row" style="margin-bottom: 8px">
-                  <input type="text" class="rpc-input" id="ep-url" placeholder="https://..." spellcheck="false" value="${esc(f.url)}" />
+                  <input type="text" class="rpc-input" id="ep-url" placeholder="https://... or http://localhost:8545" spellcheck="false" value="${esc(f.url)}" />
                 </div>
+                ${f.error ? `<p class="rpc-status error" style="margin-bottom: 8px">${esc(f.error)}</p>` : ''}
                 <button type="button" class="btn" data-action="save-endpoint">Save</button>
                 <button type="button" class="btn" data-action="cancel-endpoint" style="margin-left: 8px">Cancel</button>
               </div>
@@ -2621,11 +3023,13 @@
         };
 
         // Persist a new chain (+ its RPC endpoints), then open its detail.
-        const submitAddChain = async (def, rpcUrls) => {
+        const submitAddChain = async (def, rpcUrls, onError) => {
           try {
             const res = await freedomAPI.addChain(def, rpcUrls);
             if (res && res.success === false) {
-              setStatus(res.error || 'Could not add chain', 'error');
+              const message = res.error || 'Could not add chain';
+              if (onError) onError(message);
+              else setStatus(message, 'error');
               return;
             }
             setStatus('', '');
@@ -2633,7 +3037,9 @@
             await reload();
             location.hash = 'chains/' + def.chainId;
           } catch (err) {
-            setStatus(err?.message || 'Could not add chain', 'error');
+            const message = err?.message || 'Could not add chain';
+            if (onError) onError(message);
+            else setStatus(message, 'error');
           }
         };
 
@@ -2685,8 +3091,16 @@
           } else if (action === 'save-endpoint') {
             const url = ($('ep-url')?.value || '').trim();
             const cid = openChainId();
+            // Keep the form open on failure and show the error next to the input
+            // (a global status bar at the page bottom is easy to miss).
+            const failForm = (error) => {
+              endpointForm = { ...endpointForm, url, error };
+              setStatus('', '');
+              render();
+              $('ep-url')?.focus();
+            };
             if (!url) {
-              setStatus('Enter an endpoint URL', 'error');
+              failForm('Enter an endpoint URL');
               return;
             }
             if (!cid) {
@@ -2698,14 +3112,23 @@
               endpointForm?.mode === 'edit' && endpointForm.id
                 ? endpointForm.id
                 : 'user-' + Date.now();
-            endpointForm = null;
-            await mutate(() =>
-              freedomAPI.upsertEndpointSource(sourceId, {
+            try {
+              const res = await freedomAPI.upsertEndpointSource(sourceId, {
                 role: 'rpc',
                 keyed: false,
                 coverage: { [cid]: url },
-              })
-            );
+              });
+              if (res && res.success === false) {
+                failForm(res.error || 'Could not save endpoint');
+                return;
+              }
+            } catch (err) {
+              failForm(err?.message || 'Could not save endpoint');
+              return;
+            }
+            endpointForm = null;
+            setStatus('', '');
+            await reload();
           } else if (action === 'delete-source') {
             await mutate(() => freedomAPI.removeEndpointSource(id));
           } else if (action === 'open-rpc-page') {
@@ -2737,12 +3160,15 @@
           } else if (action === 'add-manual') {
             if (addState) {
               addState.mode = 'manual';
+              addState.error = null;
+              addState.manual = addState.manual || { decimalsRaw: '18' };
               render();
             }
           } else if (action === 'add-search') {
             if (addState) {
               addState.mode = 'search';
               addState.results = null;
+              addState.error = null;
               render();
               runChainSearch('');
             }
@@ -2753,6 +3179,7 @@
           } else if (action === 'add-back') {
             if (addState) {
               addState.picked = null;
+              addState.error = null;
               render();
               runChainSearch($('chain-search-input')?.value || '');
             }
@@ -2775,6 +3202,11 @@
           } else if (action === 'confirm-add') {
             const c = addState?.picked;
             if (!c) return;
+            const failConfirm = (error) => {
+              if (!addState) { setStatus(error, 'error'); return; }
+              addState.error = error;
+              render();
+            };
             await submitAddChain(
               {
                 chainId: c.chainId,
@@ -2783,7 +3215,8 @@
                 nativeCurrency: c.nativeCurrency || null,
                 blockExplorer: c.explorerUrl || '',
               },
-              c.rpcUrls || []
+              c.rpcUrls || [],
+              failConfirm
             );
           } else if (action === 'submit-manual') {
             const chainId = ($('man-chainid')?.value || '').trim();
@@ -2792,12 +3225,20 @@
             const decimalsRaw = ($('man-decimals')?.value || '').trim();
             const rpc = ($('man-rpc')?.value || '').trim();
             const decimals = decimalsRaw === '' ? 18 : Number(decimalsRaw);
-            if (!chainId || !name || !symbol || !rpc) {
-              setStatus('Chain ID, name, currency symbol and RPC URL are required', 'error');
-              return;
-            }
+            const manual = { chainId, name, symbol, decimalsRaw, rpc };
+            const failManual = (error, focusId = 'man-rpc') => {
+              if (!addState) { setStatus(error, 'error'); return; }
+              addState.manual = manual;
+              addState.error = error;
+              render();
+              $(focusId)?.focus();
+            };
+            if (!chainId) { failManual('Chain ID is required', 'man-chainid'); return; }
+            if (!name) { failManual('Chain name is required', 'man-name'); return; }
+            if (!symbol) { failManual('Currency symbol is required', 'man-symbol'); return; }
+            if (!rpc) { failManual('RPC URL is required'); return; }
             if (!Number.isInteger(decimals) || decimals < 0) {
-              setStatus('Currency decimals must be a non-negative whole number', 'error');
+              failManual('Currency decimals must be a non-negative whole number', 'man-decimals');
               return;
             }
             await submitAddChain(
@@ -2808,7 +3249,8 @@
                 nativeCurrency: { name: symbol, symbol, decimals },
                 blockExplorer: '',
               },
-              [rpc]
+              [rpc],
+              failManual
             );
           }
         });

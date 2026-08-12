@@ -13,6 +13,7 @@
 // its tab-switch and did-navigate paths.
 
 import { pushDebug } from './debug.js';
+import { matchesShortcut } from './shortcuts.js';
 
 // Debounce for find-as-you-type. Exported so the unit tests advance fake
 // timers by the real value instead of a magic number.
@@ -311,12 +312,7 @@ export const initFindBar = ({ getActiveWebview: getWebview } = {}) => {
   // page itself focused the keystroke lands inside the webview and reaches
   // us via the Edit-menu accelerator instead (main → find:open → below).
   window.addEventListener('keydown', (event) => {
-    if (
-      (event.metaKey || event.ctrlKey) &&
-      !event.shiftKey &&
-      !event.altKey &&
-      event.key.toLowerCase() === 'f'
-    ) {
+    if (matchesShortcut(event, 'page.findInPage')) {
       event.preventDefault();
       openFindBar();
     }

@@ -174,6 +174,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
+const { registerShortcutsIpc } = require('./shortcuts-ipc');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const {
@@ -273,6 +274,7 @@ async function bootstrap() {
   });
   registerSettingsIpc();
   registerAdblockIpc();
+  registerShortcutsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
   registerDownloadsIpc();
