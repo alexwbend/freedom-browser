@@ -1094,6 +1094,8 @@ describe('url-utils', () => {
       expect(isEnsBackedDisplay('ipns://app.box/page')).toBe(true);
       expect(isEnsBackedDisplay('ipfs://alice.wei/page')).toBe(true);
       expect(isEnsBackedDisplay('ipfs://apoorv.gwei/page')).toBe(true);
+      expect(isEnsBackedDisplay('ipfs://docs.example.tez/page')).toBe(true);
+      expect(isEnsBackedDisplay('docs.example.tez/page')).toBe(true);
     });
 
     test('rejects raw transport URLs (hash/CID hosts) and other schemes', () => {

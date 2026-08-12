@@ -245,6 +245,30 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   removeHistory: guardInternal('removeHistory', (id) => ipcRenderer.invoke('history:remove', id)),
   clearHistory: guardInternal('clearHistory', () => ipcRenderer.invoke('history:clear')),
 
+  // Downloads (freedom://downloads page). Open / show-in-folder resolve the
+  // file path in the main process from the stored row id — no path crosses
+  // this boundary.
+  getDownloads: guardInternal('getDownloads', (options) =>
+    ipcRenderer.invoke('downloads:get', options)
+  ),
+  pauseDownload: guardInternal('pauseDownload', (id) => ipcRenderer.invoke('downloads:pause', id)),
+  resumeDownload: guardInternal('resumeDownload', (id) =>
+    ipcRenderer.invoke('downloads:resume', id)
+  ),
+  cancelDownload: guardInternal('cancelDownload', (id) =>
+    ipcRenderer.invoke('downloads:cancel', id)
+  ),
+  openDownloadedFile: guardInternal('openDownloadedFile', (id) =>
+    ipcRenderer.invoke('downloads:open-file', id)
+  ),
+  showDownloadInFolder: guardInternal('showDownloadInFolder', (id) =>
+    ipcRenderer.invoke('downloads:show-in-folder', id)
+  ),
+  removeDownload: guardInternal('removeDownload', (id) =>
+    ipcRenderer.invoke('downloads:remove', id)
+  ),
+  clearDownloads: guardInternal('clearDownloads', () => ipcRenderer.invoke('downloads:clear')),
+
   // Unified payment history (read-only — producers record in main directly).
   getPayments: guardInternal('getPayments', (filters) =>
     ipcRenderer.invoke('payments:get-recent', filters)
@@ -354,9 +378,31 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 
   // Auto-unsubscribed on pagehide.
   onSettingsUpdated: guardInternalSubscription('onSettingsUpdated', 'settings:updated'),
+  // freedom://downloads uses this for live progress — the row is already
+  // written when it fires, so the page just re-queries.
+  onDownloadsChanged: guardInternalSubscription('onDownloadsChanged', 'downloads:changed'),
   // freedom://payments uses this for live refresh on settlements (no
   // user-driven event for a server-acknowledged paid request).
   onPaymentRecorded: guardInternalSubscription('onPaymentRecorded', 'payments:tx-recorded'),
+
+  // Site permissions (web permission prompts). Reads are internal-page
+  // wide; revokes are settings-only, matching the profile-write guards.
+  getSitePermissions: guardInternal('getSitePermissions', () =>
+    ipcRenderer.invoke('permissions:get-all')
+  ),
+  revokeSitePermission: guardSettingsPage('revokeSitePermission', (origin, permission) =>
+    ipcRenderer.invoke('permissions:revoke', origin, permission)
+  ),
+  revokeSitePermissionOrigin: guardSettingsPage('revokeSitePermissionOrigin', (origin) =>
+    ipcRenderer.invoke('permissions:revoke-origin', origin)
+  ),
+  revokeAllSitePermissions: guardSettingsPage('revokeAllSitePermissions', () =>
+    ipcRenderer.invoke('permissions:revoke-all')
+  ),
+  onSitePermissionsChanged: guardInternalSubscription(
+    'onSitePermissionsChanged',
+    'permissions:changed'
+  ),
 
   // Bookmarks (read-only for internal pages)
   getBookmarks: guardInternal('getBookmarks', () => ipcRenderer.invoke('bookmarks:get')),
@@ -394,6 +440,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   ),
   syncRadicleRepo: guardInternal('syncRadicleRepo', (rid) =>
     ipcRenderer.invoke('radicle:syncRepo', rid)
+  ),
+  getRadicleSeedStatus: guardInternal('getRadicleSeedStatus', (rid) =>
+    ipcRenderer.invoke('radicle:getSeedStatus', rid)
   ),
 
   // Clipboard
@@ -433,8 +482,16 @@ contextBridge.exposeInMainWorld('freedomAPI', {
 // Context Menu Handler (works on all pages)
 // ============================================
 
-// Get context information when right-clicking
-document.addEventListener(
+// Get context information when right-clicking.
+//
+// Registered on window in the capture phase: window is the first node in the
+// capture path and the preload runs before any page script, so no page
+// handler (not even a window-level capture listener calling
+// stopPropagation()) can starve the interceptor. The send is deferred with
+// setTimeout so the defaultPrevented check happens after the full dispatch,
+// honoring only a genuine preventDefault() from the page (standard browser
+// semantics).
+window.addEventListener(
   'contextmenu',
   (event) => {
     const context = {
@@ -505,11 +562,15 @@ document.addEventListener(
       element = element.parentElement;
     }
 
-    // Prevent the default context menu
-    event.preventDefault();
+    // Decide after page handlers have run (setTimeout fires after the
+    // event dispatch completes; a microtask would run between listeners).
+    setTimeout(() => {
+      // The page suppressed the menu with preventDefault() — honor it.
+      if (event.defaultPrevented) return;
 
-    // Send context info to the host renderer
-    ipcRenderer.sendToHost('context-menu', context);
+      // Send context info to the host renderer
+      ipcRenderer.sendToHost('context-menu', context);
+    }, 0);
   },
   true
 );
@@ -752,8 +813,167 @@ ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
   );
 });
 
+// ============================================
+// Radicle Provider (window.radicle)
+// ============================================
+// Actions-only provider: reads of public repo data are plain
+// fetch('rad:<rid>/…') calls resolved by the main-process rad: protocol
+// handler — no provider involvement. See docs/radicle-provider-api.md.
+
+try {
+  const radicleScript = document.createElement('script');
+  radicleScript.textContent = `
+    (function() {
+      const pendingRequests = new Map();
+      let requestId = 0;
+      const eventListeners = { connect: [], disconnect: [] };
+
+      function emitEvent(event, data) {
+        if (eventListeners[event]) {
+          eventListeners[event].forEach(h => { try { h(data); } catch(e) {} });
+        }
+      }
+
+      window.radicle = {
+        isFreedomBrowser: true,
+
+        async request({ method, params }) {
+          if (!method) throw new Error('method is required');
+          const id = ++requestId;
+          return new Promise((resolve, reject) => {
+            pendingRequests.set(id, { resolve, reject });
+            window.postMessage({ type: 'FREEDOM_RADICLE_REQUEST', id, method, params: params || {} }, '*');
+            // Execution itself is prompt — seed/sync hand the network fetch
+            // to a background tracker (poll radicle_getSeedStatus). But the
+            // methods below can first block on a consent prompt while the
+            // user deliberates; timing those out at 60s rejects the page
+            // promise while the grant and the write still land in main, so
+            // the dApp retries and duplicates the COB. Match the swarm
+            // sibling's 300s budget for anything that can prompt.
+            const canPrompt = method === 'radicle_requestAccess' ||
+              method === 'radicle_seed' ||
+              method === 'radicle_getIdentity' ||
+              method === 'radicle_createIssue' ||
+              method === 'radicle_commentIssue' ||
+              method === 'radicle_editIssueState' ||
+              method === 'radicle_commentPatch';
+            const timeout = canPrompt ? 300000 : 60000;
+            setTimeout(() => {
+              if (pendingRequests.has(id)) {
+                pendingRequests.delete(id);
+                const err = new Error('Request timed out');
+                err.code = -32603;
+                reject(err);
+              }
+            }, timeout);
+          });
+        },
+
+        requestAccess() { return this.request({ method: 'radicle_requestAccess' }); },
+        disconnect() { return this.request({ method: 'radicle_disconnect' }); },
+        getCapabilities() { return this.request({ method: 'radicle_getCapabilities' }); },
+        getNodeStatus() { return this.request({ method: 'radicle_getNodeStatus' }); },
+        listSeededRepos() { return this.request({ method: 'radicle_listSeededRepos' }); },
+        seed(params) { return this.request({ method: 'radicle_seed', params: params }); },
+        unseed(params) { return this.request({ method: 'radicle_unseed', params: params }); },
+        sync(params) { return this.request({ method: 'radicle_sync', params: params }); },
+        getSeedStatus(params) { return this.request({ method: 'radicle_getSeedStatus', params: params }); },
+        getIdentity() { return this.request({ method: 'radicle_getIdentity' }); },
+        createIssue(params) { return this.request({ method: 'radicle_createIssue', params: params }); },
+        commentIssue(params) { return this.request({ method: 'radicle_commentIssue', params: params }); },
+        editIssueState(params) { return this.request({ method: 'radicle_editIssueState', params: params }); },
+        commentPatch(params) { return this.request({ method: 'radicle_commentPatch', params: params }); },
+
+        on(event, handler) { if (eventListeners[event]) eventListeners[event].push(handler); return this; },
+        removeListener(event, handler) {
+          if (eventListeners[event]) {
+            const i = eventListeners[event].indexOf(handler);
+            if (i > -1) eventListeners[event].splice(i, 1);
+          }
+          return this;
+        },
+        addListener(event, handler) { return this.on(event, handler); },
+        removeAllListeners(event) {
+          if (event && eventListeners[event]) eventListeners[event] = [];
+          if (!event) Object.keys(eventListeners).forEach((key) => { eventListeners[key] = []; });
+          return this;
+        },
+      };
+
+      window.addEventListener('message', function(event) {
+        if (event.source !== window) return;
+        if (event.data.type === 'FREEDOM_RADICLE_RESPONSE') {
+          const pending = pendingRequests.get(event.data.id);
+          if (pending) {
+            pendingRequests.delete(event.data.id);
+            if (event.data.error) {
+              const err = new Error(event.data.error.message);
+              err.code = event.data.error.code;
+              err.data = event.data.error.data;
+              pending.reject(err);
+            } else {
+              pending.resolve(event.data.result);
+            }
+          }
+        } else if (event.data.type === 'FREEDOM_RADICLE_EVENT') {
+          emitEvent(event.data.event, event.data.data);
+        }
+      });
+    })();
+  `;
+
+  const injectRadicle = () => {
+    const head = document.head || document.documentElement;
+    head.insertBefore(radicleScript, head.firstChild);
+    radicleScript.remove();
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectRadicle, { once: true });
+  } else {
+    injectRadicle();
+  }
+} catch (err) {
+  console.error('[webview-preload] Failed to inject radicle provider:', err);
+}
+
+// Bridge postMessage from page to IPC (Radicle)
+window.addEventListener('message', (event) => {
+  if (event.source !== window) return;
+  if (event.data.type === 'FREEDOM_RADICLE_REQUEST') {
+    const { id, method, params } = event.data;
+    ipcRenderer.sendToHost('radicle:provider-request', { id, method, params });
+  }
+});
+
+// Bridge IPC responses back to page (Radicle)
+ipcRenderer.on('radicle:provider-response', (_event, { id, result, error }) => {
+  window.postMessage(
+    {
+      type: 'FREEDOM_RADICLE_RESPONSE',
+      id,
+      result,
+      error,
+    },
+    window.location.origin
+  );
+});
+
+ipcRenderer.on('radicle:provider-event', (_event, { event, data }) => {
+  window.postMessage(
+    {
+      type: 'FREEDOM_RADICLE_EVENT',
+      event,
+      data,
+    },
+    window.location.origin
+  );
+});
+
 // Note: transient 404/500 recovery for bzz:// sub-resources is handled by the
 // main-process `bzz:` protocol handler in `src/main/swarm/bzz-protocol.js`,
 // not by in-page JavaScript. See README "Swarm Content Retrieval".
 
-console.log('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)');
+console.log(
+  '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
+);

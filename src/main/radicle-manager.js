@@ -14,6 +14,7 @@ const IPC = require('../shared/ipc-channels');
 const { success, failure, validateNonEmptyString } = require('./ipc-contract');
 const { loadSettings } = require('./settings-store');
 const { getRadicleDataDir } = require('./profile-paths');
+const seedStatus = require('./radicle/seed-status');
 const {
   getActiveProfile,
   getReservedProfilePorts,
@@ -58,6 +59,9 @@ const {
 const PREFERRED_SEEDS = [
   'z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776',
   'z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776',
+  // iris/rosa have been observed resetting handshakes network-wide
+  // (July 2026); seed.radicle.xyz has been consistently reliable.
+  'z6MksmpU5b1dS7oaqF2bHXhQi1DWy2hB7Mh9CuN7y1DN6QSz@seed.radicle.xyz:8776',
 ];
 const LEGACY_SEED_REPLACEMENTS = new Map([
   ['iris.radicle.xyz', 'iris.radicle.network'],
@@ -98,7 +102,6 @@ const CONNECTIONS_STARTUP_GRACE_MS = 30_000;
 
 // Identity injection flag - when true, skip rad auth and use pre-injected identity
 let useInjectedIdentity = false;
-
 
 // Port configuration
 let currentHttpPort = DEFAULTS.radicle.httpPort;
@@ -218,9 +221,12 @@ function isDisabledRadicleConfig(config = getProfileRadicleConfig()) {
 }
 
 function hasUnknownRadicleMode(config) {
-  return Boolean(config?.mode) && !isManagedRadicleConfig(config)
-    && !isExternalRadicleConfig(config)
-    && !isDisabledRadicleConfig(config);
+  return (
+    Boolean(config?.mode) &&
+    !isManagedRadicleConfig(config) &&
+    !isExternalRadicleConfig(config) &&
+    !isDisabledRadicleConfig(config)
+  );
 }
 
 function getConfiguredRadicleHttpPort(config = getProfileRadicleConfig()) {
@@ -236,9 +242,7 @@ function normalizeExternalUrl(rawUrl) {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
 
-  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
-    ? trimmed
-    : `http://${trimmed}`;
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 
   try {
     const parsed = new URL(withProtocol);
@@ -316,10 +320,23 @@ function normalizeSeedAddress(seed) {
 }
 
 function normalizePreferredSeeds(seeds) {
-  const normalizedSeeds = Array.isArray(seeds)
-    ? seeds.map(normalizeSeedAddress).filter(Boolean)
-    : [];
-  return [...new Set([...normalizedSeeds, ...PREFERRED_SEEDS])];
+  // An explicitly-set list is respected as-is (an empty array is a
+  // deliberate isolation choice — e2e fixtures, air-gapped setups);
+  // legacy hostnames are still migrated. Defaults apply only when the
+  // config has no preferredSeeds key at all.
+  if (!Array.isArray(seeds)) return [...PREFERRED_SEEDS];
+
+  const normalized = [...new Set(seeds.map(normalizeSeedAddress).filter(Boolean))];
+
+  // Migration: configs written before seed.radicle.xyz joined the
+  // defaults contain exactly the old default pair (the merge code wrote
+  // it into every profile) — that's provably not a user choice, so
+  // upgrade it. Any other list is user intent and stays untouched.
+  const oldDefaults = PREFERRED_SEEDS.slice(0, 2);
+  const isOldDefaultSet =
+    normalized.length === oldDefaults.length &&
+    oldDefaults.every((seed) => normalized.includes(seed));
+  return isOldDefaultSet ? [...PREFERRED_SEEDS] : normalized;
 }
 
 /**
@@ -367,7 +384,6 @@ function ensureIdentity(radHome, p2pPort = getConfiguredRadicleP2pPort()) {
     return false;
   }
 
-
   const radPath = getRadicleBinaryPath('rad');
   if (!fs.existsSync(radPath)) {
     log.error('[Radicle] rad binary not found for identity creation');
@@ -396,7 +412,13 @@ function ensureIdentity(radHome, p2pPort = getConfiguredRadicleP2pPort()) {
 }
 
 function updateState(newState, error = null) {
-  log.info('[Radicle] State change:', currentState, '->', newState, error ? `(error: ${error})` : '');
+  log.info(
+    '[Radicle] State change:',
+    currentState,
+    '->',
+    newState,
+    error ? `(error: ${error})` : ''
+  );
   if (newState === STATUS.RUNNING && currentState !== STATUS.RUNNING) {
     runningSinceMs = Date.now();
   } else if (newState !== STATUS.RUNNING) {
@@ -479,7 +501,9 @@ function probeRadicleApiUrl(apiUrl) {
     const req = getHttpClient(apiUrl).get(`${apiUrl}/`, { timeout: 2000 }, (res) => {
       if (res.statusCode === 200) {
         let data = '';
-        res.on('data', chunk => { data += chunk; });
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
@@ -511,7 +535,11 @@ function probeRadicleApi(port) {
 /**
  * Find an available port starting from the default
  */
-async function findAvailablePort(defaultPort, maxAttempts = DEFAULTS.radicle.fallbackRange, options = {}) {
+async function findAvailablePort(
+  defaultPort,
+  maxAttempts = DEFAULTS.radicle.fallbackRange,
+  options = {}
+) {
   const reservedPorts = options.reservedPorts || new Set();
   for (let i = 0; i < maxAttempts; i++) {
     const port = defaultPort + i;
@@ -588,14 +616,18 @@ function getActiveRadHome() {
 async function checkHealth() {
   return new Promise((resolve) => {
     // Note: radicle-httpd 0.23+ uses / as the root endpoint (not /api/v1/)
-    const req = getHttpClient(currentHttpUrl).get(`${currentHttpUrl}/`, { timeout: 2000 }, (res) => {
-      if (res.statusCode === 200) {
-        resolve(true);
-      } else {
-        resolve(false);
+    const req = getHttpClient(currentHttpUrl).get(
+      `${currentHttpUrl}/`,
+      { timeout: 2000 },
+      (res) => {
+        if (res.statusCode === 200) {
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+        res.resume();
       }
-      res.resume();
-    });
+    );
     req.on('error', () => resolve(false));
     req.on('timeout', () => {
       req.destroy();
@@ -1006,10 +1038,12 @@ async function startRadicle(opts = {}) {
 
     radicleNodeProcess.stdout.on('data', (data) => {
       log.info(`[Radicle-node stdout]: ${data}`);
+      seedStatus.noteNodeOutput(String(data));
     });
 
     radicleNodeProcess.stderr.on('data', (data) => {
       log.error(`[Radicle-node stderr]: ${data}`);
+      seedStatus.noteNodeOutput(String(data));
     });
 
     radicleNodeProcess.on('close', (code) => {
@@ -1142,7 +1176,6 @@ async function startRadicle(opts = {}) {
         }
       }
     }, 1000);
-
   } catch (err) {
     updateState(STATUS.ERROR, err.message);
     setStatusMessage('radicle', 'Node failed to start');
@@ -1291,7 +1324,6 @@ function getActivePort() {
   return currentHttpPort;
 }
 
-
 /**
  * Seed a repository from the Radicle network
  * @param {string} rid - Repository ID (with or without rad: prefix)
@@ -1307,34 +1339,56 @@ async function seedRepository(rid) {
     return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
   }
 
-  const radBinPath = getRadicleBinaryPath('rad');
-  const dataDir = getActiveRadHome();
-
   log.info(`[Radicle] Seeding repository: ${fullRid}`);
 
+  // Two-phase: `rad seed` alone reports success once the *policy* is
+  // written — its network fetch is best-effort and its exit code does not
+  // reflect fetch outcome. Write the policy synchronously, then hand the
+  // fetch to the seed-status tracker, which retries, parses results, and
+  // exposes honest progress via getSeedFetchStatus().
   try {
-    // Use async execFile to avoid blocking the main process
-    await execFileAsync(radBinPath, ['seed', fullRid], {
-      env: {
-        ...process.env,
-        RAD_HOME: dataDir,
-        RAD_PASSPHRASE: '',
-      },
-      timeout: 120000, // 120 second timeout for large repos
-    });
-    log.info(`[Radicle] Repository seeded: ${fullRid}`);
-    return success();
+    await runRad(['seed', fullRid, '--no-fetch']);
   } catch (err) {
-    log.error(`[Radicle] Seed failed for ${fullRid}:`, err.message);
-    // Try to extract meaningful error from stderr
-    const stderrStr = err.stderr?.toString() || '';
-    const errorMsg = stderrStr.includes('not found')
-      ? 'Repository not found on the network'
-      : stderrStr.includes('already tracking')
-        ? 'Repository is already seeded'
-        : err.message;
-    return failure('SEED_FAILED', errorMsg, { rid: fullRid });
+    log.error(`[Radicle] Seed policy failed for ${fullRid}:`, err.message);
+    return failure('SEED_FAILED', err.stderr?.toString() || err.message, { rid: fullRid });
   }
+
+  log.info(`[Radicle] Seeding policy set, fetch started: ${fullRid}`);
+  return startTrackedFetch(fullRid);
+}
+
+/** Start (or reuse) the tracked background fetch and report its status. */
+function startTrackedFetch(fullRid) {
+  const dataDir = getActiveRadHome();
+  seedStatus.startFetch(fullRid, { radBin: getRadicleBinaryPath('rad'), radHome: dataDir });
+  return success({ status: seedStatus.getStatus(fullRid, dataDir) });
+}
+
+/**
+ * Honest replication status for a repository (policy is not enough —
+ * see seedRepository). Safe to poll.
+ */
+function getSeedFetchStatus(rid) {
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) {
+    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+  return success({ status: seedStatus.getStatus(fullRid, getActiveRadHome()) });
+}
+
+/**
+ * Re-run the network fetch for an already-seeded repository (the retry
+ * path after a failed fetch). Non-blocking; poll getSeedFetchStatus.
+ */
+function refetchRepository(rid) {
+  if (currentState !== STATUS.RUNNING) {
+    return failure('RADICLE_NOT_RUNNING', 'Radicle node is not running');
+  }
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) {
+    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+  return startTrackedFetch(fullRid);
 }
 
 /**
@@ -1370,44 +1424,6 @@ async function getRepoPayload(rid) {
   } catch (err) {
     log.error(`[Radicle] Failed to get payload for ${fullRid}:`, err.message);
     return failure('GET_PAYLOAD_FAILED', err.message, { rid: fullRid });
-  }
-}
-
-/**
- * Sync a repository from the network
- * @param {string} rid - Repository ID (with or without rad: prefix)
- * @returns {Promise<{success: boolean, error?: string}>}
- */
-async function syncRepository(rid) {
-  if (currentState !== STATUS.RUNNING) {
-    return failure('RADICLE_NOT_RUNNING', 'Radicle node is not running');
-  }
-
-  const fullRid = validateAndNormalizeRid(rid);
-  if (!fullRid) {
-    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
-  }
-
-  const radBinPath = getRadicleBinaryPath('rad');
-  const dataDir = getActiveRadHome();
-
-  log.info(`[Radicle] Syncing repository: ${fullRid}`);
-
-  try {
-    const { stdout, stderr } = await execFileAsync(radBinPath, ['sync', fullRid], {
-      env: {
-        ...process.env,
-        RAD_HOME: dataDir,
-        RAD_PASSPHRASE: '',
-      },
-      timeout: 60000, // 60 second timeout
-    });
-    log.info(`[Radicle] Repository synced: ${fullRid}`);
-    return success({ output: stdout || stderr });
-  } catch (err) {
-    log.error(`[Radicle] Sync failed for ${fullRid}:`, err.message);
-    const stderrStr = err.stderr?.toString() || '';
-    return failure('SYNC_FAILED', stderrStr || err.message, { rid: fullRid });
   }
 }
 
@@ -1453,14 +1469,129 @@ async function getConnections() {
     // the log with transient failures. Treat it as zero peers silently until
     // the grace period elapses.
     const withinStartupGrace =
-      runningSinceMs !== null &&
-      Date.now() - runningSinceMs < CONNECTIONS_STARTUP_GRACE_MS;
+      runningSinceMs !== null && Date.now() - runningSinceMs < CONNECTIONS_STARTUP_GRACE_MS;
     if (withinStartupGrace) {
       return success({ count: 0 });
     }
     log.error('[Radicle] Failed to get connections:', err.message);
     return failure('GET_CONNECTIONS_FAILED', err.message, undefined, { count: 0 });
   }
+}
+
+/**
+ * Current lifecycle state, for in-process consumers (the provider API).
+ * @returns {{status: string, error: string|null}}
+ */
+function getCurrentStatus() {
+  return { status: currentState, error: lastError };
+}
+
+/**
+ * Stop seeding a repository (removes the seeding policy).
+ * @param {string} rid - Repository ID (with or without rad: prefix)
+ */
+async function unseedRepository(rid) {
+  if (currentState !== STATUS.RUNNING) {
+    return failure('RADICLE_NOT_RUNNING', 'Radicle node is not running');
+  }
+
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) {
+    return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+
+  log.info(`[Radicle] Unseeding repository: ${fullRid}`);
+  seedStatus.cancelFetch(fullRid);
+  try {
+    await runRad(['unseed', fullRid]);
+    return success();
+  } catch (err) {
+    log.error(`[Radicle] Unseed failed for ${fullRid}:`, err.message);
+    return failure('UNSEED_FAILED', err.stderr?.toString() || err.message, { rid: fullRid });
+  }
+}
+
+/**
+ * Run the bundled `rad` CLI against the active RAD_HOME. Args are passed as
+ * discrete argv entries (never through a shell). Rejects on non-zero exit.
+ * Used by the provider's COB write service.
+ * @param {string[]} args
+ * @param {{timeout?: number}} [opts]
+ * @returns {Promise<{stdout: string, stderr: string}>}
+ */
+function runRad(args, { timeout = 30000 } = {}) {
+  return execFileAsync(getRadicleBinaryPath('rad'), args, {
+    env: { ...process.env, RAD_HOME: getActiveRadHome(), RAD_PASSPHRASE: '' },
+    timeout,
+  });
+}
+
+/**
+ * The node's current alias, read from the active RAD_HOME's config.
+ * @returns {string|null}
+ */
+function getNodeAlias() {
+  try {
+    const configPath = path.join(getActiveRadHome(), 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    return config?.node?.alias ?? null;
+  } catch (err) {
+    log.warn(`[Radicle] Could not read node alias: ${err.message}`);
+    return null;
+  }
+}
+
+// Mirrors radicle's own alias rules (heartwood: ≤32 bytes, no whitespace
+// or control characters, non-empty). `rad config set` is deprecated, so
+// the config is edited directly and validated here.
+function isValidAlias(alias) {
+  return (
+    typeof alias === 'string' &&
+    alias.length > 0 &&
+    Buffer.byteLength(alias, 'utf8') <= 32 &&
+    // eslint-disable-next-line no-control-regex
+    !/[\s\u0000-\u001f\u007f]/.test(alias)
+  );
+}
+
+/**
+ * Set the node alias. The alias is gossiped in the node's announcement, so
+ * a running managed node is restarted to re-announce under the new name.
+ * @param {string} alias
+ * @returns {Promise<{success: boolean, alias?: string, restarted?: boolean, error?: object}>}
+ */
+async function setNodeAlias(alias) {
+  if (!isValidAlias(alias)) {
+    return failure(
+      'INVALID_ALIAS',
+      'Alias must be 1–32 bytes with no whitespace or control characters'
+    );
+  }
+
+  const configPath = path.join(getActiveRadHome(), 'config.json');
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.node = config.node || {};
+    config.node.alias = alias;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  } catch (err) {
+    log.error(`[Radicle] Failed to write alias: ${err.message}`);
+    return failure('ALIAS_WRITE_FAILED', err.message);
+  }
+  log.info(`[Radicle] Node alias set to: ${alias}`);
+
+  // Only a node we manage can be bounced; external/system nodes pick the
+  // new alias up on their own next restart.
+  let restarted = false;
+  if (currentState === STATUS.RUNNING && radicleNodeProcess) {
+    log.info('[Radicle] Restarting node to announce new alias');
+    stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await startRadicle();
+    restarted = true;
+  }
+
+  return success({ alias, restarted });
 }
 
 function registerRadicleIpc() {
@@ -1553,6 +1684,8 @@ function registerRadicleIpc() {
     return await getRepoPayload(normalizedRid);
   });
 
+  // Non-blocking: (re)starts the tracked background fetch. Poll
+  // RADICLE_GET_SEED_STATUS for the outcome.
   ipcMain.handle(IPC.RADICLE_SYNC_REPO, async (_event, rid) => {
     if (!isRadicleIntegrationEnabled()) {
       return failure(
@@ -1568,9 +1701,21 @@ function registerRadicleIpc() {
       return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
     }
     log.info('[Radicle] IPC: syncRepo requested for', rid);
-    return await syncRepository(normalizedRid);
+    return refetchRepository(normalizedRid);
   });
 
+  ipcMain.handle(IPC.RADICLE_GET_SEED_STATUS, (_event, rid) => {
+    if (!isRadicleIntegrationEnabled()) {
+      return failure(
+        'RADICLE_DISABLED',
+        'Radicle integration is disabled. Enable it in Settings > Experimental'
+      );
+    }
+    if (!validateNonEmptyString(rid)) {
+      return failure('INVALID_RID', 'Missing Radicle Repository ID', { field: 'rid' });
+    }
+    return getSeedFetchStatus(rid);
+  });
 }
 
 module.exports = {
@@ -1583,5 +1728,15 @@ module.exports = {
   setUseInjectedIdentity,
   hasInjectedIdentity,
   getActiveRadHome,
-  STATUS
+  getCurrentStatus,
+  getConnections,
+  seedRepository,
+  unseedRepository,
+  getSeedFetchStatus,
+  refetchRepository,
+  validateAndNormalizeRid,
+  getNodeAlias,
+  setNodeAlias,
+  runRad,
+  STATUS,
 };

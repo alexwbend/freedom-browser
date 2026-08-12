@@ -7,6 +7,8 @@ import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl, getInternalPageName, internalPages } from './page-urls.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
+import { setupRadicleProvider } from './radicle-provider.js';
+import { closeFindBar, notifyFindBarNavigated } from './find-bar.js';
 import {
   clearLinkStatus,
   clearHoverStatus,
@@ -263,6 +265,83 @@ const createNavigationState = () => ({
   swarmProbeVersion: 0,
 });
 
+// --- Tab audio state (indicator + mute) ------------------------------------
+
+/**
+ * Pure reducer for the tab-strip audio indicator.
+ * Muted wins over audible so a muted tab keeps showing the muted-speaker
+ * affordance (and stays unmutable) even while no sound is being produced.
+ *
+ * @param {{isMuted?: boolean, isAudible?: boolean}|null} tab
+ * @returns {'muted'|'audible'|null} indicator to render, or null for none
+ */
+export const getTabAudioState = (tab) => {
+  if (!tab) return null;
+  if (tab.isMuted === true) return 'muted';
+  if (tab.isAudible === true) return 'audible';
+  return null;
+};
+
+// Sample a webview's audibility and update the tab flag. `fallback` is what
+// the triggering media event implies, used when isCurrentlyAudible isn't
+// available (tests, detached webviews) or throws (guest not attached yet).
+const applyTabAudibleState = (tabId, fallback) => {
+  const tab = tabState.tabs.find((t) => t.id === tabId);
+  if (!tab || !tab.webview) return;
+  let audible = fallback === true;
+  try {
+    if (typeof tab.webview.isCurrentlyAudible === 'function') {
+      audible = tab.webview.isCurrentlyAudible() === true;
+    }
+  } catch {
+    audible = fallback === true;
+  }
+  if (tab.isAudible !== audible) {
+    tab.isAudible = audible;
+    renderTabs();
+  }
+};
+
+// One delayed re-sample per media edge (never self-rescheduling) so the
+// indicator converges on the real audible state without a standing poll.
+const AUDIBLE_RECHECK_MS = 1000;
+const scheduleAudibleRecheck = (tabId) => {
+  const tab = tabState.tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  if (tab.audioStateTimer) {
+    clearTimeout(tab.audioStateTimer);
+  }
+  tab.audioStateTimer = setTimeout(() => {
+    tab.audioStateTimer = null;
+    applyTabAudibleState(tabId, tab.isAudible);
+  }, AUDIBLE_RECHECK_MS);
+};
+
+// Push tab.isMuted down to the webview. Webview methods throw until the
+// guest is attached, so failures are swallowed here and the flag — which
+// lives on the tab, not the webview — is re-applied by the dom-ready
+// handler. Muting is webContents-level, so it survives navigation without
+// any extra bookkeeping.
+const applyMuteToWebview = (tab) => {
+  if (!tab?.webview || typeof tab.webview.setAudioMuted !== 'function') return;
+  try {
+    tab.webview.setAudioMuted(tab.isMuted === true);
+  } catch {
+    // Guest not attached yet — dom-ready re-applies.
+  }
+};
+
+// Toggle mute for a tab: flips the tab flag immediately (indicator updates)
+// and pushes it to the webview, with dom-ready as the fallback apply point.
+export const toggleMuteTab = (tabId) => {
+  const tab = tabState.tabs.find((t) => t.id === tabId);
+  if (!tab) return;
+  tab.isMuted = tab.isMuted !== true;
+  applyMuteToWebview(tab);
+  renderTabs();
+  pushDebug(`${tab.isMuted ? 'Muted' : 'Unmuted'} tab ${tabId}`);
+};
+
 // Get navigation state of the active tab
 export const getActiveTabState = () => {
   const tab = getActiveTab();
@@ -446,6 +525,12 @@ const createWebview = (tabId, initialUrl) => {
           renderTabs();
         }
       }
+      // Navigation invalidates find-in-page results for the foreground
+      // tab; the bar stays open with its query so Enter re-searches on
+      // the new page.
+      if (tabId === tabState.activeTabId) {
+        notifyFindBarNavigated();
+      }
       if (tabId === tabState.activeTabId && onWebviewEvent) {
         onWebviewEvent('did-navigate', { tabId, event });
       }
@@ -500,9 +585,32 @@ const createWebview = (tabId, initialUrl) => {
       }
     },
     'dom-ready': () => {
+      // Re-apply the tab-level mute flag once the webview is attached and
+      // ready. Covers mutes toggled before attach (races right after
+      // createTab) — webview methods throw until the guest is live, so
+      // this is the reliable apply point.
+      const tab = tabState.tabs.find((t) => t.id === tabId);
+      if (tab?.isMuted) {
+        applyMuteToWebview(tab);
+      }
       if (tabId === tabState.activeTabId && onWebviewEvent) {
         onWebviewEvent('dom-ready', { tabId });
       }
+    },
+    // Audio indicator state. Electron's <webview> emits media-started-playing /
+    // media-paused (there is no per-webview audio-state-changed event — that
+    // one only exists on main-process webContents), so on each media edge we
+    // sample isCurrentlyAudible() where available and fall back to what the
+    // event implies. A single delayed re-sample catches audibility settling
+    // after the event (e.g. a video whose audio track fades in, or another
+    // media element still playing when one pauses).
+    'media-started-playing': () => {
+      applyTabAudibleState(tabId, true);
+      scheduleAudibleRecheck(tabId);
+    },
+    'media-paused': () => {
+      applyTabAudibleState(tabId, false);
+      scheduleAudibleRecheck(tabId);
     },
     'console-message': (event) => {
       if (tabId === tabState.activeTabId) {
@@ -582,6 +690,7 @@ const createWebview = (tabId, initialUrl) => {
   // Set up providers (window.ethereum + window.swarm)
   setupWebviewProvider(webview);
   setupSwarmProvider(webview);
+  setupRadicleProvider(webview);
 
   return webview;
 };
@@ -604,6 +713,12 @@ const isInternalPageUrl = (url) =>
 
 // Loading spinner (same style as address bar)
 const SPINNER_HTML = `<span class="tab-icon-spinner"></span>`;
+
+// Audio indicator icons — speaker (tab is audible) and muted speaker (tab is
+// muted). Both live inside the .tab-audio button; CSS picks one via the
+// tab's data-audio-state attribute.
+const AUDIO_ON_SVG = `<svg class="tab-audio-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>`;
+const AUDIO_MUTED_SVG = `<svg class="tab-audio-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" stroke="none"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>`;
 
 // Map to track existing tab DOM elements by tab ID
 const tabElements = new Map();
@@ -644,6 +759,18 @@ const createTabElement = (tab) => {
   }
 
   tabEl.appendChild(iconContainer);
+
+  // Audio indicator / mute toggle (hidden unless the tab is audible or
+  // muted — visibility driven by the tab's data-audio-state attribute).
+  const audioBtn = document.createElement('button');
+  audioBtn.className = 'tab-audio';
+  audioBtn.dataset.test = 'tab-audio';
+  audioBtn.innerHTML = AUDIO_ON_SVG + AUDIO_MUTED_SVG;
+  audioBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleMuteTab(tab.id);
+  });
+  tabEl.appendChild(audioBtn);
 
   // Tab title
   const titleEl = document.createElement('span');
@@ -806,6 +933,18 @@ const updateTabElement = (tabEl, tab, isActive, isBeforeActive) => {
     }
   }
 
+  // Update audio indicator (speaker / muted speaker / hidden)
+  const audioState = getTabAudioState(tab);
+  if (audioState) {
+    tabEl.dataset.audioState = audioState;
+  } else {
+    delete tabEl.dataset.audioState;
+  }
+  const audioBtn = tabEl.querySelector('.tab-audio');
+  if (audioBtn) {
+    audioBtn.title = audioState === 'muted' ? 'Unmute tab' : 'Mute tab';
+  }
+
   // Update title
   const titleEl = tabEl.querySelector('.tab-title');
   const newTitle = tab.title || 'New Tab';
@@ -933,6 +1072,8 @@ export const createTab = (url = null) => {
     url: url || homeUrl,
     title: 'New Tab',
     isLoading: false,
+    isAudible: false,
+    isMuted: false,
     webview,
     navigationState: createNavigationState(),
   };
@@ -1004,6 +1145,10 @@ export const closeTab = (tabId) => {
   if (tab.suppressNextStopTimer) {
     clearTimeout(tab.suppressNextStopTimer);
     tab.suppressNextStopTimer = null;
+  }
+  if (tab.audioStateTimer) {
+    clearTimeout(tab.audioStateTimer);
+    tab.audioStateTimer = null;
   }
 
   // Remove event listeners before removing webview (prevents memory leak)
@@ -1158,6 +1303,12 @@ const showContextMenu = (x, y, tabId) => {
     pinBtn.textContent = tab.pinned ? 'Unpin Tab' : 'Pin Tab';
   }
 
+  // Update mute button text
+  const muteBtn = tabContextMenu.querySelector('[data-action="mute"]');
+  if (muteBtn) {
+    muteBtn.textContent = tab.isMuted ? 'Unmute Tab' : 'Mute Tab';
+  }
+
   // Disable "Close Tabs to the Right" if there are no tabs to the right (excluding pinned)
   const tabIndex = tabState.tabs.findIndex((t) => t.id === tabId);
   const tabsToRight = tabState.tabs.slice(tabIndex + 1).filter((t) => !t.pinned);
@@ -1204,6 +1355,9 @@ export const hideTabContextMenu = () => {
 export const switchTab = (tabId, options = {}) => {
   const tab = tabState.tabs.find((t) => t.id === tabId);
   if (!tab) return;
+  // Already foreground — nothing to swap, and running the swap anyway has
+  // real side effects (closing an open find bar, re-hiding webviews).
+  if (tabState.activeTabId === tabId) return;
 
   // Reset the link-hover preview before swapping active tabs:
   // - immediate clear so the previous tab's URL never trails into the new tab
@@ -1218,6 +1372,12 @@ export const switchTab = (tabId, options = {}) => {
   clearLinkStatus({ immediate: true });
   setLinkStatusSide(tab.linkStatusInLeftZone ? 'right' : 'left');
   tabState.activeTabId = tabId;
+
+  // Find state follows the foreground page: close the bar and clear the
+  // outgoing tab's highlights. Called after the activeTabId flip so the
+  // close never returns focus to the (now background) searched webview —
+  // the find module captured that webview when its session started.
+  closeFindBar();
 
   // Hide all webviews, show active one
   for (const t of tabState.tabs) {
@@ -1408,6 +1568,9 @@ export const initTabs = async () => {
           break;
         case 'pin':
           togglePinTab(contextMenuTabId);
+          break;
+        case 'mute':
+          toggleMuteTab(contextMenuTabId);
           break;
       }
       hideTabContextMenu();
