@@ -15,21 +15,25 @@ let walletSelectorAddress;
 let walletSelectorDropdown;
 let walletSelectorList;
 let walletCreateBtn;
+let walletConnectLedgerBtn;
 let walletHeadlineName;
 
-// Callback for opening create wallet screen (set by coordinator)
+// Callbacks for opening subscreens (set by coordinator)
 let openCreateWalletFn = null;
+let openConnectLedgerFn = null;
 
-export function initWalletSelector(openCreateWallet) {
+export function initWalletSelector(openCreateWallet, openConnectLedger) {
   walletSelectorBtn = document.getElementById('wallet-selector-btn');
   walletSelectorName = document.getElementById('wallet-selector-name');
   walletSelectorAddress = document.getElementById('wallet-selector-address');
   walletSelectorDropdown = document.getElementById('wallet-selector-dropdown');
   walletSelectorList = document.getElementById('wallet-selector-list');
   walletCreateBtn = document.getElementById('wallet-create-btn');
+  walletConnectLedgerBtn = document.getElementById('wallet-connect-ledger-btn');
   walletHeadlineName = document.getElementById('wallet-headline-name');
 
   openCreateWalletFn = openCreateWallet;
+  openConnectLedgerFn = openConnectLedger;
 
   setupWalletSelector();
 }
@@ -50,6 +54,13 @@ function setupWalletSelector() {
     walletCreateBtn.addEventListener('click', () => {
       closeWalletDropdown();
       if (openCreateWalletFn) openCreateWalletFn();
+    });
+  }
+
+  if (walletConnectLedgerBtn) {
+    walletConnectLedgerBtn.addEventListener('click', () => {
+      closeWalletDropdown();
+      if (openConnectLedgerFn) openConnectLedgerFn();
     });
   }
 }
@@ -98,7 +109,7 @@ function renderWalletList() {
 
     item.innerHTML = `
       <div class="wallet-selector-item-info">
-        <span class="wallet-selector-item-name">${escapeHtml(wallet.name)}</span>
+        <span class="wallet-selector-item-name">${escapeHtml(wallet.name)}${wallet.type === 'ledger' ? '<span class="wallet-selector-item-badge">Ledger</span>' : ''}</span>
         <div class="wallet-selector-item-address-row">
           <code class="wallet-selector-item-address">${truncatedAddress}</code>
           ${wallet.address ? `

@@ -16,13 +16,11 @@ const {
   parseAmount,
   getTransactionStatus,
   waitForTransaction,
-  signPersonalMessage,
-  signTypedData,
 } = require('./transaction-service');
 const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
-const { withVaultPrivateKey } = require('./vault-access');
+const { getSigner } = require('./signers');
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -63,12 +61,10 @@ async function handleSendTransaction(walletIndex, params, kind, context = {}) {
     if (!to || chainId === undefined || !gasLimit) {
       return { success: false, error: 'Missing required parameters: to, chainId, gasLimit' };
     }
-    const result = await withVaultPrivateKey(walletIndex, (privateKey) =>
-      signAndRecord(
-        { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId },
-        privateKey,
-        buildTxRecordContext(kind, context),
-      )
+    const result = await signAndRecord(
+      { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId },
+      getSigner(walletIndex),
+      buildTxRecordContext(kind, context),
     );
     return { success: true, ...result };
   } catch (err) {
@@ -282,9 +278,7 @@ function registerWalletIpc() {
         return { success: false, error: 'Message is required' };
       }
 
-      const signature = await withVaultPrivateKey(walletIndex, (privateKey) =>
-        signPersonalMessage(message, privateKey)
-      );
+      const signature = await getSigner(walletIndex).signMessage(message);
 
       return { success: true, signature };
     } catch (err) {
@@ -300,9 +294,7 @@ function registerWalletIpc() {
         return { success: false, error: 'Typed data is required' };
       }
 
-      const signature = await withVaultPrivateKey(walletIndex, (privateKey) =>
-        signTypedData(typedData, privateKey)
-      );
+      const signature = await getSigner(walletIndex).signTypedData(typedData);
 
       return { success: true, signature };
     } catch (err) {

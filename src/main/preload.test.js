@@ -83,7 +83,7 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(23);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(24);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
@@ -96,6 +96,7 @@ describe('preload', () => {
       'identity',
       'quickUnlock',
       'wallet',
+      'ledger',
       'swarmNode',
       'networks',
       'payments',

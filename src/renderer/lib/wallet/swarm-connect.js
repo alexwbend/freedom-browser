@@ -6,6 +6,7 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
+import { isSignatureInFlight, signatureInFlightError } from './signature-flight.js';
 import { formatBytes } from './wallet-utils.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
 import { getPermissionKey, getActiveWebview } from '../dapp-provider.js';
@@ -412,6 +413,12 @@ function setupSwarmConnectScreen() {
  * on screen).
  */
 export function showSwarmConnect(displayUrl, permissionKey, resolve, reject, webview) {
+  // A live device confirmation owns the sidebar (see signature-flight.js).
+  if (isSignatureInFlight()) {
+    reject(signatureInFlightError());
+    return;
+  }
+
   swarmConnectQueue.show({ displayUrl, permissionKey, resolve, reject, webview });
 }
 
@@ -582,6 +589,12 @@ function setupSwarmPublishScreen() {
  * screen). Resolves on "Publish", rejects (code 4001) on "Cancel".
  */
 export function showSwarmPublishApproval(permissionKey, params, resolve, reject, method) {
+  // A live device confirmation owns the sidebar (see signature-flight.js).
+  if (isSignatureInFlight()) {
+    reject(signatureInFlightError());
+    return;
+  }
+
   swarmPublishQueue.show({ permissionKey, params, resolve, reject, method });
 }
 
@@ -865,6 +878,12 @@ function setupSwarmFeedScreen() {
  * screen). On approval, establishes or re-grants feed access for the origin.
  */
 export function showSwarmFeedApproval(permissionKey, params, resolve, reject, options = {}) {
+  // A live device confirmation owns the sidebar (see signature-flight.js).
+  if (isSignatureInFlight()) {
+    reject(signatureInFlightError());
+    return;
+  }
+
   const autoApproveType = options.autoApproveType === 'signing' ? 'signing' : 'feeds';
   swarmFeedQueue.show({ permissionKey, params, resolve, reject, autoApproveType, method: options.method });
 }

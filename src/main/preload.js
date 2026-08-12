@@ -441,6 +441,11 @@ contextBridge.exposeInMainWorld('wallet', {
     ipcRenderer.invoke('wallet:proxy-rpc', { rpcUrl, method, params }),
 });
 
+contextBridge.exposeInMainWorld('ledger', {
+  getAccounts: (options) => ipcRenderer.invoke('ledger:get-accounts', options),
+  addAccount: (name, address, path) => ipcRenderer.invoke('wallet:add-ledger-wallet', name, address, path),
+});
+
 contextBridge.exposeInMainWorld('swarmNode', {
   getStamps: () => ipcRenderer.invoke('swarm:get-stamps'),
   getStorageCost: (sizeGB, durationDays) =>
