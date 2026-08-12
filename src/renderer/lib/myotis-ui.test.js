@@ -18,6 +18,7 @@ async function loadMyotisUi(options = {}) {
     peers: createElement('span'),
     block: createElement('span'),
     version: createElement('span'),
+    divider: createElement('div'),
     gnosisButton: createElement('button'),
     gnosisToggle: createElement('span'),
     gnosisInfo: createElement('div', { classes: ['ipfs-info'] }),
@@ -25,6 +26,7 @@ async function loadMyotisUi(options = {}) {
     gnosisPeers: createElement('span'),
     gnosisBlock: createElement('span'),
     gnosisVersion: createElement('span'),
+    gnosisDivider: createElement('div'),
   };
   const document = createDocument({
     elementsById: {
@@ -35,6 +37,7 @@ async function loadMyotisUi(options = {}) {
       'myotis-peers-count': elements.peers,
       'myotis-finalized-block': elements.block,
       'myotis-version-text': elements.version,
+      'myotis-divider': elements.divider,
       'myotis-gnosis-toggle-btn': elements.gnosisButton,
       'myotis-gnosis-toggle-switch': elements.gnosisToggle,
       'myotis-gnosis-info': elements.gnosisInfo,
@@ -42,6 +45,7 @@ async function loadMyotisUi(options = {}) {
       'myotis-gnosis-peers-count': elements.gnosisPeers,
       'myotis-gnosis-finalized-block': elements.gnosisBlock,
       'myotis-gnosis-version-text': elements.gnosisVersion,
+      'myotis-gnosis-divider': elements.gnosisDivider,
     },
   });
   let statusHandler;
@@ -106,14 +110,14 @@ describe('myotis-ui', () => {
       state: 'ready',
       peerCount: 7,
       finalizedBlockNumber: '2345',
-      version: '0.1.6',
+      version: '0.1.7',
     });
     expect(ctx.elements.toggle.classList.contains('running')).toBe(true);
     expect(ctx.elements.info.classList.contains('visible')).toBe(true);
     expect(ctx.elements.state.textContent).toBe('Ready');
     expect(ctx.elements.peers.textContent).toBe('7');
     expect(ctx.elements.block.textContent).toBe('2345');
-    expect(ctx.elements.version.textContent).toBe('Myotis v0.1.6');
+    expect(ctx.elements.version.textContent).toBe('Myotis v0.1.7');
 
     ctx.elements.button.dispatch('click');
     await flushMicrotasks();
@@ -151,7 +155,7 @@ describe('myotis-ui', () => {
       chainId: 100,
       peerCount: 4,
       finalizedBlockNumber: '9876',
-      version: '0.1.6',
+      version: '0.1.7',
     });
     expect(ctx.elements.gnosisToggle.classList.contains('running')).toBe(true);
     expect(ctx.elements.gnosisState.textContent).toBe('Ready');
@@ -161,5 +165,23 @@ describe('myotis-ui', () => {
     ctx.elements.gnosisButton.dispatch('click');
     await flushMicrotasks();
     expect(ctx.api.stop).toHaveBeenCalledWith(100);
+  });
+
+  test('hides Myotis section dividers on unsupported targets', async () => {
+    const unsupported = {
+      supported: false,
+      available: false,
+      running: false,
+      state: 'unavailable',
+    };
+    const ctx = await loadMyotisUi({ initialStatus: unsupported });
+    ctx.api.getStatus.mockResolvedValue(unsupported);
+    ctx.mod.initMyotisUi();
+    await flushMicrotasks();
+
+    expect(ctx.elements.button.hidden).toBe(true);
+    expect(ctx.elements.divider.hidden).toBe(true);
+    expect(ctx.elements.gnosisButton.hidden).toBe(true);
+    expect(ctx.elements.gnosisDivider.hidden).toBe(true);
   });
 });

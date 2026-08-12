@@ -208,7 +208,10 @@ async function signAndSendTransaction(params, privateKey) {
       parsedTransaction.hash &&
       String(broadcast.result).toLowerCase() !== parsedTransaction.hash.toLowerCase()
     ) {
-      throw new Error('Transaction broadcaster returned a mismatched hash');
+      throw new Error(
+        `Transaction may have been broadcast as ${parsedTransaction.hash}, ` +
+        `but the broadcaster returned ${broadcast.result}`
+      );
     }
 
     console.log('[TransactionService] Transaction sent:', broadcast.result);
@@ -325,8 +328,15 @@ async function waitForTransaction(txHash, chainId, confirmations = 1) {
       if (status.status === 'failed') return status;
       if (status.status === 'confirmed') {
         if (confirmations <= 1) return status;
-        const { result: head } = await chainData.request(chainId, 'eth_blockNumber');
-        if (Number(BigInt(head)) - status.blockNumber + 1 >= confirmations) return status;
+        try {
+          const { result: head } = await chainData.request(chainId, 'eth_blockNumber');
+          if (Number(BigInt(head)) - status.blockNumber + 1 >= confirmations) return status;
+        } catch (err) {
+          // Receipt confirmation is already known. A transient head lookup
+          // must not turn that into a false timeout; keep polling until the
+          // requested confirmation depth can be established.
+          console.warn('[TransactionService] Confirmation head lookup failed:', err.message);
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }

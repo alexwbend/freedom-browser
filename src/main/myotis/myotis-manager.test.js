@@ -101,7 +101,7 @@ describe('myotis-manager', () => {
       available: true,
       running: true,
       state: 'ready',
-      version: '0.1.6',
+      version: '0.1.7',
       peerCount: 5,
       finalizedBlockNumber: '1234',
     });

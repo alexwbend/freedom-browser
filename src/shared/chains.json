@@ -37,7 +37,8 @@
     "builtin": true,
     "verification": {
       "primary": "quorum",
-      "order": ["myotis", "colibri", "quorum"]
+      "order": ["myotis", "colibri", "quorum"],
+      "preferVerified": true
     },
     "access": {
       "readOrder": ["myotis", "colibri", "quorum", "direct"],

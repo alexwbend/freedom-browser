@@ -222,7 +222,7 @@ describe('v0.8.0 upgrade path (end-to-end, in place)', () => {
       verification: {
         primary: 'direct',
         order: ['myotis', 'direct', 'quorum'],
-        preferVerified: true,
+        preferVerified: false,
       },
     });
     expect(networkConfig.endpointSources['migrated-eth-custom']).toEqual({

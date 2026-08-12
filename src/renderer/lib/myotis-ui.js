@@ -9,6 +9,7 @@ let stateText = null;
 let peersCount = null;
 let finalizedBlock = null;
 let versionText = null;
+let divider = null;
 let latestStatus = null;
 let desiredRunning = null;
 let reconciling = false;
@@ -23,6 +24,7 @@ const gnosis = {
   peers: null,
   block: null,
   version: null,
+  divider: null,
   status: null,
   desiredRunning: null,
   reconciling: false,
@@ -52,6 +54,8 @@ const updateControls = (status) => {
   const disabled = status?.state === 'disabled';
   const controllable = supported && available && !disabled;
   const running = isEffectivelyRunning();
+
+  if (divider) divider.hidden = !supported;
 
   if (toggleButton) {
     toggleButton.hidden = !supported;
@@ -93,6 +97,8 @@ const updateGnosisControls = (status) => {
   const running = gnosis.desiredRunning === null
     ? status?.running === true
     : gnosis.desiredRunning;
+
+  if (gnosis.divider) gnosis.divider.hidden = !supported;
 
   if (gnosis.button) {
     gnosis.button.hidden = !supported;
@@ -188,6 +194,7 @@ export const initMyotisUi = () => {
   peersCount = document.getElementById('myotis-peers-count');
   finalizedBlock = document.getElementById('myotis-finalized-block');
   versionText = document.getElementById('myotis-version-text');
+  divider = document.getElementById('myotis-divider');
   gnosis.button = document.getElementById('myotis-gnosis-toggle-btn');
   gnosis.toggle = document.getElementById('myotis-gnosis-toggle-switch');
   gnosis.info = document.getElementById('myotis-gnosis-info');
@@ -195,6 +202,7 @@ export const initMyotisUi = () => {
   gnosis.peers = document.getElementById('myotis-gnosis-peers-count');
   gnosis.block = document.getElementById('myotis-gnosis-finalized-block');
   gnosis.version = document.getElementById('myotis-gnosis-version-text');
+  gnosis.divider = document.getElementById('myotis-gnosis-divider');
 
   if (listenersAttached) return;
   listenersAttached = true;

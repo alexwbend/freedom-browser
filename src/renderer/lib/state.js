@@ -127,6 +127,11 @@ export const state = {
   // Feature flags
   enableRadicleIntegration: false,
   blockUnverifiedEns: true, // When true, unverified ENS resolutions route through an interstitial
+
+  // Address-bar search provider id, synced from settings. buildSearchUrl in
+  // search-utils.js owns the fallback: null or unknown ids map to the default.
+  searchProvider: null,
+  customSearchProviders: [],
 };
 
 const buildServiceUrl = (base, endpoint, serviceName) => {
@@ -170,6 +175,19 @@ export const setRadicleIntegrationEnabled = (enabled) => {
 
 export const setBlockUnverifiedEns = (enabled) => {
   state.blockUnverifiedEns = enabled !== false;
+};
+
+export const setSearchProvider = (providerId, customProviders = []) => {
+  state.searchProvider = providerId ?? null;
+  state.customSearchProviders = Array.isArray(customProviders) ? customProviders : [];
+};
+
+// Sync renderer feature flags from a settings payload. Passing null (settings
+// unavailable) resets every flag to its default.
+export const applySettingsToState = (settings) => {
+  setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
+  setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
+  setSearchProvider(settings?.searchProvider, settings?.customSearchProviders);
 };
 
 // Get display message for a service (temp message takes priority)

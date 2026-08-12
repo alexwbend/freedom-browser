@@ -339,7 +339,9 @@ function updateProfileNodeConfigFromIpc(protocol, patch) {
       if (validation.sanitized.mode === 'disabled') {
         myotisManager.stopAllMyotis();
       } else {
-        myotisManager.refreshMyotisStatus();
+        for (const chainId of myotisManager.NETWORKS.keys()) {
+          myotisManager.refreshMyotisStatus(chainId);
+        }
       }
     }
     return success({ profile });
@@ -644,11 +646,11 @@ function registerBaseIpcHandlers(callbacks = {}) {
   // obtain the id before the probe settles (enabling mid-flight cancel
   // from the stop button / next navigation).
   ipcMain.handle(IPC.BZZ_START_PROBE, (_event, payload = {}) => {
-    const { hash } = payload;
+    const { hash, path } = payload;
     if (typeof hash !== 'string' || !hash) {
       return failure('INVALID_HASH', 'Missing hash');
     }
-    const { id, promise } = startSwarmProbe(hash);
+    const { id, promise } = startSwarmProbe(hash, { path });
     // Keep the entry until await-probe consumes it. A safety TTL drops
     // abandoned entries (e.g. the tab was closed before awaiting) without
     // racing the start→await IPC round-trip for fast-resolving probes.

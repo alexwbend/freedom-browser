@@ -161,6 +161,7 @@ function loadIpcHandlersModule(options = {}) {
   const myotisManager = options.myotisManager || {
     stopAllMyotis: jest.fn(),
     refreshMyotisStatus: jest.fn(),
+    NETWORKS: new Map([[1, {}], [100, {}]]),
   };
 
   const { mod, app, webContents } = loadMainModule(require.resolve('./ipc-handlers'), {
@@ -1013,6 +1014,12 @@ describe('ipc-handlers', () => {
     });
     expect(ctx.myotisManager.stopAllMyotis).toHaveBeenCalled();
 
+    await ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+      protocol: 'myotis',
+      config: { mode: 'managed' },
+    });
+    expect(ctx.myotisManager.refreshMyotisStatus.mock.calls).toEqual([[1], [100]]);
+
     expect(ctx.mod.validateProfileNodeConfigUpdate('myotis', { mode: 'external' })).toEqual({
       ok: false,
       response: failure('INVALID_PROFILE_NODE_MODE', 'Unsupported profile node mode', {
@@ -1238,9 +1245,10 @@ describe('ipc-handlers', () => {
 
     const startResult = await ctx.ipcMain.invoke(IPC.BZZ_START_PROBE, {
       hash: 'a'.repeat(64),
+      path: '/index.html',
     });
     expect(startResult).toEqual(success({ id: 'probe-abc' }));
-    expect(startProbe).toHaveBeenCalledWith('a'.repeat(64));
+    expect(startProbe).toHaveBeenCalledWith('a'.repeat(64), { path: '/index.html' });
 
     const awaitPromise = ctx.ipcMain.invoke(IPC.BZZ_AWAIT_PROBE, { id: 'probe-abc' });
     probeResolve({ ok: true });

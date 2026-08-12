@@ -3,6 +3,7 @@ const mockRegistry = {
   getEndpoints: jest.fn(),
 };
 const mockMyotis = {
+  NETWORKS: new Map([[1, {}], [100, {}]]),
   isReady: jest.fn(),
   getAccount: jest.fn(),
   ethCall: jest.fn(),
@@ -388,5 +389,43 @@ describe('chain-data-router', () => {
       'https://rpc.example',
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  test('preserves the final RPC error code and revert data for dapps', async () => {
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['direct'] },
+      quorum: { timeoutMs: 1000 },
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: { code: 3, message: 'execution reverted', data: '0x08c379a0' },
+      }),
+    });
+
+    await expect(
+      request(1, 'eth_call', [{ to: '0xabc', data: '0xdeadbeef' }, 'latest'])
+    ).rejects.toMatchObject({
+      code: 3,
+      message: 'execution reverted',
+      data: '0x08c379a0',
+    });
+  });
+
+  test('does not attempt Myotis for a custom chain with default access policy', async () => {
+    mockRegistry.getNetwork.mockReturnValue({ access: {}, quorum: { timeoutMs: 1000 } });
+    mockRegistry.getEndpoints.mockImplementation((_chainId, role) =>
+      role === 'prover' ? [] : ['https://rpc.example']
+    );
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: '0x6000' }),
+    });
+
+    await expect(request(777, 'eth_getCode', ['0xabc', 'latest'])).resolves.toMatchObject({
+      result: '0x6000',
+      source: 'direct',
+    });
+    expect(mockMyotis.isReady).not.toHaveBeenCalled();
   });
 });

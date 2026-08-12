@@ -7,7 +7,13 @@ jest.mock('../networks/chain-data-router', () => ({
   getFeeQuote: (...args) => mockGetFeeQuote(...args),
   broadcastRawTransaction: (...args) => mockBroadcastRawTransaction(...args),
 }));
-const { signPersonalMessage, estimateGas, getGasPrices, signAndSendTransaction } = require('./transaction-service');
+const {
+  signPersonalMessage,
+  estimateGas,
+  getGasPrices,
+  signAndSendTransaction,
+  waitForTransaction,
+} = require('./transaction-service');
 
 // Deterministic test key (not a real wallet)
 const TEST_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
@@ -168,5 +174,54 @@ describe('capability-aware transaction routing', () => {
         TEST_PRIVATE_KEY
       )
     ).rejects.toThrow('Transaction nonce error. Please try again.');
+  });
+
+  test('surfaces the locally computed hash when a broadcaster returns a mismatch', async () => {
+    let localHash;
+    mockChainRequest.mockResolvedValue({ result: '0x0', source: 'direct' });
+    mockBroadcastRawTransaction.mockImplementation(async (_chainId, raw) => {
+      localHash = Transaction.from(raw).hash;
+      return { result: `0x${'11'.repeat(32)}`, source: 'direct' };
+    });
+
+    let failure;
+    try {
+      await signAndSendTransaction(
+        {
+          to: testWallet.address,
+          value: '1',
+          gasLimit: '21000',
+          gasPrice: '1',
+          chainId: 100,
+        },
+        TEST_PRIVATE_KEY
+      );
+    } catch (err) {
+      failure = err;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toContain(localHash);
+  });
+
+  test('keeps polling after a transient confirmation-head failure', async () => {
+    jest.useFakeTimers();
+    mockChainRequest
+      .mockResolvedValueOnce({
+        result: { status: '0x1', blockNumber: '0xa', gasUsed: '0x5208' },
+        source: 'direct',
+      })
+      .mockRejectedValueOnce(new Error('temporary head failure'))
+      .mockResolvedValueOnce({
+        result: { status: '0x1', blockNumber: '0xa', gasUsed: '0x5208' },
+        source: 'direct',
+      })
+      .mockResolvedValueOnce({ result: '0xb', source: 'direct' });
+
+    const pending = waitForTransaction(`0x${'22'.repeat(32)}`, 100, 2);
+    await Promise.resolve();
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(2000);
+    await expect(pending).resolves.toMatchObject({ status: 'confirmed', blockNumber: 10 });
+    jest.useRealTimers();
   });
 });

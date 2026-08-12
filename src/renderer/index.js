@@ -1,8 +1,7 @@
 // Renderer process entry point
 import {
   updateRegistry,
-  setRadicleIntegrationEnabled,
-  setBlockUnverifiedEns,
+  applySettingsToState,
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
@@ -36,6 +35,7 @@ import {
   setOnContextMenuOpening as setOnTabContextMenuOpening,
   createTab,
   openOrFocusInternalPage,
+  getActiveWebview,
 } from './lib/tabs.js';
 import {
   initNavigation,
@@ -53,8 +53,11 @@ import {
   hide as hideAutocomplete,
 } from './lib/autocomplete.js';
 import { initGithubBridgeUi, setOnOpenRadicleUrl } from './lib/github-bridge-ui.js';
+import { initDownloadsUi } from './lib/downloads-ui.js';
 import { initMenuBackdrop } from './lib/menu-backdrop.js';
 import { initLinkStatus } from './lib/link-status.js';
+import { initSitePermissionsUi } from './lib/site-permissions-ui.js';
+import { initFindBar } from './lib/find-bar.js';
 import { initPageContextMenu, hidePageContextMenu } from './lib/page-context-menu.js';
 import {
   initChromeInputContextMenu,
@@ -63,6 +66,8 @@ import {
 import { pushDebug } from './lib/debug.js';
 import { initOnboarding } from './lib/onboarding.js';
 import { initSidebar } from './lib/sidebar.js';
+import { initRadicleConsent } from './lib/radicle-consent.js';
+import { initRadicleAlias } from './lib/radicle-alias.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 import { attachSubmenuHover } from './lib/submenu-hover.js';
 import { bindHoverTooltip } from './lib/hover-tooltip.js';
@@ -708,16 +713,12 @@ document.addEventListener('open-url-new-tab', (e) => {
 // Initialize all modules
 window.addEventListener('DOMContentLoaded', async () => {
   try {
-    const settings = await electronAPI.getSettings();
-    setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
+    applySettingsToState(await electronAPI.getSettings());
   } catch {
-    setRadicleIntegrationEnabled(false);
-    setBlockUnverifiedEns(true);
+    applySettingsToState(null);
   }
   window.addEventListener('settings:updated', (event) => {
-    setRadicleIntegrationEnabled(event.detail?.enableRadicleIntegration === true);
-    setBlockUnverifiedEns(event.detail?.blockUnverifiedEns !== false);
+    applySettingsToState(event.detail);
   });
 
   initMenuBackdrop(closeAllOverlays);
@@ -733,7 +734,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
   initBookmarks();
   initNavigation(); // Sets up event handler with tabs module
+  initSitePermissionsUi(); // Permission prompt + address-bar indicator
   initLinkStatus();
+  initFindBar({ getActiveWebview }); // In-page find bar (Cmd/Ctrl+F)
   initTabs(); // Creates first tab and starts loading home page
   initAutocomplete(); // Address bar autocomplete
   initPageContextMenu(); // Page context menu for webviews
@@ -741,9 +744,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   initOnboarding(); // Identity onboarding wizard
   initSidebar(); // Identity & wallet sidebar
   initWalletUi(); // Wallet & identity display in sidebar
+  initRadicleConsent(); // Radicle provider consent subscreen (sidebar)
+  initRadicleAlias(); // Radicle alias display/editing in the Nodes tab
   loadBookmarks();
   initExternalNodeCandidatesModal();
   initPlatformUI();
   initProfileIndicator();
   initUpdateNotifications();
+  initDownloadsUi(); // Download shelf cards (bottom-right)
 });

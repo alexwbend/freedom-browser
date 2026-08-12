@@ -1788,6 +1788,46 @@ describe('ens-resolver', () => {
       }
     });
 
+    test('reads the top-level CCIP data field instead of matching JSON string contents', async () => {
+      myotisUp();
+      const originalFetch = global.fetch;
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: { get: jest.fn(() => null) },
+        text: jest.fn().mockResolvedValue(
+          JSON.stringify({ message: 'ignore "data": "0x00"', data: '0xcafe' })
+        ),
+      });
+      mockMyotisResolveEnsRecord
+        .mockResolvedValueOnce({
+          status: 'offchain',
+          verified: true,
+          blockNumber: 23456793,
+          senderHex: '0x2222222222222222222222222222222222222222',
+          urls: ['https://ccip.example/query'],
+          callDataHex: '0xbeef',
+          callbackFunctionHex: '0x01020304',
+          extraDataHex: '0x',
+          wrapped: false,
+        })
+        .mockResolvedValueOnce({
+          status: 'noRecord',
+          verified: true,
+          blockNumber: 23456793,
+        });
+
+      try {
+        await resolveEnsContent('myotis-ccip-json.box');
+        expect(mockMyotisResolveEnsRecord).toHaveBeenNthCalledWith(
+          2,
+          expect.objectContaining({ responseHex: '0xcafe' })
+        );
+      } finally {
+        global.fetch = originalFetch;
+      }
+    });
+
     test('caps recursive CCIP-Read at one gateway round and falls back safely', async () => {
       myotisUp();
       const originalFetch = global.fetch;

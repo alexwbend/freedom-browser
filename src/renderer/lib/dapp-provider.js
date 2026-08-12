@@ -344,9 +344,22 @@ async function proxyRpcCall(method, params) {
 
   const data = await window.wallet.requestChain(chainId, method, params);
   if (!data?.success) {
+    let message = data?.error?.message || `All chain sources failed for chain ${chainId}`;
+    try {
+      const availability = await window.networks.isChainAvailable(chainId);
+      if (availability?.available === false) {
+        const chainsResult = await window.networks.getChains();
+        const chainName = chainsResult?.success
+          ? chainsResult.chains?.[chainId]?.name
+          : null;
+        message = `${chainName || `Chain ${chainId}`} requires an RPC provider. Please configure one in Settings.`;
+      }
+    } catch {
+      // Preserve the original router error if availability lookup also fails.
+    }
     throw {
       code: data?.error?.code || ERRORS.INTERNAL_ERROR.code,
-      message: data?.error?.message || `All chain sources failed for chain ${chainId}`,
+      message,
       data: data?.error?.data,
     };
   }

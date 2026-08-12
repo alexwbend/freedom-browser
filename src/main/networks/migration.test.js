@@ -61,7 +61,7 @@ describe('migrateLegacyConfig — the 11-case matrix', () => {
       verification: {
         primary: 'direct',
         order: ['myotis', 'direct', 'quorum'],
-        preferVerified: true,
+        preferVerified: false,
       },
     });
     expect(result.endpointSources['migrated-eth-custom']).toEqual({
@@ -105,14 +105,14 @@ describe('migrateLegacyConfig — the 11-case matrix', () => {
       verification: {
         primary: 'quorum',
         order: ['myotis', 'quorum'],
-        preferVerified: true,
+        preferVerified: false,
       },
     });
     expect(run({ ensResolutionMethod: 'custom-rpc' }).networks['1']).toEqual({
       verification: {
         primary: 'direct',
         order: ['myotis', 'direct', 'quorum'],
-        preferVerified: true,
+        preferVerified: false,
       },
     });
     // 'colibri' equals the builtin default → no override emitted

@@ -114,7 +114,9 @@ function migrateLegacyConfig({ settings = {}, builtinSources = {} } = {}) {
         method === 'direct'
           ? ['myotis', 'direct', 'quorum']
           : ['myotis', 'quorum'],
-      preferVerified: true,
+      // The legacy UI selected one winning method; do not let a newly-added
+      // verified fallback overtake it before the user saves the new policy.
+      preferVerified: false,
     };
   }
   const quorum = resolveQuorum(settings);

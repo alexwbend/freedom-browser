@@ -37,6 +37,7 @@ READ_METHODS.add('web3_clientVersion');
 READ_METHODS.add('web3_sha3');
 
 const DEFAULT_READ_ORDER = ['myotis', 'colibri', 'quorum', 'direct'];
+const DEFAULT_NON_MYOTIS_READ_ORDER = ['colibri', 'quorum', 'direct'];
 const DEFAULT_BROADCAST_ORDER = ['myotis', 'direct'];
 
 class SourceUnavailableError extends Error {
@@ -413,8 +414,11 @@ async function request(chainId, method, rawParams = []) {
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
   const params = normalizeParams(method, rawParams);
-  const order = network.access?.readOrder || DEFAULT_READ_ORDER;
+  const supportsMyotis = myotis.NETWORKS?.has(Number(chainId)) === true;
+  const order = network.access?.readOrder ||
+    (supportsMyotis ? DEFAULT_READ_ORDER : DEFAULT_NON_MYOTIS_READ_ORDER);
   const failures = [];
+  let lastRpcError = null;
   for (const source of order) {
     if (DIRECT_ONLY_METHODS.has(method) && source !== 'direct') continue;
     try {
@@ -426,16 +430,21 @@ async function request(chainId, method, rawParams = []) {
       };
     } catch (err) {
       failures.push(`${source}: ${err.message}`);
+      if (!(err instanceof SourceUnavailableError)) lastRpcError = err;
       log.verbose(`[chain-data] ${chainId} ${method} via ${source} failed: ${err.message}`);
     }
   }
+  if (lastRpcError) throw lastRpcError;
   throw new Error(`All chain sources failed for ${method} (${failures.join('; ')})`);
 }
 
 async function getFeeQuote(chainId) {
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
-  const order = network.access?.readOrder || DEFAULT_READ_ORDER;
+  const order = network.access?.readOrder ||
+    (myotis.NETWORKS?.has(Number(chainId)) === true
+      ? DEFAULT_READ_ORDER
+      : DEFAULT_NON_MYOTIS_READ_ORDER);
   const failures = [];
 
   for (const source of order) {
@@ -475,7 +484,8 @@ async function getFeeQuote(chainId) {
 async function broadcastRawTransaction(chainId, rawTransaction) {
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
-  const order = network.access?.broadcastOrder || DEFAULT_BROADCAST_ORDER;
+  const order = network.access?.broadcastOrder ||
+    (myotis.NETWORKS?.has(Number(chainId)) === true ? DEFAULT_BROADCAST_ORDER : ['direct']);
   const failures = [];
   for (const source of order) {
     try {

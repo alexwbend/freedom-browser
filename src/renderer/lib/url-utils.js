@@ -1,4 +1,4 @@
-import { isEnsHost } from './origin-utils.js';
+import { isDwebNameHost, isEnsHost } from './origin-utils.js';
 import { cidV0ToV1Base32, cidV1B58btcToBase32, ipnsMhToCidV1Base36 } from './cid-utils.js';
 
 export const ensureTrailingSlash = (value = '') => (value.endsWith('/') ? value : `${value}/`);
@@ -292,9 +292,9 @@ export const isEnsBackedDisplay = (displayUrl) => {
   if (lower.startsWith('ens://')) return true;
   const transportMatch = lower.match(/^(?:bzz|ipfs|ipns):\/\/([^/?#]+)/);
   if (transportMatch) {
-    return isEnsHost(transportMatch[1]);
+    return isDwebNameHost(transportMatch[1]);
   }
-  return isEnsHost(trimmed.split(/[/?#]/)[0]);
+  return isDwebNameHost(trimmed.split(/[/?#]/)[0]);
 };
 
 /**

@@ -251,3 +251,53 @@ test('Ethereum and Gnosis expose verified chain sources and independent Myotis s
     )
     .toEqual(['direct', 'myotis', 'colibri', 'quorum']);
 });
+
+test('custom-chain access order can be reordered from its rendered defaults', async ({ window }) => {
+  await window.evaluate(() => document.getElementById('settings-btn')?.click());
+  await expect
+    .poll(() => settingsEval(window, `typeof window.freedomAPI?.addChain`))
+    .toBe('function');
+  const added = await settingsEval(
+    window,
+    `window.freedomAPI.addChain({
+      chainId: 777,
+      name: 'CustomNet',
+      nativeCurrency: { name: 'Custom', symbol: 'CUS', decimals: 18 }
+    }, ['https://rpc.custom.example'])`
+  );
+  expect(added).toMatchObject({ success: true });
+  await expect
+    .poll(() => settingsEval(window, `location.hash = 'chains/777'; location.hash`))
+    .toBe('#chains/777');
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `[...document.querySelectorAll('[data-access-kind="read"]')]
+          .map((row) => row.dataset.accessSource)`
+      )
+    )
+    .toEqual(['quorum', 'direct']);
+
+  await settingsEval(
+    window,
+    `(() => {
+      const transfer = new DataTransfer();
+      const direct = document.querySelector('[data-access-kind="read"][data-access-source="direct"]');
+      const quorum = document.querySelector('[data-access-kind="read"][data-access-source="quorum"]');
+      direct.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+      quorum.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      quorum.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    })()`
+  );
+
+  await expect
+    .poll(() =>
+      settingsEval(
+        window,
+        `window.freedomAPI.getNetworkConfig().then((result) =>
+          result.networks['777'].access.readOrder)`
+      )
+    )
+    .toEqual(['direct', 'quorum']);
+});

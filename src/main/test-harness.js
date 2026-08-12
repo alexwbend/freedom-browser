@@ -212,6 +212,23 @@ function overrideEnsIpc() {
   });
 
   replaceHandler(IPC.ENS_INVALIDATE_CONTENT, async () => true);
+
+  // Tezos Domains shares the ENS fixture map — `.tez` and `.eth` names can
+  // never collide — so a spec drives both name systems through
+  // `setEnsFixture`. Without this override a harness spec that navigates to
+  // a `.tez` name would reach out to the real public Tezos RPCs.
+  replaceHandler(IPC.TEZOS_DOMAINS_RESOLVE, async (_event, payload = {}) => {
+    const name = (payload?.name || '').trim().toLowerCase();
+    if (!name) {
+      return { type: 'not_found', reason: 'EMPTY', system: 'tezos' };
+    }
+    if (ensFixtures.has(name)) {
+      return ensFixtures.get(name);
+    }
+    return { type: 'not_found', reason: 'NO_FIXTURE', system: 'tezos' };
+  });
+
+  replaceHandler(IPC.TEZOS_DOMAINS_INVALIDATE, async () => ({ ok: true }));
 }
 
 function overrideProbeIpc() {
@@ -260,12 +277,12 @@ function overrideProbeIpc() {
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
 const stubMyotisStatuses = new Map([
   [1, {
-    supported: true, available: true, version: '0.1.6', chainId: 1,
+    supported: true, available: true, version: '0.1.7', chainId: 1,
     network: 'mainnet', displayName: 'Ethereum', running: true, state: 'ready',
     beaconState: 'SYNCED', peerCount: 2, snapPeers: 1, finalizedBlockNumber: 25684159,
   }],
   [100, {
-    supported: true, available: true, version: '0.1.6', chainId: 100,
+    supported: true, available: true, version: '0.1.7', chainId: 100,
     network: 'gnosis', displayName: 'Gnosis', running: false, state: 'off',
     beaconState: 'STARTING', peerCount: 0, snapPeers: 0, finalizedBlockNumber: 0,
   }],
@@ -303,20 +320,26 @@ function overrideNodeIpc() {
     error: null,
   }));
 
+  const stubMyotisStatus = (chainId) => {
+    const status = stubMyotisStatuses.get(Number(chainId));
+    if (!status) throw new Error(`Unsupported Myotis chain ID: ${chainId}`);
+    return status;
+  };
+
   replaceHandler(IPC.MYOTIS_START, async (_event, chainId = 1) => {
     log.info('[test-harness] ignored myotis:start (test mode)');
-    const status = stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1);
+    const status = stubMyotisStatus(chainId);
     Object.assign(status, { running: true, state: 'ready' });
     return { ...status };
   });
   replaceHandler(IPC.MYOTIS_STOP, async (_event, chainId = 1) => {
     log.info('[test-harness] ignored myotis:stop (test mode)');
-    const status = stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1);
+    const status = stubMyotisStatus(chainId);
     Object.assign(status, { running: false, state: 'off' });
     return { ...status };
   });
   replaceHandler(IPC.MYOTIS_GET_STATUS, async (_event, chainId = 1) => ({
-    ...(stubMyotisStatuses.get(Number(chainId)) || stubMyotisStatuses.get(1)),
+    ...stubMyotisStatus(chainId),
   }));
 
   replaceHandler(IPC.RADICLE_START, async () => {

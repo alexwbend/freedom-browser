@@ -17,6 +17,8 @@ const MAX_LATEST_AGE_SECONDS = 60;
 const clients = new Map();
 const providers = new Map();
 const inFlightBuilds = new Map();
+const clientReferences = new Map();
+const retiredClients = new Set();
 let storageRegistration = null;
 let storageRegistered = false;
 const buildGenerations = new Map();
@@ -61,6 +63,38 @@ function destroyClient(client) {
     client.destroy();
   } catch (err) {
     log.warn(`[ens-colibri] failed to destroy old client: ${err.message}`);
+  }
+}
+
+function retainClient(client) {
+  clientReferences.set(client, (clientReferences.get(client) || 0) + 1);
+}
+
+function releaseClient(client) {
+  const remaining = (clientReferences.get(client) || 1) - 1;
+  if (remaining > 0) {
+    clientReferences.set(client, remaining);
+    return;
+  }
+  clientReferences.delete(client);
+  if (retiredClients.delete(client)) destroyClient(client);
+}
+
+function retireClient(client) {
+  if (!client) return;
+  if ((clientReferences.get(client) || 0) > 0) {
+    retiredClients.add(client);
+    return;
+  }
+  destroyClient(client);
+}
+
+async function useClient(client, operation) {
+  retainClient(client);
+  try {
+    return await operation();
+  } finally {
+    releaseClient(client);
   }
 }
 
@@ -114,7 +148,7 @@ function evictFailedClient(chainId, failedClient) {
   if (cached?.client !== failedClient) return;
   clients.delete(chainId);
   providers.delete(chainId);
-  destroyClient(failedClient);
+  retireClient(failedClient);
 }
 
 // Retry exactly once after rebuilding the in-memory verifier. This recovers
@@ -125,7 +159,7 @@ async function withColibriClientRetry(chainId, operation) {
   const id = Number(chainId);
   let client = await getClient(id);
   try {
-    return await operation({ client, provider: providers.get(id) });
+    return await useClient(client, () => operation({ client, provider: providers.get(id) }));
   } catch (err) {
     if (!retryableColibriError(err)) throw err;
     log.warn(
@@ -134,7 +168,7 @@ async function withColibriClientRetry(chainId, operation) {
     );
     evictFailedClient(id, client);
     client = await getClient(id);
-    return operation({ client, provider: providers.get(id) });
+    return useClient(client, () => operation({ client, provider: providers.get(id) }));
   }
 }
 
@@ -161,7 +195,7 @@ async function buildClient({ chainId, key, proverUrl, zkProof, generation }) {
   const previousClient = clients.get(chainId)?.client;
   clients.set(chainId, { client, key });
   providers.set(chainId, new ethers.BrowserProvider(client));
-  destroyClient(previousClient);
+  retireClient(previousClient);
   log.info(`[colibri] chain ${chainId} client ready (prover=${hostOf(proverUrl)}, zk=${zkProof})`);
   return client;
 }
@@ -232,7 +266,7 @@ async function requestViaColibri(chainId, method, params = []) {
 }
 
 function clearColibriClientForTest() {
-  for (const { client } of clients.values()) destroyClient(client);
+  for (const { client } of clients.values()) retireClient(client);
   for (const chainId of new Set([
     ...clients.keys(),
     ...inFlightBuilds.keys(),
@@ -243,6 +277,9 @@ function clearColibriClientForTest() {
   clients.clear();
   providers.clear();
   inFlightBuilds.clear();
+  for (const client of retiredClients) destroyClient(client);
+  clientReferences.clear();
+  retiredClients.clear();
   storageRegistration = null;
   storageRegistered = false;
 }

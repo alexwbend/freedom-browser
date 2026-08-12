@@ -271,6 +271,28 @@ describe('resolveViaColibri', () => {
     expect(mockColibriCtor).toHaveBeenCalledTimes(2);
   });
 
+  test('does not destroy a failed shared client while a sibling request still uses it', async () => {
+    let rejectFirst;
+    let resolveSibling;
+    mockUniversalResolverCall
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSibling = resolve; }))
+      .mockResolvedValueOnce({ resolvedData: '0xrecovered' });
+
+    const first = resolveViaColibri('first.eth', '0x');
+    const sibling = resolveViaColibri('sibling.eth', '0x');
+    while (mockUniversalResolverCall.mock.calls.length < 2) await Promise.resolve();
+    const sharedClient = mockClientInstances[0];
+
+    rejectFirst(Object.assign(new Error('network unavailable'), { code: 'NETWORK_ERROR' }));
+    await expect(first).resolves.toEqual({ resolvedData: '0xrecovered' });
+    expect(sharedClient.destroy).not.toHaveBeenCalled();
+
+    resolveSibling({ resolvedData: '0xsibling' });
+    await expect(sibling).resolves.toEqual({ resolvedData: '0xsibling' });
+    expect(sharedClient.destroy).toHaveBeenCalledTimes(1);
+  });
+
   test('does not retry an EVM revert carrying verified revert data', async () => {
     const err = Object.assign(new Error('execution reverted'), {
       code: 'CALL_EXCEPTION',

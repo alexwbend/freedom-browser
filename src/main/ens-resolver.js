@@ -7,6 +7,7 @@ const { cidV1BytesToBase32 } = require('../shared/cid-utils');
 const registry = require('./networks/network-registry');
 const { prefetchGatewayUrl, NOOP_HANDLE: NOOP_PREFETCH } = require('./ens-prefetch');
 const myotisManager = require('./myotis/myotis-manager');
+const { capCache } = require('./cache-utils');
 
 // Canonical ENS Universal Resolver — a DAO-owned proxy that delegates to
 // the current implementation, so future UR upgrades don't require a code
@@ -458,27 +459,6 @@ function ttlForResult(result) {
     return TTL_BY_LEVEL[level];
   }
   return DEFAULT_CACHE_TTL_MS;
-}
-
-// Upper bound per cache. Long browsing sessions can accumulate thousands
-// of distinct ENS names; without a cap the caches grow unboundedly since
-// expired entries are only evicted on re-read. On set, if we're over the
-// cap, drop expired entries first, then fall back to FIFO eviction.
-const MAX_CACHE_ENTRIES = 500;
-
-function capCache(cache) {
-  if (cache.size <= MAX_CACHE_ENTRIES) return;
-  const now = Date.now();
-  for (const [key, entry] of cache) {
-    if (entry.expiresAt <= now) {
-      cache.delete(key);
-      if (cache.size <= MAX_CACHE_ENTRIES) return;
-    }
-  }
-  while (cache.size > MAX_CACHE_ENTRIES) {
-    const firstKey = cache.keys().next().value;
-    cache.delete(firstKey);
-  }
 }
 
 const ensResultCache = new Map();
@@ -1113,7 +1093,15 @@ async function fetchMyotisCcipResponse(rec) {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const body = await readMyotisCcipBody(response);
-      const dataHex = body.match(/"data"\s*:\s*"(0x[0-9a-fA-F]*)"/)?.[1];
+      let payload;
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        throw new Error('response is not valid JSON');
+      }
+      const dataHex = typeof payload?.data === 'string' && /^0x[0-9a-fA-F]*$/.test(payload.data)
+        ? payload.data
+        : null;
       if (!dataHex) throw new Error('response has no hex data field');
       if ((dataHex.length - 2) % 2 !== 0) throw new Error('response data has odd-length hex');
       if (containsCcipHttpError(dataHex)) throw new Error('gateway returned HttpError');
@@ -1205,7 +1193,7 @@ async function tryMyotisEnsPath(name, callData, nameSystem) {
 
 // WNS and GNS are separate NameNFT contracts, not ENS registries. Myotis's
 // generic verified eth_call can execute their existing calldata locally. The
-// current v0.1.6 addon pins generic calls to the beacon optimistic head. Every
+// current v0.1.7 addon pins generic calls to the beacon optimistic head. Every
 // state fetch is MPT-verified against that root and the root is authenticated
 // by the light client's sync committee; `ok` therefore means cryptographically
 // verified, while the trust metadata still states that it is not finalized.
