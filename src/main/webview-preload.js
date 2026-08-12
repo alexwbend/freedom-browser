@@ -291,6 +291,38 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   ),
   relaunchApp: guardInternal('relaunchApp', () => ipcRenderer.send('app:relaunch')),
 
+  // Ad blocking (settings page)
+  adblockGetStatus: guardInternal('adblockGetStatus', () =>
+    ipcRenderer.invoke('adblock:get-status')
+  ),
+  adblockGetAllowlist: guardInternal('adblockGetAllowlist', () =>
+    ipcRenderer.invoke('adblock:get-allowlist')
+  ),
+  adblockAddAllowlistHost: guardSettingsPage('adblockAddAllowlistHost', (host) =>
+    ipcRenderer.invoke('adblock:add-allowlist-host', host)
+  ),
+  adblockRemoveAllowlistHost: guardSettingsPage('adblockRemoveAllowlistHost', (host) =>
+    ipcRenderer.invoke('adblock:remove-allowlist-host', host)
+  ),
+  // Keyboard shortcuts (Settings > Shortcuts). Reads are internal-page
+  // wide; anything that changes bindings is settings-only, matching the
+  // profile-write guards. previewShortcutBinding is a pure computation
+  // (validation + conflict lookup for a captured keydown) but only the
+  // settings page has any business calling it.
+  getShortcuts: guardInternal('getShortcuts', () => ipcRenderer.invoke('shortcuts:get-state')),
+  previewShortcutBinding: guardSettingsPage('previewShortcutBinding', (payload) =>
+    ipcRenderer.invoke('shortcuts:preview-binding', payload)
+  ),
+  setShortcutOverride: guardSettingsPage('setShortcutOverride', (payload) =>
+    ipcRenderer.invoke('shortcuts:set-override', payload)
+  ),
+  resetShortcut: guardSettingsPage('resetShortcut', (id) =>
+    ipcRenderer.invoke('shortcuts:reset', { id })
+  ),
+  resetAllShortcuts: guardSettingsPage('resetAllShortcuts', () =>
+    ipcRenderer.invoke('shortcuts:reset', {})
+  ),
+
   // Platform / environment info needed by settings page
   getPlatform: guardInternal('getPlatform', () => ipcRenderer.invoke('window:get-platform')),
   getActiveProfile: guardInternal('getActiveProfile', () =>
@@ -676,7 +708,7 @@ try {
     (function() {
       const pendingRequests = new Map();
       let requestId = 0;
-      const eventListeners = { connect: [], disconnect: [] };
+      const eventListeners = { connect: [], disconnect: [], message: [] };
 
       function emitEvent(event, data) {
         if (eventListeners[event]) {
@@ -694,11 +726,14 @@ try {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_SWARM_REQUEST', id, method, params: params || {} }, '*');
             const longRunning = method.startsWith('swarm_publish') ||
+              method.startsWith('swarm_send') ||
               method === 'swarm_createFeed' ||
               method === 'swarm_updateFeed' ||
               method === 'swarm_writeFeedEntry' ||
               method === 'swarm_writeSingleOwnerChunk' ||
-              method === 'swarm_getSigningIdentity';
+              method === 'swarm_getSigningIdentity' ||
+              method === 'swarm_getMessagingIdentity' ||
+              method === 'swarm_subscribe';
             const timeout = longRunning ? 300000 : 60000;
             setTimeout(() => {
               if (pendingRequests.has(id)) {
@@ -726,6 +761,11 @@ try {
         writeSingleOwnerChunk(params) { return this.request({ method: 'swarm_writeSingleOwnerChunk', params: params }); },
         readSingleOwnerChunk(params) { return this.request({ method: 'swarm_readSingleOwnerChunk', params: params }); },
         getSigningIdentity() { return this.request({ method: 'swarm_getSigningIdentity' }); },
+        getMessagingIdentity() { return this.request({ method: 'swarm_getMessagingIdentity' }); },
+        subscribe(params) { return this.request({ method: 'swarm_subscribe', params: params }); },
+        unsubscribe(params) { return this.request({ method: 'swarm_unsubscribe', params: params }); },
+        sendPss(params) { return this.request({ method: 'swarm_sendPss', params: params }); },
+        sendGsoc(params) { return this.request({ method: 'swarm_sendGsoc', params: params }); },
 
         on(event, handler) { if (eventListeners[event]) eventListeners[event].push(handler); return this; },
         removeListener(event, handler) {
@@ -974,6 +1014,194 @@ ipcRenderer.on('radicle:provider-event', (_event, { event, data }) => {
 // main-process `bzz:` protocol handler in `src/main/swarm/bzz-protocol.js`,
 // not by in-page JavaScript. See README "Swarm Content Retrieval".
 
+// ============================================
+// Ad blocking — cosmetic filtering (element hiding)
+// ============================================
+//
+// The filter engine lives in the main process (it can't be required in this
+// sandboxed preload). This thin client extracts DOM features, asks the engine
+// for matching element-hiding CSS over IPC, and injects it as a <style>.
+// Two phases: an initial request for the frame's hostname-specific rules, then
+// generic rules for the classes/ids/hrefs actually present, refreshed as the
+// DOM mutates. Network blocking already removes the requests; this hides the
+// leftover ad containers/placeholders.
+(function setupCosmeticFiltering() {
+  const loc = globalThis.location;
+  // Only real web frames — internal pages and dweb hashes carry no ad markup.
+  if (!loc || (loc.protocol !== 'http:' && loc.protocol !== 'https:')) return;
+  if (isInternalPage()) return;
+
+  const IGNORED_TAGS = new Set(['br', 'head', 'link', 'meta', 'script', 'style', 's']);
+  let active = true;
+  let styleEl = null;
+  let observer = null;
+
+  const stopObserving = () => {
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+  };
+
+  const injectStyles = (css) => {
+    if (!css) return;
+    if (styleEl === null) {
+      styleEl = document.createElement('style');
+      styleEl.setAttribute('data-freedom-adblock', 'cosmetic');
+    }
+    styleEl.appendChild(document.createTextNode(`${css}\n`));
+    if (!styleEl.isConnected) {
+      const parent = document.head || document.documentElement;
+      if (parent) parent.appendChild(styleEl);
+    }
+  };
+
+  const newFeatures = () => ({ classes: new Set(), ids: new Set(), hrefs: new Set() });
+
+  // Read one element's own class/id/href (mirrors the per-element half of
+  // @ghostery/adblocker-content's extractFeaturesFromDOM, kept self-contained
+  // because sandboxed preloads can't require it).
+  const collectOwn = (el, out) => {
+    if (!el || !el.nodeName || IGNORED_TAGS.has(el.nodeName.toLowerCase())) return;
+    const id = el.getAttribute?.('id');
+    if (id) out.ids.add(id);
+    if (el.classList) for (const cls of el.classList) out.classes.add(cls);
+    const href = el.getAttribute?.('href');
+    if (href) out.hrefs.add(href);
+  };
+
+  // Scan an element and its subtree. Used only for added nodes — an attribute
+  // change touches only its target, so those take collectOwn (no re-walk).
+  const collectSubtree = (root, out) => {
+    if (!root) return;
+    collectOwn(root, out);
+    if (root.querySelectorAll) {
+      for (const el of root.querySelectorAll(
+        '[id]:not(html):not(body),[class]:not(html):not(body),[href]'
+      )) {
+        collectOwn(el, out);
+      }
+    }
+  };
+
+  // Only forward tokens not seen before, so mutation batches stay small and
+  // the engine isn't re-queried for the same selectors. Capped so a page with
+  // pathologically many distinct tokens (esp. hrefs) can't grow these Sets or
+  // the query rate without bound.
+  const KNOWN_MAX = 8192;
+  const knownClasses = new Set();
+  const knownIds = new Set();
+  const knownHrefs = new Set();
+  const pick = (set, known) => {
+    const fresh = [];
+    for (const value of set) {
+      if (known.has(value)) continue;
+      if (known.size >= KNOWN_MAX) break; // cap reached — stop tracking/forwarding
+      known.add(value);
+      fresh.push(value);
+    }
+    return fresh;
+  };
+
+  const requestCosmetics = async (payload) => {
+    if (!active) return;
+    try {
+      const res = await ipcRenderer.invoke('adblock:cosmetic', { url: loc.href, ...payload });
+      if (!res || res.active === false) {
+        // Disabled, allowlisted, or no engine — stop all DOM work for this frame.
+        active = false;
+        stopObserving();
+        return;
+      }
+      injectStyles(res.styles);
+    } catch {
+      // Main process unavailable — leave the page unmodified.
+    }
+  };
+
+  // Forward whatever new tokens `out` holds, if any.
+  const forwardNew = (out) => {
+    const fresh = {
+      classes: pick(out.classes, knownClasses),
+      ids: pick(out.ids, knownIds),
+      hrefs: pick(out.hrefs, knownHrefs),
+    };
+    if (fresh.classes.length || fresh.ids.length || fresh.hrefs.length) {
+      requestCosmetics(fresh);
+    }
+  };
+
+  // Phase 1: hostname-specific rules, before the DOM is populated.
+  requestCosmetics({ initial: true });
+
+  // Phase 2: generic rules for whatever the initial DOM contains, then watch
+  // for dynamically-added nodes / attribute changes.
+  const onReady = () => {
+    if (!active || !document.documentElement) return;
+    const initial = newFeatures();
+    collectSubtree(document.documentElement, initial);
+    forwardNew(initial);
+    if (typeof MutationObserver === 'undefined') return;
+
+    const attrTargets = new Set(); // shallow: only their own attrs changed
+    const addedRoots = new Set(); // deep: scan their subtrees
+    let debounceTimer = null;
+    let maxWaitTimer = null;
+    const pendingCount = () => attrTargets.size + addedRoots.size;
+    const flush = () => {
+      clearTimeout(debounceTimer);
+      clearTimeout(maxWaitTimer);
+      maxWaitTimer = null;
+      if (!active) {
+        attrTargets.clear();
+        addedRoots.clear();
+        return;
+      }
+      if (pendingCount() === 0) return;
+      const out = newFeatures();
+      for (const el of attrTargets) collectOwn(el, out);
+      for (const root of addedRoots) collectSubtree(root, out);
+      attrTargets.clear();
+      addedRoots.clear();
+      forwardNew(out);
+    };
+    observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === 'attributes') {
+          if (m.target) attrTargets.add(m.target);
+        } else {
+          for (const node of m.addedNodes || []) {
+            if (node.nodeType === 1) addedRoots.add(node);
+          }
+        }
+      }
+      if (pendingCount() === 0) return;
+      // Bounded debounce: coalesce bursts, but cap latency and bail out if a
+      // hostile page floods mutations to keep the sets from growing unbounded.
+      if (pendingCount() > 512) {
+        flush();
+        return;
+      }
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(flush, 25);
+      if (maxWaitTimer === null) maxWaitTimer = setTimeout(flush, 1000);
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'id', 'href'],
+      childList: true,
+      subtree: true,
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', onReady, { once: true });
+  } else {
+    onReady();
+  }
+})();
+
+console.log('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)');
 console.log(
   '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
 );

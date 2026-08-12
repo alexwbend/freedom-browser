@@ -137,9 +137,7 @@ describe('settings-store', () => {
       true
     );
 
-    expect(
-      JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'))
-    ).toEqual(
+    expect(JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'))).toEqual(
       expect.objectContaining({
         theme: 'light',
         autoUpdate: false,
@@ -289,12 +287,26 @@ describe('settings-store', () => {
 
     expect(mod.saveSettings({ theme: 'light', injected: 'value', extra: 1 })).toBe(true);
 
-    const persisted = JSON.parse(
-      fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8')
-    );
+    const persisted = JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'));
     expect(persisted.theme).toBe('light');
     expect(persisted).not.toHaveProperty('injected');
     expect(persisted).not.toHaveProperty('extra');
+  });
+
+  test('saveSettings rebuilds the adblock engine only when an adblock key changes', () => {
+    const refreshEngine = jest.fn(() => Promise.resolve());
+    const { mod } = loadSettingsStore({
+      userDataDir,
+      extraMocks: {
+        [require.resolve('./adblock/service')]: () => ({ refreshEngine }),
+      },
+    });
+
+    expect(mod.saveSettings({ adblockCookies: true })).toBe(true);
+    expect(refreshEngine).toHaveBeenCalledTimes(1);
+
+    expect(mod.saveSettings({ theme: 'dark' })).toBe(true);
+    expect(refreshEngine).toHaveBeenCalledTimes(1);
   });
 
   test('saveSettings swallows send errors from destroyed webContents', () => {
@@ -312,6 +324,55 @@ describe('settings-store', () => {
     expect(mod.saveSettings({ theme: 'dark' })).toBe(true);
   });
 
+  test('persists sanitized shortcut overrides and notifies main-process listeners', () => {
+    const { mod } = loadSettingsStore({ userDataDir });
+    const listener = jest.fn();
+    mod.onSettingsChanged(listener);
+
+    expect(
+      mod.saveSettings({
+        shortcutOverrides: {
+          'tab.new': 'Shift+Ctrl+u', // valid → normalized
+          'devtools.toggle': 'Ctrl+U', // non-editable → dropped
+          bogus: 'Ctrl+U', // unknown id → dropped
+          'page.reload': 'F12', // reserved → dropped
+        },
+      })
+    ).toBe(true);
+
+    const persisted = JSON.parse(
+      fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8')
+    );
+    expect(persisted.shortcutOverrides).toEqual({ 'tab.new': 'Ctrl+Shift+U' });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    const [merged, previous] = listener.mock.calls[0];
+    expect(merged.shortcutOverrides).toEqual({ 'tab.new': 'Ctrl+Shift+U' });
+    expect(previous.shortcutOverrides).toEqual({});
+
+    // Saving the identical overrides again is a no-op — no second notify.
+    expect(mod.saveSettings({ shortcutOverrides: { 'tab.new': 'Ctrl+Shift+U' } })).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  test('sanitizes shortcut overrides already on disk at load time', () => {
+    fs.writeFileSync(
+      path.join(userDataDir, 'settings.json'),
+      JSON.stringify({
+        shortcutOverrides: {
+          'tab.new': 'Ctrl+Shift+U',
+          'devtools.toggle': 'Ctrl+U',
+          garbage: true,
+        },
+      }),
+      'utf-8'
+    );
+
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    expect(mod.loadSettings().shortcutOverrides).toEqual({ 'tab.new': 'Ctrl+Shift+U' });
+  });
+
   test('registers IPC handlers for loading and saving settings', async () => {
     const ipcMain = createIpcMainMock();
     const { mod, nativeTheme } = loadSettingsStore({ userDataDir, ipcMain });
@@ -324,8 +385,9 @@ describe('settings-store', () => {
         antNodeMode: 'ultraLight',
       })
     );
-    await expect(ipcMain.invoke(IPC.SETTINGS_SAVE, { theme: 'dark', antNodeMode: 'light' }))
-      .resolves.toBe(true);
+    await expect(
+      ipcMain.invoke(IPC.SETTINGS_SAVE, { theme: 'dark', antNodeMode: 'light' })
+    ).resolves.toBe(true);
 
     expect(nativeTheme.themeSource).toBe('dark');
   });

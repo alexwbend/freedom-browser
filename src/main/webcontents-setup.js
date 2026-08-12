@@ -2,6 +2,7 @@ const log = require('./logger');
 const { BrowserWindow, app } = require('electron');
 const { activeBzzBases, activeRadBases } = require('./state');
 const { cleanupWebContents: cleanupX402WebContents } = require('./x402/intercept');
+const { cleanupAdblockWebContents } = require('./adblock/service');
 
 const sanitizeUrlForLog = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== 'string') return 'unknown';
@@ -38,6 +39,7 @@ function registerWebContentsHandlers() {
       activeBzzBases.delete(contents.id);
       activeRadBases.delete(contents.id);
       cleanupX402WebContents(contents.id);
+      cleanupAdblockWebContents(contents.id);
     });
 
     const id = contents.id;

@@ -288,7 +288,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Reload**: Refresh the current page (ignores cache). On error pages, retries the original URL.
 - **Stop**: Cancel page loading mid-request.
 - **Home**: Return to the welcome page.
-- **Keyboard Shortcuts**:
+- **Keyboard Shortcuts** (defaults; remap them under Settings > Shortcuts — click a binding, press the new combination, changes apply immediately; `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
   - `Cmd+N` / `Ctrl+N`: New window
   - `Cmd+T` / `Ctrl+T`: New tab
   - `Cmd+W` / `Ctrl+W` / `Ctrl+F4`: Close tab

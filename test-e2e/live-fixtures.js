@@ -37,41 +37,32 @@ function resolveIpfsNativeAddonPath() {
   );
 }
 
-function resolveArtiBinaryPath() {
-  const platformMap = { darwin: 'mac', linux: 'linux', win32: 'win' };
-  const platform = platformMap[process.platform] || process.platform;
-  const arch = process.arch;
-  const binName = process.platform === 'win32' ? 'arti.exe' : 'arti';
-  return path.join(repoRoot, 'arti-bin', `${platform}-${arch}`, binName);
-}
-
 const ANT_BINARY_PATH = resolveAntBinaryPath();
 const HAS_ANT_BINARY = fs.existsSync(ANT_BINARY_PATH);
 
 const IPFS_NATIVE_ADDON_PATH = resolveIpfsNativeAddonPath();
 const HAS_IPFS_NATIVE_ADDON = fs.existsSync(IPFS_NATIVE_ADDON_PATH);
 
-const ARTI_BINARY_PATH = resolveArtiBinaryPath();
-const HAS_ARTI_BINARY = fs.existsSync(ARTI_BINARY_PATH);
-
 const test = base.extend({
-  // Playwright derives fixture dependencies from the first parameter's
-  // destructure; this fixture has none, but the empty `{}` is required
-  // so Playwright recognises it as a fixture function rather than a
-  // plain factory.
-  // eslint-disable-next-line no-empty-pattern
-  electronApp: async ({}, use) => {
-    // One temp root per run, with isolated subdirs:
+  // Seed settings.json before launch (same semantics as fixtures.js) —
+  // e.g. disable node autostart for specs that don't need Ant/IPFS.
+  seedSettings: [null, { option: true }],
+
+  // Extra environment variables for the app process (e.g.
+  // FREEDOM_ADBLOCK_DIR). The suite-critical vars below always win.
+  launchEnv: [null, { option: true }],
+
+  electronApp: async ({ seedSettings: settingsOverride, launchEnv }, use) => {
+    // One temp root per run, with four subdirs:
     //   - userData/     → settings, bookmarks, history (FREEDOM_TEST_USER_DATA)
     //   - ant-data/     → Ant's identity, swarm key, peerstore (FREEDOM_ANT_DATA)
     //   - ipfs-data/    → native freedom-ipfs data base (FREEDOM_IPFS_DATA)
     //   - identity/     → vault meta + node-identity files (FREEDOM_IDENTITY_DATA)
-    //   - tor-data/     → Arti state/cache (FREEDOM_TOR_DATA)
-    // These overrides matter: in dev mode these directories default
+    // All four overrides matter: in dev mode these directories default
     // to `<repoRoot>/ant-data`, `<repoRoot>/ipfs-data`, and
     // `<repoRoot>/identity-data` — pointing them at empty temp dirs is
     // what keeps a live run from clobbering the developer's persistent
-    // state. The identity override is the most subtle one:
+    // state. The identity override is the most subtle of the three:
     // without it `hasVault()` would still find the developer's local
     // vault, set the node managers into injected-identity mode, and
     // Bee would hang waiting for keys the temp data dirs don't
@@ -81,19 +72,14 @@ const test = base.extend({
     const beeDataDir = path.join(tmpRoot, 'ant-data');
     const ipfsDataDir = path.join(tmpRoot, 'ipfs-data');
     const identityDataDir = path.join(tmpRoot, 'identity');
-    const torDataDir = path.join(tmpRoot, 'tor-data');
-    for (const dir of [userDataDir, beeDataDir, ipfsDataDir, identityDataDir, torDataDir]) {
+    for (const dir of [userDataDir, beeDataDir, ipfsDataDir, identityDataDir]) {
       fs.mkdirSync(dir, { recursive: true });
     }
-
-    if (process.env.FREEDOM_LIVE_E2E_DISABLE_DEFAULT_NODES === '1') {
+    if (settingsOverride) {
       fs.writeFileSync(
         path.join(userDataDir, 'settings.json'),
-        JSON.stringify({
-          startAntAtLaunch: false,
-          startIpfsAtLaunch: false,
-          startRadicleAtLaunch: false,
-        })
+        JSON.stringify(settingsOverride, null, 2),
+        'utf-8'
       );
     }
 
@@ -102,6 +88,7 @@ const test = base.extend({
       cwd: repoRoot,
       env: {
         ...process.env,
+        ...(launchEnv || {}),
         // Deliberately NOT setting FREEDOM_TEST_MODE — this suite needs
         // the production code paths (actual Bee spawn, live ENS, real
         // protocol handlers).
@@ -109,7 +96,6 @@ const test = base.extend({
         FREEDOM_ANT_DATA: beeDataDir,
         FREEDOM_IPFS_DATA: ipfsDataDir,
         FREEDOM_IDENTITY_DATA: identityDataDir,
-        FREEDOM_TOR_DATA: torDataDir,
         ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
         LANG: 'en_US.UTF-8',
       },
@@ -145,6 +131,4 @@ module.exports = {
   ANT_BINARY_PATH,
   HAS_IPFS_NATIVE_ADDON,
   IPFS_NATIVE_ADDON_PATH,
-  HAS_ARTI_BINARY,
-  ARTI_BINARY_PATH,
 };

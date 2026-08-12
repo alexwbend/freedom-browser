@@ -537,6 +537,81 @@
       }
 
       .search-provider-actions {
+      /* Shortcuts */
+      .shortcut-toolbar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .shortcut-toolbar input {
+        flex: 1;
+        font-family: inherit;
+      }
+
+      .shortcut-category {
+        margin: 20px 0 8px 0;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--text-muted);
+      }
+
+      .shortcut-category:first-child {
+        margin-top: 0;
+      }
+
+      .shortcut-kbd {
+        display: inline-block;
+        padding: 3px 8px;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        color: var(--text);
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+
+      .shortcut-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .shortcut-binding {
+        padding: 5px 8px;
+      }
+
+      .shortcut-binding.recording {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
+      .shortcut-locked {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-subtle);
+        font-size: 12px;
+      }
+
+      .shortcut-note {
+        margin: 6px 0 0 0;
+        font-size: 12px;
+        color: var(--warn);
+      }
+
+      .row.shortcut-conflict {
+        justify-content: space-between;
+        background: rgba(210, 153, 34, 0.08);
+        font-size: 13px;
+      }
+
+      .shortcut-conflict-actions {
         display: flex;
         flex-shrink: 0;
         gap: 8px;
@@ -719,6 +794,26 @@
             </svg>
             Downloads
           </button>
+          <button type="button" class="nav-item" data-target="shortcuts">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <rect x="2" y="6" width="20" height="12" rx="2"></rect>
+              <line x1="6" y1="10" x2="6" y2="10"></line>
+              <line x1="10" y1="10" x2="10" y2="10"></line>
+              <line x1="14" y1="10" x2="14" y2="10"></line>
+              <line x1="18" y1="10" x2="18" y2="10"></line>
+              <line x1="7" y1="14" x2="17" y2="14"></line>
+            </svg>
+            Shortcuts
+          </button>
           <button type="button" class="nav-item" data-target="chains">
             <svg
               width="16"
@@ -769,6 +864,7 @@
             </svg>
             Name Resolution
           </button>
+          <button type="button" class="nav-item" data-target="adblock">
           <button type="button" class="nav-item" data-target="permissions">
             <svg
               width="16"
@@ -780,6 +876,9 @@
               stroke-linecap="round"
               stroke-linejoin="round"
             >
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            </svg>
+            Ad Blocking
               <path d="M12 2 L4 6 L4 12 C4 17 7.5 21 12 22 C16.5 21 20 17 20 12 L20 6 Z"></path>
               <path d="m9 12 2 2 4-4"></path>
             </svg>
@@ -1017,6 +1116,29 @@
           </div>
         </section>
 
+        <!-- Shortcuts -->
+        <section class="section" id="shortcuts">
+          <h2 class="section-title">Shortcuts</h2>
+          <p class="row-help" style="margin-bottom: 16px">
+            Click a binding, press the new key combination, done — changes apply immediately. Press
+            Esc while recording to cancel.
+          </p>
+          <div class="shortcut-toolbar">
+            <input
+              type="search"
+              id="shortcut-search"
+              class="rpc-input"
+              placeholder="Search shortcuts"
+              spellcheck="false"
+            />
+            <button type="button" class="btn" id="shortcuts-restore-defaults">
+              Restore defaults
+            </button>
+          </div>
+          <div id="shortcuts-view"></div>
+          <p id="shortcuts-status" class="rpc-status"></p>
+        </section>
+
         <!-- Chains -->
         <section class="section" id="chains">
           <div id="chains-view"></div>
@@ -1033,9 +1155,9 @@
         <section class="section" id="ens">
           <h2 class="section-title">Ethereum Name Resolution</h2>
           <p class="row-help" style="margin-bottom: 16px">
-            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>,
-            and <code>.gwei</code> names. These records live on Ethereum — manage RPC
-            endpoints under <a href="#chains">Chains settings</a>.
+            How Freedom resolves <code>.eth</code>, <code>.box</code>, <code>.wei</code>, and
+            <code>.gwei</code> names. These records live on Ethereum — manage RPC endpoints under
+            <a href="#chains">Chains settings</a>.
           </p>
           <div class="card">
             <div class="row">
@@ -1073,9 +1195,9 @@
               <div class="row-body">
                 <p class="row-label">Block unverified name navigation</p>
                 <p class="row-help">
-                  Show a warning page before navigating to a name that resolved without
-                  verification (for example, when only one RPC answered). Turn off to navigate
-                  straight through with only the amber shield indicator.
+                  Show a warning page before navigating to a name that resolved without verification
+                  (for example, when only one RPC answered). Turn off to navigate straight through
+                  with only the amber shield indicator.
                 </p>
               </div>
               <div class="row-control">
@@ -1095,6 +1217,111 @@
         </section>
 
         <!-- Experimental -->
+        <!-- Ad Blocking -->
+        <section class="section" id="adblock">
+          <h2 class="section-title">Ad Blocking</h2>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Enable ad blocking</p>
+                <p class="row-help" id="adblock-status">Loading…</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-enabled" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-ads-row">
+              <div class="row-body">
+                <p class="row-label">Block ads</p>
+                <p class="row-help" id="adblock-ads-help">EasyList</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-ads" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-privacy-row">
+              <div class="row-body">
+                <p class="row-label">Block trackers</p>
+                <p class="row-help" id="adblock-privacy-help">EasyPrivacy</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-privacy" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-cookies-row">
+              <div class="row-body">
+                <p class="row-label">Block cookie banners</p>
+                <p class="row-help" id="adblock-cookies-help">Fanboy Cookiemonster</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-cookies" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-annoyances-row">
+              <div class="row-body">
+                <p class="row-label">Block other annoyances</p>
+                <p class="row-help" id="adblock-annoyances-help">Fanboy Annoyances</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-annoyances" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row sub" id="adblock-autoupdate-row">
+              <div class="row-body">
+                <p class="row-label">Keep filter lists up to date</p>
+                <p class="row-help">Pulls refreshed lists from Swarm automatically.</p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="adblock-autoupdate" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">Allowlisted sites</p>
+                <p class="row-help">
+                  Ad blocking is turned off on these sites, including their subdomains. Changes
+                  apply to pages loaded afterwards — reload open tabs.
+                </p>
+              </div>
+              <div class="row-control">
+                <input
+                  type="text"
+                  id="adblock-allowlist-input"
+                  class="rpc-input"
+                  spellcheck="false"
+                  placeholder="example.com"
+                />
+                <button type="button" class="btn" id="adblock-allowlist-add">Add</button>
+              </div>
+            </div>
+            <div id="adblock-allowlist-list"></div>
+          </div>
+          <p class="row-help" style="margin-top: 16px">
+            Filter lists © The EasyList authors (https://easylist.to/), redistributed under CC
+            BY-SA.
+          </p>
+        </section>
+
         <section class="section" id="experimental">
           <h2 class="section-title">Experimental</h2>
           <div class="card">
@@ -1224,8 +1451,22 @@
         enableIdentity: $('enable-identity-wallet'),
         showIpfsProgressStatus: $('show-ipfs-progress-status'),
         autoUpdate: $('auto-update'),
+        adblockEnabled: $('adblock-enabled'),
+        adblockAds: $('adblock-ads'),
+        adblockPrivacy: $('adblock-privacy'),
+        adblockCookies: $('adblock-cookies'),
+        adblockAnnoyances: $('adblock-annoyances'),
+        adblockAutoUpdate: $('adblock-autoupdate'),
       };
 
+      // id ties together the manifest category, the #adblock-<id>-row
+      // element, and the status field; field is the checkbox input.
+      const ADBLOCK_CATEGORIES = [
+        { id: 'ads', field: fields.adblockAds },
+        { id: 'privacy', field: fields.adblockPrivacy },
+        { id: 'cookies', field: fields.adblockCookies },
+        { id: 'annoyances', field: fields.adblockAnnoyances },
+      ];
       const searchFields = {
         customOptions: $('custom-search-provider-options'),
         customList: $('custom-search-provider-list'),
@@ -1896,6 +2137,12 @@
         showIpfsProgressStatus: fields.showIpfsProgressStatus.checked,
         autoUpdate: fields.autoUpdate.checked,
         blockUnverifiedEns: fields.blockUnverifiedEns.checked,
+        adblockEnabled: fields.adblockEnabled.checked,
+        adblockAds: fields.adblockAds.checked,
+        adblockPrivacy: fields.adblockPrivacy.checked,
+        adblockCookies: fields.adblockCookies.checked,
+        adblockAnnoyances: fields.adblockAnnoyances.checked,
+        adblockAutoUpdate: fields.adblockAutoUpdate.checked,
       });
 
       const applyFormState = (settings) => {
@@ -1913,8 +2160,100 @@
         fields.showIpfsProgressStatus.checked = settings.showIpfsProgressStatus === true;
         fields.autoUpdate.checked = settings.autoUpdate !== false;
         fields.blockUnverifiedEns.checked = settings.blockUnverifiedEns !== false;
+        fields.adblockEnabled.checked = settings.adblockEnabled !== false;
+        fields.adblockAds.checked = settings.adblockAds !== false;
+        fields.adblockPrivacy.checked = settings.adblockPrivacy !== false;
+        fields.adblockCookies.checked = settings.adblockCookies === true;
+        fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
+        fields.adblockAutoUpdate.checked = settings.adblockAutoUpdate !== false;
         setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         setFieldEnabled(fields.enableTor, fields.startTorRow, fields.startTor);
+        applyAdblockGating();
+      };
+
+      const applyAdblockGating = () => {
+        for (const { id, field } of ADBLOCK_CATEGORIES) {
+          setFieldEnabled(fields.adblockEnabled, $(`adblock-${id}-row`), field);
+        }
+        setFieldEnabled(
+          fields.adblockEnabled,
+          $('adblock-autoupdate-row'),
+          fields.adblockAutoUpdate
+        );
+      };
+
+      // Rule counts / list version come from the main-process engine, not
+      // settings. The engine rebuilds asynchronously after a toggle, so
+      // refresh once more shortly after a save.
+      const renderAdblockStatus = async () => {
+        try {
+          const status = await freedomAPI.adblockGetStatus();
+          $('adblock-status').textContent = status.engineReady
+            ? `Filter lists ${status.listsVersion} · engine active`
+            : status.listsVersion
+              ? `Filter lists ${status.listsVersion} · engine preparing…`
+              : 'No filter lists bundled — blocking is inactive.';
+          for (const { id } of ADBLOCK_CATEGORIES) {
+            const meta = status.categories?.[id];
+            if (meta?.ruleCount) {
+              $(`adblock-${id}-help`).textContent =
+                `${meta.title} · ${meta.ruleCount.toLocaleString()} rules`;
+            }
+          }
+        } catch {
+          $('adblock-status').textContent = 'Status unavailable.';
+        }
+      };
+      let adblockStatusTimer = null;
+      const refreshAdblockStatusSoon = () => {
+        clearTimeout(adblockStatusTimer);
+        adblockStatusTimer = setTimeout(renderAdblockStatus, 1500);
+      };
+
+      const renderAdblockAllowlist = async () => {
+        const list = $('adblock-allowlist-list');
+        let hosts = [];
+        try {
+          hosts = await freedomAPI.adblockGetAllowlist();
+        } catch {
+          return;
+        }
+        list.textContent = '';
+        for (const host of hosts) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          const body = document.createElement('div');
+          body.className = 'row-body';
+          const label = document.createElement('p');
+          label.className = 'row-label';
+          label.textContent = host;
+          body.appendChild(label);
+          const control = document.createElement('div');
+          control.className = 'row-control';
+          const removeBtn = document.createElement('button');
+          removeBtn.type = 'button';
+          removeBtn.className = 'btn danger';
+          removeBtn.textContent = 'Remove';
+          removeBtn.addEventListener('click', async () => {
+            await freedomAPI.adblockRemoveAllowlistHost(host).catch(() => {});
+            renderAdblockAllowlist();
+          });
+          control.appendChild(removeBtn);
+          row.appendChild(body);
+          row.appendChild(control);
+          list.appendChild(row);
+        }
+      };
+
+      const addAllowlistHostFromInput = async () => {
+        const input = $('adblock-allowlist-input');
+        const host = input.value.trim();
+        if (!host) return;
+        const ok = await freedomAPI.adblockAddAllowlistHost(host).catch(() => false);
+        if (ok) {
+          input.value = '';
+          renderAdblockAllowlist();
+        }
       };
 
       let cachedSettings = null;
@@ -2033,6 +2372,22 @@
       fields.showIpfsProgressStatus.addEventListener('change', save);
       fields.autoUpdate.addEventListener('change', save);
       fields.blockUnverifiedEns.addEventListener('change', save);
+      fields.adblockEnabled.addEventListener('change', () => {
+        applyAdblockGating();
+        save();
+        refreshAdblockStatusSoon();
+      });
+      for (const { field } of ADBLOCK_CATEGORIES) {
+        field.addEventListener('change', () => {
+          save();
+          refreshAdblockStatusSoon();
+        });
+      }
+      fields.adblockAutoUpdate.addEventListener('change', save);
+      $('adblock-allowlist-add').addEventListener('click', addAllowlistHostFromInput);
+      $('adblock-allowlist-input').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') addAllowlistHostFromInput();
+      });
 
       const formStateMatches = (settings) => {
         const form = currentFormState();
@@ -2091,6 +2446,286 @@
         } catch {
           console.error('[settings] failed to load settings');
         }
+
+        renderAdblockStatus();
+        renderAdblockAllowlist();
+      })();
+
+      // ── Shortcuts settings page ─────────────────────────────────────
+      // Render-only controller: the registry state, validation, conflict
+      // detection, and persistence all live in the main process behind
+      // freedomAPI.getShortcuts / previewShortcutBinding /
+      // setShortcutOverride / resetShortcut(s). This page captures
+      // keydowns in recording mode and paints whatever main answers.
+      (() => {
+        const view = $('shortcuts-view');
+        const searchInput = $('shortcut-search');
+        const restoreBtn = $('shortcuts-restore-defaults');
+        const statusEl = $('shortcuts-status');
+        if (!view) return;
+
+        let entries = [];
+        let query = '';
+        let recordingId = null; // shortcut currently capturing a new combo
+        let conflictState = null; // { id, accelerator, formatted, conflict }
+        let rowNotice = null; // { id, message } transient validation notice
+        let recordingHandler = null;
+
+        const REASON_MESSAGES = {
+          reserved: 'That combination is reserved and cannot be assigned.',
+          'needs-modifier':
+            'Combine that key with Ctrl, Alt or Cmd. Only function keys work on their own.',
+          invalid: 'That key cannot be used as a shortcut.',
+          'not-editable': 'This shortcut cannot be changed.',
+          conflict: 'That combination is already in use.',
+          'save-failed': 'Could not save the shortcut. Try again.',
+        };
+
+        const setStatus = (message, kind) => {
+          if (!statusEl) return;
+          statusEl.textContent = message || '';
+          statusEl.className = 'rpc-status' + (kind ? ' ' + kind : '');
+        };
+
+        const matchesQuery = (entry) => {
+          const q = query.trim().toLowerCase();
+          if (!q) return true;
+          return [entry.description, entry.category, entry.formatted, entry.accelerator]
+            .concat(entry.aliases)
+            .join(' ')
+            .toLowerCase()
+            .includes(q);
+        };
+
+        const kbd = (text) => `<kbd class="shortcut-kbd">${esc(text)}</kbd>`;
+
+        const renderConflict = (state) => {
+          const { conflict } = state;
+          const message = conflict.fixed
+            ? `${esc(state.formatted)} is already used by “${esc(conflict.description)}” and cannot be reassigned. Pick a different combination.`
+            : `${esc(state.formatted)} is already used by “${esc(conflict.description)}”. Swap the bindings so “${esc(conflict.description)}” becomes ${kbd(conflict.swapFormatted)}?`;
+          return `
+            <div class="row shortcut-conflict" data-shortcut-id="${esc(state.id)}">
+              <div class="row-body"><p class="row-label">${message}</p></div>
+              <span class="shortcut-conflict-actions">
+                ${conflict.fixed ? '' : '<button type="button" class="btn" data-action="swap">Swap</button>'}
+                <button type="button" class="btn" data-action="cancel-conflict">Cancel</button>
+              </span>
+            </div>`;
+        };
+
+        const renderRow = (entry) => {
+          const isRecording = recordingId === entry.id;
+          const notice = rowNotice?.id === entry.id ? rowNotice.message : null;
+          const aliasLine = entry.aliases.length
+            ? `<p class="row-help">Also ${entry.aliases.map(kbd).join(' ')}</p>`
+            : '';
+          const warnLine =
+            isRecording && entry.warnOnEdit
+              ? '<p class="shortcut-note">Heads up: this is a common close gesture across apps — remapping it changes deep muscle memory.</p>'
+              : '';
+          const control = !entry.editable
+            ? `<span class="shortcut-locked">${kbd(entry.formatted)} Locked</span>`
+            : `<button type="button" class="btn shortcut-binding${isRecording ? ' recording' : ''}" data-action="record">
+                 ${isRecording ? 'Press new shortcut… (Esc cancels)' : kbd(entry.formatted)}
+               </button>`;
+          const resetBtn =
+            entry.editable && entry.isOverridden && !isRecording
+              ? `<button type="button" class="btn" data-action="reset" title="Reset to ${esc(entry.defaultFormatted)}">Reset</button>`
+              : '';
+          const conflictRow =
+            conflictState && conflictState.id === entry.id ? renderConflict(conflictState) : '';
+          return `
+            <div class="row" data-shortcut-id="${esc(entry.id)}">
+              <div class="row-body">
+                <p class="row-label">${esc(entry.description)}</p>
+                ${aliasLine}
+                ${warnLine}
+                ${notice ? `<p class="shortcut-note">${esc(notice)}</p>` : ''}
+              </div>
+              <div class="row-control shortcut-controls">${resetBtn}${control}</div>
+            </div>
+            ${conflictRow}`;
+        };
+
+        const render = () => {
+          const visible = entries.filter(matchesQuery);
+          if (!visible.length) {
+            view.innerHTML =
+              '<div class="card"><div class="profile-node-empty">No shortcuts match your search.</div></div>';
+            return;
+          }
+          const categories = [];
+          for (const entry of visible) {
+            if (!categories.includes(entry.category)) categories.push(entry.category);
+          }
+          view.innerHTML = categories
+            .map(
+              (category) => `
+                <h3 class="shortcut-category">${esc(category)}</h3>
+                <div class="card">
+                  ${visible
+                    .filter((entry) => entry.category === category)
+                    .map(renderRow)
+                    .join('')}
+                </div>`
+            )
+            .join('');
+        };
+
+        const load = async () => {
+          try {
+            const state = await freedomAPI.getShortcuts();
+            entries = (state?.entries || []).filter((entry) => !entry.hidden);
+          } catch {
+            entries = [];
+            setStatus('Could not load shortcuts.', 'error');
+          }
+          render();
+        };
+
+        const stopRecording = () => {
+          if (recordingHandler) {
+            window.removeEventListener('keydown', recordingHandler, true);
+            recordingHandler = null;
+          }
+          recordingId = null;
+        };
+
+        const applyBinding = async (id, accelerator, swapWithConflict = false) => {
+          let result;
+          try {
+            result = await freedomAPI.setShortcutOverride({ id, accelerator, swapWithConflict });
+          } catch {
+            result = { ok: false, reason: 'save-failed' };
+          }
+          if (!result?.ok) {
+            rowNotice = { id, message: REASON_MESSAGES[result?.reason] || REASON_MESSAGES.invalid };
+          } else {
+            setStatus('Shortcut updated.', 'success');
+          }
+          await load();
+        };
+
+        const startRecording = (id) => {
+          const entry = entries.find((item) => item.id === id);
+          if (!entry?.editable || recordingId === id) return;
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          setStatus('');
+          recordingId = id;
+          render();
+
+          recordingHandler = async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === 'Escape') {
+              stopRecording();
+              render();
+              return;
+            }
+            const captured = {
+              key: event.key,
+              code: event.code,
+              ctrlKey: event.ctrlKey,
+              altKey: event.altKey,
+              shiftKey: event.shiftKey,
+              metaKey: event.metaKey,
+            };
+            let preview;
+            try {
+              preview = await freedomAPI.previewShortcutBinding({ id, event: captured });
+            } catch {
+              preview = { ok: false, reason: 'invalid' };
+            }
+            // Only modifiers held so far — keep listening.
+            if (!preview.ok && preview.reason === 'incomplete') return;
+
+            stopRecording();
+            if (!preview.ok) {
+              rowNotice = {
+                id,
+                message: REASON_MESSAGES[preview.reason] || REASON_MESSAGES.invalid,
+              };
+              render();
+              return;
+            }
+            if (preview.conflict) {
+              conflictState = {
+                id,
+                accelerator: preview.accelerator,
+                formatted: preview.formatted,
+                conflict: preview.conflict,
+              };
+              render();
+              return;
+            }
+            await applyBinding(id, preview.accelerator);
+          };
+          window.addEventListener('keydown', recordingHandler, true);
+        };
+
+        view.addEventListener('click', async (event) => {
+          const button = event.target.closest('[data-action]');
+          if (!button) return;
+          const id = event.target.closest('[data-shortcut-id]')?.dataset.shortcutId;
+          if (!id) return;
+
+          switch (button.dataset.action) {
+            case 'record':
+              startRecording(id);
+              break;
+            case 'reset': {
+              stopRecording();
+              conflictState = null;
+              rowNotice = null;
+              const result = await freedomAPI.resetShortcut(id).catch(() => null);
+              setStatus(
+                result?.ok ? 'Shortcut reset to default.' : 'Could not reset.',
+                result?.ok ? 'success' : 'error'
+              );
+              await load();
+              break;
+            }
+            case 'swap': {
+              const pending = conflictState;
+              conflictState = null;
+              if (pending) await applyBinding(pending.id, pending.accelerator, true);
+              break;
+            }
+            case 'cancel-conflict':
+              conflictState = null;
+              render();
+              break;
+          }
+        });
+
+        searchInput?.addEventListener('input', () => {
+          query = searchInput.value || '';
+          render();
+        });
+
+        restoreBtn?.addEventListener('click', async () => {
+          stopRecording();
+          conflictState = null;
+          rowNotice = null;
+          const result = await freedomAPI.resetAllShortcuts().catch(() => null);
+          setStatus(
+            result?.ok ? 'All shortcuts restored to defaults.' : 'Could not restore defaults.',
+            result?.ok ? 'success' : 'error'
+          );
+          await load();
+        });
+
+        // Keep a second open settings tab (or a remap made elsewhere) in
+        // sync — but never clobber an in-progress recording or conflict
+        // prompt.
+        freedomAPI.onSettingsUpdated?.(() => {
+          if (!recordingId && !conflictState) load();
+        });
+
+        load();
       })();
 
       // ── Chains settings page ────────────────────────────────────────

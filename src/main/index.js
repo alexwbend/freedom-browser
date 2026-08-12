@@ -133,6 +133,8 @@ const { BrowserWindow, protocol, session } = require('electron');
 const { registerBaseIpcHandlers, broadcastProfileUpdated } = require('./ipc-handlers');
 const { watchProfileRegistry } = require('./profile-registry-watcher');
 const { installRequestRewriter } = require('./request-rewriter');
+const { installAdblockInterception, registerAdblockIpc } = require('./adblock/service');
+const { installAdblockUpdater } = require('./adblock/update-scheduler');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
@@ -172,6 +174,7 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
+const { registerShortcutsIpc } = require('./shortcuts-ipc');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const {
@@ -271,6 +274,8 @@ async function bootstrap() {
     onNewWindow: createMainWindow,
   });
   registerSettingsIpc();
+  registerAdblockIpc();
+  registerShortcutsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
   registerDownloadsIpc();
@@ -328,6 +333,9 @@ async function bootstrap() {
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
   installRequestRewriter();
+  // After the rewriter (which owns scheme/gateway rewriting) and before
+  // x402, so blocked requests never reach the payment flow.
+  installAdblockInterception();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
   // Per-site permission prompts (camera, mic, notifications, …) with
@@ -418,6 +426,9 @@ async function bootstrap() {
   // freedom.baby.
   if (!TEST_MODE) {
     initUpdater(mainWindow, setupApplicationMenu, { profile: activeProfile });
+    // Schedule Swarm filter-list update checks. No-op until a feed trust
+    // anchor is compiled in (WP5); safe to install unconditionally.
+    installAdblockUpdater();
   }
 
   app.on('activate', () => {

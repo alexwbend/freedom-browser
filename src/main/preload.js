@@ -572,11 +572,15 @@ contextBridge.exposeInMainWorld('swarmPermissions', {
   getAutoApprove: (origin, type) => ipcRenderer.invoke('swarm:get-auto-approve', origin, type),
   setAutoApprove: (origin, type, enabled) =>
     ipcRenderer.invoke('swarm:set-auto-approve', origin, type, enabled),
+  grantMessaging: (origin) => ipcRenderer.invoke('swarm:grant-messaging', origin),
+  hasMessagingGrant: (origin) => ipcRenderer.invoke('swarm:has-messaging-grant', origin),
 });
 
 contextBridge.exposeInMainWorld('swarmProvider', {
-  execute: (method, params, origin) =>
-    ipcRenderer.invoke('swarm:provider-execute', { method, params, origin }),
+  // meta carries renderer-only routing info (e.g. the subscribing
+  // webview's webContentsId for swarm_subscribe message delivery).
+  execute: (method, params, origin, meta) =>
+    ipcRenderer.invoke('swarm:provider-execute', { method, params, origin, meta }),
 });
 
 // Page-facing Radicle provider plumbing. Distinct from the host-chrome
