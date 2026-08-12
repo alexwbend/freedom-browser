@@ -260,7 +260,7 @@ function buildFileSubmenu(isMac) {
     {
       id: 'new-private-window',
       label: 'New Private Window',
-      accelerator: 'CmdOrCtrl+Shift+N',
+      accelerator: acc('window.newPrivate'),
       click: () => {
         log.info('[menu] New Private Window clicked');
         createPrivateWindow();

@@ -430,7 +430,15 @@ function sendNextPrompt(state) {
  * private partition is part of the coalescing signature so a private and
  * a normal request can never share one prompt (and therefore one answer).
  */
-function enqueuePrompt({ host, guest, origin, permission, keys, callback, privatePartition = null }) {
+function enqueuePrompt({
+  host,
+  guest,
+  origin,
+  permission,
+  keys,
+  callback,
+  privatePartition = null,
+}) {
   const state = getGuestState(guest, host);
   const signature = `${privatePartition || ''} ${origin} ${[...keys].sort().join(',')}`;
 
@@ -589,7 +597,15 @@ function installPermissionHandlers(targetSession, { privatePartition = null } = 
       return;
     }
 
-    enqueuePrompt({ host, guest: webContents, origin, permission, keys, callback, privatePartition });
+    enqueuePrompt({
+      host,
+      guest: webContents,
+      origin,
+      permission,
+      keys,
+      callback,
+      privatePartition,
+    });
   });
 
   targetSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {

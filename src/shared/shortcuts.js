@@ -161,6 +161,14 @@ const SHORTCUTS = [
     editable: true,
   },
   {
+    id: 'window.newPrivate',
+    description: 'New Private Window',
+    defaultAccelerator: 'CmdOrCtrl+Shift+N',
+    context: 'menu',
+    category: 'Window',
+    editable: true,
+  },
+  {
     id: 'view.fullscreen',
     description: 'Toggle Full Screen',
     defaultAccelerator: 'F11',
