@@ -6,7 +6,13 @@
  * permissions consume storage/bandwidth, wallet permissions expose accounts.
  *
  * Permissions are persisted to disk. Schema per origin:
- *   { origin, connectedAt, lastUsed, autoApprove: { publish: false, feeds: false, signing: false } }
+ *   { origin, connectedAt, lastUsed,
+ *     autoApprove: { publish: false, feeds: false, signing: false, messaging: false },
+ *     messaging?: { grantedAt } }
+ *
+ * `messaging` is the messaging-tier grant (PSS/GSOC subscribe + send +
+ * identity disclosure); `autoApprove.messaging` additionally skips the
+ * per-send prompt for granted origins.
  */
 
 const { app, ipcMain } = require('electron');
@@ -102,11 +108,21 @@ function revokePermission(origin) {
     delete permissions[key];
     permissionsCache = permissions;
     savePermissions();
+    if (revokeListener) revokeListener(key);
     console.log('[SwarmPermissions] Revoked permission for:', key);
     return true;
   }
 
   return false;
+}
+
+// Revocation hook — this module is a pure permission store; live-resource
+// teardown (e.g. cancelling messaging subscriptions) is owned by the
+// provider layer, which registers itself here at startup.
+let revokeListener = null;
+
+function onRevoke(listener) {
+  revokeListener = listener;
 }
 
 /**
@@ -137,8 +153,13 @@ function updateLastUsed(origin) {
   return false;
 }
 
-const VALID_AUTO_APPROVE_TYPES = new Set(['publish', 'feeds', 'signing']);
-const DEFAULT_AUTO_APPROVE = () => ({ publish: false, feeds: false, signing: false });
+const VALID_AUTO_APPROVE_TYPES = new Set(['publish', 'feeds', 'signing', 'messaging']);
+const DEFAULT_AUTO_APPROVE = () => ({
+  publish: false,
+  feeds: false,
+  signing: false,
+  messaging: false,
+});
 
 /**
  * Check if an auto-approve type is enabled for an origin.
@@ -180,6 +201,35 @@ function setAutoApprove(origin, type, enabled) {
 }
 
 /**
+ * Grant the messaging tier (PSS/GSOC) to an already-connected origin.
+ * @param {string} origin
+ * @returns {boolean} True if granted
+ */
+function grantMessaging(origin) {
+  const permissions = loadPermissions();
+  const key = normalizeOrigin(origin);
+
+  if (!permissions[key]) return false;
+
+  permissions[key].messaging = { grantedAt: Date.now() };
+  permissionsCache = permissions;
+  savePermissions();
+
+  console.log('[SwarmPermissions] Messaging granted for:', key);
+  return true;
+}
+
+/**
+ * Check whether an origin holds the messaging-tier grant.
+ * @param {string} origin
+ * @returns {boolean}
+ */
+function hasMessagingGrant(origin) {
+  const permission = getPermission(origin);
+  return !!permission?.messaging;
+}
+
+/**
  * Register IPC handlers for Swarm permissions.
  */
 function registerSwarmPermissionsIpc() {
@@ -211,6 +261,14 @@ function registerSwarmPermissionsIpc() {
     return setAutoApprove(origin, type, enabled);
   });
 
+  ipcMain.handle(IPC.SWARM_GRANT_MESSAGING, (_event, origin) => {
+    return grantMessaging(origin);
+  });
+
+  ipcMain.handle(IPC.SWARM_HAS_MESSAGING_GRANT, (_event, origin) => {
+    return hasMessagingGrant(origin);
+  });
+
   console.log('[SwarmPermissions] IPC handlers registered');
 }
 
@@ -227,6 +285,9 @@ module.exports = {
   updateLastUsed,
   getAutoApprove,
   setAutoApprove,
+  grantMessaging,
+  hasMessagingGrant,
+  onRevoke,
   registerSwarmPermissionsIpc,
   _resetCache,
 };

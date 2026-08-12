@@ -40,8 +40,13 @@
 
 const log = require('../logger');
 const { getAntApiUrl } = require('../service-registry');
-const { resolveEnsContent } = require('../ens-resolver');
-const { isEnsHost } = require('../../shared/origin-utils');
+const {
+  joinPublishedPath,
+  nameSystemLabelForHost,
+  nameSystemLabelForResult,
+  resolveContentName,
+} = require('../content-name-resolver');
+const { isDwebNameHost } = require('../../shared/origin-utils');
 
 // Per-attempt retry schedule. First entry is the delay BEFORE the 2nd
 // attempt, etc. Total backoff budget ≈ sum of all values (~50s). The probe
@@ -143,7 +148,7 @@ async function buildGatewayUrl(bzzUrl) {
     };
   }
 
-  if (isEnsHost(host) && !hasEmptyLabel(host)) {
+  if (isDwebNameHost(host) && !hasEmptyLabel(host)) {
     const antApiUrl = getAntApiUrl();
     if (!antApiUrl) {
       return { ok: false, status: 503, message: 'Swarm node is not ready' };
@@ -164,19 +169,6 @@ function hasEmptyLabel(host) {
   return host.split('.').some((label) => label.length === 0);
 }
 
-function nameSystemLabelForHost(host) {
-  const lower = String(host || '').toLowerCase();
-  if (lower.endsWith('.wei')) return 'WNS';
-  if (lower.endsWith('.gwei')) return 'GNS';
-  return 'ENS';
-}
-
-function nameSystemLabelForResult(result, host) {
-  if (result?.system === 'wns') return 'WNS';
-  if (result?.system === 'gns') return 'GNS';
-  return nameSystemLabelForHost(host);
-}
-
 // Resolve a supported Ethereum name host to a Bee gateway URL. `parsed` is the
 // original `bzz://name.eth/path?q` URL — pathname/search are forwarded verbatim.
 // Cross-transport mismatches (e.g. bzz://swarm.eth where the contenthash
@@ -187,7 +179,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   let result;
   const fallbackSystemLabel = nameSystemLabelForHost(host);
   try {
-    result = await resolveEnsContent(host);
+    result = await resolveContentName(host);
   } catch (err) {
     log.warn(`[bzz-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`);
     return {
@@ -216,7 +208,7 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
     }
     return {
       ok: true,
-      url: `${antApiUrl}/bzz/${result.decoded}${parsed.pathname}${parsed.search}`,
+      url: `${antApiUrl}/bzz/${result.decoded}${joinPublishedPath(result.basePath, parsed.pathname)}${parsed.search}`,
     };
   }
 

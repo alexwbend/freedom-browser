@@ -6,6 +6,7 @@
  */
 
 import { isSignatureInFlight, onSignatureFlightChange } from './wallet/signature-flight.js';
+import { matchesShortcut } from './shortcuts.js';
 
 // Shown on the disabled chrome so the user knows why it will not respond.
 const IN_FLIGHT_TITLE = 'Finish the confirmation on your device first';
@@ -13,6 +14,10 @@ const IN_FLIGHT_TITLE = 'Finish the confirmation on your device first';
 // State
 let isOpen = false;
 let featureEnabled = false;
+// The Radicle provider's consent prompts live in this sidebar too, and the
+// Radicle integration is gated independently of the identity wallet —
+// consent-driven opens must work when either flag is on.
+let radicleEnabled = false;
 
 // DOM references
 let sidebar;
@@ -33,18 +38,24 @@ export function initSidebar() {
   }
 
   // Load initial feature flag state
-  window.electronAPI.getSettings().then((settings) => {
-    featureEnabled = settings?.enableIdentityWallet === true;
-    applyFeatureVisibility();
-  }).catch(() => {
-    featureEnabled = false;
-    applyFeatureVisibility();
-  });
+  window.electronAPI
+    .getSettings()
+    .then((settings) => {
+      featureEnabled = settings?.enableIdentityWallet === true;
+      radicleEnabled = settings?.enableRadicleIntegration === true;
+      applyFeatureVisibility();
+    })
+    .catch(() => {
+      featureEnabled = false;
+      radicleEnabled = false;
+      applyFeatureVisibility();
+    });
 
   // React to settings changes
   window.addEventListener('settings:updated', (event) => {
     const wasEnabled = featureEnabled;
     featureEnabled = event.detail?.enableIdentityWallet === true;
+    radicleEnabled = event.detail?.enableRadicleIntegration === true;
     applyFeatureVisibility();
     // Close sidebar if feature was just disabled while open
     if (wasEnabled && !featureEnabled && isOpen) {
@@ -67,9 +78,9 @@ export function initSidebar() {
     closeBtn.addEventListener('click', close);
   }
 
-  // Keyboard shortcut: Cmd/Ctrl+Shift+W
+  // Keyboard shortcut (default Cmd/Ctrl+Shift+W, remappable)
   document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'W') {
+    if (matchesShortcut(e, 'view.toggleSidebar')) {
       if (!featureEnabled) return;
       e.preventDefault();
       toggle();
@@ -133,6 +144,20 @@ function refuseSidebarClose() {
   if (!isSignatureInFlight()) return false;
   console.warn('[Sidebar] Not closing: a signature is in flight');
   return true;
+}
+
+/**
+ * Open the sidebar for a consent prompt. Unlike open(), this works when
+ * any provider that hosts consent screens here is enabled — the Radicle
+ * provider prompts must render without the identity-wallet flag.
+ */
+export function openForConsent() {
+  if (!featureEnabled && !radicleEnabled) return;
+  if (!isOpen) {
+    isOpen = true;
+    applyState();
+    document.dispatchEvent(new CustomEvent('sidebar-opened'));
+  }
 }
 
 /**

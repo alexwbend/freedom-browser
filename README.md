@@ -3,7 +3,7 @@
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
-Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, and ENS as first-class protocols.
+Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols.
 It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
 
 ---
@@ -32,7 +32,7 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm start
    ```
 
-5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei` domain in the address bar.
+5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
 
 ---
 
@@ -249,6 +249,7 @@ Enter any of the following in the address bar:
 | IPNS URL    | `ipns://k51...` or `ipns://domain.eth`          |
 | Radicle ID  | `rad://z3gqc...`                                |
 | Ethereum Name | `vitalik.eth`, `mysite.box`, `alice.wei`, `apoorv.gwei`, `mysite.eth/about` |
+| Tezos Domain | `mysite.tez`, `ipfs://mysite.tez/docs` |
 | HTTP(S) URL | `https://example.com`                           |
 | Domain      | `example.com` (auto-prefixes `https://`)        |
 
@@ -264,10 +265,18 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Path Forwarding**: Paths appended to names (e.g., `mysite.eth/docs`, `alice.wei/docs`, `apoorv.gwei/docs`) are preserved after resolution.
 - **In-HTML Links**: Ethereum name links inside web pages must carry a scheme — `ens://name.eth`, `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, `bzz://name.wei`, `ipfs://name.wei`, `ipns://name.wei`, `bzz://name.gwei`, `ipfs://name.gwei`, or `ipns://name.gwei`. Bare hrefs like `<a href="vitalik.eth">` are relative URLs by HTML/URL-spec rules and resolve against the page's base before any of our handlers see them; bare names are only resolved in the address bar, where input is always absolute.
 
+### Tezos Domains Website Resolution
+
+- **Native on-chain resolution**: Bare `.tez` names are resolved directly from the Tezos Domains mainnet registry through three public Tezos RPC endpoints. Freedom follows the upgradeable proxy, discovers the annotated records and expiry big maps, pins all providers to one block, and requires a 2-of-3 matching result before marking it verified. Set `TEZOS_RPC` to prepend an additional endpoint; it must serve Tezos **mainnet**, since the chain ID is verified on every lookup.
+- **Published website records**: `web:redirect_url` takes precedence over `web:content_url`, matching Tezos Domains publishing semantics. HTTP(S) records navigate directly; IPFS and IPNS records stay on Freedom's native transports and keep the `.tez` name as the page origin.
+- **Paths and assertions**: A base path embedded in the published URI is preserved when an address-bar path is appended. Typed `ipfs://name.tez` and `ipns://name.tez` forms assert that transport; `ens://name.tez` is intentionally rejected because `.tez` is not ENS.
+- **Expiry and caching**: Expired domains do not resolve. Positive cache entries honor `td:ttl` within a bounded lifetime and never outlive the on-chain expiry; negative results use a short cache.
+
 ### Tabbed Browsing
 
 - **Multiple Tabs**: Open multiple pages simultaneously with `Cmd+T`.
 - **Tab Management**: Close tabs with `Cmd+W` or middle-click.
+- **Audio Indicators & Mute**: Tabs playing sound show a speaker icon; click it (or use "Mute Tab" in the tab context menu) to mute or unmute the tab. Mute survives navigation within the tab.
 - **Drag & Drop Reordering**: Rearrange tabs by dragging.
 - **Per-Tab State**: Each tab maintains its own navigation history, address bar state, and bzz/ipfs base.
 - **Link Handling**: Links that open new windows are captured and opened in new tabs instead.
@@ -278,7 +287,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Reload**: Refresh the current page (ignores cache). On error pages, retries the original URL.
 - **Stop**: Cancel page loading mid-request.
 - **Home**: Return to the welcome page.
-- **Keyboard Shortcuts**:
+- **Keyboard Shortcuts** (defaults; remap them under Settings > Shortcuts — click a binding, press the new combination, changes apply immediately; `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
   - `Cmd+N` / `Ctrl+N`: New window
   - `Cmd+T` / `Ctrl+T`: New tab
   - `Cmd+W` / `Ctrl+W` / `Ctrl+F4`: Close tab
@@ -289,7 +298,9 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Ctrl+Shift+PgUp`: Move tab left
   - `Cmd+R` / `Ctrl+R`: Reload (from cache)
   - `Cmd+Shift+R` / `Ctrl+Shift+R`: Hard reload (bypass cache)
+  - `Cmd+F` / `Ctrl+F`: Find in page (`Enter` next match, `Shift+Enter` previous, `Esc` close)
   - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
+  - `Cmd+Shift+J` / `Ctrl+Shift+J`: Downloads
   - `F11`: Toggle fullscreen
   - `F12` / `Cmd+Alt+I` / `Ctrl+Shift+I`: Developer Tools
   - `Cmd+=` / `Ctrl+=`: Zoom in
@@ -309,6 +320,13 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Recording**: Pages are recorded as you browse.
 - **History Page**: View and search your browsing history at `freedom://history`.
+
+### Downloads
+
+- **Download Manager**: Every download — http(s), `bzz://`, `ipfs://`/`ipns://`, and data URIs — is tracked with progress, pause/resume, and cancel.
+- **Shelf**: A compact card in the bottom corner shows progress and offers Cancel; on completion it offers Open and Show in Folder, then dismisses itself. Files are never opened automatically.
+- **Downloads Page**: View and search download history at `freedom://downloads` (`Cmd+Shift+J` / `Ctrl+Shift+J`), with per-item open / show-in-folder / remove and Clear All.
+- **Save Location**: Files land in the OS Downloads folder by default; enable "Ask where to save each file" under Settings > Downloads for a save dialog per download.
 
 ### Context Menus
 
@@ -342,6 +360,7 @@ Access built-in browser pages using the `freedom://` protocol:
 | Page                      | Description                  |
 | ------------------------- | ---------------------------- |
 | `freedom://home`          | Welcome/home page            |
+| `freedom://downloads`     | Download manager             |
 | `freedom://history`       | Browsing history             |
 | `freedom://links`         | Link behavior test page      |
 | `freedom://protocol-test` | Protocol and media test page |
@@ -351,6 +370,7 @@ Access built-in browser pages using the `freedom://` protocol:
 
 - **Theme**: Light, Dark, or System (follows OS preference).
 - **Node Auto-start**: Toggle whether Swarm and IPFS nodes start automatically at launch (enabled by default).
+- **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
 - **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
@@ -709,7 +729,7 @@ npm run start:test-updater
 - **Remote Module Disabled**: The remote module is not available.
 - **Minimal API Surface**: Only necessary IPC methods are exposed to the renderer. The `freedomAPI` (history, bookmarks, etc.) is restricted to internal `freedom://` pages — external websites cannot call it.
 - **Local Nodes**: Ant, IPFS, and Radicle run locally; no external services required for basic operation.
-- **Permission Handling**: Pointer lock and fullscreen permissions are granted for better UX in Swarm/IPFS apps.
+- **Permission Handling**: Web permissions are deny-by-default with per-site prompts for camera, microphone, notifications, clipboard reading, location, and MIDI. Decisions marked "Remember for this site" persist per profile (`permissions.json`, reviewable under Settings → Site Permissions); unremembered decisions last for the session. Pointer lock and fullscreen remain auto-allowed for better UX in Swarm/IPFS apps; everything else (HID, screen capture, …) is denied. Location grants expose the API but may not resolve reliably — Electron lacks Chromium's network location service.
 - **Public RPC Fallback**: ENS resolution uses public RPCs by default. For trustless verification, use a local Helios client.
 
 ---

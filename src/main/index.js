@@ -24,6 +24,12 @@ app.setName(appName);
 // touches userData.
 if (process.env.FREEDOM_TEST_USER_DATA) {
   app.setPath('userData', process.env.FREEDOM_TEST_USER_DATA);
+  // Keep E2E download artifacts inside the per-run temp dir instead of
+  // polluting the real ~/Downloads folder.
+  app.setPath(
+    'downloads',
+    require('path').join(process.env.FREEDOM_TEST_USER_DATA, 'downloads')
+  );
 }
 const TEST_MODE = process.env.FREEDOM_TEST_MODE === '1';
 const { migrateBeeDataToAntData, migrateUserData } = require('./migrate-user-data');
@@ -81,9 +87,7 @@ const profileFocusWatcher = startProfileFocusRequestWatcher(
       if (typeof focusCurrentProfileWindow !== 'function') {
         throw new Error('Main window focus handler is not ready');
       }
-      return focusCurrentProfileWindow(
-        request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null
-      );
+      return focusCurrentProfileWindow(request?.openSettings ? PROFILE_SETTINGS_DEEPLINK : null);
     }),
   {
     logger: console,
@@ -129,11 +133,14 @@ const { BrowserWindow, protocol, session } = require('electron');
 const { registerBaseIpcHandlers, broadcastProfileUpdated } = require('./ipc-handlers');
 const { watchProfileRegistry } = require('./profile-registry-watcher');
 const { installRequestRewriter } = require('./request-rewriter');
+const { installAdblockInterception, registerAdblockIpc } = require('./adblock/service');
+const { installAdblockUpdater } = require('./adblock/update-scheduler');
 const { attachWebRequestDispatcher } = require('./webrequest-dispatcher');
 const { installX402Interception } = require('./x402/intercept');
 const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
+const { registerRadProtocol } = require('./radicle/rad-protocol');
 
 // Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
@@ -152,12 +159,32 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // `rad` is deliberately NOT `standard`: standard schemes get their host
+  // lowercased by URL canonicalization, which would destroy case-sensitive
+  // base58 RIDs (`rad://z3gqcJUoA1n9…`). Non-standard keeps the URL opaque
+  // and case-intact; the handler parses it by hand. See rad-protocol.js.
+  {
+    scheme: 'rad',
+    privileges: {
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
 ]);
 const { registerSettingsIpc, loadSettings } = require('./settings-store');
+const { registerShortcutsIpc } = require('./shortcuts-ipc');
 const { registerBookmarksIpc } = require('./bookmarks-store');
 const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
+const {
+  registerDownloadsIpc,
+  attachDownloadsManager,
+} = require('./downloads/downloads-manager');
+const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
   createAntLifecycle,
@@ -185,6 +212,10 @@ const { registerTokenRegistryIpc } = require('./token-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerNetworkConfigIpc } = require('./networks/network-ipc');
 const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
+const {
+  installPermissionHandlers,
+  registerPermissionsIpc,
+} = require('./permissions/permissions-manager');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
 const {
@@ -195,6 +226,8 @@ const paymentHistory = require('./payment-history');
 const { getTransactionStatus: getTxStatus } = require('./wallet/transaction-service');
 const { registerSwarmPermissionsIpc } = require('./swarm/swarm-permissions');
 const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
+const { registerRadiclePermissionsIpc } = require('./radicle/radicle-permissions');
+const { registerRadicleProviderIpc } = require('./radicle/radicle-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
@@ -228,20 +261,6 @@ app.on('will-quit', () => {
   }
 });
 
-function allowInteractivePermissions(targetSession) {
-  if (!targetSession || !targetSession.setPermissionRequestHandler) {
-    return;
-  }
-  targetSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'pointerLock' || permission === 'fullscreen') {
-      log.info(`[permissions] granting ${permission} for`, webContents.getURL());
-      callback(true);
-      return;
-    }
-    callback(false);
-  });
-}
-
 async function bootstrap() {
   // Carry the injected Swarm identity from the Bee-era bee-data/ into
   // ant-data/. Must run before the Ant node is started below, or antd
@@ -255,10 +274,14 @@ async function bootstrap() {
     onNewWindow: createMainWindow,
   });
   registerSettingsIpc();
+  registerAdblockIpc();
+  registerShortcutsIpc();
   registerBookmarksIpc();
   registerHistoryIpc();
+  registerDownloadsIpc();
   registerFaviconsIpc();
   registerEnsIpc();
+  registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
   registerRadicleIpc();
@@ -277,6 +300,7 @@ async function bootstrap() {
   registerRpcManagerIpc();
   registerNetworkConfigIpc();
   registerDappPermissionsIpc();
+  registerPermissionsIpc();
   registerX402Ipc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
@@ -284,6 +308,8 @@ async function bootstrap() {
   registerPublishHistoryIpc();
   registerSwarmPermissionsIpc();
   registerSwarmProviderIpc();
+  registerRadiclePermissionsIpc();
+  registerRadicleProviderIpc();
   registerFeedStoreIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
@@ -302,13 +328,25 @@ async function bootstrap() {
     registerBzzProtocol(defaultSession);
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
+    registerRadProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
   installRequestRewriter();
+  // After the rewriter (which owns scheme/gateway rewriting) and before
+  // x402, so blocked requests never reach the payment flow.
+  installAdblockInterception();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
-  allowInteractivePermissions(defaultSession);
+  // Per-site permission prompts (camera, mic, notifications, …) with
+  // deny-by-default for everything unhandled. Webviews don't set a
+  // `partition` attribute, so the default session is the one they use.
+  installPermissionHandlers(defaultSession);
+  // All webviews run on the default session (no partitions today), so this
+  // one hook covers every download source — including the bzz:/ipfs:/ipns:
+  // protocol handlers, whose responses route through Chromium's download
+  // manager like any http(s) response.
+  attachDownloadsManager(defaultSession);
   registerWebContentsHandlers();
   setupApplicationMenu();
 
@@ -348,9 +386,7 @@ async function bootstrap() {
   const settings = loadSettings();
   // A profile cold-started from another window's "edit" button (Profiles
   // manager) carries --open-settings; land its first tab on Profile settings.
-  const coldStartUrl = process.argv.includes('--open-settings')
-    ? PROFILE_SETTINGS_DEEPLINK
-    : null;
+  const coldStartUrl = process.argv.includes('--open-settings') ? PROFILE_SETTINGS_DEEPLINK : null;
   const mainWindow = createMainWindow(coldStartUrl);
 
   if (!TEST_MODE) {
@@ -386,6 +422,9 @@ async function bootstrap() {
   // freedom.baby.
   if (!TEST_MODE) {
     initUpdater(mainWindow, setupApplicationMenu, { profile: activeProfile });
+    // Schedule Swarm filter-list update checks. No-op until a feed trust
+    // anchor is compiled in (WP5); safe to install unconditionally.
+    installAdblockUpdater();
   }
 
   app.on('activate', () => {
@@ -449,6 +488,7 @@ app.on('before-quit', async (event) => {
   // Close history databases
   log.info('[App] Closing history databases...');
   closeHistoryDb();
+  closeDownloadsDb();
   closePublishHistoryDb();
   paymentHistory.closeDb();
 

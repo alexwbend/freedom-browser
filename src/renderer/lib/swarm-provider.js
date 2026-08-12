@@ -12,7 +12,7 @@
 
 import { getPermissionKey } from './dapp-provider.js';
 import { getDisplayUrlForWebview } from './tabs.js';
-import { showSwarmConnect, updateSwarmConnectionBanner, showSwarmPublishApproval, showSwarmFeedApproval, showVaultUnlock } from './wallet-ui.js';
+import { showSwarmConnect, updateSwarmConnectionBanner, showSwarmPublishApproval, showSwarmFeedApproval, showSwarmMessagingApproval, showVaultUnlock } from './wallet-ui.js';
 
 const ERRORS = {
   USER_REJECTED: { code: 4001, message: 'User rejected the request' },
@@ -100,6 +100,14 @@ async function handleSwarmRequest(webview, request) {
       method === 'swarm_getSigningIdentity'
     ) {
       result = await handleFeedSigningRequest(method, params, permissionKey, 'signing');
+    } else if (
+      method === 'swarm_getMessagingIdentity' ||
+      method === 'swarm_subscribe' ||
+      method === 'swarm_unsubscribe' ||
+      method === 'swarm_sendPss' ||
+      method === 'swarm_sendGsoc'
+    ) {
+      result = await handleMessagingRequest(method, params, permissionKey, webview);
     } else {
       // All other methods: check permission, forward to main
       result = await executeWithPermission(method, params, permissionKey);
@@ -113,6 +121,44 @@ async function handleSwarmRequest(webview, request) {
       data: error.data,
     });
   }
+}
+
+/**
+ * Messaging methods (PSS/GSOC). The messaging tier is granted once per
+ * origin via the messaging prompt; sends additionally require per-send
+ * approval unless the origin has messaging auto-approve. Unsubscribe is
+ * teardown and never prompts.
+ */
+async function handleMessagingRequest(method, params, permissionKey, webview) {
+  await requirePermission(permissionKey);
+
+  const isSend = method === 'swarm_sendPss' || method === 'swarm_sendGsoc';
+
+  if (method !== 'swarm_unsubscribe') {
+    const [hasGrant, autoApproved] = await Promise.all([
+      window.swarmPermissions.hasMessagingGrant(permissionKey),
+      isSend ? window.swarmPermissions.getAutoApprove(permissionKey, 'messaging') : false,
+    ]);
+    if (!hasGrant) {
+      await new Promise((resolve, reject) => {
+        showSwarmMessagingApproval(permissionKey, params, resolve, reject, { method, grantMode: true });
+      });
+      await window.swarmPermissions.grantMessaging(permissionKey);
+    } else if (isSend && !autoApproved) {
+      await new Promise((resolve, reject) => {
+        showSwarmMessagingApproval(permissionKey, params, resolve, reject, { method, grantMode: false });
+      });
+    }
+  }
+
+  // Subscriptions push messages back to the page: main needs to know
+  // which webview to deliver to, and only the renderer can map the
+  // request to its webContents.
+  const meta = method === 'swarm_subscribe'
+    ? { webContentsId: webview.getWebContentsId() }
+    : undefined;
+
+  return executeWithPermission(method, params, permissionKey, meta);
 }
 
 async function handleFeedSigningRequest(method, params, permissionKey, autoApproveType) {
@@ -166,11 +212,13 @@ async function requirePermissionAndReturn(permissionKey) {
 
 /**
  * Check permission, update lastUsed, forward to main, unwrap result.
+ * @param {Object} [meta] - Renderer-only routing info passed to main
+ *   (e.g. the subscribing webview's webContentsId).
  */
-async function executeWithPermission(method, params, permissionKey) {
+async function executeWithPermission(method, params, permissionKey, meta) {
   await requirePermission(permissionKey);
   await window.swarmPermissions.updateLastUsed(permissionKey);
-  const response = await window.swarmProvider.execute(method, params, permissionKey);
+  const response = await window.swarmProvider.execute(method, params, permissionKey, meta);
   if (response.error) throw response.error;
   return response.result;
 }

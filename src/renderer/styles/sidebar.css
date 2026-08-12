@@ -491,7 +491,8 @@
   transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 
-.node-identity-row:hover .node-copy-btn {
+.node-identity-row:hover .node-copy-btn,
+.node-info-row:hover .node-copy-btn {
   opacity: 1;
 }
 
