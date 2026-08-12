@@ -5,6 +5,11 @@
  */
 
 import { walletState, registerScreenHider } from './wallet-state.js';
+import {
+  isSignatureInFlight,
+  beginSignatureFlight,
+  endSignatureFlight,
+} from './signature-flight.js';
 import { escapeHtml, isLedgerAccount, bypassUnlockGateForHardware } from './wallet-utils.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
@@ -82,6 +87,12 @@ let sendTxState = {
   chainId: null,
 };
 
+// Token identifying *this* screen's in-flight signature while
+// wallet:send-transaction is awaiting the device. Identity (not a boolean)
+// so a late release from a superseded send cannot free a lock it no longer
+// holds — see signature-flight.js.
+let sendFlight = null;
+
 export function initSend() {
   sendScreen = document.getElementById('sidebar-send');
   sendBackBtn = document.getElementById('send-back');
@@ -131,7 +142,17 @@ export function initSend() {
   sendRetryBtn = document.getElementById('send-retry-btn');
 
   // Register screen hider
-  registerScreenHider(() => sendScreen?.classList.add('hidden'));
+  registerScreenHider(() => {
+    // An in-flight send signature owns the sidebar: the device prompt it
+    // produced cannot be recalled, so hiding "Confirm on your Ledger" here
+    // would leave the user answering another surface's screen while the
+    // device still shows this transaction — and the broadcast would land
+    // with no visible feedback. hideAllSubscreens() already refuses while
+    // a signature is in flight; this is the second line of defence for a
+    // direct hider call.
+    if (sendFlight) return;
+    sendScreen?.classList.add('hidden');
+  });
 
   setupSendScreen();
 }
@@ -237,6 +258,17 @@ export function openSend(options = {}) {
     return;
   }
 
+  // The send screen takes over the sidebar directly (it predates
+  // hideAllSubscreens), so it needs its own check: while a device
+  // confirmation is live the screen that started it owns the sidebar and
+  // nothing may paint over it — see signature-flight.js. Entry points are
+  // page-reachable (an `ethereum:` tip link routes here via openSendFlow),
+  // so this is not merely belt-and-braces.
+  if (isSignatureInFlight()) {
+    console.warn('[WalletUI] Send screen not opened: a signature is already in flight');
+    return;
+  }
+
   resetSendState();
   applySendOpenOptions(options);
 
@@ -254,6 +286,14 @@ export function openSend(options = {}) {
 }
 
 export function closeSend() {
+  // Same ownership rule as the screen hider, on the other teardown path:
+  // Back, a sidebar close and the coordinator's closeAllSubscreens() all
+  // land here. Resetting state under a live device prompt would strand the
+  // broadcast with no UI to report into.
+  if (sendFlight) {
+    console.warn('[WalletUI] Send screen not closed: a signature is in flight on this transaction');
+    return;
+  }
   sendScreen?.classList.add('hidden');
   walletState.identityView?.classList.remove('hidden');
   resetSendState();
@@ -1162,6 +1202,16 @@ async function handleSendConfirm() {
 
   showSendPendingView();
 
+  // Claim the sidebar for the whole flight: wallet:send-transaction puts a
+  // prompt on the device that the renderer cannot recall, so no other
+  // approval surface may repaint over "Confirm on your Ledger" or tear it
+  // down. Back is the other way out of this screen and must go too — see
+  // signature-flight.js.
+  const flight = {};
+  sendFlight = flight;
+  beginSignatureFlight(flight);
+  if (sendBackBtn) sendBackBtn.disabled = true;
+
   try {
     const token = sendTxState.selectedToken;
 
@@ -1219,6 +1269,13 @@ async function handleSendConfirm() {
   } catch (err) {
     console.error('[WalletUI] Transaction failed:', err);
     showSendErrorView(err.message || 'Transaction failed');
+  } finally {
+    // The device prompt is answered (or the send never reached it), so the
+    // sidebar is free again. Guarded on identity so a superseded flight
+    // cannot release a lock a later send holds.
+    if (sendFlight === flight) sendFlight = null;
+    endSignatureFlight(flight);
+    if (sendBackBtn) sendBackBtn.disabled = false;
   }
 }
 
