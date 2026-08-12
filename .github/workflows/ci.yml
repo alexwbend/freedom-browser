@@ -158,11 +158,12 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
+        # node-hid builds against libudev (hidraw) and libusb; install both.
         # `apt-get update` first — the image's pre-seeded index can name a
-        # libudev-dev build the mirrors already rotated out (install 404s).
+        # build the mirrors already rotated out (install 404s).
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
 
       - name: Install dependencies
         run: npm ci
@@ -232,11 +233,12 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
+        # node-hid builds against libudev (hidraw) and libusb; install both.
         # `apt-get update` first — the image's pre-seeded index can name a
-        # libudev-dev build the mirrors already rotated out (install 404s).
+        # build the mirrors already rotated out (install 404s).
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
 
       - name: Install dependencies
         run: npm ci
@@ -290,11 +292,12 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
+        # node-hid builds against libudev (hidraw) and libusb; install both.
         # `apt-get update` first — the image's pre-seeded index can name a
-        # libudev-dev build the mirrors already rotated out (install 404s).
+        # build the mirrors already rotated out (install 404s).
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
 
       - name: Install dependencies
         run: npm ci
@@ -346,11 +349,12 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
+        # node-hid builds against libudev (hidraw) and libusb; install both.
         # `apt-get update` first — the image's pre-seeded index can name a
-        # libudev-dev build the mirrors already rotated out (install 404s).
+        # build the mirrors already rotated out (install 404s).
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev
+          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
 
       - name: Install dependencies
         run: npm ci
