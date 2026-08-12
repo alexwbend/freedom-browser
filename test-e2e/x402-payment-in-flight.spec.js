@@ -27,8 +27,38 @@ const TX_PARAMS = {
   data: '0x095ea7b3' + '0'.repeat(56) + 'deadbeef' + 'f'.repeat(64),
 };
 
-function stubMainIpc(electronApp, ledger) {
-  return electronApp.evaluate(({ ipcMain }, ledger) => {
+const USDC_ACCEPT = {
+  accept: {
+    amount: '2500000',
+    asset: '0xUSDC',
+    network: 'base',
+    payTo: '0x1111111111111111111111111111111111111111',
+  },
+  tuple: { amount: '2500000', chainId: 8453 },
+  balanceKey: '8453:0xUSDC',
+  asset: { symbol: 'USDC', decimals: 6 },
+  balance: '5000000',
+  fundable: true,
+};
+
+// A second fundable accept, which is what makes the card render the
+// chooser radios.
+const DAI_ACCEPT = {
+  accept: {
+    amount: '3000000000000000000',
+    asset: '0xDAI',
+    network: 'base',
+    payTo: '0x1111111111111111111111111111111111111111',
+  },
+  tuple: { amount: '3000000000000000000', chainId: 8453 },
+  balanceKey: '8453:0xDAI',
+  asset: { symbol: 'DAI', decimals: 18 },
+  balance: '9000000000000000000',
+  fundable: true,
+};
+
+function stubMainIpc(electronApp, ledger, accepts = [USDC_ACCEPT]) {
+  return electronApp.evaluate(({ ipcMain }, { ledger, accepts }) => {
     const replace = (channel, handler) => {
       ipcMain.removeHandler(channel);
       ipcMain.handle(channel, handler);
@@ -44,21 +74,7 @@ function stubMainIpc(electronApp, ledger) {
       success: true,
       detectionId: 'det-1',
       url: 'https://pay.example/article',
-      accepts: [
-        {
-          accept: {
-            amount: '2500000',
-            asset: '0xUSDC',
-            network: 'base',
-            payTo: '0x1111111111111111111111111111111111111111',
-          },
-          tuple: { amount: '2500000', chainId: 8453 },
-          balanceKey: '8453:0xUSDC',
-          asset: { symbol: 'USDC', decimals: 6 },
-          balance: '5000000',
-          fundable: true,
-        },
-      ],
+      accepts,
       initialSelectionIndex: 0,
     }));
     replace('x402:get-all-permissions', () => ({ success: true, permissions: [] }));
@@ -77,10 +93,12 @@ function stubMainIpc(electronApp, ledger) {
     // Never settles on its own: this is the window where the device prompt
     // is up and the user is deciding.
     globalThis.__resolveX402Approve = null;
-    replace('x402:approve', () => new Promise((resolve) => {
+    globalThis.__x402ApproveCalls = [];
+    replace('x402:approve', (_event, payload) => new Promise((resolve) => {
+      globalThis.__x402ApproveCalls.push(payload);
       globalThis.__resolveX402Approve = resolve;
     }));
-  }, ledger);
+  }, { ledger, accepts });
 }
 
 // Put the app on the Ledger account and raise a 402 the way main does.
@@ -160,6 +178,92 @@ test('a dApp request mid-payment cannot cancel an in-flight Ledger payment', asy
   }, TX_PARAMS);
   expect(afterSettle).toBe('requested');
   await expect(window.locator('#sidebar-dapp-tx')).toBeVisible();
+});
+
+// A multi-accept paywall keeps the chooser radios on screen while the
+// authorization is on the device. Flipping one re-renders the card, and the
+// re-render used to re-derive Pay as enabled — offering a second, concurrent
+// device signature for a different accept, whose failure would then release
+// the lock the first one still holds. The card must stay frozen instead.
+test('flipping the accept chooser mid-payment cannot re-arm Pay', async ({
+  electronApp,
+  window,
+}) => {
+  await stubMainIpc(electronApp, LEDGER, [USDC_ACCEPT, DAI_ACCEPT]);
+  await openPaymentCard(electronApp, window, LEDGER);
+
+  await expect(window.locator('#sidebar-x402-approval')).toBeVisible();
+  await expect(window.locator('#x402-approval-chooser')).toBeVisible();
+  await expect(window.locator('#x402-approval-chooser-options .x402-chooser-row')).toHaveCount(2);
+  await expect(window.locator('#x402-approval-approve')).toBeEnabled();
+
+  await window.click('#x402-approval-approve');
+  await expect(window.locator('#x402-approval-approve')).toHaveText('Confirm on your Ledger…');
+
+  // The user pokes the other option while the device prompt is up.
+  await window.click('#x402-approval-chooser-options input[value="1"]');
+
+  await expect(window.locator('#x402-approval-approve')).toHaveText('Confirm on your Ledger…');
+  await expect(window.locator('#x402-approval-approve')).toBeDisabled();
+  await expect(window.locator('#x402-approval-reject')).toBeDisabled();
+  await expect(window.locator('#x402-approval-back')).toBeDisabled();
+  // …and the radio snaps back to the accept that is on the device, so the
+  // card never shows a selection the payment doesn't match.
+  await expect(window.locator('#x402-approval-chooser-options input[value="0"]')).toBeChecked();
+  await expect(window.locator('#x402-approval-chooser-options input[value="1"]')).not.toBeChecked();
+  await expect(window.locator('#x402-approval-amount')).toHaveText('2.5 USDC');
+  await window.screenshot({ path: 'test-results/x402-chooser-flip-in-flight.png' });
+
+  // Even a click that bypasses the disabled button reaches no second sign.
+  await window.evaluate(() => {
+    document.getElementById('x402-approval-approve').dispatchEvent(new Event('click'));
+  });
+  const approveCalls = await electronApp.evaluate(() => globalThis.__x402ApproveCalls);
+  expect(approveCalls).toHaveLength(1);
+  expect(approveCalls[0].selectedAcceptIndex).toBe(0);
+
+  // The device confirms the one payment that was ever sent to it.
+  await electronApp.evaluate(() => {
+    globalThis.__resolveX402Approve({ success: true });
+  });
+  await expect(window.locator('#sidebar-x402-approval')).toBeHidden();
+  expect(await cancelCounts(electronApp)).toEqual({ cancel: 0, reject: 0 });
+});
+
+// Signing without hosted clear-signing resolution means a factory-default
+// Ledger (blind signing off) refuses every contract call — including the
+// EIP-3009 authorization behind an x402 payment. The instruction the user
+// gets has to name the setting to change; "reconnect the device" is a dead
+// end. The message comes from the real main-process mapper.
+test('a blind-signing refusal tells the user which device setting to enable', async ({
+  electronApp,
+  window,
+}) => {
+  await stubMainIpc(electronApp, LEDGER);
+  await electronApp.evaluate(({ ipcMain, app }) => {
+    const nodeRequire = process.mainModule.require.bind(process.mainModule);
+    const { mapLedgerError } = nodeRequire(
+      nodeRequire('path').join(app.getAppPath(), 'src/main/wallet/ledger/errors.js')
+    );
+    // Exactly what the Ethereum app answers when it will not sign data it
+    // cannot decode.
+    const mapped = mapLedgerError(Object.assign(new Error('status 6a80'), { statusCode: 0x6a80 }));
+    ipcMain.removeHandler('x402:approve');
+    ipcMain.handle('x402:approve', () => ({ success: false, error: mapped.message, code: mapped.code }));
+  });
+  await openPaymentCard(electronApp, window, LEDGER);
+
+  await expect(window.locator('#sidebar-x402-approval')).toBeVisible();
+  await window.click('#x402-approval-approve');
+
+  await expect(window.locator('#x402-approval-error')).toBeVisible();
+  await expect(window.locator('#x402-approval-error')).toContainText('Blind signing');
+  await expect(window.locator('#x402-approval-error')).not.toContainText('Reconnect');
+  // The card is usable again: fix the setting on the device and retry.
+  await expect(window.locator('#x402-approval-approve')).toHaveText('Pay');
+  await expect(window.locator('#x402-approval-approve')).toBeEnabled();
+  await expect(window.locator('#x402-approval-reject')).toBeEnabled();
+  await window.screenshot({ path: 'test-results/x402-blind-signing-error.png' });
 });
 
 // The browser tab strip is chrome the signature lock deliberately does not
