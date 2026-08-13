@@ -109,9 +109,14 @@ async function waitForStubPage(page, url) {
 
 // Close every private window (identified by the privatePartition query
 // parameter its chrome renderer was loaded with).
+//
+// close() is asynchronous, so getAllWindows() still lists windows that are
+// mid-teardown; reading webContents on one of those throws "Object has been
+// destroyed". Skip them — a window on its way out is not one we need to close.
 async function closePrivateWindows(electronApp) {
   await electronApp.evaluate(({ BrowserWindow }) => {
     for (const win of BrowserWindow.getAllWindows()) {
+      if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
       if (win.webContents.getURL().includes('privatePartition=private-')) {
         win.close();
       }
@@ -424,8 +429,11 @@ test('a private page title reaches neither the persistent log nor a later normal
     .poll(
       () =>
         electronApp.evaluate(({ BrowserWindow }) => {
-          const win = BrowserWindow.getAllWindows().find((w) =>
-            w.webContents.getURL().includes('privatePartition=private-')
+          const win = BrowserWindow.getAllWindows().find(
+            (w) =>
+              !w.isDestroyed() &&
+              !w.webContents.isDestroyed() &&
+              w.webContents.getURL().includes('privatePartition=private-')
           );
           return win ? win.getTitle() : null;
         }),
@@ -469,7 +477,7 @@ test('a private page title reaches neither the persistent log nor a later normal
     .toBeGreaterThan(0);
   const freshTitles = await electronApp.evaluate(({ BrowserWindow }, ids) => {
     BrowserWindow.getAllWindows()
-      .filter((w) => !ids.includes(w.id))
+      .filter((w) => !w.isDestroyed() && !ids.includes(w.id))
       .forEach((w) => w.close());
     return globalThis.__freshWindowTitles;
   }, knownIds);
