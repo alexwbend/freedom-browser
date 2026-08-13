@@ -45,7 +45,7 @@ describe('buildHttpdUrl', () => {
 
   test('rejects when Radicle integration is disabled', () => {
     loadSettings.mockReturnValue({ enableRadicleIntegration: false });
-    expect(buildHttpdUrl(`rad://${RID}`)).toEqual({
+    expect(buildHttpdUrl(`rad://${RID}`)).toMatchObject({
       ok: false,
       status: 403,
       message: 'Radicle integration is disabled',
@@ -54,7 +54,7 @@ describe('buildHttpdUrl', () => {
 
   test('returns 503 when the Radicle endpoint is not hydrated', () => {
     getRadicleApiUrl.mockReturnValue(null);
-    expect(buildHttpdUrl(`rad://${RID}`)).toEqual({
+    expect(buildHttpdUrl(`rad://${RID}`)).toMatchObject({
       ok: false,
       status: 503,
       message: 'Radicle node is not ready',
@@ -258,7 +258,9 @@ describe('registerRadProtocol private sessions', () => {
     const text = loggedText();
     expect(text).not.toContain(RID);
     expect(text).not.toContain('secret.md');
-    expect(text).toContain('403 for rad://<private>');
+    // The reason itself names nothing browsing-identifying, so it survives
+    // redaction — a private window's log still says why the request failed.
+    expect(text).toContain('403 for rad://<private>: Radicle integration is disabled');
   });
 
   test('a normal session keeps the full diagnostic URL', async () => {

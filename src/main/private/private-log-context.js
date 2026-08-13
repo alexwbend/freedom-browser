@@ -79,9 +79,39 @@ function redactUrlForLog(rawUrl, placeholder = '<private>') {
   }
 }
 
+/**
+ * Build a dweb protocol handler's semantic `{ ok: false }` failure with two
+ * texts that cannot drift apart:
+ *  - `message`    — returned to the page in the JSON error body. The page
+ *                   already knows the name it asked for, so it stays whole.
+ *  - `logMessage` — headed for the persistent main.log, where a private
+ *                   window's destination must never appear.
+ *
+ * `build` is called twice with the same template: once with the real
+ * browsing-identifying values (the requested name, a resolver's own error
+ * text) and once with each of them passed through `redactForLog`. Editing
+ * the wording therefore updates both variants at once — the failure mode
+ * that let `built.message` carry an ENS name into main.log beside the
+ * `<private>` marker for the request URL.
+ *
+ * Failures with nothing browsing-identifying to hide ("Swarm node is not
+ * ready") call it with no values and get identical texts; the log sites
+ * fail closed and redact wholesale for any failure that supplies no
+ * `logMessage` at all.
+ */
+function redactedFailure(status, build, ...browsingValues) {
+  return {
+    ok: false,
+    status,
+    message: build(...browsingValues),
+    logMessage: build(...browsingValues.map((value) => redactForLog(value))),
+  };
+}
+
 module.exports = {
   runWithPrivateLogContext,
   isPrivateLogContext,
   redactForLog,
   redactUrlForLog,
+  redactedFailure,
 };

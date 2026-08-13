@@ -362,7 +362,7 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
 
       const result = await buildGatewayUrl('ipfs', 'ipfs://swarm.eth/');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: false,
         status: 404,
         message: 'ENS name swarm.eth resolves to bzz, not IPFS',
@@ -379,7 +379,7 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
 
       const result = await buildGatewayUrl('ipfs', 'ipfs://alice.wei/');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: false,
         status: 404,
         message: 'WNS name alice.wei resolves to bzz, not IPFS',
@@ -396,7 +396,7 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
 
       const result = await buildGatewayUrl('ipfs', 'ipfs://apoorv.gwei/');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: false,
         status: 404,
         message: 'GNS name apoorv.gwei resolves to bzz, not IPFS',
@@ -412,7 +412,7 @@ describe('buildGatewayUrl(ipfs)', () => {
       });
 
       const result = await buildGatewayUrl('ipfs', 'ipfs://jalil.eth/');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: false,
         status: 404,
         message: 'ENS name jalil.eth resolves to ipns, not IPFS',
@@ -620,7 +620,7 @@ describe('buildGatewayUrl(ipns)', () => {
       });
 
       const result = await buildGatewayUrl('ipns', 'ipns://vitalik.eth/');
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         ok: false,
         status: 404,
         message: 'ENS name vitalik.eth resolves to ipfs, not IPNS',
@@ -945,6 +945,76 @@ describe('registerIpfsProtocol / registerIpnsProtocol private sessions', () => {
     expect(text).not.toContain('page.html');
     expect(text).toContain('resolver threw for <private>');
     expect(text).toContain(`502 for ${ns}://<private>`);
+  });
+
+  // Every resolution failure whose page-facing message names the site. The
+  // request URL is redacted at the log site, so these are the branches that
+  // could still smuggle the destination into main.log via the message.
+  const NAME_BEARING_FAILURES = [
+    ['no contenthash', { type: 'not_found', reason: 'NO_CONTENTHASH' }, 404],
+    ['a cross-transport contenthash', { type: 'ok', protocol: 'bzz', decoded: 'ab12' }, 404],
+    ['an unsupported codec', { type: 'unsupported', reason: 'UNSUPPORTED' }, 415],
+    ['disagreeing providers', { type: 'conflict', groups: [] }, 502],
+    [
+      'a resolver error naming the site',
+      { type: 'error', error: 'no provider answered for secret-site.eth' },
+      502,
+    ],
+  ];
+
+  test.each(
+    ['ipfs', 'ipns'].flatMap((ns) =>
+      NAME_BEARING_FAILURES.map(([label, resolution, status]) => [ns, label, resolution, status])
+    )
+  )(
+    'a private %s session keeps the name out of the log on %s',
+    async (ns, _label, resolution, status) => {
+      const register = ns === 'ipfs' ? registerIpfsProtocol : registerIpnsProtocol;
+      mockResolveEnsContent.mockReset();
+      mockResolveEnsContent.mockResolvedValue(resolution);
+      const session = fakeSession();
+      register(session, { privatePartition: 'private-abcd' });
+
+      const res = await session.handlers.get(ns)({
+        url: `${ns}://secret-site.eth/page.html`,
+        headers: {},
+      });
+
+      expect(res.status).toBe(status);
+      const text = loggedText();
+      expect(text).not.toContain('secret-site.eth');
+      expect(text).not.toContain('page.html');
+      expect(text).toContain(`${status} for ${ns}://<private>`);
+    }
+  );
+
+  test.each(NAME_BEARING_FAILURES)(
+    'a normal session keeps the full diagnostic on %s',
+    async (_label, resolution) => {
+      mockResolveEnsContent.mockReset();
+      mockResolveEnsContent.mockResolvedValue(resolution);
+      const session = fakeSession();
+      registerIpfsProtocol(session);
+
+      await session.handlers.get('ipfs')({ url: 'ipfs://public-site.eth/page.html', headers: {} });
+
+      expect(loggedText()).toContain('public-site.eth');
+    }
+  );
+
+  test('a private session redacts a CID that only the message carries', async () => {
+    const session = fakeSession();
+    registerIpfsProtocol(session, { privatePartition: 'private-abcd' });
+
+    // Lowercased CIDv0 host: the 400 explains the problem by quoting the
+    // unrecoverable reference, which is the destination.
+    const host = 'qm' + 'a'.repeat(44);
+    const res = await session.handlers.get('ipfs')({ url: `ipfs://${host}/x`, headers: {} });
+
+    expect(res.status).toBe(400);
+    const text = loggedText();
+    expect(text).not.toContain(host);
+    expect(text).toContain('400 for ipfs://<private>: lowercased CIDv0 host "<private>"');
   });
 
   test('a normal session keeps the full diagnostic URL', async () => {
