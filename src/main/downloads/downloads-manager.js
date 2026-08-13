@@ -38,6 +38,12 @@ const { broadcastToAllWebContents } = require('../lib/broadcast-to-all-webconten
 // through this map; settled items are removed.
 const activeItems = new Map();
 
+// Per-item bookkeeping for the live items above: the owning private
+// partition (null for normal windows) and the save path the item claimed.
+// Lets a closing private window cancel and unwind its own transfers without
+// waiting for Chromium's asynchronous 'done'.
+const activeItemMeta = new Map();
+
 // Store row ids whose live DownloadItem is in Chromium's 'interrupted'
 // updated-state: still live (not `done`), usually resumable, but not
 // transferring. Kept out of activeItems so pause/resume/cancel stay simple.
@@ -218,6 +224,7 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
   });
   const id = row.id;
   activeItems.set(id, item);
+  activeItemMeta.set(id, { privatePartition, reservedPath });
 
   const ownerWindow = ownerWindowOf(webContents);
   log.info('[Downloads] Download started:', filename, `(id ${id})`);
@@ -252,6 +259,7 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
 
   item.once('done', (_doneEvent, doneState) => {
     activeItems.delete(id);
+    activeItemMeta.delete(id);
     interruptedItems.delete(id);
     releaseSavePath(reservedPath);
 
@@ -309,6 +317,43 @@ function attachDownloadsManager(targetSession, { privatePartition = null } = {})
   log.info(
     '[Downloads] will-download hook attached' + (privatePartition ? ' (private session)' : '')
   );
+}
+
+/**
+ * PRIVATE MODE GUARD (downloads): cancel every in-flight download owned by a
+ * private partition. Runs from the private-window close hook (registered in
+ * src/main/index.js, before the in-memory rows are dropped).
+ *
+ * Without this a transfer started in a private window outlives the window
+ * that owned it: its row disappears with the partition, so no renderer can
+ * see it and pause/cancel refuse it (they authorize against that row), yet
+ * Chromium keeps writing bytes to disk and a completed file would appear
+ * with no record anywhere. Cancelling also discards the partial file and
+ * frees the save-path reservation.
+ * @param {string} partition
+ * @returns {number} Number of items cancelled
+ */
+function cancelPartitionDownloads(partition) {
+  if (!partition) return 0;
+  let cancelled = 0;
+  for (const [id, meta] of [...activeItemMeta]) {
+    if (meta.privatePartition !== partition) continue;
+    const item = activeItems.get(id);
+    activeItems.delete(id);
+    activeItemMeta.delete(id);
+    interruptedItems.delete(id);
+    releaseSavePath(meta.reservedPath);
+    try {
+      item?.cancel();
+      cancelled++;
+    } catch (err) {
+      log.warn('[Downloads] Could not cancel private download', id + ':', err?.message || err);
+    }
+  }
+  if (cancelled > 0) {
+    log.info(`[Downloads] Cancelled ${cancelled} in-flight private download(s) on ${partition}`);
+  }
+  return cancelled;
 }
 
 /**
@@ -466,6 +511,7 @@ function registerDownloadsIpc() {
 
 module.exports = {
   attachDownloadsManager,
+  cancelPartitionDownloads,
   registerDownloadsIpc,
   sanitizeFilename,
   uniqueSavePath,

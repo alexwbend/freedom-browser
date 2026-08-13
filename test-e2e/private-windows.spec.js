@@ -283,3 +283,111 @@ test('private browsing leaves no history, no downloads history, and no cookies b
 
   await closePrivateWindows(electronApp);
 });
+
+// PRIVATE MODE GUARD (windows): the link-context-menu's "Open Link in New
+// Window" carries a URL out of the window that asked for it. From a private
+// window it must land in another PRIVATE window — a normal window would run
+// it on the persistent default session (history row, cookies, providers).
+test('Open Link in New Window from a private window opens another private window', async ({
+  window,
+  electronApp,
+}) => {
+  const LEAK_URL = 'https://leak.example/secret';
+
+  const priv = await openPrivateWindow(electronApp);
+  await navigateTo(priv, 'https://private-link.example');
+  await waitForStubPage(priv, 'https://private-link.example/');
+
+  // Right-click a real link in the private page — the webview preload turns
+  // this into the chrome's link context menu.
+  await evalInActiveWebview(
+    priv,
+    `(() => {
+      const a = document.createElement('a');
+      a.href = ${JSON.stringify(LEAK_URL)};
+      a.textContent = 'leak';
+      a.style.cssText = 'position:fixed;top:40px;left:40px;font-size:20px';
+      document.body.appendChild(a);
+      const rect = a.getBoundingClientRect();
+      a.dispatchEvent(
+        new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: Math.round(rect.left + 4),
+          clientY: Math.round(rect.top + 4),
+        })
+      );
+      return true;
+    })()`
+  );
+
+  const menuItem = priv.locator('#page-context-menu [data-action="open-link-new-window"]');
+  await expect(menuItem).toBeVisible();
+  await priv.screenshot({ path: '/tmp/private-open-link-new-window-menu.png' });
+
+  const knownPrivateUrls = new Set(
+    electronApp
+      .windows()
+      .filter((page) => page.url().includes('privatePartition=private-'))
+      .map((page) => page.url())
+  );
+  const normalWindowsBefore = electronApp
+    .windows()
+    .filter(
+      (page) =>
+        page.url().includes('/renderer/index.html') &&
+        !page.url().includes('privatePartition=private-')
+    ).length;
+
+  await menuItem.click();
+
+  // The new window is private: its chrome renderer carries a private
+  // partition, and it is NOT the private window we came from.
+  let opened;
+  await expect
+    .poll(
+      () => {
+        opened = electronApp
+          .windows()
+          .find(
+            (page) =>
+              page.url().includes('privatePartition=private-') && !knownPrivateUrls.has(page.url())
+          );
+        return !!opened;
+      },
+      { message: 'Waiting for a second private window', timeout: 15_000 }
+    )
+    .toBe(true);
+  await opened.waitForLoadState('domcontentloaded');
+  await expect(opened.locator('[data-test="private-badge"]')).toBeVisible();
+  await waitForStubPage(opened, `${LEAK_URL}`);
+  await opened.screenshot({ path: '/tmp/private-open-link-new-window-result.png' });
+
+  // No extra normal window was spawned…
+  const normalWindowsAfter = electronApp
+    .windows()
+    .filter(
+      (page) =>
+        page.url().includes('/renderer/index.html') &&
+        !page.url().includes('privatePartition=private-')
+    ).length;
+  expect(normalWindowsAfter).toBe(normalWindowsBefore);
+
+  // …the link ran on a non-persisted partition…
+  const openedPartition = await opened.evaluate(() =>
+    document.querySelector('webview')?.getAttribute('partition')
+  );
+  expect(openedPartition).toMatch(/^private-[0-9a-f-]{36}$/);
+
+  // …and wallet providers stay out of it.
+  expect(await evalInActiveWebview(opened, 'typeof window.ethereum')).toBe('undefined');
+
+  await closePrivateWindows(electronApp);
+
+  // Nothing about the link reached the profile's history.
+  const historyUrls = await window.evaluate(async () => {
+    const rows = await window.electronAPI.getHistory();
+    return rows.map((r) => r.url);
+  });
+  expect(historyUrls.some((url) => url.startsWith('https://leak.example'))).toBe(false);
+});

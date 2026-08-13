@@ -180,6 +180,7 @@ const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const {
   registerDownloadsIpc,
   attachDownloadsManager,
+  cancelPartitionDownloads: cancelPrivateDownloads,
 } = require('./downloads/downloads-manager');
 const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
@@ -380,10 +381,13 @@ async function bootstrap() {
     attachDownloadsManager(privateSession, { privatePartition: partition });
     installPermissionHandlers(privateSession, { privatePartition: partition });
   });
-  // On private-window close: drop the window's in-memory download rows
-  // (they never touch SQLite — files stay on disk, Chromium semantics) and
-  // its session-only permission decisions. The session's storage is
-  // cleared by the private-windows module itself.
+  // On private-window close: cancel the window's still-running downloads
+  // FIRST (once its rows are gone nothing can see or stop them, and a
+  // finished file would leave no record anywhere), then drop the window's
+  // in-memory download rows (they never touch SQLite — completed files stay
+  // on disk, Chromium semantics) and its session-only permission decisions.
+  // The session's storage is cleared by the private-windows module itself.
+  registerPrivateCleanup((partition) => cancelPrivateDownloads(partition));
   registerPrivateCleanup((partition) => dropPrivateDownloads(partition));
   registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
 

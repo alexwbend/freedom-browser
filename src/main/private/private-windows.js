@@ -10,9 +10,13 @@
  *
  * On window close the partition's session is cleared with
  * `clearStorageData()` + `clearCache()` as belt-and-braces (the data is
- * in-memory anyway), registered cleanup hooks run (private downloads
- * purge, session-only permission decisions drop — see src/main/index.js),
- * and all references are dropped. Partition UUIDs are never reused.
+ * in-memory anyway), registered cleanup hooks run (in-flight private
+ * downloads cancel, private download rows purge, session-only permission
+ * decisions drop — see src/main/index.js),
+ * and all references are dropped. Partition UUIDs are never reused. The
+ * download hooks run in registration order: in-flight private downloads are
+ * cancelled before their rows are dropped, so no transfer outlives the
+ * window that owns it.
  *
  * Write guards elsewhere key off this module's registry:
  *   - history:   src/main/history.js         (PRIVATE MODE GUARD)

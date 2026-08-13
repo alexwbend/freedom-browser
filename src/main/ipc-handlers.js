@@ -791,7 +791,24 @@ function registerBaseIpcHandlers(callbacks = {}) {
     }
   });
 
-  ipcMain.on(IPC.WINDOW_NEW_WITH_URL, (_event, url) => {
+  // PRIVATE MODE GUARD (windows): "Open Link in New Window" carries a URL out
+  // of the window that asked for it. Asked from a private window, the link
+  // must land in another PRIVATE window — routing it through createMainWindow
+  // would load it on the persistent default session, where history records
+  // it, cookies and site data stick, and wallet providers inject. Resolve the
+  // sender through the private registry so the guard holds whatever the
+  // renderer sends.
+  ipcMain.on(IPC.WINDOW_NEW_WITH_URL, (event, url) => {
+    if (isPrivateWebContents(event?.sender)) {
+      if (callbacks.onNewPrivateWindow) {
+        callbacks.onNewPrivateWindow(url);
+      } else {
+        // Never fall back to a normal window: dropping the request is the
+        // safe failure here.
+        log.warn('[private] no private-window factory — dropping window:new-with-url');
+      }
+      return;
+    }
     if (callbacks.onNewWindow) {
       // Pass URL directly to createMainWindow to avoid home page flash
       callbacks.onNewWindow(url);

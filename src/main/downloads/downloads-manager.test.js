@@ -751,6 +751,57 @@ describe('downloads-manager private sessions', () => {
     expect(await invokeAs(privateSender, IPC.DOWNLOADS_GET, {})).toEqual([]);
   });
 
+  test('closing a private window cancels its in-flight downloads', async () => {
+    const privateSession = new EventEmitter();
+    const otherPrivateSession = new EventEmitter();
+    const normalSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    mod.attachDownloadsManager(otherPrivateSession, { privatePartition: 'private-other' });
+    mod.attachDownloadsManager(normalSession);
+    mod.registerDownloadsIpc();
+
+    const item = startOn(privateSession, {
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+    });
+    const otherItem = startOn(otherPrivateSession, {
+      url: 'https://example.com/other.iso',
+      filename: 'other.iso',
+    });
+    const normalItem = startOn(normalSession, {
+      url: 'https://example.com/public.iso',
+      filename: 'public.iso',
+    });
+
+    // The window-close hook src/main/index.js registers, in order.
+    expect(mod.cancelPartitionDownloads(PARTITION)).toBe(1);
+    expect(item.cancel).toHaveBeenCalled();
+    // Other partitions — private or not — keep transferring.
+    expect(otherItem.cancel).not.toHaveBeenCalled();
+    expect(normalItem.cancel).not.toHaveBeenCalled();
+    privateStore.dropPartition(PARTITION);
+
+    // Bookkeeping is unwound synchronously: the cancelled item is no longer
+    // live (so DOWNLOADS_REMOVE would not refuse it) and its claimed save
+    // path is free again for the next download of the same name.
+    item.emit('done', {}, 'cancelled');
+    const reclaimed = startOn(normalSession, {
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+    });
+    expect(reclaimed.getSavePath()).toBe(path.join(downloadsDir, 'big.iso'));
+  });
+
+  test('cancelPartitionDownloads ignores a missing/blank partition', () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    const item = startOn(privateSession, { url: 'https://example.com/a.bin', filename: 'a.bin' });
+
+    expect(mod.cancelPartitionDownloads(null)).toBe(0);
+    expect(mod.cancelPartitionDownloads('private-nobody')).toBe(0);
+    expect(item.cancel).not.toHaveBeenCalled();
+  });
+
   test('crash scenario: nothing was persisted, so the next run has nothing to sweep', () => {
     const privateSession = new EventEmitter();
     mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
