@@ -324,7 +324,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 ### Private Windows
 
-- **Open**: `Cmd+Shift+N` / `Ctrl+Shift+N` or File > New Private Window. Private windows have a dark, badged chrome so they're recognisable at a glance.
+- **Open**: `Cmd+Shift+N` / `Ctrl+Shift+N` (the default — remappable under Settings > Shortcuts, applies immediately) or File > New Private Window. Private windows have a dark, badged chrome so they're recognisable at a glance.
 - **Ephemeral by construction**: Every private window runs its webviews on a unique in-memory session (`private-<uuid>` partition, never written to disk). Cookies, logins, caches, and site data evaporate when the window closes.
 - **No local traces**: Nothing browsed in a private window is written to history, the favicon cache, or address-bar autocomplete. Downloads still work, but their entries are kept in memory only — never written to the profile's download database, visible only inside the private window, and gone when it closes (saved files stay on disk). Site-permission decisions made in a private window last only as long as the window — never remembered, even if you tick "remember".
 - **Wallet disabled**: Your identity and wallet are persistent by design, so they are unavailable in private windows — pages see no `window.ethereum` / `window.swarm` / `window.radicle` (nothing announces via EIP-6963), and x402 pay-per-request interception is off. Use a normal window for anything wallet-related.

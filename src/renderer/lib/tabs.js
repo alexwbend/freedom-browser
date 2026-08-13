@@ -1784,9 +1784,9 @@ export const initTabs = async () => {
       event.preventDefault();
       createTab(defaultNewTabUrl());
     }
-    // Cmd/Ctrl+Shift+N - New private window (fallback for when the menu
-    // accelerator doesn't handle it)
-    if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'n') {
+    // New private window (fallback for when the menu accelerator doesn't
+    // handle it — e.g. the frameless/auto-hidden menu bar on Linux)
+    if (matchesShortcut(event, 'window.newPrivate')) {
       event.preventDefault();
       electronAPI?.newPrivateWindow?.();
     }
