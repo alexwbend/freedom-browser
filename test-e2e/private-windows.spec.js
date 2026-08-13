@@ -436,9 +436,24 @@ test('a private page title reaches neither the persistent log nor a later normal
   // A NORMAL window opened (via the real File menu) while the private one
   // is live must not inherit the private title through the shared
   // currentWindowTitle every window reads at ready-to-show.
+  // Sampling getTitle() after the window exists would be vacuous: the
+  // BrowserWindow constructor seeds the title with a literal 'Freedom', so a
+  // poll resolves long before ready-to-show applies the shared title. Record
+  // every title the fresh window is *asked* to display instead, so the sample
+  // is taken at the inheritance moment itself.
   const knownIds = await electronApp.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.id)
   );
+  await electronApp.evaluate(({ app }) => {
+    globalThis.__freshWindowTitles = [];
+    app.once('browser-window-created', (_event, win) => {
+      const setTitle = win.setTitle.bind(win);
+      win.setTitle = (value) => {
+        globalThis.__freshWindowTitles.push(value);
+        return setTitle(value);
+      };
+    });
+  });
   await electronApp.evaluate(({ Menu }) => {
     const item = Menu.getApplicationMenu()
       ?.items.flatMap((top) => top.submenu?.items || [])
@@ -446,25 +461,25 @@ test('a private page title reaches neither the persistent log nor a later normal
     if (!item) throw new Error('New Window menu item not found');
     item.click();
   });
-  const freshTitle = await expect
-    .poll(
-      () =>
-        electronApp.evaluate(({ BrowserWindow }, ids) => {
-          const win = BrowserWindow.getAllWindows().find((w) => !ids.includes(w.id));
-          return win ? win.getTitle() : null;
-        }, knownIds),
-      { message: 'Waiting for the new normal window', timeout: 15_000 }
-    )
-    .not.toBe(null)
-    .then(() =>
-      electronApp.evaluate(({ BrowserWindow }, ids) => {
-        const win = BrowserWindow.getAllWindows().find((w) => !ids.includes(w.id));
-        const seen = win.getTitle();
-        win.close();
-        return seen;
-      }, knownIds)
-    );
-  expect(freshTitle).not.toContain(SECRET);
+  await expect
+    .poll(() => electronApp.evaluate(() => (globalThis.__freshWindowTitles || []).length), {
+      message: 'Waiting for the new normal window to be titled',
+      timeout: 15_000,
+    })
+    .toBeGreaterThan(0);
+  const freshTitles = await electronApp.evaluate(({ BrowserWindow }, ids) => {
+    BrowserWindow.getAllWindows()
+      .filter((w) => !ids.includes(w.id))
+      .forEach((w) => w.close());
+    return globalThis.__freshWindowTitles;
+  }, knownIds);
+  for (const title of freshTitles) {
+    expect(title).not.toContain(SECRET);
+  }
+  // …and what it did inherit is the last NORMAL title: proof the ready-to-show
+  // handler ran and really did copy the shared title over, so the assertion
+  // above cannot pass vacuously.
+  expect(freshTitles.some((title) => title.includes(NORMAL))).toBe(true);
 
   await closePrivateWindows(electronApp);
 
