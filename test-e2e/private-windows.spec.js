@@ -497,3 +497,51 @@ test('a private page title reaches neither the persistent log nor a later normal
   expect(logText).toContain(NORMAL);
   expect(logText).not.toContain(SECRET);
 });
+
+// PRIVATE MODE GUARD (dweb request + name logging): the bzz/ipfs/ipns/rad
+// protocol handlers are registered on the private session too, and they log
+// the request URL (and, underneath, the name they resolve) at info. That
+// lands in the persistent <userData>/logs/main.log — the same history-grade
+// trace the title/download/permission guards already close. Driven as a
+// subresource fetch so the request reaches the private session's protocol
+// handler directly, without the top-level navigation's probe.
+test('a private dweb request writes no URL to the persistent log', async ({
+  window,
+  electronApp,
+}) => {
+  const SECRET_HASH = 'c0ffee'.padEnd(64, '1');
+  const PUBLIC_HASH = 'decaf0'.padEnd(64, '2');
+
+  // Sanity: a normal window's dweb request still lands in the log, so the
+  // "absent" assertion below cannot pass vacuously.
+  await navigateTo(window, 'https://normal-dweb.example');
+  await waitForStubPage(window, 'https://normal-dweb.example/');
+  await evalInActiveWebview(
+    window,
+    `fetch('bzz://${PUBLIC_HASH}/page.html').then(() => 'done', () => 'done')`
+  );
+
+  const priv = await openPrivateWindow(electronApp);
+  await navigateTo(priv, 'https://private-dweb.example');
+  await waitForStubPage(priv, 'https://private-dweb.example/');
+  await evalInActiveWebview(
+    priv,
+    `fetch('bzz://${SECRET_HASH}/page.html').then(() => 'done', () => 'done')`
+  );
+
+  await closePrivateWindows(electronApp);
+
+  const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+  const logPath = path.join(userDataDir, 'logs', 'main.log');
+  await expect
+    .poll(() => fs.readFileSync(logPath, 'utf8'), {
+      message: 'Waiting for the normal-window dweb request to reach the log',
+      timeout: 10_000,
+    })
+    .toContain(PUBLIC_HASH);
+
+  const logText = fs.readFileSync(logPath, 'utf8');
+  // The private request is still visible as a request — just not as a place.
+  expect(logText).toContain('bzz://<private>');
+  expect(logText).not.toContain(SECRET_HASH);
+});

@@ -54,6 +54,11 @@ const {
 const { serveNativeGatewayRequest } = require('../ipfs-manager');
 const { isDwebNameHost } = require('../../shared/origin-utils');
 const {
+  runWithPrivateLogContext,
+  redactForLog,
+  redactUrlForLog,
+} = require('../private/private-log-context');
+const {
   cidV0ToV1Base32,
   cidV1B58btcToBase32,
   ipnsMhToCidV1Base36,
@@ -396,7 +401,7 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
     result = await resolveContentName(host);
   } catch (err) {
     log.warn(
-      `[${namespace}-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`
+      `[${namespace}-protocol] ${fallbackSystemLabel} resolver threw for ${redactForLog(host)}: ${err.message}`
     );
     return {
       ok: false,
@@ -485,7 +490,9 @@ async function handleRequest(
     return jsonErrorResponse(400, `invalid ${namespace} reference`);
   }
   if (!built.ok) {
-    log.info(`[${namespace}-protocol] ${built.status} for ${request.url}: ${built.message}`);
+    log.info(
+      `[${namespace}-protocol] ${built.status} for ${redactUrlForLog(request.url)}: ${built.message}`
+    );
     return jsonErrorResponse(built.status, built.message);
   }
 
@@ -510,7 +517,7 @@ async function handleRequest(
       });
     } catch (err) {
       log.warn(
-        `[${namespace}-protocol] native request failed for ${gatewayPath}: ${err?.message || err}`
+        `[${namespace}-protocol] native request failed for ${redactForLog(gatewayPath)}: ${err?.message || err}`
       );
       return jsonErrorResponse(502, err?.message || 'freedom-ipfs native gateway error');
     }
@@ -546,14 +553,14 @@ async function handleRequest(
     // request and there's nothing useful to return.
     if (attemptCtl.signal.aborted && !upstream?.aborted) {
       log.warn(
-        `[${namespace}-protocol] fetch timed out after ${attemptTimeoutMs}ms for ${built.url}`
+        `[${namespace}-protocol] fetch timed out after ${attemptTimeoutMs}ms for ${redactUrlForLog(built.url)}`
       );
       return jsonErrorResponse(504, 'freedom-ipfs gateway timeout');
     }
     const code = err?.cause?.code || err?.code || '';
     const isConnRefused = code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND';
     log.warn(
-      `[${namespace}-protocol] fetch failed for ${built.url}: ${err?.message || err}` +
+      `[${namespace}-protocol] fetch failed for ${redactUrlForLog(built.url)}: ${err?.message || err}` +
         (code ? ` (${code})` : '')
     );
     return jsonErrorResponse(
@@ -585,13 +592,19 @@ function gatewayPathFromUrl(gatewayUrl) {
  * `app.ready` — see `src/main/index.js`.
  */
 function makeRegister(namespace) {
-  return function register(targetSession) {
+  return function register(targetSession, { privatePartition = null } = {}) {
     if (!targetSession?.protocol?.handle) {
       log.warn(`[${namespace}-protocol] session.protocol.handle unavailable — skipping`);
       return;
     }
+    // PRIVATE MODE GUARD (request logging): see registerBzzProtocol — one
+    // registration per session, so the private session's handler marks
+    // every request it serves as private for the duration.
+    const isPrivate = !!privatePartition;
     try {
-      targetSession.protocol.handle(namespace, (request) => handleRequest(namespace, request));
+      targetSession.protocol.handle(namespace, (request) =>
+        runWithPrivateLogContext(isPrivate, () => handleRequest(namespace, request))
+      );
       log.info(`[${namespace}-protocol] handler registered`);
     } catch (err) {
       log.error(`[${namespace}-protocol] failed to register handler:`, err);

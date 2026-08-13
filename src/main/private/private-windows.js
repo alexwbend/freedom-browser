@@ -24,6 +24,13 @@
  *   - publish:   src/main/swarm/publish-service.js (PRIVATE MODE GUARD)
  *   - providers: src/main/webview-preload.js (PRIVATE MODE GUARD, via the
  *                `private:is-private` sync IPC in ipc-handlers.js)
+ *
+ * The persistent-log guards (window title, downloads, navigation URLs,
+ * permission origins) key off the same registry. The dweb protocol handlers
+ * and the name resolvers behind them are guarded a level down, by the
+ * async-context marker in src/main/private/private-log-context.js — set
+ * once by whoever knows the session (the per-session protocol registration,
+ * the resolver IPC handlers) and read by every log site underneath.
  */
 
 const crypto = require('crypto');

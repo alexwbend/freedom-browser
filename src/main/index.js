@@ -367,13 +367,17 @@ async function bootstrap() {
   // windows, so no payment could ever be signed; excluding the x402
   // handlers keeps 402 responses flowing to the page untouched.
   setPrivateSessionConfigurator((privateSession, { partition }) => {
+    // The dweb protocol handlers log request URLs (and, underneath, the
+    // names they resolve) to the persistent main.log. Passing the partition
+    // marks this session's registrations private so those lines are
+    // redacted — see src/main/private/private-log-context.js.
     if (TEST_MODE) {
-      registerStubProtocols(privateSession);
+      registerStubProtocols(privateSession, { privatePartition: partition });
     } else {
-      registerBzzProtocol(privateSession);
-      registerIpfsProtocol(privateSession);
-      registerIpnsProtocol(privateSession);
-      registerRadProtocol(privateSession);
+      registerBzzProtocol(privateSession, { privatePartition: partition });
+      registerIpfsProtocol(privateSession, { privatePartition: partition });
+      registerIpnsProtocol(privateSession, { privatePartition: partition });
+      registerRadProtocol(privateSession, { privatePartition: partition });
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),

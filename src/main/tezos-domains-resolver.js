@@ -6,6 +6,17 @@ const IPC = require('../shared/ipc-channels');
 const { blake2b } = require('../shared/blake2b');
 const { isDwebNameHost } = require('../shared/origin-utils');
 const { capCache } = require('./cache-utils');
+const {
+  runWithPrivateLogContext,
+  redactForLog,
+} = require('./private/private-log-context');
+const { isPrivateWebContents } = require('./private/private-windows');
+
+// PRIVATE MODE GUARD (name logging): same contract as the ENS resolver —
+// the .tez name being resolved is the browsing history of the tab that
+// asked, and log.warn/error land in the persistent main.log. See
+// src/main/private/private-log-context.js.
+const nameForLog = (name) => redactForLog(name);
 
 const MAINNET_CHAIN_ID = 'NetXdQprcVkpaWU';
 const PROXY_CONTRACT = 'KT1F7JKNqwaoLzRsMio1MQC7zv3jG9dHcDdJ';
@@ -615,7 +626,9 @@ async function resolveTezosDomainUncached(normalized, fetchImpl, endpoints) {
       .filter((leg) => !winner.includes(leg))
       .map((leg) => leg.endpoint)
       .join(', ');
-    log.warn(`[tezos-domains] ${dissenting} disagreed with the majority for ${normalized}`);
+    log.warn(
+      `[tezos-domains] ${dissenting} disagreed with the majority for ${nameForLog(normalized)}`
+    );
   }
   const result = {
     ...winner[0].result,
@@ -643,13 +656,15 @@ function invalidateTezosDomain(name) {
 }
 
 function registerTezosDomainsIpc() {
-  ipcMain.handle(IPC.TEZOS_DOMAINS_RESOLVE, async (_event, { name } = {}) => {
-    try {
-      return await resolveTezosDomain(name);
-    } catch (err) {
-      log.error(`[tezos-domains] Resolution failed for ${name}: ${err.message}`);
-      return { type: 'error', reason: err.message, system: 'tezos' };
-    }
+  ipcMain.handle(IPC.TEZOS_DOMAINS_RESOLVE, async (event, { name } = {}) => {
+    return runWithPrivateLogContext(isPrivateWebContents(event?.sender), async () => {
+      try {
+        return await resolveTezosDomain(name);
+      } catch (err) {
+        log.error(`[tezos-domains] Resolution failed for ${nameForLog(name)}: ${err.message}`);
+        return { type: 'error', reason: err.message, system: 'tezos' };
+      }
+    });
   });
   ipcMain.handle(IPC.TEZOS_DOMAINS_INVALIDATE, (_event, { name } = {}) => {
     invalidateTezosDomain(name);

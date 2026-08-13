@@ -902,3 +902,57 @@ describe('handleRequest', () => {
     expect(init.duplex).toBe('half');
   });
 });
+
+
+// PRIVATE MODE GUARD (request logging) — same contract as the bzz handler,
+// for both namespaces this module registers.
+describe('registerIpfsProtocol / registerIpnsProtocol private sessions', () => {
+  const log = require('../logger');
+  const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs-protocol');
+
+  function fakeSession() {
+    const handlers = new Map();
+    return {
+      handlers,
+      protocol: { handle: (scheme, fn) => handlers.set(scheme, fn) },
+    };
+  }
+
+  function loggedText() {
+    return [log.info, log.warn, log.error]
+      .flatMap((fn) => fn.mock.calls)
+      .map((call) => call.join(' '))
+      .join('\n');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockResolveEnsContent.mockReset();
+    mockResolveEnsContent.mockRejectedValue(new Error('rpc down'));
+  });
+
+  test.each([
+    ['ipfs', registerIpfsProtocol],
+    ['ipns', registerIpnsProtocol],
+  ])('a private %s session redacts the request URL and the resolved name', async (ns, register) => {
+    const session = fakeSession();
+    register(session, { privatePartition: 'private-abcd' });
+
+    await session.handlers.get(ns)({ url: `${ns}://secret-site.eth/page.html`, headers: {} });
+
+    const text = loggedText();
+    expect(text).not.toContain('secret-site.eth');
+    expect(text).not.toContain('page.html');
+    expect(text).toContain('resolver threw for <private>');
+    expect(text).toContain(`502 for ${ns}://<private>`);
+  });
+
+  test('a normal session keeps the full diagnostic URL', async () => {
+    const session = fakeSession();
+    registerIpfsProtocol(session);
+
+    await session.handlers.get('ipfs')({ url: 'ipfs://public-site.eth/page.html', headers: {} });
+
+    expect(loggedText()).toContain('ipfs://public-site.eth/page.html');
+  });
+});

@@ -47,6 +47,11 @@ const {
   resolveContentName,
 } = require('../content-name-resolver');
 const { isDwebNameHost } = require('../../shared/origin-utils');
+const {
+  runWithPrivateLogContext,
+  redactForLog,
+  redactUrlForLog,
+} = require('../private/private-log-context');
 
 // Per-attempt retry schedule. First entry is the delay BEFORE the 2nd
 // attempt, etc. Total backoff budget ≈ sum of all values (~50s). The probe
@@ -181,7 +186,9 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   try {
     result = await resolveContentName(host);
   } catch (err) {
-    log.warn(`[bzz-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`);
+    log.warn(
+      `[bzz-protocol] ${fallbackSystemLabel} resolver threw for ${redactForLog(host)}: ${err.message}`
+    );
     return {
       ok: false,
       status: 502,
@@ -375,7 +382,9 @@ async function handleBzzRequest(
     return jsonErrorResponse(400, 'invalid bzz reference');
   }
   if (!built.ok) {
-    log.info(`[bzz-protocol] ${built.status} for ${request.url}: ${built.message}`);
+    log.info(
+      `[bzz-protocol] ${built.status} for ${redactUrlForLog(request.url)}: ${built.message}`
+    );
     return jsonErrorResponse(built.status, built.message);
   }
   const gatewayUrl = built.url;
@@ -395,7 +404,7 @@ async function handleBzzRequest(
     const code = err?.cause?.code || err?.code || '';
     const isConnRefused = code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND';
     log.warn(
-      `[bzz-protocol] fetch failed for ${gatewayUrl}: ${err?.message || err}` +
+      `[bzz-protocol] fetch failed for ${redactUrlForLog(gatewayUrl)}: ${err?.message || err}` +
         (code ? ` (${code})` : '')
     );
     return jsonErrorResponse(
@@ -411,13 +420,21 @@ async function handleBzzRequest(
  * registered privileged via `protocol.registerSchemesAsPrivileged` before
  * `app.ready` — see `main/index.js`.
  */
-function registerBzzProtocol(targetSession) {
+function registerBzzProtocol(targetSession, { privatePartition = null } = {}) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[bzz-protocol] session.protocol.handle unavailable — skipping');
     return;
   }
+  // PRIVATE MODE GUARD (request logging): this handler is registered once
+  // per session, so a private window's session gets its own registration —
+  // the one place where private-ness is known for every request it serves.
+  // Marking the whole handler redacts the URL and gateway log lines here
+  // AND the name-resolution ones underneath (see private-log-context.js).
+  const isPrivate = !!privatePartition;
   try {
-    targetSession.protocol.handle('bzz', (request) => handleBzzRequest(request));
+    targetSession.protocol.handle('bzz', (request) =>
+      runWithPrivateLogContext(isPrivate, () => handleBzzRequest(request))
+    );
     log.info('[bzz-protocol] handler registered');
   } catch (err) {
     log.error('[bzz-protocol] failed to register handler:', err);

@@ -218,3 +218,55 @@ describe('handleRadRequest', () => {
     expect(init.headers.get('accept')).toBe('application/json');
   });
 });
+
+
+// PRIVATE MODE GUARD (request logging) — same contract as the bzz handler:
+// registration decides whether the persistent main.log records the rad URL.
+describe('registerRadProtocol private sessions', () => {
+  const log = require('../logger');
+  const { registerRadProtocol } = require('./rad-protocol');
+
+  function fakeSession() {
+    const handlers = new Map();
+    return {
+      handlers,
+      protocol: { handle: (scheme, fn) => handlers.set(scheme, fn) },
+    };
+  }
+
+  function loggedText() {
+    return [log.info, log.warn, log.error]
+      .flatMap((fn) => fn.mock.calls)
+      .map((call) => call.join(' '))
+      .join('\n');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getRadicleApiUrl.mockReturnValue(API);
+    // Disabled integration is the semantic-failure path that logs the URL
+    // without touching the network.
+    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+  });
+
+  test('a private session redacts the rad URL', async () => {
+    const session = fakeSession();
+    registerRadProtocol(session, { privatePartition: 'private-abcd' });
+
+    await session.handlers.get('rad')({ url: `rad://${RID}/tree/main/secret.md`, headers: {} });
+
+    const text = loggedText();
+    expect(text).not.toContain(RID);
+    expect(text).not.toContain('secret.md');
+    expect(text).toContain('403 for rad://<private>');
+  });
+
+  test('a normal session keeps the full diagnostic URL', async () => {
+    const session = fakeSession();
+    registerRadProtocol(session);
+
+    await session.handlers.get('rad')({ url: `rad://${RID}/tree/main/secret.md`, headers: {} });
+
+    expect(loggedText()).toContain(`rad://${RID}/tree/main/secret.md`);
+  });
+});
