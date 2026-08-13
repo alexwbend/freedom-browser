@@ -620,12 +620,17 @@ describe('permissions-manager private windows', () => {
   let ctx;
   let normalSession;
   let privateSession;
+  let log;
 
   const load = () => {
+    log = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
     ctx = loadMainModule(require.resolve('./permissions-manager'), {
       userDataDir,
       electronOverrides: {
         systemPreferences: { askForMediaAccess: jest.fn(() => Promise.resolve(true)) },
+      },
+      extraMocks: {
+        [require.resolve('../logger')]: () => log,
       },
     });
     normalSession = makeFakeSession();
@@ -672,6 +677,41 @@ describe('permissions-manager private windows', () => {
     // Nothing lands in permissions.json…
     const storeCtx = loadMainModule(require.resolve('./permissions-store'), { userDataDir });
     expect(storeCtx.mod.getAllDecisions()).toEqual({});
+  });
+
+  // PRIVATE MODE GUARD (permission logging): log.info lands in the
+  // persistent <userData>/logs/main.log, which outlives the window — an
+  // origin a private tab prompted for must not be recorded there, least of
+  // all on a line that also labels it as private browsing.
+  test('a private prompt answer never writes the origin to the persistent log', async () => {
+    load();
+    const host = makeHost();
+    const url = 'https://secret-private.example/page';
+
+    requestOn(privateSession, 'notifications', host, url);
+    await respond({ id: lastPrompt(host).id, decision: 'allow', remember: true });
+    await flush();
+
+    // A dismissal takes the other logging branch.
+    requestOn(privateSession, 'geolocation', host, url);
+    await respond({ id: lastPrompt(host).id, decision: 'dismiss' });
+    await flush();
+
+    const lines = log.info.mock.calls.map((call) => call.join(' '));
+    // The decisions are still traced...
+    expect(lines.some((line) => line.includes('allow notifications'))).toBe(true);
+    expect(lines.some((line) => line.includes('dismissed geolocation'))).toBe(true);
+    // ...without the origin.
+    expect(lines.join('\n')).not.toContain('secret-private.example');
+
+    // Normal windows keep the diagnostic origin.
+    const normalHost = makeHost();
+    requestOn(normalSession, 'notifications', normalHost, 'https://public.example/page');
+    await respond({ id: lastPrompt(normalHost).id, decision: 'allow', remember: false });
+    await flush();
+    expect(log.info.mock.calls.map((call) => call.join(' ')).join('\n')).toContain(
+      'public.example'
+    );
   });
 
   test('a private decision applies silently within the window but not to normal windows', async () => {

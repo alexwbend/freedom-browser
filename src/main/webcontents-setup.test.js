@@ -58,6 +58,9 @@ function loadWebContentsSetupModule(options = {}) {
     BrowserWindow,
     extraMocks: {
       [require.resolve('./logger')]: () => log,
+      [require.resolve('./private/private-windows')]: () => ({
+        isPrivateWebContents: options.isPrivateWebContents || (() => false),
+      }),
     },
   });
   const state = require('./state');
@@ -215,6 +218,41 @@ describe('webcontents-setup', () => {
     expect(ctx.log.error).toHaveBeenCalledWith('[webcontents:33:webview] crashed event (legacy)');
     expect(ctx.log.warn).toHaveBeenCalledWith('[webcontents:33:webview] became unresponsive');
     expect(ctx.log.warn).toHaveBeenCalledWith('[webcontents:33:webview] responsive again');
+  });
+
+  // PRIVATE MODE GUARD (navigation logging): log.info is written to the
+  // persistent <userData>/logs/main.log, which outlives the private window.
+  // Neither an intercepted custom-protocol URL nor a new-window target may
+  // record where a private tab went — `rad:`/`ethereum:` URIs in particular
+  // have no origin for sanitizeUrlForLog to strip them back to.
+  test('private-window navigations log no URL at all', () => {
+    const parentWindow = { webContents: { id: 2, send: jest.fn() } };
+    const ctx = loadWebContentsSetupModule({
+      windows: [parentWindow],
+      isPrivateWebContents: (contents) => contents?.id === 44,
+    });
+    const contents = createContentsMock({ id: 44, type: 'webview' });
+
+    ctx.mod.registerWebContentsHandlers();
+    ctx.app.emit('web-contents-created', {}, contents);
+
+    contents.emit('will-navigate', { preventDefault: jest.fn() }, 'rad:zSECRETRIDXYZZY');
+    contents.windowOpenHandler({ url: 'https://secret.example/path', frameName: '' });
+
+    // The events are still traced (diagnosability), just not their targets.
+    const lines = ctx.log.info.mock.calls.map((call) => call.join(' '));
+    expect(lines.some((line) => line.includes('intercepted custom protocol navigation'))).toBe(
+      true
+    );
+    expect(lines.some((line) => line.includes('intercepted new window request'))).toBe(true);
+    const joined = lines.join('\n');
+    expect(joined).not.toContain('zSECRETRIDXYZZY');
+    expect(joined).not.toContain('secret.example');
+    // The navigation itself still works.
+    expect(parentWindow.webContents.send).toHaveBeenCalledWith(
+      'navigate-to-url',
+      'rad:zSECRETRIDXYZZY'
+    );
   });
 
   test('registers global process failure handlers on the app', () => {

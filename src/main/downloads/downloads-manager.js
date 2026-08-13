@@ -227,7 +227,12 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
   activeItemMeta.set(id, { privatePartition, reservedPath });
 
   const ownerWindow = ownerWindowOf(webContents);
-  log.info('[Downloads] Download started:', filename, `(id ${id})`);
+  // PRIVATE MODE GUARD (download logging): the row lives in the in-memory
+  // private store precisely so nothing durable records what was fetched —
+  // logging the filename to the persistent main.log would reinstate exactly
+  // that trace, and outlive the window. Log the id only.
+  const logName = isPrivate ? '<private>' : filename;
+  log.info('[Downloads] Download started:', logName, `(id ${id})`);
   sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }), privatePartition);
 
   let lastProgressAt = 0;
@@ -280,7 +285,7 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
       endTime: Date.now(),
     });
 
-    log.info('[Downloads] Download', doneState + ':', filename, `(id ${id})`);
+    log.info('[Downloads] Download', doneState + ':', logName, `(id ${id})`);
     sendToOwner(
       ownerWindow,
       {

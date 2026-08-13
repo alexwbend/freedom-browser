@@ -8,6 +8,8 @@
 // bzz/ipfs/ipns are stubbed per session — including private sessions,
 // which get the same stubs via the private-session configurator).
 
+const fs = require('fs');
+const path = require('path');
 const { test, expect } = require('./fixtures');
 
 const DATA_URI = 'data:application/octet-stream;base64,ZnJlZWRvbS1wcml2YXRlLWUyZQ==';
@@ -390,4 +392,85 @@ test('Open Link in New Window from a private window opens another private window
     return rows.map((r) => r.url);
   });
   expect(historyUrls.some((url) => url.startsWith('https://leak.example'))).toBe(false);
+});
+
+// PRIVATE MODE GUARD (window title): the renderer forwards the active tab's
+// page title to the main process on every title update and tab switch. That
+// title (for view-source tabs, a full URL) must not be appended to the
+// persistent <userData>/logs/main.log, which outlives the window and the
+// app, nor seed the process-wide title that every later NORMAL window
+// inherits at ready-to-show.
+test('a private page title reaches neither the persistent log nor a later normal window', async ({
+  window,
+  electronApp,
+}) => {
+  const SECRET = 'R3SECRETTITLEXYZZY';
+
+  // Sanity: a normal-window title still reaches the log, so the "absent"
+  // assertion below cannot pass vacuously.
+  const NORMAL = 'R3NORMALTITLEPUBLIC';
+  await navigateTo(window, 'https://normal-title.example');
+  await waitForStubPage(window, 'https://normal-title.example/');
+  await evalInActiveWebview(window, `document.title = '${NORMAL}'; document.title`);
+
+  const priv = await openPrivateWindow(electronApp);
+  await navigateTo(priv, 'https://private-title.example');
+  await waitForStubPage(priv, 'https://private-title.example/');
+  await evalInActiveWebview(priv, `document.title = '${SECRET}'; document.title`);
+
+  // The private window's own native title still tracks the page (as Chrome
+  // and Firefox do) — the guard is about shared and durable state.
+  await expect
+    .poll(
+      () =>
+        electronApp.evaluate(({ BrowserWindow }) => {
+          const win = BrowserWindow.getAllWindows().find((w) =>
+            w.webContents.getURL().includes('privatePartition=private-')
+          );
+          return win ? win.getTitle() : null;
+        }),
+      { message: 'Waiting for the private window title', timeout: 10_000 }
+    )
+    .toContain(SECRET);
+
+  // A NORMAL window opened (via the real File menu) while the private one
+  // is live must not inherit the private title through the shared
+  // currentWindowTitle every window reads at ready-to-show.
+  const knownIds = await electronApp.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows().map((w) => w.id)
+  );
+  await electronApp.evaluate(({ Menu }) => {
+    const item = Menu.getApplicationMenu()
+      ?.items.flatMap((top) => top.submenu?.items || [])
+      .find((entry) => entry.label === 'New Window');
+    if (!item) throw new Error('New Window menu item not found');
+    item.click();
+  });
+  const freshTitle = await expect
+    .poll(
+      () =>
+        electronApp.evaluate(({ BrowserWindow }, ids) => {
+          const win = BrowserWindow.getAllWindows().find((w) => !ids.includes(w.id));
+          return win ? win.getTitle() : null;
+        }, knownIds),
+      { message: 'Waiting for the new normal window', timeout: 15_000 }
+    )
+    .not.toBe(null)
+    .then(() =>
+      electronApp.evaluate(({ BrowserWindow }, ids) => {
+        const win = BrowserWindow.getAllWindows().find((w) => !ids.includes(w.id));
+        const seen = win.getTitle();
+        win.close();
+        return seen;
+      }, knownIds)
+    );
+  expect(freshTitle).not.toContain(SECRET);
+
+  await closePrivateWindows(electronApp);
+
+  // Nothing durable recorded the private title; the normal one is there.
+  const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'));
+  const logText = fs.readFileSync(path.join(userDataDir, 'logs', 'main.log'), 'utf8');
+  expect(logText).toContain(NORMAL);
+  expect(logText).not.toContain(SECRET);
 });

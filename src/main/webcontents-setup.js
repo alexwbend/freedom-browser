@@ -3,6 +3,7 @@ const { BrowserWindow, app } = require('electron');
 const { activeBzzBases, activeRadBases } = require('./state');
 const { cleanupWebContents: cleanupX402WebContents } = require('./x402/intercept');
 const { cleanupAdblockWebContents } = require('./adblock/service');
+const { isPrivateWebContents } = require('./private/private-windows');
 
 const sanitizeUrlForLog = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== 'string') return 'unknown';
@@ -32,6 +33,14 @@ const sanitizeUrlForLog = (rawUrl) => {
     return 'unknown';
   }
 };
+
+// PRIVATE MODE GUARD (navigation logging): `log.info` lands in the persistent
+// <userData>/logs/main.log, which outlives the private window and the app.
+// Even the sanitised form leaks where a private tab went (an http origin, or
+// the whole `rad:`/`ethereum:` URI, which has no origin to strip back to), so
+// private-window navigations log nothing beyond the fact that one happened.
+const navUrlForLog = (contents, rawUrl) =>
+  isPrivateWebContents(contents) ? '<private>' : sanitizeUrlForLog(rawUrl);
 
 // Resolve the BrowserWindow that hosts a webview's contents. Webviews carry
 // their chrome renderer as hostWebContents; routing through it (instead of
@@ -88,7 +97,7 @@ function registerWebContentsHandlers() {
 
       contents.setWindowOpenHandler(({ url, frameName }) => {
         log.info(
-          `${tag} intercepted new window request: ${sanitizeUrlForLog(url)} (target: ${frameName || 'none'})`
+          `${tag} intercepted new window request: ${navUrlForLog(contents, url)} (target: ${frameName || 'none'})`
         );
         // Send message to the owning BrowserWindow to open URL in new tab
         const parentWindow = ownerWindowOf(contents);
@@ -116,7 +125,7 @@ function registerWebContentsHandlers() {
           url.startsWith('rad:') ||
           url.startsWith('ethereum:')
         ) {
-          log.info(`${tag} intercepted custom protocol navigation: ${sanitizeUrlForLog(url)}`);
+          log.info(`${tag} intercepted custom protocol navigation: ${navUrlForLog(contents, url)}`);
           event.preventDefault();
           // Send to the owning window to handle via the browser's navigation system
           const parentWindow = ownerWindowOf(contents);

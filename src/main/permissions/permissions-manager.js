@@ -219,6 +219,19 @@ function getEffectiveDecision(origin, key, privatePartition = null) {
   return store.getDecision(origin, key) || getSessionDecision(origin, key);
 }
 
+/**
+ * PRIVATE MODE GUARD (permission logging): `log.info` is written to the
+ * persistent <userData>/logs/main.log, which outlives the private window and
+ * the app — so an origin a private tab prompted for must never appear there.
+ * Private decisions are deliberately kept partition-scoped and dropped on
+ * close (clearPrivateDecisions); logging the origin would reinstate exactly
+ * the durable record that guard exists to prevent. The event still logs, its
+ * origin does not.
+ */
+function originForLog(origin, privatePartition) {
+  return privatePartition ? '<private>' : origin;
+}
+
 function broadcastChanged() {
   broadcastToAllWebContents(IPC.PERMISSIONS_CHANGED, {});
 }
@@ -256,13 +269,15 @@ async function getOsBlockedMediaKeys(keys) {
  * request fails and the window gets a distinct notice (the site-level
  * grant stays recorded — it applies as soon as the OS setting flips).
  */
-async function grantWithOsGate({ permission, keys, origin, host, callbacks }) {
+async function grantWithOsGate({ permission, keys, origin, host, callbacks, privatePartition = null }) {
   let allowed = true;
   if (permission === 'media') {
     const blocked = await getOsBlockedMediaKeys(keys.filter((k) => k === 'camera' || k === 'microphone'));
     if (blocked.length > 0) {
       allowed = false;
-      log.info(`[permissions] macOS blocks ${blocked.join('+')} for ${origin}`);
+      log.info(
+        `[permissions] macOS blocks ${blocked.join('+')} for ${originForLog(origin, privatePartition)}`
+      );
       try {
         if (host && !host.isDestroyed()) {
           host.send(IPC.PERMISSIONS_OS_DENIED, { origin, permissions: blocked });
@@ -489,7 +504,9 @@ function resolvePrompt({ id, decision, remember }) {
   // entries eagerly (removing them from pendingById), so this only fires
   // if a stale answer races that cleanup — deny once, record nothing.
   if (!state || entry.generation !== state.generation) {
-    log.info(`[permissions] stale prompt answer for ${entry.origin} ignored (denied once)`);
+    log.info(
+      `[permissions] stale prompt answer for ${originForLog(entry.origin, entry.privatePartition)} ignored (denied once)`
+    );
     denyAll(entry.callbacks);
     if (state) sendNextPrompt(state);
     return true;
@@ -511,7 +528,7 @@ function resolvePrompt({ id, decision, remember }) {
     }
     broadcastChanged();
     log.info(
-      `[permissions] ${decision} ${entry.keys.join('+')} for ${entry.origin}` +
+      `[permissions] ${decision} ${entry.keys.join('+')} for ${originForLog(entry.origin, entry.privatePartition)}` +
         (entry.privatePartition
           ? ' (private window)'
           : remember
@@ -519,7 +536,9 @@ function resolvePrompt({ id, decision, remember }) {
             : ' (this session)')
     );
   } else {
-    log.info(`[permissions] dismissed ${entry.keys.join('+')} prompt for ${entry.origin}`);
+    log.info(
+      `[permissions] dismissed ${entry.keys.join('+')} prompt for ${originForLog(entry.origin, entry.privatePartition)}`
+    );
   }
 
   if (decision === 'allow') {
@@ -529,6 +548,7 @@ function resolvePrompt({ id, decision, remember }) {
       origin: entry.origin,
       host: state?.host || null,
       callbacks: entry.callbacks,
+      privatePartition: entry.privatePartition,
     });
   } else {
     denyAll(entry.callbacks);
@@ -577,7 +597,7 @@ function installPermissionHandlers(targetSession, { privatePartition = null } = 
     const host = hostForWebContents(webContents);
 
     if (decisions.every((d) => d === 'allow')) {
-      grantWithOsGate({ permission, keys, origin, host, callbacks: [callback] });
+      grantWithOsGate({ permission, keys, origin, host, callbacks: [callback], privatePartition });
       return;
     }
 

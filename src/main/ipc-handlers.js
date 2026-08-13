@@ -713,9 +713,20 @@ function registerBaseIpcHandlers(callbacks = {}) {
     const win = event.sender.getOwnerBrowserWindow();
     if (!win) return;
     const formatted = formatWindowTitle(title);
-    log.info(`[main] Setting window title to: "${formatted}" (requested: "${title}")`);
+    // PRIVATE MODE GUARD (window title): a private page's <title> — and, for
+    // view-source/error tabs, its full URL, which the renderer sends as the
+    // title — must not reach the persistent on-disk log, nor seed the
+    // process-wide `currentWindowTitle` that every later normal window
+    // inherits at ready-to-show. The private window's own native title still
+    // updates (matching Chrome/Firefox), it just stays out of shared state.
+    const isPrivate = isPrivateWebContents(event.sender);
+    if (isPrivate) {
+      log.info('[main] Setting window title for a private window (title redacted)');
+    } else {
+      log.info(`[main] Setting window title to: "${formatted}" (requested: "${title}")`);
+    }
     win.setTitle(formatted);
-    if (callbacks.onSetTitle) {
+    if (!isPrivate && callbacks.onSetTitle) {
       callbacks.onSetTitle(formatted);
     }
   });

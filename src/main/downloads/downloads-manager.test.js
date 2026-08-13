@@ -509,9 +509,11 @@ describe('downloads-manager private sessions', () => {
   let mod;
   let store;
   let privateStore;
+  let log;
 
   const load = () => {
     ipcMain = createIpcMainMock();
+    log = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
     allWebContents = [];
     ownerWindow = {
       isDestroyed: () => false,
@@ -535,6 +537,7 @@ describe('downloads-manager private sessions', () => {
         [require.resolve('../private/private-windows')]: () => ({
           getPartitionForWebContents: (wc) => wc?.privatePartition || null,
         }),
+        [require.resolve('../logger')]: () => log,
       },
     }));
     // Same jest module registry → the exact store instances the manager uses.
@@ -600,6 +603,38 @@ describe('downloads-manager private sessions', () => {
         session_partition: PARTITION,
       })
     );
+  });
+
+  // The in-memory private store exists so nothing durable records what was
+  // fetched; log.info goes to the persistent <userData>/logs/main.log, which
+  // outlives the window and the app, so the filename must not appear there.
+  test('a private download never writes its filename to the persistent log', () => {
+    const privateSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+
+    const item = startOn(privateSession, {
+      url: 'https://example.com/secret.bin',
+      filename: 'secret.bin',
+      totalBytes: 100,
+    });
+    item.emit('done', {}, 'completed');
+
+    // Both the start and the terminal line are emitted (the id is still
+    // traceable) — neither carries the filename.
+    const lines = log.info.mock.calls.map((call) => call.join(' '));
+    expect(lines.filter((line) => line.includes('[Downloads] Download')).length).toBe(2);
+    expect(lines.join('\n')).not.toContain('secret.bin');
+
+    // Normal downloads keep the diagnostic filename.
+    const normalSession = new EventEmitter();
+    mod.attachDownloadsManager(normalSession);
+    const normalItem = startOn(normalSession, {
+      url: 'https://example.com/public.bin',
+      filename: 'public.bin',
+      totalBytes: 10,
+    });
+    normalItem.emit('done', {}, 'completed');
+    expect(log.info.mock.calls.map((call) => call.join(' ')).join('\n')).toContain('public.bin');
   });
 
   test('private rows merge into the private window view only; ids are negative', async () => {

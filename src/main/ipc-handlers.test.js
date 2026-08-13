@@ -498,6 +498,44 @@ describe('ipc-handlers', () => {
     expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('window:new-with-url'));
   });
 
+  // PRIVATE MODE GUARD (window title): a private page's <title> (and, for
+  // view-source, the full URL the renderer sends as the title) must stay out
+  // of the persistent on-disk log and out of the process-wide title that
+  // later normal windows inherit at ready-to-show.
+  test('window:set-title from a private window neither logs the title nor seeds the shared title', () => {
+    const onSetTitle = jest.fn();
+    const ctx = loadIpcHandlersModule({
+      isPrivateWebContents: (wc) => wc?.isPrivate === true,
+    });
+    const win = createWindowMock();
+
+    ctx.mod.registerBaseIpcHandlers({ onSetTitle });
+
+    ctx.ipcMain.emit(
+      IPC.WINDOW_SET_TITLE,
+      { sender: { isPrivate: true, getOwnerBrowserWindow: () => win } },
+      'SECRET-TITLE-XYZZY'
+    );
+
+    // The window's own native title still updates (as Chrome/Firefox do)...
+    expect(win.setTitle).toHaveBeenCalledWith('SECRET-TITLE-XYZZY - Freedom');
+    // ...but nothing durable or shared records it.
+    expect(onSetTitle).not.toHaveBeenCalled();
+    for (const call of ctx.log.info.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain('SECRET-TITLE-XYZZY');
+    }
+
+    // Normal windows are unchanged.
+    const normalWin = createWindowMock();
+    ctx.ipcMain.emit(
+      IPC.WINDOW_SET_TITLE,
+      { sender: { getOwnerBrowserWindow: () => normalWin } },
+      'Public Title'
+    );
+    expect(onSetTitle).toHaveBeenCalledWith('Public Title - Freedom');
+    expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('Public Title'));
+  });
+
   test('lists, creates, and renames profiles through profile IPC', async () => {
     const activeProfile = {
       id: 'default',
