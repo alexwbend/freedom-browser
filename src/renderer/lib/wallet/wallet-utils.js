@@ -2,11 +2,47 @@
  * Shared utility functions for wallet UI modules.
  */
 
+import { walletState } from './wallet-state.js';
+
 export function truncateAddress(address, startChars = 6, endChars = 4) {
   if (!address || address.length <= startChars + endChars + 3) {
     return address;
   }
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
+}
+
+/**
+ * Whether a wallet index belongs to a Ledger hardware account. Hardware
+ * accounts sign on the device: no vault unlock, and approval UIs show a
+ * "confirm on your Ledger" state instead of instant signing.
+ *
+ * @param {number} walletIndex
+ * @returns {boolean}
+ */
+export function isLedgerAccount(walletIndex) {
+  return walletState.derivedWallets?.find((wallet) => wallet.index === walletIndex)?.type === 'ledger';
+}
+
+/** Pending label for approve buttons while a signature is in flight. */
+export function signingButtonLabel(walletIndex) {
+  return isLedgerAccount(walletIndex) ? 'Confirm on your Ledger…' : 'Signing…';
+}
+
+/**
+ * Hardware accounts sign on the device — no vault key, no unlock gate.
+ * Hides the unlock section and enables the confirm button; returns true
+ * when the gate was bypassed so callers can skip the vault-status flow.
+ *
+ * @param {number} walletIndex
+ * @param {HTMLElement|null} unlockEl - the unlock section to hide
+ * @param {HTMLButtonElement|null} confirmBtn - the approve/confirm button
+ * @returns {boolean}
+ */
+export function bypassUnlockGateForHardware(walletIndex, unlockEl, confirmBtn) {
+  if (!isLedgerAccount(walletIndex)) return false;
+  unlockEl?.classList.add('hidden');
+  if (confirmBtn) confirmBtn.disabled = false;
+  return true;
 }
 
 export function escapeHtml(text) {

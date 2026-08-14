@@ -28,7 +28,12 @@ const path = require('path');
 const fs = require('fs');
 const IPC = require('../../shared/ipc-channels');
 const { normalizeOrigin } = require('../../shared/origin-utils');
-const { getDerivedKeys, getPublisherKey, getDerivedWallets } = require('../identity-manager');
+const {
+  getDerivedKeys,
+  getPublisherKey,
+  getDerivedWallets,
+  WALLET_TYPES,
+} = require('../identity-manager');
 const log = require('electron-log');
 
 const FEEDS_FILE = 'swarm-feeds.json';
@@ -47,6 +52,19 @@ class PreserveFeedStoreError extends Error {
     this.preserveOriginal = true;
     this.backupSuffix = backupSuffix;
   }
+}
+
+/**
+ * Swarm feed/SOC signing needs a raw private key (see
+ * swarm-provider-ipc.js resolveSignerKey), which hardware accounts can
+ * never hand out — the device signs, it does not export. Such wallets are
+ * therefore not usable as publisher identities and must never be offered
+ * or persisted as one.
+ * @param {{type?: string}} wallet
+ * @returns {boolean}
+ */
+function isSwarmSignableWallet(wallet) {
+  return !!wallet && (wallet.type || WALLET_TYPES.MNEMONIC) === WALLET_TYPES.MNEMONIC;
 }
 
 function getFeedsPath() {
@@ -527,7 +545,10 @@ async function enrichIdentityOwner(identity, options = {}) {
       label: wallet?.name || identity.label || getIdentityLabel('ethereum-wallet', null, identity.walletIndex),
       owner: wallet?.address || null,
       stored,
-      unavailable: !wallet,
+      // Hardware-backed accounts can't sign feeds; flag them so an entry
+      // persisted before this guard existed renders as unusable instead of
+      // failing with an opaque error on every feed write.
+      unavailable: !wallet || !isSwarmSignableWallet(wallet),
     };
   }
 
@@ -566,7 +587,7 @@ async function getOriginIdentityStateWithOwners(origin) {
 
   const knownIds = new Set(identities.map((identity) => identity.id));
   const wallets = await getDerivedWallets();
-  for (const wallet of wallets) {
+  for (const wallet of wallets.filter(isSwarmSignableWallet)) {
     const walletIdentity = createIdentity(
       'ethereum-wallet',
       null,
@@ -655,6 +676,12 @@ async function ensureEthereumWalletIdentity(origin, walletIndex, options = {}) {
   const wallet = wallets.find((candidate) => candidate.index === walletIndex);
   if (!wallet) {
     throw new Error(`Wallet with index ${walletIndex} does not exist`);
+  }
+  if (!isSwarmSignableWallet(wallet)) {
+    throw new Error(
+      'Hardware wallet accounts cannot be used as a Swarm publisher identity. '
+      + 'Choose an app-scoped identity or a wallet account held in this browser.'
+    );
   }
 
   const store = loadFeeds();

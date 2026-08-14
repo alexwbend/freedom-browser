@@ -1195,6 +1195,15 @@
                         </svg>
                         <span>Create New Wallet</span>
                       </button>
+                      <button type="button" class="wallet-selector-action" id="wallet-connect-ledger-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="2" y="8" width="14" height="8" rx="2"/>
+                          <path d="M16 12h3"/>
+                          <path d="M19 10v4"/>
+                          <path d="M6 12h.01M10 12h.01"/>
+                        </svg>
+                        <span>Connect Hardware Wallet</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1756,6 +1765,95 @@
                 </div>
 
                 <button type="button" id="create-wallet-done" class="create-wallet-done-btn">
+                  Done
+                </button>
+              </div>
+            </div>
+
+            <!-- Connect Ledger sub-screen -->
+            <div id="sidebar-connect-ledger" class="sidebar-subscreen hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="connect-ledger-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title">Connect Ledger</h3>
+              </div>
+
+              <!-- Step 1: Detect device -->
+              <div id="connect-ledger-detect" class="subscreen-content hidden">
+                <div class="connect-ledger-illustration">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <rect x="2" y="8" width="14" height="8" rx="2"/>
+                    <path d="M16 12h3"/>
+                    <path d="M19 10v4"/>
+                    <path d="M6 12h.01M10 12h.01"/>
+                  </svg>
+                </div>
+                <p class="create-wallet-message">
+                  Connect your Ledger via USB, unlock it with your PIN,
+                  and open the <strong>Ethereum</strong> app.
+                </p>
+                <div id="connect-ledger-status" class="connect-ledger-status">
+                  <span class="connect-ledger-status-spinner"></span>
+                  <span id="connect-ledger-status-text">Looking for your Ledger…</span>
+                </div>
+              </div>
+
+              <!-- Step 2: Pick account -->
+              <div id="connect-ledger-accounts-step" class="subscreen-content hidden">
+                <p class="create-wallet-message">Choose the account to add.</p>
+
+                <div class="connect-ledger-scheme-row">
+                  <label for="connect-ledger-scheme">Derivation path</label>
+                  <!-- Values must match PATH_SCHEMES in src/main/wallet/ledger/transport.js;
+                       main rejects unknown schemes, so drift fails loudly. -->
+                  <select id="connect-ledger-scheme" class="connect-ledger-scheme-select">
+                    <option value="live">Ledger Live</option>
+                    <option value="legacy">Legacy (MEW / MyCrypto)</option>
+                  </select>
+                </div>
+
+                <div id="connect-ledger-account-list" class="connect-ledger-account-list"></div>
+                <button type="button" id="connect-ledger-load-more" class="connect-ledger-load-more">
+                  Show more accounts
+                </button>
+
+                <input type="text" id="connect-ledger-name-input"
+                       class="create-wallet-input"
+                       placeholder="Name (e.g. Ledger Stax)"
+                       maxlength="32"
+                       autocomplete="off">
+
+                <button type="button" id="connect-ledger-submit" class="create-wallet-submit-btn" disabled>
+                  Add Account
+                </button>
+
+                <div id="connect-ledger-error" class="unlock-error hidden"></div>
+              </div>
+
+              <!-- Step 3: Success -->
+              <div id="connect-ledger-success" class="subscreen-content hidden">
+                <div class="create-wallet-success-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="8 12 11 15 16 9"/>
+                  </svg>
+                </div>
+                <h4 class="create-wallet-success-title">Ledger Account Added!</h4>
+
+                <div class="create-wallet-result">
+                  <span class="create-wallet-result-name" id="connect-ledger-result-name"></span>
+                  <code class="create-wallet-result-address" id="connect-ledger-result-address"></code>
+                </div>
+
+                <p class="create-wallet-message">
+                  Transactions from this account are confirmed on your Ledger's screen.
+                </p>
+
+                <button type="button" id="connect-ledger-done" class="create-wallet-done-btn">
                   Done
                 </button>
               </div>
@@ -2646,6 +2744,9 @@
                       >Auto-pay future payments to this site</span
                     >
                   </label>
+                  <p class="x402-grant-ledger-note hidden" id="x402-approval-ledger-note">
+                    Auto-pay skips this dialog, but every payment still needs a confirmation on your Ledger.
+                  </p>
                   <div class="x402-grant-fields">
                     <div class="x402-grant-field">
                       <label class="x402-grant-field-label" for="x402-approval-grant-cap-input"
@@ -3083,6 +3184,56 @@
                   >
                     Publish
                   </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Swarm Messaging Approval sub-screen (PSS/GSOC) -->
+            <div id="sidebar-swarm-messaging-approve" class="sidebar-subscreen sidebar-modal hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="swarm-messaging-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title" id="swarm-messaging-title">Messaging Access</h3>
+              </div>
+
+              <div class="subscreen-content">
+                <div class="swarm-connect-origin">
+                  <div class="swarm-connect-site" id="swarm-messaging-site">site.eth</div>
+                  <div class="swarm-connect-wants" id="swarm-messaging-wants">wants to send and receive real-time messages</div>
+                </div>
+
+                <div class="swarm-publish-details">
+                  <div class="swarm-publish-row hidden" id="swarm-messaging-topic-row">
+                    <span class="swarm-publish-label">Topic</span>
+                    <span class="swarm-publish-value" id="swarm-messaging-topic"></span>
+                  </div>
+                  <div class="swarm-publish-row hidden" id="swarm-messaging-size-row">
+                    <span class="swarm-publish-label">Size</span>
+                    <span class="swarm-publish-value" id="swarm-messaging-size"></span>
+                  </div>
+                </div>
+
+                <div class="swarm-connect-warning">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="16" x2="12" y2="12"/>
+                    <line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <span id="swarm-messaging-warning">Sending messages uses your stamps. Open subscriptions use bandwidth while the page is loaded.</span>
+                </div>
+
+                <label class="auto-approve-checkbox hidden" id="swarm-messaging-auto-approve-label">
+                  <input type="checkbox" id="swarm-messaging-auto-approve" />
+                  <span>Always allow this site to send messages without asking</span>
+                </label>
+
+                <div class="swarm-connect-actions">
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-messaging-reject">Cancel</button>
+                  <button type="button" class="swarm-connect-approve-btn" id="swarm-messaging-confirm">Allow</button>
                 </div>
               </div>
             </div>

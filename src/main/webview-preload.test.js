@@ -334,7 +334,13 @@ describe('webview-preload', () => {
     await expect(exposures.freedomAPI.getHistory({ limit: 5 })).rejects.toThrow(
       'freedomAPI is only available on internal pages'
     );
-    expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    // The blocked freedomAPI call must not reach IPC. (The preload's
+    // cosmetic-filtering client does invoke 'adblock:cosmetic' on this
+    // real web page — that's expected and unrelated to freedomAPI.)
+    const historyInvokes = ipcRenderer.invoke.mock.calls.filter(
+      ([channel]) => channel !== 'adblock:cosmetic'
+    );
+    expect(historyInvokes).toHaveLength(0);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       '[freedomAPI] blocked "getHistory" on non-internal page: https://example.com/articles/1'
     );

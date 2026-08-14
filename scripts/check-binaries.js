@@ -83,6 +83,13 @@ function getPlatformArch() {
 function checkBinaries(platforms) {
   const missing = [];
 
+  // Platform-independent: bundled adblock filter lists (assets/adblock is
+  // gitignored; populated by npm run adblock:download).
+  const adblockManifest = path.join(__dirname, '..', 'assets', 'adblock', 'manifest.json');
+  if (!fs.existsSync(adblockManifest)) {
+    missing.push(`adblock filter lists: ${adblockManifest}`);
+  }
+
   for (const { os, arch } of platforms) {
     const platformDir = `${os}-${arch}`;
     const antExt = os === 'win' ? '.exe' : '';
@@ -144,7 +151,8 @@ function main() {
     console.error('  npm run ant:download');
     console.error('  npm run ipfs:download');
     console.error('  npm run radicle:download');
-    console.error('  npm run myotis:download\n');
+    console.error('  npm run myotis:download');
+    console.error('  npm run adblock:download\n');
     process.exit(1);
   }
 

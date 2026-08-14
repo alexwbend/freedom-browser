@@ -277,7 +277,7 @@ test('custom-chain access order can be reordered from its rendered defaults', as
           .map((row) => row.dataset.accessSource)`
       )
     )
-    .toEqual(['quorum', 'direct']);
+    .toEqual(['colibri', 'quorum', 'direct']);
 
   await settingsEval(
     window,
@@ -299,5 +299,5 @@ test('custom-chain access order can be reordered from its rendered defaults', as
           result.networks['777'].access.readOrder)`
       )
     )
-    .toEqual(['direct', 'quorum']);
+    .toEqual(['colibri', 'direct', 'quorum']);
 });

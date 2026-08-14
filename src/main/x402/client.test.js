@@ -12,14 +12,16 @@ const mockResetVaultAutoLockTimer = jest.fn();
 
 jest.mock('../identity-manager', () => ({
   loadIdentityModule: jest.fn(async () => mockIdentity),
+  getWalletRecord: jest.fn(() => null),
+  isHardwareWalletIndex: (index) => Number.isInteger(index) && index >= 1000000,
+  WALLET_TYPES: { MNEMONIC: 'mnemonic', LEDGER: 'ledger' },
 }));
 jest.mock('../vault-timer', () => ({
   resetVaultAutoLockTimer: mockResetVaultAutoLockTimer,
 }));
 
 const {
-  buildVaultSigner,
-  createVaultBackedX402Client,
+  createX402Client,
   V1_NETWORKS,
 } = require('./client');
 
@@ -29,77 +31,43 @@ beforeEach(() => {
   mockResetVaultAutoLockTimer.mockClear();
 });
 
-// === buildVaultSigner ====================================================
-
-describe('buildVaultSigner', () => {
+describe('createX402Client', () => {
   test('rejects when the vault is locked', async () => {
     mockIdentity.isUnlocked.mockReturnValue(false);
-    await expect(buildVaultSigner(0)).rejects.toThrow(/locked/i);
+    await expect(createX402Client(0)).rejects.toThrow(/locked/i);
   });
 
-  test('exposes the address derived from the wallet index', async () => {
-    const signer = await buildVaultSigner(0);
-    expect(signer.address).toBe(TEST_ADDRESS);
+  test('exposes the signer address on the client so callers can stamp from_address', async () => {
+    const client = await createX402Client(0);
+    expect(client.address).toBe(TEST_ADDRESS);
     expect(mockIdentity.exportPrivateKey).toHaveBeenCalledWith(0);
   });
 
-  test('signTypedData produces a signature recoverable to the wallet address', async () => {
-    // Mirrors the EIP-3009 shape `@x402/evm`'s exact/eip3009 client emits —
-    // the round-trip proves bigint values flow through ethers.signTypedData
-    // without us needing a stringification shim.
-    const signer = await buildVaultSigner(0);
-    const domain = {
-      name: 'USD Coin',
-      version: '2',
-      chainId: 8453,
-      verifyingContract: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-    };
-    const types = {
-      TransferWithAuthorization: [
-        { name: 'from', type: 'address' },
-        { name: 'to', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'validAfter', type: 'uint256' },
-        { name: 'validBefore', type: 'uint256' },
-        { name: 'nonce', type: 'bytes32' },
-      ],
-    };
-    const message = {
-      from: TEST_ADDRESS,
-      to: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
-      value: 10000n,
-      validAfter: 1700000000n,
-      validBefore: 1700000600n,
-      nonce: '0xf3746613c2d920b5fdabc0856f2aeb2d4f88ee6037b8cc5d04a71a4462f13480',
-    };
-
-    const sig = await signer.signTypedData({ domain, types, primaryType: 'TransferWithAuthorization', message });
-    expect(sig).toMatch(/^0x[0-9a-f]{130}$/);
-    expect(verifyTypedData(domain, types, message, sig)).toBe(TEST_ADDRESS);
-    // Twice: once at signer construction (address derivation), once on sign.
-    expect(mockResetVaultAutoLockTimer).toHaveBeenCalledTimes(2);
-  });
-
-  test('signTypedData throws if the vault re-locks between construction and signing', async () => {
-    const signer = await buildVaultSigner(0);
+  test('payment signing throws if the vault re-locks after client construction', async () => {
+    const client = await createX402Client(0);
     mockResetVaultAutoLockTimer.mockClear(); // ignore the construction reset
     mockIdentity.isUnlocked.mockReturnValue(false);
-    await expect(signer.signTypedData({ domain: {}, types: {}, primaryType: 'X', message: {} }))
-      .rejects.toThrow(/locked/i);
+    await expect(client.createPaymentPayload({
+      x402Version: 2,
+      resource: 'https://api.example/article',
+      accepts: [
+        {
+          scheme: 'exact',
+          network: 'eip155:8453',
+          amount: '10000',
+          asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+          payTo: '0x209693Bc6afc0C5328bA36FaF03C514EF312287C',
+          maxTimeoutSeconds: 60,
+          resource: 'https://api.example/article',
+          extra: { name: 'USD Coin', version: '2' },
+        },
+      ],
+    })).rejects.toThrow(/locked/i);
     expect(mockResetVaultAutoLockTimer).not.toHaveBeenCalled();
-  });
-});
-
-// === createVaultBackedX402Client =========================================
-
-describe('createVaultBackedX402Client', () => {
-  test('exposes the signer address on the client so callers can stamp from_address', async () => {
-    const client = await createVaultBackedX402Client(0);
-    expect(client.address).toBe(TEST_ADDRESS);
   });
 
   test('returns an x402Client with V2 and V1 schemes wired', async () => {
-    const client = await createVaultBackedX402Client(0);
+    const client = await createX402Client(0);
 
     // selectPaymentRequirements returns the picked accepts[] entry; assert
     // on its scheme + network to prove the right scheme was matched, not
@@ -142,7 +110,7 @@ describe('createVaultBackedX402Client', () => {
   });
 
   test('produces a verifiable V2 payment payload end-to-end (Base / USDC)', async () => {
-    const client = await createVaultBackedX402Client(0);
+    const client = await createX402Client(0);
 
     // Shape of the parsed `PAYMENT-REQUIRED` header for a Base USDC 402.
     const paymentRequired = {

@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 native/freedom-ipfs-node/build/
 native/freedom-ipfs-node/prebuilds/
 dist/
@@ -17,6 +17,7 @@ tmp/
 ant-bin/
 myotis-bin/
 ant-data/
+assets/adblock/
 ipfs-bin/
 ipfs-data/
 dev-scripts/

@@ -1,11 +1,12 @@
 /**
  * Transaction Service
  *
- * Handles gas estimation, transaction building, signing, and broadcasting.
- * Uses the vault's derived keys for signing.
+ * Handles gas estimation, transaction building, and broadcasting.
+ * Signing is delegated to a Signer (see ./signers.js), so this module
+ * never touches key material.
  */
 
-const { parseUnits, formatUnits, Interface, Wallet, Transaction } = require('ethers');
+const { parseUnits, formatUnits, Interface, Transaction } = require('ethers');
 const chainData = require('../networks/chain-data-router');
 const { getTxExplorerUrl } = require('./chains');
 
@@ -153,7 +154,54 @@ function buildTransaction({
 }
 
 /**
- * Sign and broadcast a transaction
+ * Fill in fee parameters the caller didn't supply.
+ *
+ * ethers' Wallet.sendTransaction used to populate missing fees from the
+ * network before signing. Now that signing and broadcasting are separate
+ * steps nothing does, so an unpriced tx would be signed with
+ * maxFeePerGas = 0 and rejected by every node as underpriced — on a
+ * hardware wallet, only after the user confirmed it on-device. Populate
+ * (or refuse) here, before the signer is ever asked to sign.
+ *
+ * @param {Object} params
+ * @returns {Promise<{maxFeePerGas?: string, maxPriorityFeePerGas?: string, gasPrice?: string}>}
+ */
+async function resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId }) {
+  if ((maxFeePerGas && maxPriorityFeePerGas) || gasPrice) {
+    return { maxFeePerGas, maxPriorityFeePerGas, gasPrice };
+  }
+
+  const fees = await getGasPrices(chainId);
+
+  if (fees.type === 'eip1559' && isPositiveFee(fees.maxFeePerGas) && isPositiveFee(fees.maxPriorityFeePerGas)) {
+    return { maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
+  }
+  if (isPositiveFee(fees.gasPrice)) {
+    return { gasPrice: fees.gasPrice };
+  }
+
+  throw new Error('Unable to determine a gas price for this transaction. Please try again.');
+}
+
+function isPositiveFee(value) {
+  try {
+    return value !== undefined && value !== null && BigInt(value) > 0n;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sign and broadcast a transaction.
+ *
+ * Signing and broadcasting are separate steps so the signer can be
+ * anything implementing the signer interface (vault key, hardware
+ * device) — the provider only ever sees the serialized signed tx.
+ *
+ * Fee parameters are optional: when the caller supplies none they are
+ * fetched from the network (see resolveFeeParams) rather than signed as
+ * zero.
+ *
  * @param {Object} params - Transaction parameters
  * @param {string} params.to - Recipient (or token contract for ERC-20)
  * @param {string} params.value - Value in wei
@@ -163,18 +211,22 @@ function buildTransaction({
  * @param {string} [params.maxPriorityFeePerGas] - Max priority fee (EIP-1559)
  * @param {string} [params.gasPrice] - Gas price (legacy)
  * @param {number} params.chainId - Chain ID
- * @param {string} privateKey - Private key for signing (0x-prefixed)
+ * @param {import('./signers').Signer} signer - Signer for the sending account
  * @returns {Promise<Object>} Transaction result
  */
-async function signAndSendTransaction(params, privateKey) {
+async function signAndSendTransaction(params, signer) {
   const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
 
+  // Outside the try: fee-resolution failures should surface as-is instead
+  // of being remapped to the generic "gas estimation" message below.
+  const fees = await resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId });
+
   try {
-    const wallet = new Wallet(privateKey);
+    const from = await signer.getAddress();
 
     // Get nonce
     const nonceResponse = await chainData.request(chainId, 'eth_getTransactionCount', [
-      wallet.address,
+      from,
       'pending',
     ]);
     const nonce = Number(BigInt(nonceResponse.result));
@@ -185,9 +237,9 @@ async function signAndSendTransaction(params, privateKey) {
       value,
       data,
       gasLimit,
-      maxFeePerGas,
-      maxPriorityFeePerGas,
-      gasPrice,
+      maxFeePerGas: fees.maxFeePerGas,
+      maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      gasPrice: fees.gasPrice,
       nonce,
       chainId,
     });
@@ -201,7 +253,7 @@ async function signAndSendTransaction(params, privateKey) {
       nonceSource: nonceResponse.source,
     });
 
-    const signedTransaction = await wallet.signTransaction(tx);
+    const signedTransaction = await signer.signTransaction(tx);
     const parsedTransaction = Transaction.from(signedTransaction);
     const broadcast = await chainData.broadcastRawTransaction(chainId, signedTransaction);
     if (
@@ -219,7 +271,7 @@ async function signAndSendTransaction(params, privateKey) {
     return {
       hash: broadcast.result,
       nonce: parsedTransaction.nonce,
-      from: wallet.address,
+      from: parsedTransaction.from || from,
       to: parsedTransaction.to,
       value: parsedTransaction.value?.toString(),
       chainId,
@@ -347,64 +399,6 @@ async function waitForTransaction(txHash, chainId, confirmations = 1) {
   }
 }
 
-/**
- * Sign a personal message (EIP-191)
- * @param {string} message - Message to sign (hex string or UTF-8)
- * @param {string} privateKey - Private key for signing
- * @returns {Promise<string>} Signature (hex string)
- */
-async function signPersonalMessage(message, privateKey) {
-  try {
-    const wallet = new Wallet(privateKey);
-
-    // If message is hex-encoded, convert to raw bytes (not UTF-8 string)
-    let messageToSign = message;
-    if (message.startsWith('0x')) {
-      messageToSign = Buffer.from(message.slice(2), 'hex');
-    }
-
-    // signMessage automatically applies EIP-191 prefix
-    const signature = await wallet.signMessage(messageToSign);
-
-    console.log('[TransactionService] Message signed');
-    return signature;
-  } catch (err) {
-    console.error('[TransactionService] Message signing failed:', err);
-    throw new Error(`Message signing failed: ${err.message}`, { cause: err });
-  }
-}
-
-/**
- * Sign typed data (EIP-712)
- * @param {Object} typedData - EIP-712 typed data object
- * @param {string} privateKey - Private key for signing
- * @returns {Promise<string>} Signature (hex string)
- */
-async function signTypedData(typedData, privateKey) {
-  try {
-    const wallet = new Wallet(privateKey);
-
-    // Parse if string
-    const data = typeof typedData === 'string' ? JSON.parse(typedData) : typedData;
-
-    // Extract domain, types, and message from EIP-712 structure
-    const { domain, types, message } = data;
-
-    // Remove EIP712Domain from types (ethers handles it internally)
-    const typesWithoutDomain = { ...types };
-    delete typesWithoutDomain.EIP712Domain;
-
-    // Sign using ethers' signTypedData
-    const signature = await wallet.signTypedData(domain, typesWithoutDomain, message);
-
-    console.log('[TransactionService] Typed data signed');
-    return signature;
-  } catch (err) {
-    console.error('[TransactionService] Typed data signing failed:', err);
-    throw new Error(`Typed data signing failed: ${err.message}`, { cause: err });
-  }
-}
-
 module.exports = {
   estimateGas,
   getGasPrices,
@@ -415,6 +409,4 @@ module.exports = {
   signAndSendTransaction,
   getTransactionStatus,
   waitForTransaction,
-  signPersonalMessage,
-  signTypedData,
 };

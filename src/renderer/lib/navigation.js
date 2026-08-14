@@ -62,6 +62,7 @@ import { walletState } from './wallet/wallet-state.js';
 import { formatWeiToDecimal } from './wallet/send.js';
 import { startIpfsProgressStatus, stopIpfsProgressStatus } from './ipfs-progress-status.js';
 import { TOOLTIP_HOVER_DELAY_MS } from './hover-tooltip.js';
+import { matchesShortcut } from './shortcuts.js';
 
 // Helper to get active tab's navigation state (with fallback to empty object)
 const getNavState = () => getActiveTabState() || {};
@@ -2437,27 +2438,17 @@ export const initNavigation = () => {
     toggleBookmarkBar();
   });
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts — resolved through the shared shortcut registry so
+  // user remaps apply live. (Escape stays hardcoded: it's contextual
+  // stop-loading behavior, not a remappable shortcut.)
   window.addEventListener('keydown', (event) => {
-    // Cmd+Shift+R / Ctrl+Shift+R - Hard Reload (check first, before soft reload)
-    if (
-      (event.metaKey || event.ctrlKey) &&
-      event.shiftKey &&
-      event.key &&
-      event.key.toLowerCase() === 'r' &&
-      !event.altKey
-    ) {
+    // Hard reload (check first, before soft reload)
+    if (matchesShortcut(event, 'page.hardReload')) {
       event.preventDefault();
       hardReloadPage();
     }
-    // Cmd+R / Ctrl+R - Reload (soft, uses cache)
-    else if (
-      (event.metaKey || event.ctrlKey) &&
-      !event.shiftKey &&
-      event.key &&
-      event.key.toLowerCase() === 'r' &&
-      !event.altKey
-    ) {
+    // Reload (soft, uses cache)
+    else if (matchesShortcut(event, 'page.reload')) {
       event.preventDefault();
       reloadPage();
     } else if (event.key === 'Escape') {
