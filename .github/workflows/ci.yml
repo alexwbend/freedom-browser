@@ -315,9 +315,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Name-resolution and chain-policy settings are a shipped Myotis control
-  # surface. Keep their drag/drop, persistence, startup, and status assertions
-  # executable in ordinary PR CI rather than only by local convention.
+  # Settings navigation, persistence, and chain policy are shipped control
+  # surfaces. Exercise their real renderer/webview integration so malformed
+  # sidebar markup, broken transitions, and Myotis policy regressions cannot
+  # pass unit-only CI.
   e2e-settings:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -341,8 +342,11 @@ jobs:
       - name: Install Playwright system dependencies
         run: npx playwright install-deps
 
+      - name: Download adblock filter lists
+        run: npm run adblock:download
+
       - name: Run settings E2E
-        run: xvfb-run -a npm run test:e2e -- test-e2e/settings.spec.js
+        run: xvfb-run -a npm run test:e2e -- test-e2e/settings.spec.js test-e2e/settings-adblock.spec.js
 
       - name: Upload Playwright traces and screenshots
         if: failure()
