@@ -38,6 +38,88 @@ function readinessSummary(state) {
   };
 }
 
+async function resolveRecordsThroughMyotis(electronApp, paths, options) {
+  let lastAttempt = null;
+  for (let attempt = 1; attempt <= 6; attempt++) {
+    // eslint-disable-next-line no-empty-pattern
+    lastAttempt = await electronApp.evaluate(async ({}, options) => {
+      const manager = process.mainModule.require(options.manager);
+      const registry = process.mainModule.require(options.registry);
+      const resolver = process.mainModule.require(options.resolver);
+      const readyBefore = manager.isReady();
+      const statusBefore = manager.getStatus();
+      let probe = null;
+      if (readyBefore) {
+        try {
+          probe = await manager.resolveContenthash('vitalik.eth');
+        } catch (err) {
+          probe = { error: err.message };
+        }
+      }
+      if (!readyBefore || probe?.status !== 'ok') {
+        return { readyBefore, statusBefore, probe };
+      }
+
+      registry.updateNetwork(1, {
+        verification: {
+          primary: 'colibri',
+          order: ['myotis', 'colibri', 'quorum'],
+          preferVerified: options.policyPreferVerified,
+        },
+      });
+      resolver.clearEnsResolutionCaches();
+      try {
+        return {
+          readyBefore,
+          statusBefore,
+          probe,
+          address: options.includeEns
+            ? await resolver.resolveEnsAddress('vitalik.eth')
+            : null,
+          reverse: options.includeEns
+            ? await resolver.resolveEnsReverse(options.vitalik)
+            : null,
+          wns: await resolver.resolveEnsContent('meinhard.wei'),
+          gns: await resolver.resolveEnsContent('apoorv.gwei'),
+          readyAfter: manager.isReady(),
+          statusAfter: manager.getStatus(),
+        };
+      } catch (err) {
+        return {
+          readyBefore,
+          statusBefore,
+          error: { code: err.code || null, message: err.message },
+          readyAfter: manager.isReady(),
+          statusAfter: manager.getStatus(),
+        };
+      } finally {
+        registry.updateNetwork(1, {
+          verification: {
+            primary: 'colibri',
+            order: ['myotis', 'colibri', 'quorum'],
+            preferVerified: true,
+          },
+        });
+        resolver.clearEnsResolutionCaches();
+      }
+    }, { ...paths, ...options });
+
+    console.log(
+      `[myotis-e2e] integrated attempt ${attempt} ` +
+        `preferVerified=${options.policyPreferVerified} includeEns=${options.includeEns}: ` +
+        JSON.stringify(lastAttempt).slice(0, 1800)
+    );
+    const records = [lastAttempt.wns, lastAttempt.gns];
+    if (options.includeEns) records.push(lastAttempt.address, lastAttempt.reverse);
+    if (records.every((record) => record?.trust?.method === 'myotis')) {
+      return lastAttempt;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 15000));
+  }
+
+  return lastAttempt || {};
+}
+
 test.describe('myotis live ENS resolution', () => {
   test.skip(!MYOTIS_ENABLED, 'MYOTIS_NODE_PATH not set — myotis spike disabled');
 
@@ -45,7 +127,9 @@ test.describe('myotis live ENS resolution', () => {
     electronApp,
     window: win,
   }) => {
-    test.setTimeout(READY_TIMEOUT_MS * 2 + 120_000);
+    // Two independent network readiness budgets plus bounded resolver retries
+    // and final UI navigation.
+    test.setTimeout(READY_TIMEOUT_MS * 2 + 10 * 60 * 1000);
 
     // 1. Wait (in the app's main process) for the node to report ready and
     //    prove that a verified read is actually servable. A warm restart can
@@ -198,60 +282,36 @@ test.describe('myotis live ENS resolution', () => {
 
     // 4. Exercise the other production integration surfaces through the same
     //    resolver module: ENS addr + forward-verified reverse, then WNS/GNS
-    //    NameNFT calls through Myotis's generic local EVM executor. Finally,
-    //    restore the default verified-answer preference and prove it promotes
-    //    Colibri over Myotis's optimistic WNS/GNS answers.
-    const integration = await electronApp.evaluate(
-      // eslint-disable-next-line no-empty-pattern
-      async ({}, { p, registryPath: networkRegistryPath, vitalik }) => {
-        const resolver = process.mainModule.require(p);
-        const registry = process.mainModule.require(networkRegistryPath);
-        resolver.clearEnsResolutionCaches();
-        const ens = {
-          address: await resolver.resolveEnsAddress('vitalik.eth'),
-          reverse: await resolver.resolveEnsReverse(vitalik),
-        };
-
-        registry.updateNetwork(1, {
-          verification: {
-            primary: 'colibri',
-            order: ['myotis', 'colibri', 'quorum'],
-            preferVerified: false,
-          },
-        });
-        resolver.clearEnsResolutionCaches();
-        let myotis;
-        try {
-          myotis = {
-            wns: await resolver.resolveEnsContent('meinhard.wei'),
-            gns: await resolver.resolveEnsContent('apoorv.gwei'),
-          };
-        } finally {
-          registry.updateNetwork(1, {
-            verification: {
-              primary: 'colibri',
-              order: ['myotis', 'colibri', 'quorum'],
-              preferVerified: true,
-            },
-          });
-          resolver.clearEnsResolutionCaches();
-        }
-
-        return {
-          ...ens,
-          myotis,
-          preferred: {
-            wns: await resolver.resolveEnsContent('meinhard.wei'),
-            gns: await resolver.resolveEnsContent('apoorv.gwei'),
-          },
-        };
-      },
+    //    NameNFT calls through Myotis's generic local EVM executor. Retry the
+    //    pair as one proof because a transient peer miss correctly falls back
+    //    to Colibri in production but does not prove the Myotis integration.
+    //    Finally, prove preferVerified still accepts Myotis's authenticated
+    //    optimistic-root answers as verified.
+    const integratedPaths = {
+      manager: managerPath,
+      registry: registryPath,
+      resolver: resolverPath,
+    };
+    const myotisAttempt = await resolveRecordsThroughMyotis(
+      electronApp,
+      integratedPaths,
       {
-        p: resolverPath,
-        registryPath,
+        includeEns: true,
+        policyPreferVerified: false,
         vitalik: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
       }
     );
+    const preferredAttempt = await resolveRecordsThroughMyotis(
+      electronApp,
+      integratedPaths,
+      { includeEns: false, policyPreferVerified: true }
+    );
+    const integration = {
+      address: myotisAttempt.address,
+      reverse: myotisAttempt.reverse,
+      myotis: { wns: myotisAttempt.wns, gns: myotisAttempt.gns },
+      preferred: { wns: preferredAttempt.wns, gns: preferredAttempt.gns },
+    };
     console.log('[myotis-e2e] integrated record reads:', JSON.stringify(integration).slice(0, 1500));
 
     expect(integration.address).toMatchObject({
