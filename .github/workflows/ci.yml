@@ -224,6 +224,10 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Linux native USB build dependency
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/install-linux-native-deps
+
       - name: Install dependencies
         run: npm ci
 
@@ -328,6 +332,9 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Install Linux native USB build dependency
+        uses: ./.github/actions/install-linux-native-deps
+
       - name: Install dependencies
         run: npm ci
 
@@ -375,12 +382,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -450,12 +452,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -509,12 +506,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -566,12 +558,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
