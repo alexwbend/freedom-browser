@@ -131,6 +131,49 @@ jobs:
           FREEDOM_IPFS_NATIVE_SMOKE_LIVE: '0'
           FREEDOM_IPFS_NATIVE_SMOKE_ISSUE_102: '1'
 
+  # Settings navigation and persistence are shipped control surfaces. Exercise
+  # their real renderer/webview integration so malformed sidebar markup and
+  # broken section transitions cannot pass unit-only CI.
+  e2e-settings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Linux native USB build dependency
+        uses: ./.github/actions/install-linux-native-deps
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright system dependencies
+        run: npx playwright install-deps
+
+      - name: Download adblock filter lists
+        run: npm run adblock:download
+
+      - name: Run settings E2E
+        run: xvfb-run -a npm run test:e2e -- test-e2e/settings.spec.js test-e2e/settings-adblock.spec.js
+
+      - name: Upload Playwright traces and screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-settings-traces
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Onboarding wizard must create node identities while a real Swarm node (now
   # antd) is running. Drives the full password wizard end-to-end against a real
   # antd spawn across all three desktop platforms — the cross-platform proof
@@ -158,12 +201,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -233,12 +271,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -292,12 +325,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
@@ -349,12 +377,7 @@ jobs:
 
       - name: Install Linux native USB build dependency
         if: runner.os == 'Linux'
-        # node-hid builds against libudev (hidraw) and libusb; install both.
-        # `apt-get update` first — the image's pre-seeded index can name a
-        # build the mirrors already rotated out (install 404s).
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libudev-dev libusb-1.0-0-dev
+        uses: ./.github/actions/install-linux-native-deps
 
       - name: Install dependencies
         run: npm ci
