@@ -235,6 +235,12 @@ export const getDisplayUrlForWebview = (webview) => {
   return tab.navigationState?.committedDisplayUrl || '';
 };
 
+export const getNavigationKeyForWebview = (webview) => {
+  const tab = tabState.tabs.find((candidate) => candidate.webview === webview);
+  if (!tab) return '';
+  return `${tab.id}:${tab.navigationState?.committedNavigationSequence || 0}`;
+};
+
 // Create default navigation state for a tab
 const createNavigationState = () => ({
   currentPageUrl: '',
@@ -260,6 +266,7 @@ const createNavigationState = () => ({
   // it so provider permission keys never see unsubmitted drafts or
   // pending destinations.
   committedDisplayUrl: '',
+  committedNavigationSequence: 0,
   cachedWebContentsId: null,
   resolvingWebContentsId: null,
   pendingSwarmProbeId: null,
@@ -504,6 +511,7 @@ const createWebview = (tabId, initialUrl) => {
         // the actual page identity.
         if (tab.navigationState && event.url && event.url !== 'about:blank') {
           tab.navigationState.committedDisplayUrl = webviewUrl;
+          tab.navigationState.committedNavigationSequence += 1;
         }
         // Clear any stale favicon from the previous page when navigating to
         // an internal page — page-favicon-updated will paint one back in if

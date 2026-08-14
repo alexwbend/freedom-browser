@@ -229,6 +229,7 @@ const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
 const { registerRadiclePermissionsIpc } = require('./radicle/radicle-permissions');
 const { registerRadicleProviderIpc } = require('./radicle/radicle-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
+const { registerPermissionManifestIpc } = require('./swarm/permission-manifests');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
 const { promptForDefaultExternalCandidates } = require('./profile-external-candidates');
@@ -311,6 +312,7 @@ async function bootstrap() {
   registerRadiclePermissionsIpc();
   registerRadicleProviderIpc();
   registerFeedStoreIpc();
+  registerPermissionManifestIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
   // before the previous run exited. Fire-and-forget — the wallet stack

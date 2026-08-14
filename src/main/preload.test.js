@@ -83,7 +83,7 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(24);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(25);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
@@ -105,6 +105,7 @@ describe('preload', () => {
       'sitePermissions',
       'dappPermissions',
       'swarmPermissions',
+      'swarmManifest',
       'swarmProvider',
       'radiclePermissions',
       'radicleProvider',
@@ -170,6 +171,12 @@ describe('preload', () => {
       [exposures.githubBridge, 'validateUrl', ['https://github.com/openai/project'], IPC.GITHUB_BRIDGE_VALIDATE_URL, ['https://github.com/openai/project']],
       [exposures.githubBridge, 'checkExisting', ['https://github.com/openai/project'], IPC.GITHUB_BRIDGE_CHECK_EXISTING, ['https://github.com/openai/project']],
       [exposures.serviceRegistry, 'getRegistry', [], IPC.SERVICE_REGISTRY_GET, []],
+      [exposures.swarmPermissions, 'revokeMessaging', ['origin.eth'], IPC.SWARM_REVOKE_MESSAGING, ['origin.eth']],
+      [exposures.swarmManifest, 'check', [{ origin: 'origin.eth', committedUrl: 'bzz://origin.eth/' }], IPC.SWARM_MANIFEST_CHECK, [{ origin: 'origin.eth', committedUrl: 'bzz://origin.eth/' }]],
+      [exposures.swarmManifest, 'decide', ['token', 'allow'], IPC.SWARM_MANIFEST_DECIDE, [{ token: 'token', outcome: 'allow' }]],
+      [exposures.swarmManifest, 'get', ['origin.eth'], IPC.SWARM_MANIFEST_GET, ['origin.eth']],
+      [exposures.swarmManifest, 'useIndividual', ['origin.eth', 'feeds'], IPC.SWARM_MANIFEST_USE_INDIVIDUAL, [{ origin: 'origin.eth', capability: 'feeds' }]],
+      [exposures.swarmManifest, 'disconnect', ['origin.eth'], IPC.SWARM_MANIFEST_DISCONNECT, ['origin.eth']],
       [exposures.swarmFeedStore, 'previewAppScopedIdentity', ['origin.eth', { label: 'Draft' }], IPC.SWARM_PREVIEW_APP_SCOPED_IDENTITY, ['origin.eth', { label: 'Draft' }]],
       [exposures.swarmFeedStore, 'ensureEthereumWalletIdentity', ['origin.eth', 2, { activate: true }], IPC.SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY, ['origin.eth', 2, { activate: true }]],
       [exposures.sitePermissions, 'respondToPrompt', [{ id: 1, decision: 'allow', remember: true }], IPC.PERMISSIONS_PROMPT_RESPONSE, [{ id: 1, decision: 'allow', remember: true }]],
