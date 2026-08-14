@@ -185,10 +185,12 @@ jobs:
           MYOTIS_ADDON: ${{ matrix.addon }}
 
   # Real Myotis release-addon + Freedom resolver E2E on every operating
-  # system we ship. The native smoke cold-syncs over libp2p/devp2p and proves
-  # finalized-root ENS address/contenthash/reverse reads before Playwright
-  # launches the production app and proves ENS plus WNS/GNS integration through
-  # the same Myotis resolver tier.
+  # system we ship. One production-app launch cold-syncs over libp2p/devp2p,
+  # proves direct verified Ethereum + Gnosis reads, then exercises ENS plus
+  # WNS/GNS through Freedom's Myotis resolver tier. Avoid a raw-smoke launch
+  # followed by an immediate app restart: persisted peer backoff can leave the
+  # second client temporarily unable to reacquire a usable snap peer even
+  # though the first launch just served verified reads.
   #
   # Cold sync can take 30-40 minutes. Cache restore/save are split so a timed
   # out first attempt still preserves its cleanly-stopped partial sync; a
@@ -255,37 +257,6 @@ jobs:
           restore-keys: |
             myotis-${{ hashFiles('scripts/fetch-myotis.js') }}-${{ matrix.target }}-
 
-      - name: Start Myotis and resolve verified ENS records
-        id: myotis-smoke
-        continue-on-error: true
-        run: npm run myotis:smoke
-        env:
-          MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data
-          MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
-          MYOTIS_SMOKE_TIMEOUT_MIN: '75'
-
-      - name: Start Myotis and serve a verified Gnosis account read
-        id: myotis-gnosis-smoke
-        continue-on-error: true
-        run: npm run myotis:smoke
-        env:
-          MYOTIS_NETWORK: gnosis
-          MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data/gnosis
-          MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
-          MYOTIS_SMOKE_TIMEOUT_MIN: '75'
-
-      - name: Save Myotis sync snapshot
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/myotis-data
-          key: myotis-${{ hashFiles('scripts/fetch-myotis.js') }}-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-      - name: Fail when native smoke did not resolve
-        if: steps.myotis-smoke.outcome != 'success' || steps.myotis-gnosis-smoke.outcome != 'success'
-        shell: bash
-        run: exit 1
-
       - name: Download IPFS native addon
         run: npm run ipfs:download
         env:
@@ -296,6 +267,7 @@ jobs:
         env:
           MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data
           MYOTIS_NODE_PATH: ${{ github.workspace }}/${{ matrix.addon }}
+          MYOTIS_E2E_READY_TIMEOUT_MIN: '75'
           FREEDOM_TEST_HIDE_WINDOW: '1'
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -303,6 +275,13 @@ jobs:
           else
             npm run test:e2e:live -- test-e2e/live/myotis-ens.spec.js
           fi
+
+      - name: Save Myotis sync snapshot
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/myotis-data
+          key: myotis-${{ hashFiles('scripts/fetch-myotis.js') }}-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload Playwright traces and screenshots
         if: failure()

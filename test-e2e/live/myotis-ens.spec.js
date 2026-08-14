@@ -13,8 +13,30 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const MYOTIS_ENABLED = Boolean(process.env.MYOTIS_NODE_PATH);
 
 // Cold sync can take many minutes; a warm data dir reaches ready in ~10-30 s.
-// Budget for warm-plus-margin — cold runs should pre-warm via smoke-myotis.js.
-const READY_TIMEOUT_MS = 5 * 60 * 1000;
+// CI lets the production app perform the one and only native-client launch,
+// so it grants the cold-sync budget directly instead of pre-warming through a
+// separate process whose immediate restart can inherit peer backoff.
+const configuredReadyTimeoutMinutes = Number(process.env.MYOTIS_E2E_READY_TIMEOUT_MIN);
+const READY_TIMEOUT_MINUTES = Number.isFinite(configuredReadyTimeoutMinutes) &&
+  configuredReadyTimeoutMinutes > 0
+  ? configuredReadyTimeoutMinutes
+  : 5;
+const READY_TIMEOUT_MS = READY_TIMEOUT_MINUTES * 60 * 1000;
+
+function readinessSummary(state) {
+  const status = state?.status || {};
+  return {
+    ready: state?.ready === true,
+    beaconState: status.beaconState || null,
+    elReaderAvailable: status.elReaderAvailable === true,
+    elHunting: status.elHunting === true,
+    peerCount: status.peerCount ?? 0,
+    readyPeers: status.readyPeers ?? 0,
+    snapPeers: status.snapPeers ?? 0,
+    probeStatus: state?.probe?.status || null,
+    probeError: state?.probe?.error || null,
+  };
+}
 
 test.describe('myotis live ENS resolution', () => {
   test.skip(!MYOTIS_ENABLED, 'MYOTIS_NODE_PATH not set — myotis spike disabled');
@@ -32,6 +54,7 @@ test.describe('myotis live ENS resolution', () => {
     const managerPath = path.join(repoRoot, 'src', 'main', 'myotis', 'myotis-manager.js');
     const deadline = Date.now() + READY_TIMEOUT_MS;
     let status;
+    let lastReadinessLog = '';
     for (;;) {
       // eslint-disable-next-line no-empty-pattern
       status = await electronApp.evaluate(async ({}, p) => {
@@ -49,6 +72,12 @@ test.describe('myotis live ENS resolution', () => {
         }
         return { ready, probe, status: m.getStatus() };
       }, managerPath);
+      const summary = readinessSummary(status);
+      const serializedSummary = JSON.stringify(summary);
+      if (serializedSummary !== lastReadinessLog) {
+        console.log('[myotis-e2e] waiting for Ethereum:', serializedSummary);
+        lastReadinessLog = serializedSummary;
+      }
       if (status.ready && status.probe?.status === 'ok' && status.probe.verified === true) break;
       if (Date.now() > deadline) {
         throw new Error(
@@ -62,11 +91,62 @@ test.describe('myotis live ENS resolution', () => {
       JSON.stringify({ status: status.status, probe: status.probe }).slice(0, 1000)
     );
 
-    // Gnosis uses a second native handle and profile-local state directory.
+    // 2. Resolve through the REAL resolver pipeline in the main process and
+    //    assert the myotis tier carried the answer. The first read after
+    //    readiness can still fail on a cold head context (the tier then
+    //    falls through to colibri by design and the answer caches), so
+    //    retry with cache invalidation until myotis carries it.
+    const resolverPath = path.join(repoRoot, 'src', 'main', 'ens-resolver.js');
+    const registryPath = path.join(
+      repoRoot,
+      'src',
+      'main',
+      'networks',
+      'network-registry.js'
+    );
+    let result;
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      // eslint-disable-next-line no-empty-pattern
+      const resolution = await electronApp.evaluate(async ({}, paths) => {
+        const manager = process.mainModule.require(paths.manager);
+        const registry = process.mainModule.require(paths.registry);
+        const resolver = process.mainModule.require(paths.resolver);
+        const readyBefore = manager.isReady();
+        const statusBefore = manager.getStatus();
+        resolver.invalidateEnsContent('vitalik.eth');
+        const resolved = await resolver.resolveEnsContent('vitalik.eth');
+        return {
+          result: resolved,
+          diagnostic: {
+            readyBefore,
+            readyAfter: manager.isReady(),
+            epoch: manager.getAvailabilityEpoch(),
+            statusBefore,
+            statusAfter: manager.getStatus(),
+            verification: registry.getNetwork(1)?.verification || null,
+          },
+        };
+      }, { manager: managerPath, registry: registryPath, resolver: resolverPath });
+      result = resolution.result;
+      console.log(
+        `[myotis-e2e] resolution attempt ${attempt}: method=${result?.trust?.method} ` +
+          JSON.stringify({ result, diagnostic: resolution.diagnostic }).slice(0, 1500)
+      );
+      if (result?.trust?.method === 'myotis') break;
+      await new Promise((r) => setTimeout(r, 15000));
+    }
+
+    expect(result.type).toBe('ok');
+    expect(result.trust.method).toBe('myotis');
+    expect(result.trust.level).toBe('verified');
+    expect(result.protocol).toBe('ipfs');
+
+    // 3. Gnosis uses a second native handle and profile-local state directory.
     // Prove both the native account path and Freedom's capability router while
-    // the Ethereum client remains running.
+    // the already-verified Ethereum client remains running.
     let gnosis;
     const gnosisDeadline = Date.now() + READY_TIMEOUT_MS;
+    let lastGnosisReadinessLog = '';
     for (;;) {
       // eslint-disable-next-line no-empty-pattern
       gnosis = await electronApp.evaluate(async ({}, { managerPath: p, address }) => {
@@ -83,6 +163,16 @@ test.describe('myotis live ENS resolution', () => {
         }
         return { ready, account, status: m.getStatus(100) };
       }, { managerPath, address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045' });
+      const summary = readinessSummary({
+        ready: gnosis.ready,
+        probe: gnosis.account,
+        status: gnosis.status,
+      });
+      const serializedSummary = JSON.stringify(summary);
+      if (serializedSummary !== lastGnosisReadinessLog) {
+        console.log('[myotis-e2e] waiting for Gnosis:', serializedSummary);
+        lastGnosisReadinessLog = serializedSummary;
+      }
       if (
         gnosis.ready &&
         gnosis.account?.peerProofValid === true &&
@@ -106,45 +196,11 @@ test.describe('myotis live ENS resolution', () => {
     expect(routedGnosis).toMatchObject({ source: 'myotis', verified: true });
     expect(routedGnosis.result).toMatch(/^0x[0-9a-f]+$/i);
 
-    // 2. Resolve through the REAL resolver pipeline in the main process and
-    //    assert the myotis tier carried the answer. The first read after
-    //    readiness can still fail on a cold head context (the tier then
-    //    falls through to colibri by design and the answer caches), so
-    //    retry with cache invalidation until myotis carries it.
-    const resolverPath = path.join(repoRoot, 'src', 'main', 'ens-resolver.js');
-    let result;
-    for (let attempt = 1; attempt <= 6; attempt++) {
-      // eslint-disable-next-line no-empty-pattern
-      result = await electronApp.evaluate(async ({}, p) => {
-        const resolver = process.mainModule.require(p);
-        resolver.invalidateEnsContent('vitalik.eth');
-        return resolver.resolveEnsContent('vitalik.eth');
-      }, resolverPath);
-      console.log(
-        `[myotis-e2e] resolution attempt ${attempt}: method=${result?.trust?.method} ` +
-          JSON.stringify(result).slice(0, 300)
-      );
-      if (result?.trust?.method === 'myotis') break;
-      await new Promise((r) => setTimeout(r, 15000));
-    }
-
-    expect(result.type).toBe('ok');
-    expect(result.trust.method).toBe('myotis');
-    expect(result.trust.level).toBe('verified');
-    expect(result.protocol).toBe('ipfs');
-
-    // 3. Exercise the other production integration surfaces through the same
+    // 4. Exercise the other production integration surfaces through the same
     //    resolver module: ENS addr + forward-verified reverse, then WNS/GNS
     //    NameNFT calls through Myotis's generic local EVM executor. Finally,
     //    restore the default verified-answer preference and prove it promotes
     //    Colibri over Myotis's optimistic WNS/GNS answers.
-    const registryPath = path.join(
-      repoRoot,
-      'src',
-      'main',
-      'networks',
-      'network-registry.js'
-    );
     const integration = await electronApp.evaluate(
       // eslint-disable-next-line no-empty-pattern
       async ({}, { p, registryPath: networkRegistryPath, vitalik }) => {
@@ -233,7 +289,7 @@ test.describe('myotis live ENS resolution', () => {
       trust: { method: 'myotis', level: 'verified', finality: 'optimistic' },
     });
 
-    // 4. Drive the UI: navigate to the name and let the page render through
+    // 5. Drive the UI: navigate to the name and let the page render through
     //    the local IPFS gateway (same assertion style as eth-sites.spec.js).
     await win.fill('[data-test="address-input"]', 'vitalik.eth');
     await win.press('[data-test="address-input"]', 'Enter');
