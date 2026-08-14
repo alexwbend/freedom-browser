@@ -47,6 +47,23 @@ const ETHEREUM_WALLET_ID_PREFIX = 'ethereum-wallet';
 
 let feedsCache = null;
 
+// Manifest-ownership hook, mirroring swarm-permissions.js. A permission
+// manifest can own the feed grant and the publisher identity of an origin;
+// when the *user* changes either by hand, that ownership has to be detached
+// or the manifest record keeps claiming the flag (Settings still reads
+// "feeds · allowed by manifest") and a later projection silently re-asserts
+// it. Manifest-sourced calls pass `{ source: 'manifest' }` and notify
+// nothing — they are the projection, not a user mutation.
+let manifestMutationListener = null;
+
+function onManifestMutation(listener) {
+  manifestMutationListener = listener;
+}
+
+function notifyManifestMutation(origin, projectionKey) {
+  manifestMutationListener?.(normalizeOrigin(origin), projectionKey);
+}
+
 class PreserveFeedStoreError extends Error {
   constructor(message, backupSuffix = 'unsupported') {
     super(message);
@@ -621,10 +638,22 @@ async function previewAppScopedIdentity(origin, options = {}) {
   };
 }
 
+// A manifest can own an origin's publisher identity (the `feeds`/`signing`
+// capabilities project it). Any user-driven change of the *active* identity
+// makes that ownership claim untrue, so it is reported like the other user
+// mutations. Only an actual switch counts — re-ensuring the identity that is
+// already active changes nothing to detach.
+function notifyIdentityChange(key, previousActiveId, source) {
+  if (source === 'manifest') return;
+  if (loadFeeds().origins[key]?.activeIdentityId === previousActiveId) return;
+  notifyManifestMutation(key, 'identity');
+}
+
 function createAppScopedIdentity(origin, options = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   const entry = store.origins[key] || createOriginShell();
+  const previousActiveId = entry.activeIdentityId;
   const publisherKeyIndex = allocatePublisherKeyIndexInStore(store);
   const identity = createIdentity('app-scoped', publisherKeyIndex, Date.now(), options.label);
 
@@ -643,6 +672,7 @@ function createAppScopedIdentity(origin, options = {}) {
   store.origins[key] = entry;
   saveFeeds();
   log.info(`[FeedStore] Created app-scoped identity ${identity.id} for ${key}`);
+  notifyIdentityChange(key, previousActiveId, options.source);
   return getOriginEntry(origin);
 }
 
@@ -650,6 +680,7 @@ function ensureAntWalletIdentity(origin, options = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   const entry = store.origins[key] || createOriginShell();
+  const previousActiveId = entry.activeIdentityId;
   const existing = entry.identities?.[BEE_WALLET_IDENTITY_ID];
   const identity = existing || createIdentity('bee-wallet', null, Date.now(), options.label);
 
@@ -668,6 +699,7 @@ function ensureAntWalletIdentity(origin, options = {}) {
   store.origins[key] = entry;
   saveFeeds();
   log.info(`[FeedStore] Ensured Ant wallet identity for ${key}`);
+  notifyIdentityChange(key, previousActiveId, options.source);
   return getOriginEntry(origin);
 }
 
@@ -690,6 +722,7 @@ async function ensureEthereumWalletIdentity(origin, walletIndex, options = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   const entry = store.origins[key] || createOriginShell();
+  const previousActiveId = entry.activeIdentityId;
   const identityId = getIdentityId('ethereum-wallet', null, walletIndex);
   const existing = entry.identities?.[identityId];
   const identity = existing || createIdentity('ethereum-wallet', null, Date.now(), wallet.name, walletIndex);
@@ -712,10 +745,11 @@ async function ensureEthereumWalletIdentity(origin, walletIndex, options = {}) {
   store.origins[key] = entry;
   saveFeeds();
   log.info(`[FeedStore] Ensured Ethereum wallet identity ${identity.id} for ${key}`);
+  notifyIdentityChange(key, previousActiveId, options.source);
   return getOriginEntry(origin);
 }
 
-function activateIdentity(origin, identityId) {
+function activateIdentity(origin, identityId, { source = 'user' } = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   const entry = store.origins[key];
@@ -726,10 +760,12 @@ function activateIdentity(origin, identityId) {
     throw new Error(`Publisher identity not found: ${identityId}`);
   }
 
+  const previousActiveId = entry.activeIdentityId;
   entry.activeIdentityId = identityId;
   entry.identities[identityId].lastUsedAt = Date.now();
   saveFeeds();
   log.info(`[FeedStore] Activated identity ${identityId} for ${key}`);
+  notifyIdentityChange(key, previousActiveId, source);
   return getOriginEntry(origin);
 }
 
@@ -916,26 +952,30 @@ function hasFeedGrant(origin) {
 /**
  * Grant feed access for an origin. Called after the feed approval prompt.
  * @param {string} origin
+ * @param {{source?: string}} [options]
  */
-function grantFeedAccess(origin) {
+function grantFeedAccess(origin, { source = 'user' } = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   if (!store.origins[key]) return;
   store.origins[key].feedGranted = true;
   saveFeeds();
+  if (source === 'user') notifyManifestMutation(key, 'feedGrant');
 }
 
 /**
  * Revoke feed access for an origin. Called on disconnect.
  * Identity metadata (identityMode, publisherKeyIndex, feeds) is preserved.
  * @param {string} origin
+ * @param {{source?: string}} [options]
  */
-function revokeFeedAccess(origin) {
+function revokeFeedAccess(origin, { source = 'user' } = {}) {
   const store = loadFeeds();
   const key = normalizeOrigin(origin);
   if (!store.origins[key]) return;
   store.origins[key].feedGranted = false;
   saveFeeds();
+  if (source === 'user') notifyManifestMutation(key, 'feedGrant');
 }
 
 /**
@@ -967,23 +1007,26 @@ function registerFeedStoreIpc() {
     return previewAppScopedIdentity(origin, options);
   });
 
+  // Everything arriving over IPC is a user action by definition: `source` is
+  // forced here so a renderer cannot pass `{ source: 'manifest' }` and mutate
+  // an origin's identity without detaching the manifest's claim on it.
   ipcMain.handle(IPC.SWARM_CREATE_APP_SCOPED_IDENTITY, async (_event, origin, options = {}) => {
     return withOriginLock(origin, async () => {
-      createAppScopedIdentity(origin, options);
+      createAppScopedIdentity(origin, { ...options, source: 'user' });
       return getOriginIdentityStateWithOwners(origin);
     });
   });
 
   ipcMain.handle(IPC.SWARM_ENSURE_ANT_WALLET_IDENTITY, async (_event, origin, options = {}) => {
     return withOriginLock(origin, async () => {
-      ensureAntWalletIdentity(origin, options);
+      ensureAntWalletIdentity(origin, { ...options, source: 'user' });
       return getOriginIdentityStateWithOwners(origin);
     });
   });
 
   ipcMain.handle(IPC.SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY, async (_event, origin, walletIndex, options = {}) => {
     return withOriginLock(origin, async () => {
-      await ensureEthereumWalletIdentity(origin, walletIndex, options);
+      await ensureEthereumWalletIdentity(origin, walletIndex, { ...options, source: 'user' });
       return getOriginIdentityStateWithOwners(origin);
     });
   });
@@ -1055,6 +1098,7 @@ module.exports = {
   hasFeedGrant,
   grantFeedAccess,
   revokeFeedAccess,
+  onManifestMutation,
   registerFeedStoreIpc,
   VALID_IDENTITY_MODES,
   _resetCache,

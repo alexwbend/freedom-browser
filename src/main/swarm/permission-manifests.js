@@ -18,6 +18,14 @@ const { withOriginLock } = require('./origin-mutation-lock');
 
 const STORE_FILE = 'swarm-manifest-grants.json';
 const MAX_BYTES = 8 * 1024;
+// The per-attempt fetch timeout in `bzz-protocol.js` is cleared the moment
+// response headers arrive, so nothing bounds the body after that: a gateway
+// that answers 200 and then stalls half-open would keep this read pending
+// until undici's ~5 min default body timeout, and every non-public swarm
+// method for the origin queues behind the cached check promise. Each read
+// gets its own inactivity deadline — a slow-but-steady body keeps going, a
+// stalled one is aborted and classified transient, like any dropped socket.
+const BODY_IDLE_TIMEOUT_MS = 15_000;
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 const MAX_RECEIPTS = 20;
 const UNRESOLVED_BACKOFF_MS = [2_000, 10_000, 30_000, 60_000];
@@ -146,12 +154,25 @@ function transportError(err) {
   return wrapped;
 }
 
-async function readLimitedBody(response) {
+// Resolves with `promise`, or rejects once `timeoutMs` passes with no answer.
+// Applied per read, so the deadline is an inactivity one: every chunk that
+// arrives restarts it.
+function withIdleDeadline(promise, timeoutMs) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('manifest body read stalled')), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function readLimitedBody(response, idleTimeoutMs = BODY_IDLE_TIMEOUT_MS) {
   const reader = response.body?.getReader?.();
   if (!reader) {
     let buffer;
     try {
-      buffer = Buffer.from(await response.arrayBuffer());
+      buffer = Buffer.from(await withIdleDeadline(response.arrayBuffer(), idleTimeoutMs));
     }
     catch (err) {
       throw transportError(err);
@@ -164,7 +185,7 @@ async function readLimitedBody(response) {
   while (true) {
     let chunk;
     try {
-      chunk = await reader.read();
+      chunk = await withIdleDeadline(reader.read(), idleTimeoutMs);
     }
     catch (err) {
       await reader.cancel().catch(() => {});
@@ -186,6 +207,13 @@ async function readLimitedJson(response) {
   return { raw, value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) };
 }
 
+// Semantic fingerprint: schema plus sorted capability keys, per
+// research/permission-manifest-design.md §6.1. It deliberately excludes the
+// `why` texts — a wording-only redeploy must not re-ask for authority the
+// user already granted. Receipt provenance is kept honest instead by binding
+// each consent token to the `rawHash` of the bytes its sheet was built from
+// (see `checkManifest`/`decideManifest`), so a receipt never pairs the
+// wording one manifest showed with the hash of another.
 function fingerprint(manifest) {
   return crypto.createHash('sha256').update(JSON.stringify({
     schema: manifest.schema,
@@ -239,10 +267,15 @@ function applyProjectionValue(origin, key, enabled) {
     if (enabled && !permissions.getPermission(origin)) permissions.grantPermission(origin);
     if (!enabled) permissions.revokePermission(origin, { source: 'manifest' });
   } else if (key === 'feedGrant') {
-    if (enabled) feeds.grantFeedAccess(origin);
-    else feeds.revokeFeedAccess(origin);
+    // `source: 'manifest'` keeps these projections out of the feed store's
+    // user-mutation notifications — a manifest applying its own grant must
+    // not detach the ownership it is establishing.
+    if (enabled) feeds.grantFeedAccess(origin, { source: 'manifest' });
+    else feeds.revokeFeedAccess(origin, { source: 'manifest' });
   } else if (key === 'identity') {
-    if (enabled && !feeds.hasIdentityMode(origin)) feeds.createAppScopedIdentity(origin, { activate: true });
+    if (enabled && !feeds.hasIdentityMode(origin)) {
+      feeds.createAppScopedIdentity(origin, { activate: true, source: 'manifest' });
+    }
   } else if (key === 'messagingGrant') {
     if (enabled) permissions.grantMessaging(origin, { source: 'manifest' });
     else permissions.revokeMessaging(origin, { source: 'manifest' });
@@ -445,7 +478,12 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
     runTransaction(key, record, removalOperations);
   }
   else {
-    state.records[key] = record;
+    // `state` was read before the discover() await. `saveStore()` serializes
+    // whatever `storeCache` is *now* — a concurrent operation on another
+    // origin that failed its save meanwhile has nulled it — so re-read the
+    // store and mutate that, exactly as `runTransaction` does.
+    const current = loadStore();
+    current.records[key] = record;
     saveStore();
   }
 
@@ -454,6 +492,11 @@ async function checkManifest({ origin, committedUrl, eager = false }, deps = {})
     origin: key,
     manifest,
     fingerprint: found.fingerprint,
+    // The bytes this sheet's wording came from. `record.observed.rawHash` can
+    // move under an outstanding token (a wording-only redeploy re-checked by
+    // another tab updates it without bumping the revision), so the receipt
+    // must attest this hash, not the latest one.
+    rawHash: found.rawHash,
     baseRevision: record.revision,
     firstContact,
     changed,
@@ -491,13 +534,17 @@ function decideManifest(token, outcome) {
   const record = structuredClone(state.records[pending.origin] || { managed: {}, acknowledged: {} });
   const operations = [];
   if (outcome !== 'deny') {
-    if (outcome === 'individual' && !permissions.getPermission(pending.origin)) {
-      permissions.grantPermission(pending.origin);
-    }
     if (outcome === 'individual') {
       record.detached ||= {};
       record.detached.connection = true;
       delete record.managed?.connection;
+      // Journaled like every other mutation in this flow rather than applied
+      // ahead of `runTransaction`: a crash between the grant and the journal
+      // would otherwise leave the origin connected with no record, receipt or
+      // acknowledgement, and nothing for `recoverPending` to replay.
+      if (!permissions.getPermission(pending.origin)) {
+        operations.push({ projection: 'connection', enabled: true });
+      }
     }
     for (const capability of pending.changed) {
       record.acknowledged[capability] = {
@@ -521,7 +568,7 @@ function decideManifest(token, outcome) {
         browserLabelVersion: 1,
         whyShown: pending.manifest.capabilities[capability].why,
       })),
-      rawHash: record.observed?.rawHash,
+      rawHash: pending.rawHash,
     });
     record.receipts = record.receipts.slice(-MAX_RECEIPTS);
     record.revision = pending.baseRevision + 1;
@@ -573,7 +620,12 @@ function getRecord(origin) {
 
 function registerPermissionManifestIpc() {
   recoverPending();
+  // Both stores that hold manifest-projected state report user mutations, so
+  // a grant the user changes by hand (revoking feed access, switching the
+  // publisher identity) drops manifest ownership instead of leaving a record
+  // that claims it — and can re-assert it on the next projection.
   permissions.onManifestMutation(detachManaged);
+  feeds.onManifestMutation(detachManaged);
   ipcMain.handle(IPC.SWARM_MANIFEST_CHECK, (_event, request) => (
     withOriginLock(request.origin, () => checkManifest(request))
   ));
@@ -607,6 +659,7 @@ function _setFaultInjectorForTests(injector) {
 }
 
 module.exports = {
+  BODY_IDLE_TIMEOUT_MS,
   validateManifest,
   discover,
   checkManifest,

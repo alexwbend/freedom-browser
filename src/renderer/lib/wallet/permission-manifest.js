@@ -1,6 +1,7 @@
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
 import { open as openSidebarPanel } from '../sidebar.js';
 import { createPromptQueue, setButtonsDisabled } from './prompt-queue.js';
+import { isSignatureInFlight, signatureInFlightError } from './signature-flight.js';
 
 let screen;
 let site;
@@ -59,6 +60,13 @@ const MAX_TRACKED_OUTCOMES = 100;
 const outcomesByToken = new Map();
 
 export function showPermissionManifest(model, token) {
+  // A live device confirmation owns the sidebar (see signature-flight.js).
+  // Pre-checked like every sibling prompt rather than left to present()'s
+  // hideAllSubscreens() throwing: the page gets the standard in-flight
+  // rejection, and a queue entry can never be shifted into a present() that
+  // throws and drops it with its promise unsettled.
+  if (isSignatureInFlight()) return Promise.reject(signatureInFlightError());
+
   if (!token) return new Promise((resolve) => manifestQueue.show({ model, resolve }));
 
   const tracked = outcomesByToken.get(token);

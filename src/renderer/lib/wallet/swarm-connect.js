@@ -612,6 +612,12 @@ function messagingRequestLabel(method) {
  * messaging auto-approve. Resolves on approve, rejects (4001) on cancel.
  */
 export function showSwarmMessagingApproval(permissionKey, params, resolve, reject, options = {}) {
+  // A live device confirmation owns the sidebar (see signature-flight.js).
+  if (isSignatureInFlight()) {
+    reject(signatureInFlightError());
+    return;
+  }
+
   swarmMessagingQueue.show({ permissionKey, params, resolve, reject, options });
 }
 

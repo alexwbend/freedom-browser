@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -40,23 +41,27 @@ jest.mock('./feed-store', () => ({
   revokeFeedAccess: jest.fn((origin) => {
     mockFeedState[origin] = { ...(mockFeedState[origin] || {}), granted: false };
   }),
+  onManifestMutation: jest.fn(),
 }));
 
 jest.mock('./bzz-protocol', () => ({ handleBzzRequest: jest.fn() }));
 
 const { app } = require('electron');
 const {
+  BODY_IDLE_TIMEOUT_MS,
   validateManifest,
   discover,
   checkManifest,
   decideManifest,
   detachManaged,
+  disconnect,
   getRecord,
   useIndividual,
   registerPermissionManifestIpc,
   _resetForTests,
 } = require('./permission-manifests');
 const { handleBzzRequest: mockHandleBzzRequest } = require('./bzz-protocol');
+const mockFeeds = require('./feed-store');
 
 let tempDir;
 
@@ -131,6 +136,60 @@ describe('permission manifests', () => {
   test('treats a body severed mid-stream as transient, not as a bad manifest', async () => {
     await expect(discover('bzz://app.eth/', async () => severedResponse()))
       .resolves.toMatchObject({ status: 'unresolved' });
+  });
+
+  test('aborts a body that stalls after the headers instead of hanging the origin', async () => {
+    jest.useFakeTimers();
+    try {
+      let cancelled = false;
+      // 200 OK, one chunk, then a half-open socket: no more bytes, no end.
+      // The fetch attempt timer is long gone by now (it is cleared once the
+      // headers arrive), so only the read's own deadline can end this.
+      const stalled = new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"schema":"freedom-mani'));
+        },
+        cancel() { cancelled = true; },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+      const discovery = discover('bzz://app.eth/', async () => stalled);
+      await jest.advanceTimersByTimeAsync(BODY_IDLE_TIMEOUT_MS + 1_000);
+
+      // Transient, so the caller backs off and keeps existing authority —
+      // never `invalid`, which would prune it.
+      await expect(discovery).resolves.toMatchObject({ status: 'unresolved' });
+      expect(cancelled).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('keeps reading a slow but still-arriving body', async () => {
+    jest.useFakeTimers();
+    try {
+      const body = JSON.stringify(manifest({ publish: { why: 'Publish releases' } }));
+      let controller;
+      const trickled = new Response(new ReadableStream({
+        start(streamController) {
+          controller = streamController;
+          controller.enqueue(new TextEncoder().encode(body.slice(0, 10)));
+        },
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+      const discovery = discover('bzz://app.eth/', async () => trickled);
+      // Each chunk lands inside the window and restarts it, so a transfer
+      // that is merely slow must survive well past a single deadline.
+      for (let offset = 10; offset < body.length; offset += 10) {
+        await jest.advanceTimersByTimeAsync(BODY_IDLE_TIMEOUT_MS - 1_000);
+        controller.enqueue(new TextEncoder().encode(body.slice(offset, offset + 10)));
+      }
+      controller.close();
+      await jest.advanceTimersByTimeAsync(0);
+
+      await expect(discovery).resolves.toMatchObject({ status: 'found' });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('projects an allow decision and creates identity metadata before the feed grant', async () => {
@@ -209,6 +268,76 @@ describe('permission manifests', () => {
     }, { fetchManifest: async () => responseFor(manifest({ publish: { why: 'New wording' } })) });
     expect(wordingOnly).toEqual({ kind: 'ready' });
     expect(getRecord('app.eth').acknowledged.publish.whyShown).toBe('First wording');
+  });
+
+  test('a receipt attests the bytes whose wording the sheet actually showed', async () => {
+    const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+    const shown = manifest({ publish: { why: 'First wording' } });
+    const consent = await checkManifest(request, { fetchManifest: async () => responseFor(shown) });
+
+    // A wording-only redeploy re-checked by a sibling tab while the sheet is
+    // still open: same capabilities, so the token stays valid, but
+    // `observed.rawHash` moves on without a revision bump.
+    await checkManifest(request, {
+      fetchManifest: async () => responseFor(manifest({ publish: { why: 'New wording' } })),
+    });
+    decideManifest(consent.token, 'allow');
+
+    const record = getRecord('app.eth');
+    const receipt = record.receipts.at(-1);
+    expect(receipt.rows[0].whyShown).toBe('First wording');
+    // Receipt hash and receipt wording come from the same manifest — it must
+    // not attest text that is not in the bytes it hashes.
+    expect(receipt.rawHash).toBe(crypto.createHash('sha256').update(JSON.stringify(shown)).digest('hex'));
+    expect(record.observed.rawHash).not.toBe(receipt.rawHash);
+  });
+
+  test('re-reads the store after discovery rather than saving a pre-await snapshot', async () => {
+    const request = { origin: 'app.eth', committedUrl: 'bzz://app.eth/', eager: true };
+    const fetchManifest = async () => responseFor(manifest({ publish: { why: 'Publish releases' } }));
+    const first = await checkManifest(request, { fetchManifest });
+    decideManifest(first.token, 'allow');
+
+    // A concurrent operation on another origin fails its atomic write while
+    // discovery is in flight, which drops the module's in-memory store. The
+    // no-mutation branch must not serialize the snapshot it read before the
+    // await — that writes `null` over the whole store.
+    const recheck = await checkManifest(request, {
+      fetchManifest: async () => {
+        const blocked = path.join(tempDir, 'swarm-manifest-grants.json.tmp');
+        fs.mkdirSync(blocked);
+        expect(() => disconnect('other.eth')).toThrow();
+        fs.rmSync(blocked, { recursive: true });
+        return fetchManifest();
+      },
+    });
+
+    expect(recheck).toEqual({ kind: 'ready' });
+    expect(getRecord('app.eth')).not.toBeNull();
+    expect(getRecord('app.eth').acknowledged.publish.decision).toBe('managed');
+    const onDisk = JSON.parse(fs.readFileSync(path.join(tempDir, 'swarm-manifest-grants.json'), 'utf8'));
+    expect(Object.keys(onDisk.records)).toEqual(['app.eth']);
+  });
+
+  test('manifest-sourced feed projections never report themselves as user mutations', async () => {
+    registerPermissionManifestIpc();
+    // Both stores that hold projected state report user mutations, so a
+    // hand-made change detaches manifest ownership.
+    expect(mockFeeds.onManifestMutation).toHaveBeenCalledWith(detachManaged);
+
+    const check = await checkManifest({
+      origin: 'app.eth',
+      committedUrl: 'bzz://app.eth/',
+      eager: true,
+    }, { fetchManifest: async () => responseFor(manifest({ feeds: { why: 'Update feed' } })) });
+    decideManifest(check.token, 'allow');
+
+    expect(mockFeeds.grantFeedAccess).toHaveBeenCalledWith('app.eth', { source: 'manifest' });
+    expect(mockFeeds.createAppScopedIdentity).toHaveBeenCalledWith('app.eth', { activate: true, source: 'manifest' });
+    expect(mockFeeds.revokeFeedAccess).not.toHaveBeenCalled();
+
+    disconnect('app.eth');
+    expect(mockFeeds.revokeFeedAccess).toHaveBeenCalledWith('app.eth', { source: 'manifest' });
   });
 
   test('settings downgrade removes managed flags but keeps the base connection', async () => {

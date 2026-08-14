@@ -66,6 +66,7 @@ const {
   hasFeedGrant,
   grantFeedAccess,
   revokeFeedAccess,
+  onManifestMutation,
   registerFeedStoreIpc,
   _resetCache,
 } = require('./feed-store');
@@ -692,6 +693,64 @@ describe('feed-store', () => {
       setOriginEntry('myapp.eth', { identityMode: 'bee-wallet', feedGranted: true });
       _resetCache();
       expect(hasFeedGrant('myapp.eth')).toBe(true);
+    });
+  });
+
+  // A permission manifest can own the feed grant and the publisher identity
+  // of an origin. When the user changes either by hand, that ownership has to
+  // be detached or the manifest record keeps claiming the flag and re-asserts
+  // it on the next projection.
+  describe('manifest ownership detach', () => {
+    let mutations;
+
+    beforeEach(() => {
+      mutations = [];
+      onManifestMutation((origin, projection) => mutations.push([origin, projection]));
+      setOriginEntry('myapp.eth', { identityMode: 'app-scoped', publisherKeyIndex: 0, feedGranted: true });
+      mutations.length = 0;
+    });
+
+    afterEach(() => {
+      onManifestMutation(null);
+    });
+
+    test('a user revoking feed access detaches manifest ownership of the grant', () => {
+      revokeFeedAccess('myapp.eth');
+      expect(mutations).toEqual([['myapp.eth', 'feedGrant']]);
+    });
+
+    test('a manifest projecting the feed grant reports no user mutation', () => {
+      revokeFeedAccess('myapp.eth', { source: 'manifest' });
+      grantFeedAccess('myapp.eth', { source: 'manifest' });
+      createAppScopedIdentity('myapp.eth', { activate: true, source: 'manifest' });
+      expect(mutations).toEqual([]);
+    });
+
+    test('a user switching the publisher identity detaches manifest ownership of it', () => {
+      createAppScopedIdentity('myapp.eth');
+      expect(mutations).toEqual([['myapp.eth', 'identity']]);
+
+      mutations.length = 0;
+      activateIdentity('myapp.eth', 'app-scoped:0');
+      expect(mutations).toEqual([['myapp.eth', 'identity']]);
+    });
+
+    test('re-activating the identity that is already active detaches nothing', () => {
+      const entry = getOriginEntry('myapp.eth');
+      activateIdentity('myapp.eth', entry.activeIdentityId);
+      expect(mutations).toEqual([]);
+    });
+
+    test('a renderer cannot pass itself off as the manifest over IPC', async () => {
+      registerFeedStoreIpc();
+      await ipcHandlers[IPC.SWARM_CREATE_APP_SCOPED_IDENTITY]({}, 'myapp.eth', { source: 'manifest' });
+      expect(mutations).toEqual([['myapp.eth', 'identity']]);
+    });
+
+    test('an unknown origin never reports a mutation', () => {
+      revokeFeedAccess('nothing-here.eth');
+      grantFeedAccess('nothing-here.eth');
+      expect(mutations).toEqual([]);
     });
   });
 

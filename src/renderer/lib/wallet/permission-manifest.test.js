@@ -122,9 +122,10 @@ async function loadPermissionManifest() {
   }));
 
   const mod = await import('./permission-manifest.js');
+  const signatureFlight = await import('./signature-flight.js');
   mod.initPermissionManifest();
 
-  return { mod, elements: document.elements, hideAllSubscreens, openSidebarPanel };
+  return { mod, signatureFlight, elements: document.elements, hideAllSubscreens, openSidebarPanel };
 }
 
 // Track settlement without awaiting a promise that may never settle.
@@ -236,6 +237,33 @@ describe('permission manifest consent queues concurrent requests', () => {
 
     await ctx.elements['swarm-manifest-allow'].fire('click');
     expect(await consent.promise).toBe('allow');
+  });
+
+  test('a live device confirmation refuses the sheet with the standard error', async () => {
+    const ctx = await loadPermissionManifest();
+    const screen = ctx.elements['sidebar-swarm-manifest'];
+    const signer = {};
+    ctx.signatureFlight.beginSignatureFlight(signer);
+
+    try {
+      // Same pre-check as the sibling swarm prompts: the request is refused
+      // with the standard in-flight error instead of a generic internal one,
+      // and the sheet never touches the sidebar the device prompt owns.
+      await expect(ctx.mod.showPermissionManifest(manifestModel('bzz://alpha', 'Alpha'), 'tok-1'))
+        .rejects.toMatchObject({ code: -32002 });
+      expect(screen.classList.contains('hidden')).toBe(true);
+      expect(ctx.hideAllSubscreens).not.toHaveBeenCalled();
+    } finally {
+      ctx.signatureFlight.endSignatureFlight(signer);
+    }
+
+    // Nothing was cached against the refused token, so the retry the dApp is
+    // told to make gets a real sheet once the device is done.
+    const retry = trackedConsent(ctx.mod.showPermissionManifest(manifestModel('bzz://alpha', 'Alpha'), 'tok-1'));
+    expect(screen.classList.contains('hidden')).toBe(false);
+    await armPrompt();
+    await ctx.elements['swarm-manifest-allow'].fire('click');
+    expect(await retry.promise).toBe('allow');
   });
 
   test('two tabs sharing one consent token get one sheet and one answer', async () => {

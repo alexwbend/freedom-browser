@@ -153,6 +153,35 @@ describe('permission manifest durable recovery with real stores', () => {
     expectFullyRecovered();
   });
 
+  test('replays the connection grant an individual decision makes', async () => {
+    const consent = await createConsent();
+    // The `individual` outcome connects the origin without managing
+    // anything. That grant is part of the decision, so it has to be journaled
+    // with it: a stop right after the journal must still leave the origin
+    // connected once recovery replays, and must not have connected it before
+    // the journal existed (that is the state nothing can replay or undo).
+    manifests._setFaultInjectorForTests((point) => {
+      if (point === 'after-journal') throw new Error('simulated crash at after-journal');
+    });
+
+    expect(() => manifests.decideManifest(consent.token, 'individual')).toThrow('simulated crash');
+    expect(permissions.getPermission(ORIGIN)).toBeNull();
+
+    manifests._setFaultInjectorForTests(null);
+    simulateRestart();
+
+    const record = manifests.getRecord(ORIGIN);
+    expect(permissions.getPermission(ORIGIN)).not.toBeNull();
+    expect(record.acknowledged).toMatchObject({
+      publish: { decision: 'individual' },
+      feeds: { decision: 'individual' },
+      signing: { decision: 'individual' },
+      messaging: { decision: 'individual' },
+    });
+    expect(record.detached.connection).toBe(true);
+    expect(record.managed.connection).toBeUndefined();
+  });
+
   test.each([
     'after-journal',
     'after-operation:0:connection',
