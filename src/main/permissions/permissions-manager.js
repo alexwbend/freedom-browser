@@ -194,6 +194,43 @@ function clearPrivateDecisions(partition) {
   return privateDecisions.delete(partition);
 }
 
+/**
+ * Drop a live private-window decision across EVERY open private partition.
+ *
+ * The settings UI's revoke actions are profile-wide and have no partition to
+ * aim at, but "revoke" has to mean revoked: without this, a camera grant made
+ * inside a still-open private window keeps granting after the user hit
+ * "Revoke all", because `getEffectiveDecision` now (correctly) prefers the
+ * partition-scoped answer. Unlike an explicitly stored deny, a removal
+ * carries no decision that could override a live private grant — so the live
+ * grant has to be removed too. Mirrors `clearSessionDecision`.
+ *
+ * @param {string} [origin] - omit to clear every origin in every partition
+ * @param {string} [key] - omit to clear every key for `origin`
+ * @returns {boolean} true if anything was removed
+ */
+function clearPrivateDecision(origin, key) {
+  let removed = false;
+  for (const [partition, origins] of privateDecisions) {
+    if (origin === undefined) {
+      if (origins.size > 0) removed = true;
+      privateDecisions.delete(partition);
+      continue;
+    }
+    const keys = origins.get(origin);
+    if (!keys) continue;
+    if (key === undefined) {
+      origins.delete(origin);
+      removed = true;
+    } else if (keys.delete(key)) {
+      removed = true;
+      if (keys.size === 0) origins.delete(origin);
+    }
+    if (origins.size === 0) privateDecisions.delete(partition);
+  }
+  return removed;
+}
+
 function clearSessionDecision(origin, key) {
   const map = sessionDecisions.get(origin);
   if (!map) return;
@@ -211,10 +248,19 @@ function clearSessionDecision(origin, key) {
  * decisions instead of the normal-window session decisions (a "this
  * session" answer in a normal window must not leak into private, and
  * vice versa). Returns 'allow' | 'deny' | null.
+ *
+ * For private partitions the partition-scoped answer wins over the profile
+ * store: inheriting the profile decision when the user has not answered
+ * inside the private window is the useful default, but once they HAVE
+ * answered there, that answer is the more specific and more recent
+ * expression of intent. With the store consulted first, a normal window
+ * persisting "allow" for an origin later would silently override a "deny"
+ * the user gave in a still-open private window. Chromium gives an explicit
+ * incognito decision precedence within incognito for the same reason.
  */
 function getEffectiveDecision(origin, key, privatePartition = null) {
   if (privatePartition) {
-    return store.getDecision(origin, key) || getPrivateDecision(privatePartition, origin, key);
+    return getPrivateDecision(privatePartition, origin, key) || store.getDecision(origin, key);
   }
   return store.getDecision(origin, key) || getSessionDecision(origin, key);
 }
@@ -675,13 +721,18 @@ function getDecisionsForOrigin(origin) {
   return result;
 }
 
+// The three revoke entry points clear the persistent store, the run-scoped
+// session decisions AND the live private-window decisions. All three tiers
+// are what "revoke" means to the user; leaving the private tier behind left
+// an open private window silently granting until it closed.
 function revokeDecision(origin, permission) {
   const key = normalizeOrigin(origin);
   const removed = store.removeDecision(key, permission);
   const hadSession = getSessionDecision(key, permission) !== null;
   clearSessionDecision(key, permission);
-  if (removed || hadSession) broadcastChanged();
-  return removed || hadSession;
+  const hadPrivate = clearPrivateDecision(key, permission);
+  if (removed || hadSession || hadPrivate) broadcastChanged();
+  return removed || hadSession || hadPrivate;
 }
 
 function revokeOrigin(origin) {
@@ -689,13 +740,15 @@ function revokeOrigin(origin) {
   const removed = store.removeOrigin(key);
   const hadSession = sessionDecisions.has(key);
   clearSessionDecision(key);
-  if (removed || hadSession) broadcastChanged();
-  return removed || hadSession;
+  const hadPrivate = clearPrivateDecision(key);
+  if (removed || hadSession || hadPrivate) broadcastChanged();
+  return removed || hadSession || hadPrivate;
 }
 
 function revokeAll() {
   store.clearAll();
   sessionDecisions.clear();
+  clearPrivateDecision();
   broadcastChanged();
   return true;
 }

@@ -39,15 +39,27 @@ const sanitizeUrlForLog = (rawUrl) => {
 // Even the sanitised form leaks where a private tab went (an http origin, or
 // the whole `rad:`/`ethereum:` URI, which has no origin to strip back to), so
 // private-window navigations log nothing beyond the fact that one happened.
+// Fails closed for the same reason ownerWindowOf does: if privacy cannot be
+// determined, redact. It also keeps the throw out of the will-navigate /
+// setWindowOpenHandler callbacks, where it would escape unhandled.
+const isPrivateSender = (contents) => {
+  try {
+    return isPrivateWebContents(contents);
+  } catch {
+    return true;
+  }
+};
+
 const navUrlForLog = (contents, rawUrl) =>
-  isPrivateWebContents(contents) ? '<private>' : sanitizeUrlForLog(rawUrl);
+  isPrivateSender(contents) ? '<private>' : sanitizeUrlForLog(rawUrl);
 
 // Resolve the BrowserWindow that hosts a webview's contents. Webviews carry
 // their chrome renderer as hostWebContents; routing through it (instead of
 // picking an arbitrary window) keeps tab-open requests in the window the
 // user clicked in — load-bearing for private windows, where a link opened
 // from a private page must never materialise as a tab in a normal window
-// (and vice versa).
+// (and vice versa). Returns null when no window can be resolved safely —
+// callers must treat that as "drop the action".
 function ownerWindowOf(contents) {
   try {
     const host = contents.hostWebContents || contents;
@@ -56,11 +68,44 @@ function ownerWindowOf(contents) {
   } catch {
     // contents may be tearing down
   }
+
+  // PRIVATE MODE GUARD (cross-privacy routing): the fallback below picks an
+  // *arbitrary* other window, which for a private sender can hand the private
+  // page's URL to a normal window on the default persistent session — a
+  // history row, persistent cookies and injected providers for a link the
+  // user opened privately. There is no safe arbitrary window for a private
+  // action, so an unresolvable private owner drops the action instead. The
+  // check fails closed: if privacy cannot be determined we assume private.
+  if (isPrivateSender(contents)) return null;
+
   // Fallback: previous behaviour (any other window) so a race during window
   // teardown degrades to the old routing instead of dropping the action.
-  return (
-    BrowserWindow.getAllWindows().find((win) => win.webContents.id !== contents.id) || null
-  );
+  //
+  // Every dereference below is guarded: a window that is mid-teardown stays
+  // in getAllWindows() while its webContents is ALREADY destroyed, so a bare
+  // `win.webContents.id` throws `Object has been destroyed` synchronously
+  // inside the setWindowOpenHandler / will-navigate callback and escapes as
+  // an unhandled main-process exception. (Same hazard bc5fbaa fixed in the
+  // e2e sweeps; this is the product-code sibling.)
+  try {
+    const senderId = contents?.id;
+    return (
+      BrowserWindow.getAllWindows().find((win) => {
+        try {
+          if (!win || win.isDestroyed?.()) return false;
+          const wc = win.webContents;
+          if (!wc || wc.isDestroyed?.()) return false;
+          return wc.id !== senderId;
+        } catch {
+          // This window went away between the guard and the read.
+          return false;
+        }
+      }) || null
+    );
+  } catch {
+    // getAllWindows() itself failed (app shutting down) — drop the action.
+    return null;
+  }
 }
 
 function registerWebContentsHandlers() {

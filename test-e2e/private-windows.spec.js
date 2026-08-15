@@ -62,11 +62,16 @@ async function navigateTo(page, url) {
 
 // Run a script inside the window's active webview (poll until the guest
 // page is ready).
+// The polled value is returned as-is rather than re-evaluated: callers pass
+// side-effectful scripts (the open-link spec appends an anchor and dispatches
+// a contextmenu event), and running the script a second time on success
+// duplicated those effects.
 async function evalInActiveWebview(page, script) {
-  return expect
+  let lastValue;
+  await expect
     .poll(
-      () =>
-        page.evaluate(async (guestScript) => {
+      async () => {
+        lastValue = await page.evaluate(async (guestScript) => {
           const wv = document.querySelector('webview:not(.hidden)');
           if (!wv || typeof wv.executeJavaScript !== 'function') return undefined;
           try {
@@ -74,16 +79,13 @@ async function evalInActiveWebview(page, script) {
           } catch {
             return undefined;
           }
-        }, script),
+        }, script);
+        return lastValue;
+      },
       { timeout: 10_000, intervals: [200, 500, 1000] }
     )
-    .not.toBe(undefined)
-    .then(() =>
-      page.evaluate(async (guestScript) => {
-        const wv = document.querySelector('webview:not(.hidden)');
-        return wv.executeJavaScript(guestScript);
-      }, script)
-    );
+    .not.toBe(undefined);
+  return lastValue;
 }
 
 // Wait until the active webview is on the harness https stub for `url`.
@@ -123,6 +125,63 @@ async function closePrivateWindows(electronApp) {
     }
   });
 }
+
+// Record every title the NEXT window created is asked to display.
+//
+// Sampling getTitle() after the window exists would be vacuous: the
+// BrowserWindow constructor seeds the title with a literal 'Freedom', so a
+// poll resolves long before ready-to-show applies the shared title. Wrapping
+// setTitle samples at the inheritance moment itself.
+//
+// The listener is stashed in a named global so `stopRecordingWindowTitles`
+// can remove it: an `app.once` that never fires (the test failing between
+// installation and the click) would lie in wait and wrap whatever window a
+// later evaluation creates, mutating state across test boundaries.
+async function recordNextWindowTitles(electronApp) {
+  await electronApp.evaluate(({ app }) => {
+    globalThis.__freshWindowTitles = [];
+    globalThis.__freshWindowRecorder = (_event, win) => {
+      const setTitle = win.setTitle.bind(win);
+      win.setTitle = (value) => {
+        globalThis.__freshWindowTitles.push(value);
+        return setTitle(value);
+      };
+    };
+    app.once('browser-window-created', globalThis.__freshWindowRecorder);
+  });
+}
+
+async function stopRecordingWindowTitles(electronApp) {
+  await electronApp
+    .evaluate(({ app }) => {
+      if (globalThis.__freshWindowRecorder) {
+        app.removeListener('browser-window-created', globalThis.__freshWindowRecorder);
+        delete globalThis.__freshWindowRecorder;
+      }
+    })
+    .catch(() => {});
+}
+
+async function recordedWindowTitles(electronApp) {
+  await expect
+    .poll(() => electronApp.evaluate(() => (globalThis.__freshWindowTitles || []).length), {
+      message: 'Waiting for the new window to be titled',
+      timeout: 15_000,
+    })
+    .toBeGreaterThan(0);
+  return electronApp.evaluate(() => globalThis.__freshWindowTitles);
+}
+
+// Belt-and-braces: the tests that assert post-close behaviour still call
+// closePrivateWindows() inline where the close is part of the assertion, but
+// a test that fails BEFORE its inline call would otherwise leak a live
+// private window into the next test. The `electronApp` fixture is currently
+// test-scoped (fresh app per test), so this only matters if it ever becomes
+// worker-scoped — which is exactly when the leak would be invisible and
+// confusing. The sweep is idempotent.
+test.afterEach(async ({ electronApp }) => {
+  await closePrivateWindows(electronApp).catch(() => {});
+});
 
 test('private window: badge, isolated partition, private start page, no wallet providers', async ({
   window,
@@ -444,37 +503,22 @@ test('a private page title reaches neither the persistent log nor a later normal
   // A NORMAL window opened (via the real File menu) while the private one
   // is live must not inherit the private title through the shared
   // currentWindowTitle every window reads at ready-to-show.
-  // Sampling getTitle() after the window exists would be vacuous: the
-  // BrowserWindow constructor seeds the title with a literal 'Freedom', so a
-  // poll resolves long before ready-to-show applies the shared title. Record
-  // every title the fresh window is *asked* to display instead, so the sample
-  // is taken at the inheritance moment itself.
   const knownIds = await electronApp.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.id)
   );
-  await electronApp.evaluate(({ app }) => {
-    globalThis.__freshWindowTitles = [];
-    app.once('browser-window-created', (_event, win) => {
-      const setTitle = win.setTitle.bind(win);
-      win.setTitle = (value) => {
-        globalThis.__freshWindowTitles.push(value);
-        return setTitle(value);
-      };
+  await recordNextWindowTitles(electronApp);
+  try {
+    await electronApp.evaluate(({ Menu }) => {
+      const item = Menu.getApplicationMenu()
+        ?.items.flatMap((top) => top.submenu?.items || [])
+        .find((entry) => entry.label === 'New Window');
+      if (!item) throw new Error('New Window menu item not found');
+      item.click();
     });
-  });
-  await electronApp.evaluate(({ Menu }) => {
-    const item = Menu.getApplicationMenu()
-      ?.items.flatMap((top) => top.submenu?.items || [])
-      .find((entry) => entry.label === 'New Window');
-    if (!item) throw new Error('New Window menu item not found');
-    item.click();
-  });
-  await expect
-    .poll(() => electronApp.evaluate(() => (globalThis.__freshWindowTitles || []).length), {
-      message: 'Waiting for the new normal window to be titled',
-      timeout: 15_000,
-    })
-    .toBeGreaterThan(0);
+    await recordedWindowTitles(electronApp);
+  } finally {
+    await stopRecordingWindowTitles(electronApp);
+  }
   const freshTitles = await electronApp.evaluate(({ BrowserWindow }, ids) => {
     BrowserWindow.getAllWindows()
       .filter((w) => !w.isDestroyed() && !ids.includes(w.id))
@@ -496,6 +540,62 @@ test('a private page title reaches neither the persistent log nor a later normal
   const logText = fs.readFileSync(path.join(userDataDir, 'logs', 'main.log'), 'utf8');
   expect(logText).toContain(NORMAL);
   expect(logText).not.toContain(SECRET);
+});
+
+// Reverse direction of the leak above: private windows must not CONSUME the
+// shared currentWindowTitle either. A fresh private window that inherits it
+// advertises whatever page the user last had focused in a NORMAL window —
+// e.g. "mybank-statements.example - Freedom" — in its native title, i.e. the
+// taskbar and window switcher, until its own renderer sends the first
+// window:set-title. No private data escapes, but the wrong page is attributed
+// to the private window in the most visible chrome there is.
+test('a fresh private window does not inherit the last normal window title', async ({
+  window,
+  electronApp,
+}) => {
+  const NORMAL = 'R2NORMALTITLEPUBLIC';
+  await navigateTo(window, 'https://normal-title.example');
+  await waitForStubPage(window, 'https://normal-title.example/');
+  await evalInActiveWebview(window, `document.title = '${NORMAL}'; document.title`);
+
+  // Wait until the shared title really holds the normal page's title —
+  // otherwise there would be nothing to leak and the assertion is vacuous.
+  // Sampled from the native window title (the chrome renderer never touches
+  // document.title; it forwards the active tab's title over window:set-title,
+  // which is the same call that seeds the shared currentWindowTitle).
+  await expect
+    .poll(
+      () =>
+        electronApp.evaluate(({ BrowserWindow }) => {
+          const win = BrowserWindow.getAllWindows().find(
+            (w) =>
+              !w.isDestroyed() &&
+              !w.webContents.isDestroyed() &&
+              !w.webContents.getURL().includes('privatePartition=private-')
+          );
+          return win ? win.getTitle() : null;
+        }),
+      { message: 'Waiting for the shared window title', timeout: 10_000 }
+    )
+    .toContain(NORMAL);
+
+  await recordNextWindowTitles(electronApp);
+  let titles;
+  try {
+    await openPrivateWindow(electronApp);
+    titles = await recordedWindowTitles(electronApp);
+  } finally {
+    await stopRecordingWindowTitles(electronApp);
+  }
+
+  // Nothing the fresh private window was asked to display carries the normal
+  // page's title...
+  for (const title of titles) {
+    expect(title).not.toContain(NORMAL);
+  }
+  // ...and the ready-to-show handler demonstrably ran, applying the neutral
+  // default instead — so the assertion above cannot pass vacuously.
+  expect(titles).toContain('Freedom');
 });
 
 // PRIVATE MODE GUARD (dweb request + name logging): the bzz/ipfs/ipns/rad

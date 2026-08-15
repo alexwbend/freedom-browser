@@ -827,6 +827,46 @@ describe('downloads-manager private sessions', () => {
     expect(reclaimed.getSavePath()).toBe(path.join(downloadsDir, 'big.iso'));
   });
 
+  // `reservedSavePaths` is a plain Set, not refcounted. cancelPartitionDownloads
+  // releases the claim synchronously and Chromium's 'done' arrives afterwards
+  // for the same item; if 'done' released it a SECOND time it would free
+  // whatever new download had meanwhile reserved that path, and the next
+  // same-named download would be handed the identical path — two transfers
+  // writing one file.
+  test('a cancelled private download does not free a later download of the same name', () => {
+    const privateSession = new EventEmitter();
+    const normalSession = new EventEmitter();
+    mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });
+    mod.attachDownloadsManager(normalSession);
+
+    const item = startOn(privateSession, {
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+    });
+    expect(item.getSavePath()).toBe(path.join(downloadsDir, 'big.iso'));
+
+    // Private window closes: the claim on big.iso is released here.
+    expect(mod.cancelPartitionDownloads(PARTITION)).toBe(1);
+
+    // A new download reclaims the freed name BEFORE the cancelled item's
+    // asynchronous 'done' lands. This is the race window.
+    const reclaimed = startOn(normalSession, {
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+    });
+    expect(reclaimed.getSavePath()).toBe(path.join(downloadsDir, 'big.iso'));
+
+    // The late 'done' for the already-unwound item must NOT release the
+    // reservation now owned by `reclaimed`.
+    item.emit('done', {}, 'cancelled');
+
+    const third = startOn(normalSession, {
+      url: 'https://example.com/big.iso',
+      filename: 'big.iso',
+    });
+    expect(third.getSavePath()).toBe(path.join(downloadsDir, 'big (1).iso'));
+  });
+
   test('cancelPartitionDownloads ignores a missing/blank partition', () => {
     const privateSession = new EventEmitter();
     mod.attachDownloadsManager(privateSession, { privatePartition: PARTITION });

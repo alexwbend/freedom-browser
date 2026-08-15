@@ -263,10 +263,19 @@ function handleWillDownload(item, webContents, { privatePartition = null } = {})
   });
 
   item.once('done', (_doneEvent, doneState) => {
+    // `cancelPartitionDownloads` (private-window close) force-unwinds items
+    // synchronously and releases their path claim there; Chromium's 'done'
+    // then arrives afterwards for the very same item. `reservedSavePaths` is
+    // a plain Set, not refcounted, so a second release would free whatever
+    // *new* download had meanwhile reserved the same path — and a third
+    // same-named download would be handed that identical path, leaving two
+    // transfers writing one file. The unwind clears `activeItemMeta`, so its
+    // membership is the "do we still own the claim?" flag.
+    const ownsReservation = activeItemMeta.has(id);
     activeItems.delete(id);
     activeItemMeta.delete(id);
     interruptedItems.delete(id);
-    releaseSavePath(reservedPath);
+    if (ownsReservation) releaseSavePath(reservedPath);
 
     // Electron reports 'completed' | 'cancelled' | 'interrupted'; the store
     // uses the same vocabulary (snake-cased in_progress aside).

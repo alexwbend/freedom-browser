@@ -2172,8 +2172,13 @@ export const initNavigation = () => {
           // Update favicon for current tab (always, not just when recording history)
           // Skip internal pages and view-source pages (view-source should use default globe icon)
           // PRIVATE MODE GUARD (favicons): private windows never fetch-and-
-          // cache favicons — shouldCacheFavicons() gates the whole pipeline
-          // (the cached-icon read below it is allowed and stays).
+          // cache favicons — shouldCacheFavicons() gates the whole block,
+          // including the cached-icon read at the end of it. So a private
+          // tab shows the default globe after load even when the icon is
+          // already cached, and only picks it up on tab switch (which has
+          // its own ungated updateTabFavicon call). That is deliberate: the
+          // read is harmless, but keeping the guard as one all-or-nothing
+          // block is what makes it auditable. Failing toward privacy.
           if (
             activeTab &&
             displayUrl &&

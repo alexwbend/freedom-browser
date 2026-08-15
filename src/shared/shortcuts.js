@@ -164,7 +164,11 @@ const SHORTCUTS = [
     id: 'window.newPrivate',
     description: 'New Private Window',
     defaultAccelerator: 'CmdOrCtrl+Shift+N',
-    context: 'menu',
+    // 'both': enforced by the native menu accelerator AND by the renderer
+    // keydown fallback (tabs.js, via matchesShortcut) — the fallback exists
+    // for the Linux frameless / auto-hidden-menu-bar setups where the menu
+    // accelerator never reaches the app.
+    context: 'both',
     category: 'Window',
     editable: true,
   },

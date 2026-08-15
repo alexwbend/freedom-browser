@@ -87,8 +87,17 @@ function createMainWindow(initialUrl = null, options = {}) {
   // Track this window
   mainWindows.add(window);
 
+  // PRIVATE MODE GUARD (window title): `currentWindowTitle` is the shared
+  // last-seen title, and private senders deliberately never seed it. Private
+  // windows must not CONSUME it either — otherwise a fresh private window's
+  // native title (taskbar / window switcher) advertises whatever page the
+  // user last had focused in a NORMAL window, e.g. "mybank - Freedom", until
+  // its own renderer sends the first window:set-title. Wrong page attributed
+  // to the wrong window, in the most visible chrome there is.
+  const titleForThisWindow = () => (privatePartition ? 'Freedom' : currentWindowTitle);
+
   window.on('ready-to-show', () => {
-    window.setTitle(currentWindowTitle);
+    window.setTitle(titleForThisWindow());
 
     // Linux cold start: a freshly-spawned profile process has no valid
     // startup-activation token, so Mutter denies focus to the new window and
@@ -104,7 +113,7 @@ function createMainWindow(initialUrl = null, options = {}) {
 
   window.on('page-title-updated', (event) => {
     event.preventDefault();
-    window.setTitle(currentWindowTitle);
+    window.setTitle(titleForThisWindow());
   });
 
   window.on('closed', () => {

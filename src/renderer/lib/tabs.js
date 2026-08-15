@@ -369,8 +369,19 @@ const defaultNewTabUrl = () => (isPrivateWindow() ? PRIVATE_START_URL : homeUrl)
 // True for both forms the private start page appears as in tab.url —
 // the friendly freedom:// form while resolving and the resolved
 // file://…/pages/private.html form once loaded.
+//
+// The resolved form is a bare suffix match, so it is scoped to private
+// windows: in a NORMAL window a perfectly ordinary web page whose path ends
+// in /pages/private.html (https://example.com/pages/private.html) would
+// otherwise be silently excluded from the Ctrl/Cmd+Shift+T reopen stack.
+// The internal page only ever loads from a file:// URL inside a private
+// window, so the narrower check loses nothing.
 const isPrivateStartUrl = (url) =>
-  url === PRIVATE_START_URL || (typeof url === 'string' && url.endsWith('/pages/private.html'));
+  url === PRIVATE_START_URL ||
+  (isPrivateWindow() &&
+    typeof url === 'string' &&
+    url.startsWith('file:') &&
+    url.endsWith('/pages/private.html'));
 
 // Create a webview element
 const createWebview = (tabId, initialUrl) => {

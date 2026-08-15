@@ -581,10 +581,7 @@ describe('permissions-manager', () => {
     expect(host.once).toHaveBeenCalledTimes(1);
 
     guest.destroy();
-    expect(host.removeListener).toHaveBeenCalledWith(
-      'destroyed',
-      host.destroyedCallbacks[0]
-    );
+    expect(host.removeListener).toHaveBeenCalledWith('destroyed', host.destroyedCallbacks[0]);
 
     // A fresh prompt cycle re-arms exactly one listener.
     const guest2 = makeGuest('https://example.com/other', host);
@@ -805,6 +802,113 @@ describe('permissions-manager private windows', () => {
     const again = requestOn(privateSession, 'notifications', host);
     expect(again).not.toHaveBeenCalled();
     expect(lastPrompt(host)).not.toBeNull();
+  });
+
+  // Inheritance-on-read is right when the user has NOT answered inside the
+  // private window. Once they have, that answer is the more specific and
+  // more recent expression of intent and must win — otherwise a normal
+  // window persisting "allow" later silently overrides a "deny" the user
+  // gave in a still-open private window. Chromium gives an explicit
+  // incognito decision precedence within incognito for the same reason.
+  test('an explicit private answer outranks a profile decision made afterwards', async () => {
+    load();
+
+    // The user denies inside the private window.
+    const privateHost = makeHost();
+    const denied = requestOn(privateSession, 'notifications', privateHost);
+    await respond({ id: lastPrompt(privateHost).id, decision: 'deny', remember: true });
+    await flush();
+    expect(denied).toHaveBeenCalledWith(false);
+
+    // Later, a normal window persists "allow" for the SAME origin.
+    const normalHost = makeHost();
+    const normalCallback = requestOn(normalSession, 'notifications', normalHost);
+    await respond({ id: lastPrompt(normalHost).id, decision: 'allow', remember: true });
+    await flush();
+    expect(normalCallback).toHaveBeenCalledWith(true);
+
+    // The still-open private window keeps denying — silently, no re-prompt.
+    privateHost.send.mockClear();
+    const again = requestOn(privateSession, 'notifications', privateHost);
+    expect(again).toHaveBeenCalledWith(false);
+    expect(privateHost.send).not.toHaveBeenCalled();
+    expect(
+      privateSession.checkHandler(null, 'notifications', 'https://example.com', {
+        requestingUrl: 'https://example.com/page',
+      })
+    ).toBe(false);
+
+    // …and the normal window is unaffected: the profile decision still holds.
+    expect(
+      normalSession.checkHandler(null, 'notifications', 'https://example.com', {
+        requestingUrl: 'https://example.com/page',
+      })
+    ).toBe(true);
+  });
+
+  // A removal, unlike a stored deny, carries no decision that could override
+  // a live private grant — so "revoke" has to remove the private tier too,
+  // or an open private window keeps granting until it closes.
+  describe('revoking also clears live private-window decisions', () => {
+    const grantInPrivateWindow = async (host) => {
+      requestOn(privateSession, 'notifications', host);
+      await respond({ id: lastPrompt(host).id, decision: 'allow', remember: true });
+      await flush();
+      expect(
+        privateSession.checkHandler(null, 'notifications', 'https://example.com', {
+          requestingUrl: 'https://example.com/page',
+        })
+      ).toBe(true);
+    };
+
+    const expectRevoked = (host) => {
+      expect(
+        privateSession.checkHandler(null, 'notifications', 'https://example.com', {
+          requestingUrl: 'https://example.com/page',
+        })
+      ).toBe(false);
+      // Re-prompts rather than silently allowing.
+      host.send.mockClear();
+      const again = requestOn(privateSession, 'notifications', host);
+      expect(again).not.toHaveBeenCalled();
+      expect(lastPrompt(host)).not.toBeNull();
+    };
+
+    test('revokeDecision', async () => {
+      load();
+      const host = makeHost();
+      await grantInPrivateWindow(host);
+      expect(ctx.mod.revokeDecision('https://example.com', 'notifications')).toBe(true);
+      expectRevoked(host);
+    });
+
+    test('revokeOrigin', async () => {
+      load();
+      const host = makeHost();
+      await grantInPrivateWindow(host);
+      expect(ctx.mod.revokeOrigin('https://example.com')).toBe(true);
+      expectRevoked(host);
+    });
+
+    test('revokeAll', async () => {
+      load();
+      const host = makeHost();
+      await grantInPrivateWindow(host);
+      expect(ctx.mod.revokeAll()).toBe(true);
+      expectRevoked(host);
+    });
+
+    test('a revoke that matches a different origin leaves the private grant alone', async () => {
+      load();
+      const host = makeHost();
+      await grantInPrivateWindow(host);
+      expect(ctx.mod.revokeOrigin('https://unrelated.example')).toBe(false);
+      expect(
+        privateSession.checkHandler(null, 'notifications', 'https://example.com', {
+          requestingUrl: 'https://example.com/page',
+        })
+      ).toBe(true);
+    });
   });
 
   test('clearPrivateDecisions drops the window decisions (close semantics)', async () => {

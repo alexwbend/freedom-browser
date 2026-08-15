@@ -50,10 +50,16 @@ const PRIVATE_PARTITION_PREFIX = 'private-';
 
 // Live private windows: BrowserWindow id -> { partition, session }.
 const privateWindows = new Map();
-// All partitions ever created by this process (a closed window's partition
-// stays "known" so late IPC from a tearing-down window is still recognised
-// as private — deny-by-default for anything that ever was private).
+// All partitions ever created by this process, and the ids of every window
+// that ever hosted one. Both outlive the window deliberately: a closed
+// window's identity stays "known" so late IPC from a tearing-down window is
+// still recognised as private — deny-by-default for anything that ever was
+// private. `isPrivateWebContents` consults `everPrivateWindowIds` (not just
+// the live map) precisely so the private *chrome* renderer — which runs on
+// the DEFAULT session, where the session-identity check cannot see it — is
+// still refused by the write guards while its window tears down.
 const privatePartitions = new Set();
+const everPrivateWindowIds = new Set();
 // Live private session objects, for fast sender.session identity checks.
 const privateSessions = new Set();
 
@@ -76,6 +82,12 @@ function registerPrivateCleanup(fn) {
   if (typeof fn === 'function') cleanupHooks.push(fn);
 }
 
+/**
+ * True for any partition this process ever handed to a private window,
+ * including ones whose window has since closed. Callers that hold a
+ * partition *name* (rather than a webContents) use this to fail closed —
+ * `isPrivateWebContents` is the equivalent check keyed on a sender.
+ */
 function isPrivatePartition(partition) {
   return typeof partition === 'string' && privatePartitions.has(partition);
 }
@@ -98,7 +110,10 @@ function isPrivateWebContents(webContents) {
   try {
     const host = webContents.hostWebContents || webContents;
     const win = BrowserWindow.fromWebContents(host);
-    return !!win && privateWindows.has(win.id);
+    // `everPrivateWindowIds`, not `privateWindows`: the live map entry is
+    // deleted the moment 'closed' fires, but the chrome renderer can still
+    // be dispatching IPC during teardown. Once private, always private.
+    return !!win && everPrivateWindowIds.has(win.id);
   } catch {
     return false;
   }
@@ -151,8 +166,15 @@ async function destroyPrivateSession(privateSession, partition) {
 /**
  * Open a new private browsing window.
  *
+ * Fails CLOSED: if the session cannot be configured the window is not opened
+ * at all and null is returned. A bare private session has no permission
+ * handler (Electron's default *grants* every request), no per-session
+ * protocol handlers and no downloads hook — i.e. the opposite of what the
+ * window promises — so refusing to open is the only safe degradation.
+ * Callers treat a falsy result as "nothing happened".
+ *
  * @param {string|null} initialUrl - optional URL for the first tab
- * @returns {Electron.BrowserWindow}
+ * @returns {Electron.BrowserWindow|null}
  */
 function createPrivateWindow(initialUrl = null) {
   const partition = `${PRIVATE_PARTITION_PREFIX}${crypto.randomUUID()}`;
@@ -163,18 +185,25 @@ function createPrivateWindow(initialUrl = null) {
   privatePartitions.add(partition);
   privateSessions.add(privateSession);
 
-  if (sessionConfigurator) {
-    try {
-      sessionConfigurator(privateSession, { partition });
-    } catch (err) {
-      log.error('[private] session configurator failed:', err?.message || err);
-    }
-  } else {
-    log.warn('[private] no session configurator installed — private session is bare');
+  if (!sessionConfigurator) {
+    log.error('[private] no session configurator installed — refusing to open a private window');
+    privateSessions.delete(privateSession);
+    return null;
+  }
+  try {
+    sessionConfigurator(privateSession, { partition });
+  } catch (err) {
+    log.error(
+      '[private] session configurator failed — refusing to open a private window:',
+      err?.message || err
+    );
+    privateSessions.delete(privateSession);
+    return null;
   }
 
   const window = requireCreateMainWindow()(initialUrl, { privatePartition: partition });
   privateWindows.set(window.id, { partition, session: privateSession });
+  everPrivateWindowIds.add(window.id);
   log.info(`[private] Opened private window ${window.id} on partition ${partition}`);
 
   window.on('closed', () => {
@@ -197,6 +226,7 @@ function getPrivateWindowCount() {
 function _resetState() {
   privateWindows.clear();
   privatePartitions.clear();
+  everPrivateWindowIds.clear();
   privateSessions.clear();
   cleanupHooks.length = 0;
   sessionConfigurator = null;

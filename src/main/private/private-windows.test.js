@@ -49,7 +49,20 @@ function loadWithWindowFactory() {
     },
   });
 
-  return { mod: ctx.mod, createMainWindow, createdWindows, fromPartition, sessionsByPartition };
+  // createPrivateWindow fails CLOSED without a configurator, so every suite
+  // that just wants a window installs a no-op one. The refusal itself is
+  // covered explicitly below.
+  const configurator = jest.fn();
+  ctx.mod.setPrivateSessionConfigurator(configurator);
+
+  return {
+    mod: ctx.mod,
+    createMainWindow,
+    createdWindows,
+    fromPartition,
+    sessionsByPartition,
+    configurator,
+  };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
@@ -141,11 +154,39 @@ describe('private-windows', () => {
     expect(privateSession.clearStorageData).toHaveBeenCalledTimes(1);
     expect(privateSession.clearCache).toHaveBeenCalledTimes(1);
     expect(mod.getPrivateWindowCount()).toBe(0);
-    // The chrome webContents no longer maps to a private window...
-    expect(mod.isPrivateWebContents(createdWindows[0].webContents)).toBe(false);
-    // ...but the partition stays known-private forever (late IPC from a
-    // tearing-down window must still be treated as private).
+    // The window is gone from the LIVE registry, but its identity stays
+    // known-private forever: the private chrome renderer runs on the DEFAULT
+    // session (so the session-identity check cannot see it) and can still be
+    // dispatching history:add / favicon:fetch IPC while the window tears
+    // down. Deny-by-default for anything that ever was private — this is the
+    // promise the module comment makes, asserted here so it stays true.
+    expect(mod.isPrivateWebContents(createdWindows[0].webContents)).toBe(true);
     expect(mod.isPrivatePartition(partition)).toBe(true);
+  });
+
+  test('createPrivateWindow fails closed when the session cannot be configured', () => {
+    // A bare private session has no permission handler (Electron's default
+    // GRANTS every request), no per-session protocol handlers and no
+    // downloads hook — the opposite of what the window promises. Refusing to
+    // open is the only safe degradation.
+    const noConfigurator = loadWithWindowFactory();
+    noConfigurator.mod.setPrivateSessionConfigurator(null);
+    expect(noConfigurator.mod.createPrivateWindow()).toBe(null);
+    expect(noConfigurator.createMainWindow).not.toHaveBeenCalled();
+    expect(noConfigurator.mod.getPrivateWindowCount()).toBe(0);
+
+    const throwing = loadWithWindowFactory();
+    throwing.configurator.mockImplementation(() => {
+      throw new Error('protocol registration failed');
+    });
+    expect(throwing.mod.createPrivateWindow('https://example.com')).toBe(null);
+    expect(throwing.createMainWindow).not.toHaveBeenCalled();
+    expect(throwing.mod.getPrivateWindowCount()).toBe(0);
+
+    // The partition name it burned stays known-private: nothing may ever be
+    // treated as normal just because its window failed to open.
+    const [partition] = throwing.fromPartition.mock.calls[0];
+    expect(throwing.mod.isPrivatePartition(partition)).toBe(true);
   });
 
   test('a failing cleanup hook does not prevent session clearing', async () => {
