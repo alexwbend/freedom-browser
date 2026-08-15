@@ -23,6 +23,25 @@ body.private-window {
   --accent: #b39ddb;
 }
 
+/* light-theme.css hardcodes #ffffff on the active tab (and its connecting
+   corner curves) instead of routing through --toolbar, so in a light-theme
+   private window the active tab rendered white against the plum toolbar.
+   Re-route it back through the private --toolbar; these selectors out-specify
+   `[data-theme='light'] .tab.active` (0,3,0) via the extra `.private-window`
+   class (0,3,1), so the private palette wins in both themes. */
+body.private-window .tab.active {
+  background-color: var(--toolbar);
+}
+
+body.private-window .tab.active::before,
+body.private-window .tab.active::after {
+  background-color: var(--toolbar);
+}
+
+body.private-window .tab.active .tab-corner {
+  color: var(--toolbar);
+}
+
 /* "Private" label next to the navigation buttons, always visible in
    private windows (hidden attribute removed by index.js). */
 .private-badge {
