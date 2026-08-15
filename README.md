@@ -517,6 +517,17 @@ the Tor Project's pure-Rust Tor client. It is **off by default** and gated behin
   `DIRECT` for everything else. SOCKS5 does remote DNS, so the onion name resolves
   at Tor — no custom scheme is needed; `.onion` is just an ordinary http(s) host
   (defaulted to `http://` since most onion services are http-only).
+- **Every session, including private windows.** A PAC applies to exactly one
+  Electron session, so `src/main/tor-manager.js` tracks the default session plus
+  each live private-window partition and applies the same routing to all of them
+  — a private window opened before *or* during a Tor session routes `.onion`
+  through the proxy instead of resolving it DIRECT (which would leak the onion
+  hostname to the system resolver).
+- **Fails closed.** If Arti exits unexpectedly, or a start times out, the PAC is
+  left in place: `.onion` requests fail with a proxy error rather than silently
+  falling back to a DIRECT (DNS-leaking) lookup. Only a deliberate stop — the
+  node-status toggle, disabling the integration, or app shutdown — restores
+  DIRECT.
 - **Lifecycle.** `src/main/tor-manager.js` spawns the bundled `arti` binary as a
   profile-scoped local SOCKS5 proxy (`arti proxy -c <arti.toml>`), waits for Arti
   to report that it is sufficiently bootstrapped, health-checks the SOCKS5
@@ -586,7 +597,7 @@ Two Playwright projects live under `test-e2e/`. The harness suite is run manuall
 | `harness` | `npm run test:e2e` | `test-e2e/*.spec.js` | Launches Electron with `FREEDOM_TEST_MODE=1`. The in-process harness in `src/main/test-harness.js` stubs Ant/IPFS startup, ENS resolution, the Swarm probe, and the `bzz:` / `ipfs:` / `ipns:` protocol handlers, so specs are fast (~15 s end-to-end), deterministic, and require no network or downloaded binaries. Covers address-bar normalisation, tabs, bookmarks, settings persistence, and the error-page flow. |
 | `live` | `npm run test:e2e:live` | `test-e2e/live/*.spec.js` | Launches Electron without the harness — actual Ant + native IPFS startup, live ENS resolution, real `bzz://` / `ipfs://` protocol handlers. The live smoke waits for Swarm peers and for native IPFS to report running, then navigates to `meinhard.eth` (Swarm) and `vitalik.eth` (IPFS). `npm run test:e2e:tor` runs the Tor-only live smoke against real Arti and a live `.onion` service. Requires the matching binary download/build first; missing binaries/addons skip before Electron launches. |
 
-Both suites use a per-run temp `userData` directory (`FREEDOM_TEST_USER_DATA`) so they never touch your real settings, bookmarks, or history. Sequential runs only (`workers: 1`) — Electron + protocol-scheme registration and Ant port detection don't tolerate parallel app instances.
+`npm run test:e2e:tor` sets `FREEDOM_LIVE_E2E_DISABLE_DEFAULT_NODES=1`, which makes the live fixtures seed settings that keep Ant / IPFS / Radicle / Tor from autostarting, so the Tor smoke doesn't pay for (or inherit the flakiness of) the other nodes booting. Both suites use a per-run temp `userData` directory (`FREEDOM_TEST_USER_DATA`) so they never touch your real settings, bookmarks, or history. Sequential runs only (`workers: 1`) — Electron + protocol-scheme registration and Ant port detection don't tolerate parallel app instances.
 
 ### Logging
 

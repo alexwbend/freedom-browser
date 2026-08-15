@@ -381,3 +381,127 @@ describe('tor-manager IPC', () => {
     await mod.stopTor();
   });
 });
+
+describe('tor-manager .onion routing across sessions', () => {
+  const createSessionMock = () => ({ setProxy: jest.fn().mockResolvedValue(undefined) });
+
+  const loadExternalTorManager = () => loadTorManager({
+    enableTorIntegration: true,
+    socksProbeResult: true,
+    activeProfile: {
+      metadata: {
+        nodes: {
+          tor: { mode: 'external', externalSocks: 'socks5://127.0.0.1:9150/' },
+        },
+      },
+    },
+  });
+
+  const pacCalls = (targetSession) => targetSession.setProxy.mock.calls
+    .filter(([arg]) => arg?.mode === 'pac_script');
+
+  const directCalls = (targetSession) => targetSession.setProxy.mock.calls
+    .filter(([arg]) => arg?.mode === 'direct');
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('a private-window session registered before start is proxied too', async () => {
+    const targetSession = createSessionMock();
+    const privateSession = createSessionMock();
+    const { mod } = loadExternalTorManager();
+
+    mod.registerOnionRoutingSession('private-abc', privateSession);
+    await mod.startTor({ targetSession });
+
+    // Without this, a private window resolves *.onion DIRECT and leaks the
+    // onion hostname to the system resolver.
+    expect(pacCalls(privateSession)).toHaveLength(1);
+    expect(pacCalls(targetSession)).toHaveLength(1);
+
+    await mod.stopTor();
+    expect(directCalls(privateSession)).toHaveLength(1);
+  });
+
+  test('a private window opened while Tor runs adopts the .onion PAC immediately', async () => {
+    const targetSession = createSessionMock();
+    const privateSession = createSessionMock();
+    const { mod } = loadExternalTorManager();
+
+    await mod.startTor({ targetSession });
+    expect(pacCalls(privateSession)).toHaveLength(0);
+
+    mod.registerOnionRoutingSession('private-late', privateSession);
+    await flushMicrotasks();
+
+    expect(pacCalls(privateSession)).toHaveLength(1);
+    await mod.stopTor();
+  });
+
+  test('a closed private window stops receiving proxy updates', async () => {
+    const targetSession = createSessionMock();
+    const privateSession = createSessionMock();
+    const { mod } = loadExternalTorManager();
+
+    mod.registerOnionRoutingSession('private-gone', privateSession);
+    await mod.startTor({ targetSession });
+    mod.unregisterOnionRoutingSession('private-gone');
+
+    await mod.stopTor();
+    expect(directCalls(privateSession)).toHaveLength(0);
+    expect(directCalls(targetSession)).toHaveLength(1);
+  });
+
+  test('an unexpected arti exit keeps .onion fail-closed instead of reverting to DIRECT', async () => {
+    const realExistsSync = fs.existsSync;
+    jest.spyOn(fs, 'existsSync').mockImplementation((target) => {
+      if (String(target).includes(`${path.sep}arti-bin${path.sep}`)) return true;
+      return realExistsSync(target);
+    });
+    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tor-crash-'));
+    const artiProcess = createArtiProcessMock();
+    const targetSession = createSessionMock();
+    const privateSession = createSessionMock();
+
+    try {
+      const { mod } = loadTorManager({
+        userDataDir,
+        enableTorIntegration: true,
+        activeProfile: {
+          source: 'catalog',
+          metadata: { nodes: { tor: { mode: 'managed', socksPort: 19150 } } },
+        },
+        extraMocks: {
+          child_process: () => ({ spawn: jest.fn(() => artiProcess), execFile: jest.fn() }),
+        },
+      });
+
+      await mod.startTor({ targetSession });
+      mod.registerOnionRoutingSession('private-crash', privateSession);
+
+      // Arti announces bootstrap, the 1s poller then applies the PAC.
+      const onStdout = artiProcess.stdout.on.mock.calls[0][1];
+      onStdout('Sufficiently bootstrapped\n');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      expect(pacCalls(targetSession)).toHaveLength(1);
+      expect(pacCalls(privateSession)).toHaveLength(1);
+
+      // Arti crashes. Clearing the PAC here would turn .onion into a DIRECT
+      // (DNS-leaking) lookup with no user action — fail open.
+      artiProcess.emit('close', 1);
+      await flushMicrotasks();
+
+      expect(directCalls(targetSession)).toHaveLength(0);
+      expect(directCalls(privateSession)).toHaveLength(0);
+
+      // A deliberate stop is still what restores DIRECT.
+      await mod.stopTor();
+      expect(directCalls(targetSession)).toHaveLength(1);
+      expect(directCalls(privateSession)).toHaveLength(1);
+    } finally {
+      fs.rmSync(userDataDir, { recursive: true, force: true });
+    }
+  }, 15_000);
+});

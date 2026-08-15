@@ -206,7 +206,13 @@ const {
   startRadicle,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
-const { registerTorIpc, stopTor, startTor } = require('./tor-manager');
+const {
+  registerTorIpc,
+  stopTor,
+  startTor,
+  registerOnionRoutingSession,
+  unregisterOnionRoutingSession,
+} = require('./tor-manager');
 const { registerIdentityIpc, hasVault, setBeeLifecycle } = require('./identity-manager');
 const { registerQuickUnlockIpc } = require('./quick-unlock');
 const { registerWalletIpc } = require('./wallet/wallet-ipc');
@@ -388,6 +394,11 @@ async function bootstrap() {
     });
     attachDownloadsManager(privateSession, { privatePartition: partition });
     installPermissionHandlers(privateSession, { privatePartition: partition });
+    // `.onion` routing is per-session: the PAC on the default session does
+    // not cover this partition, so without this registration a private window
+    // resolves *.onion DIRECT and hands the onion hostname to the system
+    // resolver. Applies the live policy immediately when Tor is already up.
+    registerOnionRoutingSession(partition, privateSession);
   });
   // On private-window close: cancel the window's still-running downloads
   // FIRST (once its rows are gone nothing can see or stop them, and a
@@ -398,6 +409,7 @@ async function bootstrap() {
   registerPrivateCleanup((partition) => cancelPrivateDownloads(partition));
   registerPrivateCleanup((partition) => dropPrivateDownloads(partition));
   registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
+  registerPrivateCleanup((partition) => unregisterOnionRoutingSession(partition));
 
   registerWebContentsHandlers();
   setupApplicationMenu();

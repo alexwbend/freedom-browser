@@ -66,7 +66,18 @@ let forceKillTimeout = null;
 let pendingStopError = null;
 let currentSocksPort = DEFAULTS.tor.socksPort;
 let currentSocksEndpoint = `127.0.0.1:${DEFAULTS.tor.socksPort}`;
-let proxySession = null;
+// Every session that must follow the `.onion` routing policy, keyed by a
+// stable id: DEFAULT_SESSION_KEY for the default session plus one entry per
+// live private-window partition. A PAC applies to exactly one session, so a
+// private partition that is not in here resolves `*.onion` DIRECT and leaks
+// the hostname to the system resolver — hence the private-window sessions are
+// registered by src/main/index.js's private-session configurator.
+const DEFAULT_SESSION_KEY = 'default';
+const proxySessions = new Map();
+// SOCKS endpoint currently pinned into every tracked session's PAC, or null
+// when `.onion` is routed DIRECT. A session registered later adopts it, so a
+// private window opened while Tor is already running inherits the same policy.
+let appliedSocksEndpoint = null;
 let artiBootstrapped = false;
 let artiOutputBuffer = '';
 // Bumped by every start attempt and by every stop, so a start that is awaiting
@@ -289,9 +300,55 @@ function startHealthCheck(mode) {
   }, 5000);
 }
 
+/**
+ * Route `.onion` through `endpoint` on every tracked session. The endpoint is
+ * recorded before the first apply so a session registered mid-flight adopts
+ * the same policy (fail closed: an unreachable SOCKS port errors the request
+ * instead of leaking the onion hostname to the system resolver).
+ */
+async function applyOnionRouting(endpoint) {
+  appliedSocksEndpoint = endpoint;
+  await Promise.all(
+    [...proxySessions.values()].map((targetSession) => applyOnionProxy(targetSession, endpoint))
+  );
+}
+
+/** Restore DIRECT `.onion` connections on every tracked session. */
+async function clearOnionRouting() {
+  appliedSocksEndpoint = null;
+  await Promise.all(
+    [...proxySessions.values()].map((targetSession) =>
+      clearOnionProxy(targetSession).catch(() => {})
+    )
+  );
+}
+
+/**
+ * Track a session that must follow the `.onion` routing policy — the default
+ * session at start, and every private-window partition session for as long as
+ * its window lives. Applies the current policy immediately, so a private
+ * window opened while Tor runs never resolves `.onion` DIRECT.
+ *
+ * @param {string} key - DEFAULT_SESSION_KEY or a private partition name
+ * @param {import('electron').Session} targetSession
+ */
+function registerOnionRoutingSession(key, targetSession) {
+  if (!key || !targetSession) return;
+  proxySessions.set(key, targetSession);
+  if (!appliedSocksEndpoint) return;
+  applyOnionProxy(targetSession, appliedSocksEndpoint).catch((err) => {
+    log.error(`[Tor] Failed to apply .onion routing to session ${key}:`, err.message);
+  });
+}
+
+/** Stop tracking a session (private window closed; its session is gone). */
+function unregisterOnionRoutingSession(key) {
+  proxySessions.delete(key);
+}
+
 async function applyTorProxy(mode, statusMessage, superseded = () => false) {
   try {
-    await applyOnionProxy(proxySession, currentSocksEndpoint);
+    await applyOnionRouting(currentSocksEndpoint);
   } catch (err) {
     if (superseded()) return false;
     log.error('[Tor] Failed to apply proxy:', err.message);
@@ -303,7 +360,7 @@ async function applyTorProxy(mode, statusMessage, superseded = () => false) {
   if (superseded()) {
     // Stopped while the proxy was being applied: undo it instead of reporting
     // RUNNING for a service the user just turned off.
-    if (proxySession) clearOnionProxy(proxySession).catch(() => {});
+    clearOnionRouting().catch(() => {});
     return false;
   }
 
@@ -425,7 +482,7 @@ async function startTor(opts = {}) {
     return;
   }
 
-  proxySession = opts.targetSession || session.defaultSession;
+  registerOnionRoutingSession(DEFAULT_SESSION_KEY, opts.targetSession || session.defaultSession);
 
   pendingStart = false;
   const superseded = beginStartAttempt();
@@ -548,8 +605,12 @@ async function startTor(opts = {}) {
       clearInterval(healthCheckInterval);
       healthCheckInterval = null;
     }
-    // Tear down the proxy so clearnet isn't pointed at a dead SOCKS port.
-    if (proxySession) clearOnionProxy(proxySession).catch(() => {});
+    // The PAC is deliberately left in place here. Clearnet is DIRECT inside
+    // the PAC, so a dead SOCKS port only affects `.onion` — and there the
+    // fail-closed behaviour is the point: onion requests fail with a proxy
+    // error instead of silently falling back to DIRECT, which would hand the
+    // onion hostname to the system resolver. A deliberate stop (stopTor
+    // without preserveOnionRouting) is the only path that restores DIRECT.
     if (pendingStopError) {
       // A startup timeout initiated this stop: report its message instead of
       // the raw arti exit code from the SIGTERM/SIGKILL that carried it out.
@@ -570,7 +631,7 @@ async function startTor(opts = {}) {
 
     if (pendingStart) {
       pendingStart = false;
-      setTimeout(() => startTor({ targetSession: proxySession }), 100);
+      setTimeout(() => startTor({ targetSession: proxySessions.get(DEFAULT_SESSION_KEY) }), 100);
     }
   });
 
@@ -599,14 +660,24 @@ async function startTor(opts = {}) {
         // it instead of the raw arti exit code from the kill it performs.
         pendingStopError = 'Startup timed out';
         setStatusMessage('tor', 'Tor failed to start');
-        stopTor();
+        // Fail closed: a failed start must not hand `.onion` back to DIRECT
+        // (a previous session may already be routing through the PAC).
+        stopTor({ preserveOnionRouting: true });
       }
     }
   }, 1000);
 }
 
-/** Stop Arti and restore direct connections. Resolves when the process exits. */
-function stopTor() {
+/**
+ * Stop Arti and restore direct connections. Resolves when the process exits.
+ *
+ * @param {object} [options]
+ * @param {boolean} [options.preserveOnionRouting] keep the `.onion` PAC in
+ *   place instead of restoring DIRECT. Failure paths (startup timeout) pass
+ *   this: only a deliberate stop should make `.onion` resolvable without Tor.
+ */
+function stopTor(options = {}) {
+  const preserveOnionRouting = options?.preserveOnionRouting === true;
   return new Promise((resolve) => {
     pendingStart = false;
     // Cancel any startTor() still sitting on an await, so it can't spawn arti
@@ -622,7 +693,7 @@ function stopTor() {
         clearTimeout(forceKillTimeout);
         forceKillTimeout = null;
       }
-      if (proxySession) clearOnionProxy(proxySession).catch(() => {});
+      if (!preserveOnionRouting) clearOnionRouting().catch(() => {});
       clearService('tor');
       artiBootstrapped = false;
       artiOutputBuffer = '';
@@ -710,6 +781,8 @@ module.exports = {
   registerTorIpc,
   startTor,
   stopTor,
+  registerOnionRoutingSession,
+  unregisterOnionRoutingSession,
   getActivePort,
   getArtiVersion,
   getArtiBinaryPath,
