@@ -10,24 +10,39 @@
  * for attachment dispositions, `download`-attribute clicks, data: URIs, and
  * non-renderable main-frame navigations.
  *
- * Persistence lives in downloads-store.js (per-profile downloads.sqlite).
+ * Persistence lives in downloads-store.js (per-profile downloads.sqlite)
+ * for normal windows only. PRIVATE MODE GUARD (downloads): downloads from
+ * private windows never touch SQLite — their rows live in the in-memory
+ * private-downloads-store, scoped to the window's partition, merged into
+ * query results served to that window's renderers alone, and dropped when
+ * the window closes. Ids route by sign: SQLite rowids are positive, private
+ * in-memory ids are negative.
+ *
  * Completed files are never opened automatically; open / show-in-folder are
  * explicit user actions arriving over IPC and resolved against the stored
  * row, never against a renderer-supplied path.
  */
 
 const log = require('../logger');
-const { app, ipcMain, shell, BrowserWindow } = require('electron');
+const { app, ipcMain, shell, BrowserWindow, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const IPC = require('../../shared/ipc-channels');
 const store = require('./downloads-store');
+const privateStore = require('./private-downloads-store');
+const { getPartitionForWebContents } = require('../private/private-windows');
 const { loadSettings } = require('../settings-store');
 const { broadcastToAllWebContents } = require('../lib/broadcast-to-all-webcontents');
 
 // Live DownloadItems by store row id — pause/resume/cancel IPC resolves
 // through this map; settled items are removed.
 const activeItems = new Map();
+
+// Per-item bookkeeping for the live items above: the owning private
+// partition (null for normal windows) and the save path the item claimed.
+// Lets a closing private window cancel and unwind its own transfers without
+// waiting for Chromium's asynchronous 'done'.
+const activeItemMeta = new Map();
 
 // Store row ids whose live DownloadItem is in Chromium's 'interrupted'
 // updated-state: still live (not `done`), usually resumable, but not
@@ -118,7 +133,7 @@ function releaseSavePath(savePath) {
  * store rows (snake_case columns) so the downloads page renders both the
  * same way, plus live-only flags for pause/resume affordances.
  */
-function serializeDownload(id, item) {
+function serializeDownload(id, item, { isPrivate = false } = {}) {
   return {
     id,
     url: item.getURL(),
@@ -133,6 +148,7 @@ function serializeDownload(id, item) {
     // Live-but-stalled: the transfer broke mid-session and Chromium has not
     // given up on the item yet. The UI must offer Resume, not Pause.
     is_interrupted: interruptedItems.has(id),
+    is_private: isPrivate ? 1 : 0,
   };
 }
 
@@ -144,20 +160,37 @@ function ownerWindowOf(webContents) {
   return BrowserWindow.fromWebContents(host);
 }
 
-function sendToOwner(ownerWindow, payload) {
+function sendToOwner(ownerWindow, payload, privatePartition = null) {
   if (ownerWindow && !ownerWindow.isDestroyed()) {
     ownerWindow.webContents.send(IPC.DOWNLOADS_UPDATED, payload);
+  }
+  if (privatePartition) {
+    // PRIVATE MODE GUARD (downloads): change hints for private downloads
+    // carry URL and save-path metadata — deliver them only to renderers of
+    // the owning private window, never to normal windows.
+    if (!webContents?.getAllWebContents) return;
+    for (const wc of webContents.getAllWebContents()) {
+      try {
+        if (getPartitionForWebContents(wc) === privatePartition) {
+          wc.send(IPC.DOWNLOADS_CHANGED, payload);
+        }
+      } catch {
+        // webContents may be destroyed mid-iteration
+      }
+    }
+    return;
   }
   // The freedom://downloads page may be open in any window; it re-queries
   // the store on this signal.
   broadcastToAllWebContents(IPC.DOWNLOADS_CHANGED, payload);
 }
 
-function handleWillDownload(_event, item, webContents) {
+function handleWillDownload(item, webContents, { privatePartition = null } = {}) {
   const filename = sanitizeFilename(item.getFilename());
   const settings = loadSettings();
   const downloadsDir = app.getPath('downloads');
   let reservedPath = null;
+  const isPrivate = !!privatePartition;
 
   if (settings.askWhereToSave === true) {
     // No savePath set → Electron shows its native save dialog; we only seed
@@ -173,20 +206,34 @@ function handleWillDownload(_event, item, webContents) {
     item.setSavePath(reservedPath);
   }
 
-  const row = store.insertDownload({
+  // PRIVATE MODE GUARD (downloads): downloads from private windows are
+  // allowed, but their metadata (URL, save path) must never be written to
+  // the profile database — a crash would strand the rows, and SQLite
+  // DELETE/WAL does not scrub previously written pages. Private rows live
+  // in the in-memory partition-scoped store instead and evaporate with the
+  // window (src/main/index.js registers the dropPartition close hook).
+  const rowStore = isPrivate ? privateStore : store;
+  const row = rowStore.insertDownload({
     url: item.getURL(),
     filename,
     savePath: item.getSavePath() || null,
     mimeType: item.getMimeType() || null,
     totalBytes: item.getTotalBytes(),
     startTime: Date.now(),
+    partition: privatePartition,
   });
   const id = row.id;
   activeItems.set(id, item);
+  activeItemMeta.set(id, { privatePartition, reservedPath });
 
   const ownerWindow = ownerWindowOf(webContents);
-  log.info('[Downloads] Download started:', filename, `(id ${id})`);
-  sendToOwner(ownerWindow, serializeDownload(id, item));
+  // PRIVATE MODE GUARD (download logging): the row lives in the in-memory
+  // private store precisely so nothing durable records what was fetched —
+  // logging the filename to the persistent main.log would reinstate exactly
+  // that trace, and outlive the window. Log the id only.
+  const logName = isPrivate ? '<private>' : filename;
+  log.info('[Downloads] Download started:', logName, `(id ${id})`);
+  sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }), privatePartition);
 
   let lastProgressAt = 0;
   let lastUpdatedState = 'progressing';
@@ -206,19 +253,29 @@ function handleWillDownload(_event, item, webContents) {
     if (!stateChanged && now - lastProgressAt < PROGRESS_THROTTLE_MS) return;
     lastProgressAt = now;
 
-    store.updateDownload(id, {
+    rowStore.updateDownload(id, {
       receivedBytes: item.getReceivedBytes(),
       totalBytes: item.getTotalBytes(),
       // The save dialog resolves the path after insert; keep the row current.
       savePath: item.getSavePath() || null,
     });
-    sendToOwner(ownerWindow, serializeDownload(id, item));
+    sendToOwner(ownerWindow, serializeDownload(id, item, { isPrivate }), privatePartition);
   });
 
   item.once('done', (_doneEvent, doneState) => {
+    // `cancelPartitionDownloads` (private-window close) force-unwinds items
+    // synchronously and releases their path claim there; Chromium's 'done'
+    // then arrives afterwards for the very same item. `reservedSavePaths` is
+    // a plain Set, not refcounted, so a second release would free whatever
+    // *new* download had meanwhile reserved the same path — and a third
+    // same-named download would be handed that identical path, leaving two
+    // transfers writing one file. The unwind clears `activeItemMeta`, so its
+    // membership is the "do we still own the claim?" flag.
+    const ownsReservation = activeItemMeta.has(id);
     activeItems.delete(id);
+    activeItemMeta.delete(id);
     interruptedItems.delete(id);
-    releaseSavePath(reservedPath);
+    if (ownsReservation) releaseSavePath(reservedPath);
 
     // Electron reports 'completed' | 'cancelled' | 'interrupted'; the store
     // uses the same vocabulary (snake-cased in_progress aside).
@@ -229,7 +286,7 @@ function handleWillDownload(_event, item, webContents) {
           ? store.STATES.CANCELLED
           : store.STATES.INTERRUPTED;
 
-    store.updateDownload(id, {
+    rowStore.updateDownload(id, {
       receivedBytes: item.getReceivedBytes(),
       totalBytes: item.getTotalBytes(),
       savePath: item.getSavePath() || null,
@@ -237,29 +294,80 @@ function handleWillDownload(_event, item, webContents) {
       endTime: Date.now(),
     });
 
-    log.info('[Downloads] Download', doneState + ':', filename, `(id ${id})`);
-    sendToOwner(ownerWindow, {
-      ...serializeDownload(id, item),
-      state,
-      is_paused: false,
-      can_resume: false,
-      is_interrupted: false,
-    });
+    log.info('[Downloads] Download', doneState + ':', logName, `(id ${id})`);
+    sendToOwner(
+      ownerWindow,
+      {
+        ...serializeDownload(id, item, { isPrivate }),
+        state,
+        is_paused: false,
+        can_resume: false,
+        is_interrupted: false,
+      },
+      privatePartition
+    );
   });
 }
 
 /**
  * Hook `will-download` on the given session. Call once per session that
- * hosts downloadable content (today: the default session only).
+ * hosts downloadable content: the default session at startup, and every
+ * private window's `private-<uuid>` session when it is created (see
+ * src/main/index.js) — private partitions must be covered too, or their
+ * downloads would silently bypass the manager.
  * @param {Electron.Session} targetSession
+ * @param {{ privatePartition?: string|null }} [options] - set for private
+ *   sessions so their rows stay in the in-memory partition store and never
+ *   reach the profile database
  */
-function attachDownloadsManager(targetSession) {
+function attachDownloadsManager(targetSession, { privatePartition = null } = {}) {
   if (!targetSession || typeof targetSession.on !== 'function') {
     log.warn('[Downloads] session unavailable — skipping will-download hook');
     return;
   }
-  targetSession.on('will-download', handleWillDownload);
-  log.info('[Downloads] will-download hook attached');
+  targetSession.on('will-download', (_event, item, webContents) =>
+    handleWillDownload(item, webContents, { privatePartition })
+  );
+  log.info(
+    '[Downloads] will-download hook attached' + (privatePartition ? ' (private session)' : '')
+  );
+}
+
+/**
+ * PRIVATE MODE GUARD (downloads): cancel every in-flight download owned by a
+ * private partition. Runs from the private-window close hook (registered in
+ * src/main/index.js, before the in-memory rows are dropped).
+ *
+ * Without this a transfer started in a private window outlives the window
+ * that owned it: its row disappears with the partition, so no renderer can
+ * see it and pause/cancel refuse it (they authorize against that row), yet
+ * Chromium keeps writing bytes to disk and a completed file would appear
+ * with no record anywhere. Cancelling also discards the partial file and
+ * frees the save-path reservation.
+ * @param {string} partition
+ * @returns {number} Number of items cancelled
+ */
+function cancelPartitionDownloads(partition) {
+  if (!partition) return 0;
+  let cancelled = 0;
+  for (const [id, meta] of [...activeItemMeta]) {
+    if (meta.privatePartition !== partition) continue;
+    const item = activeItems.get(id);
+    activeItems.delete(id);
+    activeItemMeta.delete(id);
+    interruptedItems.delete(id);
+    releaseSavePath(meta.reservedPath);
+    try {
+      item?.cancel();
+      cancelled++;
+    } catch (err) {
+      log.warn('[Downloads] Could not cancel private download', id + ':', err?.message || err);
+    }
+  }
+  if (cancelled > 0) {
+    log.info(`[Downloads] Cancelled ${cancelled} in-flight private download(s) on ${partition}`);
+  }
+  return cancelled;
 }
 
 /**
@@ -282,20 +390,67 @@ function withLiveFlags(rows) {
 }
 
 /**
+ * Resolve a row for an id-based IPC request. Negative ids are in-memory
+ * private rows; only renderers of the owning private window may act on
+ * them — any other sender resolves to null. Positive ids are SQLite rows.
+ */
+function resolveRowForSender(event, id) {
+  if (typeof id === 'number' && id < 0) {
+    const row = privateStore.getDownloadById(id);
+    if (!row || getPartitionForWebContents(event?.sender) !== row.session_partition) {
+      return null;
+    }
+    return row;
+  }
+  return store.getDownloadById(id);
+}
+
+/**
+ * Resolve a live DownloadItem for an id-based IPC request, enforcing the
+ * same ownership rule as resolveRowForSender: private ids are predictable
+ * negative integers, so pause / resume / cancel must refuse senders outside
+ * the owning private window's partition just like open / show / remove do.
+ */
+function resolveActiveItemForSender(event, id) {
+  if (!resolveRowForSender(event, id)) return null;
+  return activeItems.get(id) || null;
+}
+
+/**
  * Register IPC handlers for download operations
  */
 function registerDownloadsIpc() {
   // Crash recovery: rows a previous run left in_progress are dead.
   store.markStaleInProgressAsInterrupted();
+  // Legacy sweep: builds before the in-memory private store wrote private
+  // rows into SQLite; drop any still lingering. Current code never inserts
+  // them (see handleWillDownload), so this only cleans up old profiles.
+  store.removeAllPrivateDownloads();
 
-  ipcMain.handle(IPC.DOWNLOADS_GET, (_event, options = {}) => {
+  ipcMain.handle(IPC.DOWNLOADS_GET, (event, options = {}) => {
     const { query, limit } = options;
-    const rows = query ? store.searchDownloads(query, limit || 100) : store.getAllDownloads();
+    const max = limit || 100;
+    let rows = query ? store.searchDownloads(query, max) : store.getAllDownloads();
+    // PRIVATE MODE GUARD (downloads): in-memory private rows are merged in
+    // only for renderers of the owning private window; normal windows (and
+    // other private windows) never see them.
+    const partition = getPartitionForWebContents(event?.sender);
+    if (partition) {
+      const privateRows = query
+        ? privateStore.searchDownloads(partition, query, max)
+        : privateStore.getDownloads(partition);
+      if (privateRows.length > 0) {
+        rows = [...privateRows, ...rows].sort((a, b) => b.start_time - a.start_time);
+        if (query) rows = rows.slice(0, max);
+      }
+    }
     return withLiveFlags(rows);
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_PAUSE, (_event, id) => {
-    const item = activeItems.get(id);
+  // Live controls authorize through the stored row too: a private row's
+  // item is only reachable from renderers of the owning private window.
+  ipcMain.handle(IPC.DOWNLOADS_PAUSE, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     // Chromium ignores pause() on an interrupted item — refuse rather than
     // pretend it worked.
     if (!item || interruptedItems.has(id)) return false;
@@ -303,15 +458,15 @@ function registerDownloadsIpc() {
     return true;
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_RESUME, (_event, id) => {
-    const item = activeItems.get(id);
+  ipcMain.handle(IPC.DOWNLOADS_RESUME, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     if (!item || !item.canResume()) return false;
     item.resume();
     return true;
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_CANCEL, (_event, id) => {
-    const item = activeItems.get(id);
+  ipcMain.handle(IPC.DOWNLOADS_CANCEL, (event, id) => {
+    const item = resolveActiveItemForSender(event, id);
     if (!item) return false;
     item.cancel();
     return true;
@@ -320,8 +475,8 @@ function registerDownloadsIpc() {
   // Open and show-in-folder resolve the path from the stored row — a
   // renderer can only ever act on files this manager wrote, never on an
   // arbitrary path. Files are never opened without this explicit request.
-  ipcMain.handle(IPC.DOWNLOADS_OPEN_FILE, async (_event, id) => {
-    const row = store.getDownloadById(id);
+  ipcMain.handle(IPC.DOWNLOADS_OPEN_FILE, async (event, id) => {
+    const row = resolveRowForSender(event, id);
     if (!row || row.state !== store.STATES.COMPLETED || !row.save_path) {
       return { success: false, error: 'Download is not completed' };
     }
@@ -335,8 +490,8 @@ function registerDownloadsIpc() {
     return { success: true };
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_SHOW_IN_FOLDER, (_event, id) => {
-    const row = store.getDownloadById(id);
+  ipcMain.handle(IPC.DOWNLOADS_SHOW_IN_FOLDER, (event, id) => {
+    const row = resolveRowForSender(event, id);
     if (!row || !row.save_path || !fs.existsSync(row.save_path)) {
       return { success: false, error: 'File no longer exists' };
     }
@@ -344,15 +499,25 @@ function registerDownloadsIpc() {
     return { success: true };
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_REMOVE, (_event, id) => {
+  ipcMain.handle(IPC.DOWNLOADS_REMOVE, (event, id) => {
     // Removing from the list never deletes the file, and an in-flight
     // download must be cancelled first so its row can't be orphaned.
     if (activeItems.has(id)) return false;
+    if (typeof id === 'number' && id < 0) {
+      return resolveRowForSender(event, id) ? privateStore.removeDownload(id) : false;
+    }
     return store.removeDownload(id);
   });
 
-  ipcMain.handle(IPC.DOWNLOADS_CLEAR, () => {
-    return store.clearDownloads();
+  ipcMain.handle(IPC.DOWNLOADS_CLEAR, (event) => {
+    let cleared = store.clearDownloads();
+    // A private window's "Clear All" also drops its own settled in-memory
+    // rows (they are part of the merged view it sees).
+    const partition = getPartitionForWebContents(event?.sender);
+    if (partition) {
+      cleared += privateStore.clearSettled(partition);
+    }
+    return cleared;
   });
 
   log.info('[Downloads] IPC handlers registered');
@@ -360,6 +525,7 @@ function registerDownloadsIpc() {
 
 module.exports = {
   attachDownloadsManager,
+  cancelPartitionDownloads,
   registerDownloadsIpc,
   sanitizeFilename,
   uniqueSavePath,

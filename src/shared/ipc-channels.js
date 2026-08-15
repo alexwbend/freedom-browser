@@ -83,6 +83,11 @@ module.exports = {
   WINDOW_MAXIMIZE: 'window:maximize',
   WINDOW_TOGGLE_FULLSCREEN: 'window:toggle-fullscreen',
   WINDOW_NEW: 'window:new',
+  // Private windows (ephemeral, non-persisted partition per window)
+  WINDOW_NEW_PRIVATE: 'window:new-private',
+  // Sync (sendSync) — webview preloads ask whether they run inside a
+  // private window before injecting the wallet providers.
+  PRIVATE_IS_PRIVATE: 'private:is-private',
   WINDOW_GET_PLATFORM: 'window:get-platform',
   WINDOW_GET_BUTTON_LAYOUT: 'window:get-button-layout',
 

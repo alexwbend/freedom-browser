@@ -128,3 +128,58 @@ describe('downloads-store', () => {
     expect(rows.find((row) => row.filename === 'b.bin').state).toBe('completed');
   });
 });
+
+// PRIVATE MODE GUARD coverage: current code never writes private rows to
+// SQLite (they live in private-downloads-store.js); what remains here is
+// the legacy startup sweep that cleans rows older builds left behind.
+describe('downloads-store legacy private rows', () => {
+  let userDataDir;
+  let storeModule;
+
+  beforeEach(() => {
+    userDataDir = createTempUserDataDir();
+    storeModule = null;
+  });
+
+  afterEach(() => {
+    if (storeModule?.closeDb) {
+      storeModule.closeDb();
+    }
+    removeTempUserDataDir(userDataDir);
+  });
+
+  const insertNormal = (mod, url = 'https://example.com/keep.zip') =>
+    mod.insertDownload({ url, filename: 'keep.zip', totalBytes: 1 });
+
+  const insertPrivate = (mod, partition, url = 'https://example.com/secret.zip') =>
+    mod.insertDownload({
+      url,
+      filename: 'secret.zip',
+      totalBytes: 1,
+      isPrivate: true,
+      partition,
+    });
+
+  test('insertDownload writes normal rows unflagged by default', () => {
+    const { mod } = loadDownloadsStore({ userDataDir });
+    storeModule = mod;
+
+    const normal = insertNormal(mod);
+    expect(normal.is_private).toBe(0);
+    expect(normal.session_partition).toBe(null);
+  });
+
+  test('removeAllPrivateDownloads sweeps legacy private rows at startup', () => {
+    const { mod } = loadDownloadsStore({ userDataDir });
+    storeModule = mod;
+
+    insertNormal(mod);
+    insertPrivate(mod, 'private-a');
+    insertPrivate(mod, 'private-b');
+
+    expect(mod.removeAllPrivateDownloads()).toBe(2);
+    const rows = mod.getAllDownloads();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].is_private).toBe(0);
+  });
+});

@@ -196,6 +196,13 @@ function loadIpcHandlersModule(options = {}) {
       ...(options.swarmProbeMock
         ? { [require.resolve('./swarm/swarm-probe')]: () => options.swarmProbeMock }
         : {}),
+      ...(options.isPrivateWebContents
+        ? {
+            [require.resolve('./private/private-windows')]: () => ({
+              isPrivateWebContents: options.isPrivateWebContents,
+            }),
+          }
+        : {}),
     },
   });
   const state = require('./state');
@@ -444,6 +451,89 @@ describe('ipc-handlers', () => {
         radicle: { mode: 'disabled' },
       },
     });
+  });
+
+  // PRIVATE MODE GUARD (windows): "Open Link in New Window" asked from a
+  // private window must not hand the URL to a normal window — that window
+  // runs on the persistent default session (history, cookies, providers).
+  test('window:new-with-url from a private window opens another private window', () => {
+    const onNewWindow = jest.fn();
+    const onNewPrivateWindow = jest.fn();
+    const ctx = loadIpcHandlersModule({
+      isPrivateWebContents: (wc) => wc?.isPrivate === true,
+    });
+
+    ctx.mod.registerBaseIpcHandlers({ onNewWindow, onNewPrivateWindow });
+
+    ctx.ipcMain.emit(
+      IPC.WINDOW_NEW_WITH_URL,
+      { sender: { isPrivate: true } },
+      'https://example.com/secret'
+    );
+    expect(onNewPrivateWindow).toHaveBeenCalledWith('https://example.com/secret');
+    expect(onNewWindow).not.toHaveBeenCalled();
+
+    // Normal windows keep the normal path.
+    ctx.ipcMain.emit(IPC.WINDOW_NEW_WITH_URL, { sender: {} }, 'https://example.com/public');
+    expect(onNewWindow).toHaveBeenCalledWith('https://example.com/public');
+    expect(onNewPrivateWindow).toHaveBeenCalledTimes(1);
+  });
+
+  test('window:new-with-url from a private window is dropped, never downgraded', () => {
+    const onNewWindow = jest.fn();
+    const ctx = loadIpcHandlersModule({
+      isPrivateWebContents: (wc) => wc?.isPrivate === true,
+    });
+
+    // No private-window factory wired: the request must be dropped rather
+    // than fall back to a normal (persistent-session) window.
+    ctx.mod.registerBaseIpcHandlers({ onNewWindow });
+
+    ctx.ipcMain.emit(
+      IPC.WINDOW_NEW_WITH_URL,
+      { sender: { isPrivate: true } },
+      'https://example.com/secret'
+    );
+    expect(onNewWindow).not.toHaveBeenCalled();
+    expect(ctx.log.warn).toHaveBeenCalledWith(expect.stringContaining('window:new-with-url'));
+  });
+
+  // PRIVATE MODE GUARD (window title): a private page's <title> (and, for
+  // view-source, the full URL the renderer sends as the title) must stay out
+  // of the persistent on-disk log and out of the process-wide title that
+  // later normal windows inherit at ready-to-show.
+  test('window:set-title from a private window neither logs the title nor seeds the shared title', () => {
+    const onSetTitle = jest.fn();
+    const ctx = loadIpcHandlersModule({
+      isPrivateWebContents: (wc) => wc?.isPrivate === true,
+    });
+    const win = createWindowMock();
+
+    ctx.mod.registerBaseIpcHandlers({ onSetTitle });
+
+    ctx.ipcMain.emit(
+      IPC.WINDOW_SET_TITLE,
+      { sender: { isPrivate: true, getOwnerBrowserWindow: () => win } },
+      'SECRET-TITLE-XYZZY'
+    );
+
+    // The window's own native title still updates (as Chrome/Firefox do)...
+    expect(win.setTitle).toHaveBeenCalledWith('SECRET-TITLE-XYZZY - Freedom');
+    // ...but nothing durable or shared records it.
+    expect(onSetTitle).not.toHaveBeenCalled();
+    for (const call of ctx.log.info.mock.calls) {
+      expect(JSON.stringify(call)).not.toContain('SECRET-TITLE-XYZZY');
+    }
+
+    // Normal windows are unchanged.
+    const normalWin = createWindowMock();
+    ctx.ipcMain.emit(
+      IPC.WINDOW_SET_TITLE,
+      { sender: { getOwnerBrowserWindow: () => normalWin } },
+      'Public Title'
+    );
+    expect(onSetTitle).toHaveBeenCalledWith('Public Title - Freedom');
+    expect(ctx.log.info).toHaveBeenCalledWith(expect.stringContaining('Public Title'));
   });
 
   test('lists, creates, and renames profiles through profile IPC', async () => {
