@@ -304,7 +304,15 @@ module.exports = {
   SWARM_GET_AUTO_APPROVE: 'swarm:get-auto-approve',
   SWARM_SET_AUTO_APPROVE: 'swarm:set-auto-approve',
   SWARM_GRANT_MESSAGING: 'swarm:grant-messaging',
+  SWARM_REVOKE_MESSAGING: 'swarm:revoke-messaging',
   SWARM_HAS_MESSAGING_GRANT: 'swarm:has-messaging-grant',
+
+  // Swarm permission manifests
+  SWARM_MANIFEST_CHECK: 'swarm:manifest-check',
+  SWARM_MANIFEST_DECIDE: 'swarm:manifest-decide',
+  SWARM_MANIFEST_GET: 'swarm:manifest-get',
+  SWARM_MANIFEST_USE_INDIVIDUAL: 'swarm:manifest-use-individual',
+  SWARM_MANIFEST_DISCONNECT: 'swarm:manifest-disconnect',
 
   // Swarm Provider (main-process authority)
   SWARM_PROVIDER_EXECUTE: 'swarm:provider-execute',

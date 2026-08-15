@@ -42,6 +42,7 @@ const {
   getAutoApprove,
   setAutoApprove,
   grantMessaging,
+  revokeMessaging,
   hasMessagingGrant,
   onRevoke,
   registerSwarmPermissionsIpc,
@@ -96,15 +97,31 @@ describe('swarm-permissions', () => {
 
     test('revocation notifies the registered revoke listener', () => {
       const listener = jest.fn();
+      const secondListener = jest.fn();
       onRevoke(listener);
+      onRevoke(secondListener);
       grantPermission('myapp.eth');
 
       revokePermission('myapp.eth');
       expect(listener).toHaveBeenCalledWith('myapp.eth');
+      expect(secondListener).toHaveBeenCalledWith('myapp.eth');
 
       listener.mockClear();
       revokePermission('myapp.eth');
       expect(listener).not.toHaveBeenCalled();
+      onRevoke(null);
+    });
+
+    test('messaging revocation cancels live resources without dropping the base grant', () => {
+      const listener = jest.fn();
+      onRevoke(listener);
+      grantPermission('myapp.eth');
+      grantMessaging('myapp.eth');
+
+      expect(revokeMessaging('myapp.eth')).toBe(true);
+      expect(listener).toHaveBeenCalledWith('myapp.eth');
+      expect(getPermission('myapp.eth')).not.toBeNull();
+      expect(hasMessagingGrant('myapp.eth')).toBe(false);
       onRevoke(null);
     });
 

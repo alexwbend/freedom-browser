@@ -565,7 +565,16 @@ contextBridge.exposeInMainWorld('swarmPermissions', {
   setAutoApprove: (origin, type, enabled) =>
     ipcRenderer.invoke('swarm:set-auto-approve', origin, type, enabled),
   grantMessaging: (origin) => ipcRenderer.invoke('swarm:grant-messaging', origin),
+  revokeMessaging: (origin) => ipcRenderer.invoke('swarm:revoke-messaging', origin),
   hasMessagingGrant: (origin) => ipcRenderer.invoke('swarm:has-messaging-grant', origin),
+});
+
+contextBridge.exposeInMainWorld('swarmManifest', {
+  check: (request) => ipcRenderer.invoke('swarm:manifest-check', request),
+  decide: (token, outcome) => ipcRenderer.invoke('swarm:manifest-decide', { token, outcome }),
+  get: (origin) => ipcRenderer.invoke('swarm:manifest-get', origin),
+  useIndividual: (origin, capability) => ipcRenderer.invoke('swarm:manifest-use-individual', { origin, capability }),
+  disconnect: (origin) => ipcRenderer.invoke('swarm:manifest-disconnect', origin),
 });
 
 contextBridge.exposeInMainWorld('swarmProvider', {

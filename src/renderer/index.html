@@ -3016,6 +3016,34 @@
             </div>
 
             <!-- Swarm Connect sub-screen -->
+            <div id="sidebar-swarm-manifest" class="sidebar-subscreen sidebar-modal hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="swarm-manifest-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title">App permissions</h3>
+              </div>
+              <div class="subscreen-content">
+                <div class="swarm-connect-origin">
+                  <div class="swarm-connect-site" id="swarm-manifest-name"></div>
+                  <div class="swarm-connect-wants" id="swarm-manifest-site"></div>
+                  <div class="swarm-manifest-description" id="swarm-manifest-description"></div>
+                </div>
+                <div id="swarm-manifest-rows" class="swarm-manifest-rows"></div>
+                <div id="swarm-manifest-identity-note" class="swarm-connect-warning hidden"></div>
+                <div class="swarm-manifest-choice-note">Allow all applies these permissions now. Asking each time keeps the normal per-action prompts.</div>
+                <div class="swarm-manifest-actions">
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-manifest-reject">Don’t allow</button>
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-manifest-individual">Connect, but ask each time</button>
+                  <button type="button" class="swarm-connect-approve-btn" id="swarm-manifest-allow">Allow all</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Swarm Connect sub-screen -->
             <div id="sidebar-swarm-connect" class="sidebar-subscreen sidebar-modal hidden">
               <div class="subscreen-header">
                 <button type="button" class="subscreen-back-btn" id="swarm-connect-back">
@@ -3530,6 +3558,17 @@
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
+                  <div class="perms-toggle-row">
+                    <span class="perms-label">Messaging access</span>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="swarm-perms-messaging-toggle" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="perms-section hidden" id="swarm-perms-manifest-section">
+                  <div class="perms-section-header">Declared by app</div>
+                  <div id="swarm-perms-manifest-list"></div>
                 </div>
                 <div class="perms-section" id="swarm-perms-identity-section">
                   <div class="perms-section-header">Publisher identity</div>
