@@ -221,6 +221,8 @@ function loadRadicleManagerModule(options = {}) {
     warn: jest.fn(),
     error: jest.fn(),
   };
+  const promptForDefaultExternalCandidateProtocol =
+    options.promptForDefaultExternalCandidateProtocol || jest.fn().mockResolvedValue([]);
   const updateService = jest.fn();
   const setStatusMessage = jest.fn();
   const setErrorState = jest.fn();
@@ -331,6 +333,9 @@ function loadRadicleManagerModule(options = {}) {
         getReservedProfilePorts: jest.fn(() => new Set(options.reservedPorts || [])),
         updateActiveProfileNodeConfig,
       }),
+      [require.resolve('./profile-external-candidates')]: () => ({
+        promptForDefaultExternalCandidateProtocol,
+      }),
       [require.resolve('./service-registry')]: () => ({
         MODE: {
           BUNDLED: 'bundled',
@@ -371,6 +376,7 @@ function loadRadicleManagerModule(options = {}) {
     loadSettings,
     log,
     mod,
+    promptForDefaultExternalCandidateProtocol,
     setErrorState,
     setStatusMessage,
     spawn,
@@ -1022,6 +1028,201 @@ describe('radicle-manager', () => {
 
     expect(clearIntervalSpy).toHaveBeenCalledWith(987);
     expect(ctx.clearService).toHaveBeenCalledWith('radicle');
+  });
+
+  test('manual IPC start prompts for a default external Radicle node before managed start', async () => {
+    const activeProfile = {
+      source: 'catalog',
+      metadata: {
+        nodes: {
+          radicle: {
+            mode: 'managed',
+            httpPort: 18780,
+            p2pPort: 18776,
+          },
+        },
+      },
+    };
+    const promptForDefaultExternalCandidateProtocol = jest.fn(async () => {
+      activeProfile.metadata.nodes.radicle = {
+        mode: 'external',
+        externalHttp: 'http://127.0.0.1:8780',
+      };
+      return [
+        {
+          protocol: 'radicle',
+          choice: 'external',
+          endpoints: ['http://127.0.0.1:8780'],
+        },
+      ];
+    });
+    const ctx = loadRadicleManagerModule({
+      activeProfile,
+      promptForDefaultExternalCandidateProtocol,
+      httpResponse: (url) => {
+        if (url === 'http://127.0.0.1:8780/') {
+          return { statusCode: 200, body: { version: '0.1.0' } };
+        }
+        return { statusCode: 404, body: '' };
+      },
+    });
+
+    ctx.mod.registerRadicleIpc();
+    await ctx.ipcMain.invoke(IPC.RADICLE_START);
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(promptForDefaultExternalCandidateProtocol).toHaveBeenCalledWith(
+      activeProfile,
+      'radicle',
+      expect.objectContaining({ logger: ctx.log, window: null })
+    );
+    expect(ctx.spawn).not.toHaveBeenCalled();
+    expect(ctx.mod.getActivePort()).toBe(8780);
+    expect(ctx.updateService).toHaveBeenCalledWith('radicle', {
+      api: 'http://127.0.0.1:8780',
+      gateway: 'http://127.0.0.1:8780',
+      mode: 'external',
+    });
+
+    await ctx.mod.stopRadicle();
+  });
+
+  test('a stop during the external-candidate prompt cancels the pending start', async () => {
+    const activeProfile = {
+      source: 'catalog',
+      metadata: {
+        nodes: {
+          radicle: {
+            mode: 'managed',
+            httpPort: 18780,
+            p2pPort: 18776,
+          },
+        },
+      },
+    };
+    let releasePrompt;
+    const promptForDefaultExternalCandidateProtocol = jest.fn(
+      () => new Promise((resolve) => {
+        releasePrompt = () => resolve([]);
+      })
+    );
+    const ctx = loadRadicleManagerModule({
+      activeProfile,
+      promptForDefaultExternalCandidateProtocol,
+    });
+
+    ctx.mod.registerRadicleIpc();
+    const starting = ctx.mod.startRadicle({ checkDefaultExternalCandidate: true });
+    await flushMicrotasks();
+    expect(promptForDefaultExternalCandidateProtocol).toHaveBeenCalled();
+
+    // User toggles the node off while the prompt is still open.
+    await ctx.mod.stopRadicle();
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+
+    releasePrompt();
+    await starting;
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    // The superseded start must not spawn processes the stop path can't kill.
+    expect(ctx.spawn).not.toHaveBeenCalled();
+    expect(ctx.updateActiveProfileNodeConfig).not.toHaveBeenCalled();
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+  });
+
+  test('a stop during the node socket wait leaves Radicle stopped and restartable', async () => {
+    const ctx = loadRadicleManagerModule({
+      activeProfile: {
+        metadata: {
+          nodes: {
+            radicle: { mode: 'managed', httpPort: 18780, p2pPort: 18776 },
+          },
+        },
+      },
+      configExists: false,
+      keyFiles: [],
+      // Node socket never shows up, so the start sits in waitForSocket().
+      socketExists: false,
+      portResolver: () => false,
+    });
+
+    ctx.mod.registerRadicleIpc();
+    const starting = ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    // Only radicle-node is up: httpd waits for the socket.
+    expect(ctx.spawnedProcesses).toHaveLength(1);
+    expect(ctx.spawnedProcesses[0].binary).toContain('radicle-node');
+
+    // User toggles the node back off while the socket wait is still pending.
+    const stopPromise = ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await stopPromise;
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses[0].kills).toContain('SIGTERM');
+    expect(ctx.clearService).toHaveBeenCalledWith('radicle');
+    expect((await ctx.ipcMain.invoke(IPC.RADICLE_GET_STATUS)).status).toBe('stopped');
+    // The abandoned socket wait must not report a startup failure.
+    expect(ctx.log.error).not.toHaveBeenCalledWith(
+      '[Radicle] Socket wait failed:',
+      expect.anything()
+    );
+
+    // ...and the node must be startable again, not wedged for the session.
+    ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses).toHaveLength(2);
+    expect(ctx.spawnedProcesses[1].binary).toContain('radicle-node');
+
+    // The abandoned socket wait must give up rather than hold the start open.
+    await starting;
+
+    await ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+
+  test('a start queued while stopping runs once the last process exits', async () => {
+    const ctx = loadRadicleManagerModule({
+      activeProfile: {
+        metadata: {
+          nodes: {
+            radicle: { mode: 'managed', httpPort: 18780, p2pPort: 18776 },
+          },
+        },
+      },
+      configExists: false,
+      keyFiles: [],
+      socketExists: false,
+      portResolver: () => false,
+    });
+
+    const starting = ctx.mod.startRadicle();
+    await new Promise((resolve) => setImmediate(resolve));
+    await flushMicrotasks();
+    expect(ctx.spawnedProcesses).toHaveLength(1);
+
+    const stopPromise = ctx.mod.stopRadicle();
+    // Toggled straight back on while the stop is still in flight.
+    await ctx.mod.startRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await stopPromise;
+    // The queued start is scheduled 100ms after the stop finalizes.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await flushMicrotasks();
+
+    expect(ctx.spawnedProcesses).toHaveLength(2);
+    expect(ctx.spawnedProcesses[1].binary).toContain('radicle-node');
+
+    await starting;
+    await ctx.mod.stopRadicle();
+    await new Promise((resolve) => setTimeout(resolve, 600));
   });
 
   test('marks a disabled profile Radicle node without probing or spawning', async () => {
