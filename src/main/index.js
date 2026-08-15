@@ -206,6 +206,7 @@ const {
   startRadicle,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
+const { registerTorIpc, stopTor, startTor } = require('./tor-manager');
 const { registerIdentityIpc, hasVault, setBeeLifecycle } = require('./identity-manager');
 const { registerQuickUnlockIpc } = require('./quick-unlock');
 const { registerWalletIpc } = require('./wallet/wallet-ipc');
@@ -295,6 +296,7 @@ async function bootstrap() {
   registerAntIpc();
   registerIpfsIpc();
   registerRadicleIpc();
+  registerTorIpc();
   registerGithubBridgeIpc();
   registerServiceRegistryIpc();
   registerIdentityIpc();
@@ -446,6 +448,7 @@ async function bootstrap() {
         bee: settings.startBeeAtLaunch !== false,
         radicle:
           settings.enableRadicleIntegration === true && settings.startRadicleAtLaunch !== false,
+        tor: settings.enableTorIntegration === true && settings.startTorAtLaunch === true,
       },
       logger: log,
     });
@@ -464,6 +467,9 @@ async function bootstrap() {
     }
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
+    }
+    if (settings.enableTorIntegration && settings.startTorAtLaunch) {
+      startTor({ targetSession: defaultSession });
     }
   }
 
@@ -545,8 +551,8 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, and Radicle to stop...');
-  await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
+  log.info('[App] Waiting for Ant, IPFS, Radicle, and Tor to stop...');
+  await Promise.all([stopAnt(), stopIpfs(), stopRadicle(), stopTor()]);
   log.info('[App] All processes stopped, quitting...');
 
   app.quit();
