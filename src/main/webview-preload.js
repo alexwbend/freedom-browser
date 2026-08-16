@@ -138,7 +138,29 @@ const findClosestAnchor = (start) => {
 const getRawDwebHref = (anchor) => {
   const rawHref = anchor?.getAttribute?.('href')?.trim();
   if (!rawHref) return null;
-  if (/^(ipfs|ipns):\/\//i.test(rawHref)) return rawHref;
+  if (/^(ipfs|ipns|web3):\/\//i.test(rawHref)) return rawHref;
+  return null;
+};
+
+const getHostRoutedHref = (anchor) => {
+  const rawHref = anchor?.getAttribute?.('href')?.trim();
+  if (!rawHref) return null;
+  const rawDwebHref = getRawDwebHref(anchor);
+  if (rawDwebHref) return rawDwebHref;
+  if (globalThis.location?.protocol === 'web3:') {
+    if (anchor?.hasAttribute?.('download')) return null;
+    try {
+      const resolved = new URL(rawHref, globalThis.location.href);
+      if (
+        ['web3:', 'http:', 'https:', 'bzz:', 'ipfs:', 'ipns:', 'rad:', 'ens:',
+          'freedom:', 'ethereum:'].includes(resolved.protocol)
+      ) {
+        return resolved.toString();
+      }
+    } catch {
+      return null;
+    }
+  }
   return null;
 };
 
@@ -152,6 +174,9 @@ const getRawDwebHref = (anchor) => {
 // both handled here so the new-window code path (Chromium →
 // setWindowOpenHandler → tab:new-with-url in the main process) never gets
 // the lowercased URL — see `src/main/webcontents-setup.js#setWindowOpenHandler`.
+// The same early path preserves Freedom's friendly
+// `web3://<contract>:<chain>` input before Chromium rejects the bare all-hex
+// host; renderer navigation canonicalizes it to `<contract>.eip155-<chain>`.
 //
 // Two listeners — one each for `click` (primary button) and `auxclick`
 // (non-primary, i.e. middle/right). Per the UI Events spec, modern
@@ -168,8 +193,13 @@ const handleDwebLinkActivation = (event) => {
   if (event.button !== 0 && event.button !== 1) return;
 
   const anchor = findClosestAnchor(event.target);
-  const href = getRawDwebHref(anchor);
+  const href = getHostRoutedHref(anchor);
   if (!href) return;
+
+  // Onchain documents cannot navigate themselves. Only a real user
+  // activation may ask the browser chrome to leave the isolated app; a page
+  // dispatching a synthetic click is equivalent to a scripted redirect.
+  if (globalThis.location?.protocol === 'web3:' && event.isTrusted !== true) return;
 
   // Mirror Chromium's link disposition heuristic: middle-click,
   // ctrl/cmd-click, shift-click, or `target="_blank"` open in a new tab;

@@ -221,6 +221,24 @@ const loadNavigationModule = async (options = {}) => {
         displayValue: input,
       };
     }),
+    formatOnchainAppUrl: jest.fn((input) => {
+      const raw = (input || '').trim();
+      const canonical = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)([/?#].*)?$/i
+      );
+      const friendly = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})(?::([1-9][0-9]*))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i
+      );
+      const match = canonical || friendly;
+      if (!match) return null;
+      const chainId = Number(match[2] || 1);
+      const rawSuffix = canonical
+        ? match[3] || '/'
+        : `${match[3] || '/'}${match[4] || ''}${match[5] || ''}`;
+      const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
+      return `web3://${match[1].toLowerCase()}.eip155-${chainId}${suffix}`;
+    }),
+    looksLikeOnchainAppInput: jest.fn((input) => /^web3:/i.test((input || '').trim())),
     deriveDisplayValue: jest.fn((url) => `display:${url}`),
     deriveBzzBaseFromUrl: jest.fn((url) => (url.includes('/bzz/') ? 'https://gateway.example/bzz/hash/' : null)),
     deriveIpfsBaseFromUrl: jest.fn(() => null),
@@ -732,6 +750,44 @@ describe('navigation', () => {
       ctx.mod.loadTarget('ipfs://bafybeigdyrzt');
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith('ipfs://bafybeigdyrzt');
+    });
+  });
+
+  describe('onchain application navigation', () => {
+    const ADDRESS = '0x00000095643CFfA7D9fae407a84dfCB6406456c6';
+    const CANONICAL = `web3://${ADDRESS.toLowerCase()}.eip155-1/`;
+
+    test('loads an ERC-8244 app through its canonical contract-and-chain origin', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget(`web3://${ADDRESS}`);
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(CANONICAL);
+      expect(ctx.elements.addressInput.value).toBe(CANONICAL);
+      expect(ctx.activeRef.tab.navigationState.pendingNavigationUrl).toBe(CANONICAL);
+    });
+
+    test('preserves app routes while canonicalizing the origin', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      const target = `web3://${ADDRESS}:100/swap?token=eth#route`;
+
+      ctx.mod.loadTarget(target);
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        `web3://${ADDRESS.toLowerCase()}.eip155-100/swap?token=eth#route`
+      );
+    });
+
+    test('surfaces malformed web3 intent instead of searching for it', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('web3://not-a-contract:1/');
+
+      expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('Invalid onchain application URL'));
+      expect(ctx.activeRef.tab.webview.loadURL).not.toHaveBeenCalled();
     });
   });
 

@@ -3,7 +3,7 @@
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
-Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols.
+Freedom is a browser for the decentralized web, with Swarm, IPFS, onchain applications, Radicle, ENS, and Tezos Domains as first-class protocols.
 It ships with integrated Swarm, IPFS, Radicle, and experimental Myotis nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
 
 ---
@@ -33,7 +33,7 @@ It ships with integrated Swarm, IPFS, Radicle, and experimental Myotis nodes, en
    npm start
    ```
 
-5. Swarm and IPFS nodes start automatically by default. Myotis is an opt-in embedded Ethereum light client under **Settings → Automatic Startup**. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
+5. Swarm and IPFS nodes start automatically by default. Myotis is an opt-in embedded Ethereum light client under **Settings → Automatic Startup**. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, onchain app contract (`web3://<contract>:<chainId>`), Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
 
 ---
 
@@ -41,7 +41,26 @@ It ships with integrated Swarm, IPFS, Radicle, and experimental Myotis nodes, en
 
 Freedom Browser is an Electron application. Protocol logic lives in the main process; the renderer is a modular UI layer that talks to it over IPC (channels defined in `src/shared/ipc-channels.js`). The main process manages node lifecycles (`ant-manager.js`, `ipfs-manager.js`, `myotis/myotis-manager.js`, `radicle-manager.js`, `tor-manager.js`), URL rewriting (`request-rewriter.js`), and persistent data (settings, bookmarks, history). A central `service-registry.js` tracks node endpoints, modes, and status, and broadcasts state to all windows — both node managers and the request rewriter read from it.
 
-When a user enters a `bzz://`, `ipfs://`, `ipns://`, `rad://`, `.onion`, or ENS URL, the main process either dispatches to a custom protocol handler (`bzz`, `ipfs`, `ipns`) that proxies to the local node, rewrites the URL to the active gateway URL via the registry (`rad`), or routes `.onion` hosts through the active profile's Tor SOCKS5 endpoint. `rad://` handling is gated by the Radicle integration setting, and `.onion` routing is gated by the Tor integration setting. `bzz://` navigation is additionally gated by a cold-start probe (see next section). `ipfs://` / `ipns://` navigation goes straight to the native IPFS protocol handler, so no renderer warm-up probe is needed.
+When a user enters a `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, `.onion`, or ENS URL, the main process either dispatches to a custom protocol handler (`bzz`, `ipfs`, `ipns`, `web3`), rewrites the URL to the active gateway URL via the registry (`rad`), or routes `.onion` hosts through the active profile's Tor SOCKS5 endpoint. `rad://` handling is gated by the Radicle integration setting, and `.onion` routing is gated by the Tor integration setting. `bzz://` navigation is additionally gated by a cold-start probe (see next section). `ipfs://` / `ipns://` navigation goes straight to the native IPFS protocol handler, while `web3://` reads an ERC-8244 HTML document from the selected chain without a gateway.
+
+---
+
+## Contract-hosted Applications (ERC-8244)
+
+Freedom has native support for the draft ERC-8244 `html()` interface. Enter the friendly form `web3://<contract>:<chainId>/` in the address bar; omitting `:<chainId>` defaults to Ethereum mainnet. Freedom normalizes it to the Chromium-safe, chain-scoped origin:
+
+```text
+web3://0x00000095643CFfA7D9fae407a84dfCB6406456c6
+→ web3://0x00000095643cffa7d9fae407a84dfcb6406456c6.eip155-1/
+```
+
+The `.eip155-<chainId>` suffix is a Freedom origin encoding, not an extra DNS or gateway dependency. A bare all-hex `0x…` standard-scheme host is rejected by Chromium as an oversized IPv4 literal, while using the chain as a URL port triggers unsafe-port rules and excludes large chain IDs. The canonical hostname keeps the contract and chain visible and gives each pair a distinct storage and wallet-permission origin.
+
+The `web3:` protocol handler calls selector `0x33c34ac3` (`html()`) through the same capability-aware chain-data router used by the wallet: Myotis when available, then Colibri, RPC quorum, and direct RPC fallback according to network policy. It ABI-decodes the returned UTF-8 string and serves those bytes unchanged as `text/html`; paths, queries, and fragments remain available to the app as client-side routes. Reads have a 30-second browser deadline and an 8 MiB decoded-document limit.
+
+Contract HTML runs in a context-isolated webview with a response-enforced sandbox and default-deny content policy. Inline scripts/styles and embedded `data:`/`blob:` media work, but ambient network connections, external frames, workers, objects, scripted top-level redirects, and popups are blocked. Genuine user link clicks are handed back to Freedom's navigation chrome. The app receives the existing EIP-1193/EIP-6963 wallet provider; reads and approvals are pinned to the chain encoded in its origin, and `wallet_switchEthereumChain` cannot silently move it to another chain. Private windows can render the document but continue to omit wallet providers.
+
+This first slice resolves contracts directly. Registry fallback and upgrade-policy discovery described as optional extensions in the ERC are not inferred by the browser; an upgrade-aware resolver contract can expose its own `html()` result.
 
 ---
 
@@ -322,7 +341,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 ### Bookmarks
 
 - **Address Bar Star**: Click the star icon to bookmark or unbookmark the current page.
-- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `rad://`, `http://`, or `https://` URL.
+- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, `http://`, or `https://` URL.
 - **Named Bookmarks**: Name and edit bookmarks via modal or right-click.
 - **Bookmarks Bar**: Quick access below the toolbar, with an overflow menu when bookmarks don't fit. Always visible on the new tab page; toggle visibility on other pages with `Cmd+Shift+B` / `Ctrl+Shift+B` (persisted across sessions).
 
@@ -337,7 +356,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Ephemeral by construction**: Every private window runs its webviews on a unique in-memory session (`private-<uuid>` partition, never written to disk). Cookies, logins, caches, and site data evaporate when the window closes.
 - **No local traces**: Nothing browsed in a private window is written to history, the favicon cache, or address-bar autocomplete. Downloads still work, but their entries are kept in memory only — never written to the profile's download database, visible only inside the private window, and gone when it closes (saved files stay on disk). Site-permission decisions made in a private window last only as long as the window — never remembered, even if you tick "remember".
 - **Wallet disabled**: Your identity and wallet are persistent by design, so they are unavailable in private windows — pages see no `window.ethereum` / `window.swarm` / `window.radicle` (nothing announces via EIP-6963), and x402 pay-per-request interception is off. Use a normal window for anything wallet-related.
-- **Decentralized protocols still work**: `bzz://`, `ipfs://`, `ipns://`, and ENS names resolve and load through the shared local nodes. Publishing (which records publish history) is unavailable from private windows.
+- **Decentralized protocols still work**: `bzz://`, `ipfs://`, `ipns://`, `web3://`, and ENS names resolve and load through the shared local nodes/chain-data router. Publishing (which records publish history) and wallet providers are unavailable from private windows.
 - **What private windows do NOT protect**: This is local privacy, not anonymity. Websites you sign in to still know it's you; your network operator can still see your traffic; Swarm/IPFS/Radicle peers still see your nodes' requests; and your IP address remains visible to every site and peer. The private new-tab page spells this out.
 
 ### Downloads
@@ -392,7 +411,7 @@ Access built-in browser pages using the `freedom://` protocol:
 - **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
 - **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
-- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
+- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), onchain app (Ethereum diamond), Radicle (seedling), or HTTP (globe) icon based on current protocol.
 - **Hamburger Menu**: Access browser features (New Tab, New Window, History, Zoom, Print, Developer Tools, Settings, About).
 
 ### Error Handling
@@ -431,7 +450,7 @@ npm start
 
 ### External Protocol Links And Profiles
 
-Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, `rad://`, and `.onion` URLs always resolve through the active profile's node settings and storage. OS-level protocol launches from other apps are a v1 limitation: they are not profile-aware and should not be used when a link must open in a specific profile. Open the target profile first and paste or navigate to the URL inside that window.
+Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, and `.onion` URLs always resolve through the active profile's node/network settings and storage. OS-level protocol launches from other apps are a v1 limitation: they are not profile-aware and should not be used when a link must open in a specific profile. Open the target profile first and paste or navigate to the URL inside that window.
 
 ### Ethereum Name Resolution
 
@@ -603,7 +622,7 @@ Two Playwright projects live under `test-e2e/`. The harness suite is run manuall
 
 | Suite | Command | Files | What it does |
 | --- | --- | --- | --- |
-| `harness` | `npm run test:e2e` | `test-e2e/*.spec.js` | Launches Electron with `FREEDOM_TEST_MODE=1`. The in-process harness in `src/main/test-harness.js` stubs Ant/IPFS startup, ENS resolution, the Swarm probe, and the `bzz:` / `ipfs:` / `ipns:` protocol handlers, so specs are fast (~15 s end-to-end), deterministic, and require no network or downloaded binaries. Covers address-bar normalisation, tabs, bookmarks, settings persistence, and the error-page flow. |
+| `harness` | `npm run test:e2e` | `test-e2e/*.spec.js` | Launches Electron with `FREEDOM_TEST_MODE=1`. The in-process harness in `src/main/test-harness.js` stubs Ant/IPFS startup, ENS resolution, the Swarm probe, and the `bzz:` / `ipfs:` / `ipns:` / `web3:` protocol handlers, so specs are fast (~15 s end-to-end), deterministic, and require no network or downloaded binaries. Covers address-bar normalisation, tabs, bookmarks, settings persistence, and the error-page flow. |
 | `live` | `npm run test:e2e:live` | `test-e2e/live/*.spec.js` | Launches Electron without the harness — actual Ant + native IPFS startup, live ENS resolution, real `bzz://` / `ipfs://` protocol handlers. The live smoke waits for Swarm peers and for native IPFS to report running, then navigates to `meinhard.eth` (Swarm) and `vitalik.eth` (IPFS). `npm run test:e2e:tor` runs the Tor-only live smoke against real Arti and a live `.onion` service. Requires the matching binary download/build first; missing binaries/addons skip before Electron launches. |
 
 `npm run test:e2e:tor` sets `FREEDOM_LIVE_E2E_DISABLE_DEFAULT_NODES=1`, which makes the live fixtures seed settings that keep Ant / IPFS / Radicle / Tor from autostarting, so the Tor smoke doesn't pay for (or inherit the flakiness of) the other nodes booting. Both suites use a per-run temp `userData` directory (`FREEDOM_TEST_USER_DATA`) so they never touch your real settings, bookmarks, or history. Sequential runs only (`workers: 1`) — Electron + protocol-scheme registration and Ant port detection don't tolerate parallel app instances.

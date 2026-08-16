@@ -28,6 +28,8 @@ import {
   buildEnsDisplayUri,
   isEnsBackedDisplay,
   isSupportedEnsTransport,
+  formatOnchainAppUrl,
+  looksLikeOnchainAppInput,
 } from './url-utils.js';
 import { buildSearchUrl } from './search-utils.js';
 import {
@@ -1181,6 +1183,32 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         `Unknown internal page: ${pageName}\nAvailable: ${Object.keys(internalPages).join(', ')}`
       );
     }
+    return;
+  }
+
+  // ERC-8244 contract-hosted applications. The standard `web3:` origin is
+  // scoped by both contract and chain (`web3://<address>.eip155-<chainId>/`), while
+  // the main-process handler reads the document through Freedom's verified
+  // chain-data router. No gateway URL or page-owned RPC endpoint is involved.
+  const onchainAppUrl = formatOnchainAppUrl(value);
+  if (onchainAppUrl) {
+    const displayValue = displayOverride || onchainAppUrl;
+    setAddressDisplayForTab(displayValue, targetTabId);
+    navState.pendingTitleForUrl = onchainAppUrl;
+    navState.pendingNavigationUrl = onchainAppUrl;
+    navState.hasNavigatedDuringCurrentLoad = false;
+    webview.loadURL(onchainAppUrl);
+    pushDebug(`[Onchain App] Loading ${onchainAppUrl}`);
+    syncBzzBase(null);
+    syncRadBase(null);
+    return;
+  }
+  if (looksLikeOnchainAppInput(value)) {
+    pushDebug(`[Onchain App] Invalid web3 URL: ${value}`);
+    alert(
+      'Invalid onchain application URL. Expected web3://<contract>:<chainId>/ ' +
+        '(Ethereum mainnet is used when the chain is omitted).'
+    );
     return;
   }
 

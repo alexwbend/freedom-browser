@@ -18,6 +18,7 @@
  *   ipns://host/guide       → ipns://host      (hostname)
  *   ipns://myapp.eth/guide  → myapp.eth        (transport name-keyed)
  *   rad://z123/tree         → rad://z123       (RID)
+ *   web3://0xabc….eip155-1/swap → same origin root (contract + chain)
  *   https://app.example.com → https://app.example.com
  */
 
@@ -94,6 +95,19 @@ export function getPermissionKey(displayUrl) {
   const radMatch = trimmed.match(/^rad:\/\/([^/?#]+)/i);
   if (radMatch) {
     return `rad://${radMatch[1]}`;
+  }
+
+  // ERC-8244 application origin. Chain identity is part of the permission
+  // boundary: the same 20-byte contract address on another chain is a
+  // different app and must never inherit wallet grants.
+  const onchainMatch =
+    trimmed.match(/^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)(?:[/?#]|$)/i) ||
+    trimmed.match(/^web3:\/\/(0x[0-9a-f]{40})(?::([0-9]+))?(?:[/?#]|$)/i);
+  if (onchainMatch) {
+    const chainId = onchainMatch[2] ? Number(onchainMatch[2]) : 1;
+    if (Number.isSafeInteger(chainId) && chainId > 0) {
+      return `web3://${onchainMatch[1].toLowerCase()}.eip155-${chainId}`;
+    }
   }
 
   // Regular URL (https://host/path → https://host)

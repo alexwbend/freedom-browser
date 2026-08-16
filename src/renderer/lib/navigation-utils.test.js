@@ -23,6 +23,11 @@ describe('navigation-utils', () => {
       expect(resolveProtocolIconType({ value: 'bzz://hash' })).toBe('swarm');
       expect(resolveProtocolIconType({ value: 'ipfs://cid' })).toBe('ipfs');
       expect(resolveProtocolIconType({ value: 'ipns://name' })).toBe('ipns');
+      expect(
+        resolveProtocolIconType({
+          value: 'web3://0x0000000000000000000000000000000000000000.eip155-1/',
+        })
+      ).toBe('onchain');
       expect(resolveProtocolIconType({ value: 'https://example.com' })).toBe('https');
     });
 

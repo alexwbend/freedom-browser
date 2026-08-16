@@ -598,6 +598,74 @@ describe('webview-preload', () => {
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
   });
 
+  test('routes trusted links out of an onchain app through browser chrome', () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/swap',
+        protocol: 'web3:',
+        pathname: '/swap',
+      },
+    });
+    const anchor = {
+      tagName: 'A',
+      hasAttribute: jest.fn(() => false),
+      getAttribute: jest.fn((name) => {
+        if (name === 'href') return '/about?from=swap';
+        if (name === 'target') return '';
+        return null;
+      }),
+      parentElement: global.document.body,
+    };
+    const event = {
+      target: anchor,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      defaultPrevented: false,
+      isTrusted: true,
+      preventDefault: jest.fn(),
+    };
+
+    documentCaptureHandlers.click(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('link:navigate', {
+      url: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/about?from=swap',
+      disposition: 'currentTab',
+      target: null,
+    });
+  });
+
+  test('does not elevate synthetic onchain clicks into browser navigation', () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/',
+        protocol: 'web3:',
+        pathname: '/',
+      },
+    });
+    const event = {
+      target: {
+        tagName: 'A',
+        hasAttribute: jest.fn(() => false),
+        getAttribute: jest.fn((name) => (name === 'href' ? 'https://evil.example/' : '')),
+        parentElement: global.document.body,
+      },
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      defaultPrevented: false,
+      isTrusted: false,
+      preventDefault: jest.fn(),
+    };
+
+    documentCaptureHandlers.click(event);
+
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
+  });
+
   test('context menu preserves raw dweb href before anchor.href normalisation', async () => {
     const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {

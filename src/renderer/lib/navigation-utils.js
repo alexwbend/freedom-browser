@@ -288,6 +288,7 @@ export const resolveProtocolIconType = ({
   if (normalizedValue.startsWith('bzz://')) return 'swarm';
   if (normalizedValue.startsWith('ipfs://')) return 'ipfs';
   if (normalizedValue.startsWith('ipns://')) return 'ipns';
+  if (normalizedValue.startsWith('web3://')) return 'onchain';
   if (normalizedValue.startsWith('rad://')) {
     return enableRadicleIntegration ? 'radicle' : 'http';
   }

@@ -141,8 +141,9 @@ const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
 const { registerRadProtocol } = require('./radicle/rad-protocol');
+const { registerOnchainAppProtocol } = require('./onchain/onchain-app-protocol');
 
-// Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
+// Register `bzz:`, `ipfs:`, `ipns:`, and `web3:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
 // see https://www.electronjs.org/docs/latest/api/protocol.
 // See README "Swarm Content Retrieval" and "IPFS / IPNS Content Retrieval"
@@ -159,6 +160,20 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // ERC-8244 documents are single onchain HTML responses. They need a
+  // standard, secure origin and Fetch-compatible Response handling, but
+  // deliberately do not get service-worker privileges: their response CSP
+  // denies ambient network access and mutable offchain dependencies.
+  {
+    scheme: 'web3',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
   // `rad` is deliberately NOT `standard`: standard schemes get their host
   // lowercased by URL canonicalization, which would destroy case-sensitive
   // base58 RIDs (`rad://z3gqcJUoA1n9…`). Non-standard keeps the URL opaque
@@ -344,7 +359,7 @@ async function bootstrap() {
   });
 
   if (!TEST_MODE) {
-    // Skip registering the real bzz/ipfs/ipns handlers in test mode —
+    // Skip registering the real bzz/ipfs/ipns/web3 handlers in test mode —
     // installTestHarness() registers fixture-driven stubs on the same
     // schemes below. Electron only allows one handler per scheme per
     // session, so the harness must own them outright in test mode.
@@ -352,6 +367,7 @@ async function bootstrap() {
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
     registerRadProtocol(defaultSession);
+    registerOnchainAppProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
@@ -392,6 +408,7 @@ async function bootstrap() {
       registerIpfsProtocol(privateSession, { privatePartition: partition });
       registerIpnsProtocol(privateSession, { privatePartition: partition });
       registerRadProtocol(privateSession, { privatePartition: partition });
+      registerOnchainAppProtocol(privateSession, { privatePartition: partition });
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),

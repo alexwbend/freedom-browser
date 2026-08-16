@@ -37,6 +37,9 @@ describe('page-urls', () => {
     expect(mod.detectProtocol('bzz://hash')).toBe('swarm');
     expect(mod.detectProtocol('ipfs://cid')).toBe('ipfs');
     expect(mod.detectProtocol('ipns://name')).toBe('ipns');
+    expect(mod.detectProtocol('web3://0x0000000000000000000000000000000000000000.eip155-1/')).toBe(
+      'onchain'
+    );
     expect(mod.detectProtocol('rad://rid')).toBe('radicle');
     expect(mod.detectProtocol('https://example.com')).toBe('https');
     expect(mod.detectProtocol('http://example.com')).toBe('http');

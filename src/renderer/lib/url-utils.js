@@ -3,6 +3,55 @@ import { cidV0ToV1Base32, cidV1B58btcToBase32, ipnsMhToCidV1Base36 } from './cid
 
 export const ensureTrailingSlash = (value = '') => (value.endsWith('/') ? value : `${value}/`);
 
+export const DEFAULT_ONCHAIN_APP_CHAIN_ID = 1;
+const ETHEREUM_ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
+
+/**
+ * Parse Freedom's ERC-8244 application URL.
+ *
+ * Freedom accepts the convenient `web3://<contract>:<chainId>/` input form,
+ * then canonicalizes it to `web3://<contract>.eip155-<chainId>/`. Chromium's
+ * standard-scheme parser mistakes a bare all-hex `0x…` host for an oversized
+ * IPv4 literal, and a port-shaped chain id both hits unsafe-port rules and
+ * caps chain ids at 65535. The synthetic CAIP-style suffix avoids all three
+ * problems while keeping contract + chain in the visible storage origin.
+ */
+export const parseOnchainAppUrl = (input) => {
+  const raw = typeof input === 'string' ? input.trim() : '';
+  if (!raw) return null;
+
+  const canonicalMatch = raw.match(
+    /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)([/?#].*)?$/i
+  );
+  const friendlyMatch = raw.match(/^web3:\/\/(0x[0-9a-f]{40})(?::([0-9]+))?([/?#].*)?$/i);
+  const match = canonicalMatch || friendlyMatch;
+  if (!match || !ETHEREUM_ADDRESS_RE.test(match[1])) return null;
+
+  const chainId = Number(match[2] || DEFAULT_ONCHAIN_APP_CHAIN_ID);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) return null;
+
+  const address = match[1].toLowerCase();
+  const rawSuffix = match[3] || '/';
+  const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
+  const canonicalUrl = `web3://${address}.eip155-${chainId}${suffix}`;
+  let parsed;
+  try {
+    parsed = new URL(canonicalUrl);
+  } catch {
+    return null;
+  }
+
+  return {
+    address,
+    chainId,
+    url: parsed.toString(),
+  };
+};
+
+export const looksLikeOnchainAppInput = (input) => /^web3:/i.test((input || '').trim());
+
+export const formatOnchainAppUrl = (input) => parseOnchainAppUrl(input)?.url || null;
+
 // Set of transports an Ethereum name contenthash can resolve to that the renderer
 // knows how to dispatch. Anything outside this set is treated as
 // "unsupported transport" — the navigation surface alerts and aborts

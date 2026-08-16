@@ -19,6 +19,9 @@ import {
   formatRadicleUrl,
   deriveRadBaseFromUrl,
   deriveRadicleDisplayValue,
+  formatOnchainAppUrl,
+  looksLikeOnchainAppInput,
+  parseOnchainAppUrl,
 } from './url-utils.js';
 
 const BZZ_ROUTE_PREFIX = 'http://127.0.0.1:1633/bzz/';
@@ -27,6 +30,48 @@ const IPNS_ROUTE_PREFIX = 'http://127.0.0.1:8080/ipns/';
 const HOME_URL = 'file:///app/home.html';
 
 describe('url-utils', () => {
+  describe('onchain application URLs', () => {
+    const ADDRESS = '0x00000095643CFfA7D9fae407a84dfCB6406456c6';
+    const LOWER_ADDRESS = ADDRESS.toLowerCase();
+
+    test('canonicalizes the address, chain, and root path', () => {
+      expect(formatOnchainAppUrl(`web3://${ADDRESS}:1`)).toBe(
+        `web3://${LOWER_ADDRESS}.eip155-1/`
+      );
+      expect(parseOnchainAppUrl(`web3://${ADDRESS}:100/swap?x=1#route`)).toEqual({
+        address: LOWER_ADDRESS,
+        chainId: 100,
+        url: `web3://${LOWER_ADDRESS}.eip155-100/swap?x=1#route`,
+      });
+    });
+
+    test('defaults an omitted chain to mainnet and makes it visible', () => {
+      expect(formatOnchainAppUrl(`web3://${ADDRESS}/`)).toBe(
+        `web3://${LOWER_ADDRESS}.eip155-1/`
+      );
+    });
+
+    test('accepts the canonical CAIP-style origin and large chain IDs', () => {
+      expect(formatOnchainAppUrl(`web3://${LOWER_ADDRESS}.eip155-11155111/`)).toBe(
+        `web3://${LOWER_ADDRESS}.eip155-11155111/`
+      );
+    });
+
+    test.each([
+      'web3://not-an-address:1/',
+      `web3://${ADDRESS}:0/`,
+      `web3://user@${ADDRESS}:1/`,
+      'https://example.com',
+    ])('rejects invalid app URL %s', (url) => {
+      expect(formatOnchainAppUrl(url)).toBeNull();
+    });
+
+    test('recognizes malformed web3 input as app intent', () => {
+      expect(looksLikeOnchainAppInput(' WEB3://invalid ')).toBe(true);
+      expect(looksLikeOnchainAppInput('https://example.com')).toBe(false);
+    });
+  });
+
   describe('ensureTrailingSlash', () => {
     test('adds slash if missing', () => {
       expect(ensureTrailingSlash('http://example.com')).toBe('http://example.com/');

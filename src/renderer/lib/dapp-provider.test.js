@@ -47,6 +47,7 @@ const loadProvider = async (options = {}) => {
     safeMessageComplete: jest.fn(async () => ({ success: true, signature: '0xsig' })),
     signMessage: jest.fn(async () => ({ success: true, signature: '0xeoa' })),
     signTypedData: jest.fn(async () => ({ success: true, signature: '0xeoa' })),
+    requestChain: jest.fn(async () => ({ success: true, result: '0xfeed' })),
   };
 
   const dappPermissions = {
@@ -61,6 +62,13 @@ const loadProvider = async (options = {}) => {
     addEventListener: jest.fn(),
     dappPermissions,
     wallet: walletMocks,
+    networks: {
+      getChains: jest.fn(async () => ({
+        success: true,
+        chains: { 1: { name: 'Ethereum' }, 100: { name: 'Gnosis' } },
+      })),
+      isChainAvailable: jest.fn(async () => ({ available: true })),
+    },
     identity: { getStatus: jest.fn(async () => ({ isUnlocked: true })) },
   };
 
@@ -68,7 +76,7 @@ const loadProvider = async (options = {}) => {
   addressInput.value = 'https://app.example';
   global.document = createDocument({ elementsById: { 'address-input': addressInput } });
 
-  jest.doMock('./wallet-ui.js', () => ({
+  const walletUi = {
     showDappConnect: jest.fn(),
     getSelectedChainId: jest.fn(() => 100),
     setSelectedChainId: jest.fn(),
@@ -78,7 +86,8 @@ const loadProvider = async (options = {}) => {
     showVaultUnlock: jest.fn(),
     updateSwarmConnectionBanner: jest.fn(),
     updateX402ConnectionBanner: jest.fn(),
-  }));
+  };
+  jest.doMock('./wallet-ui.js', () => walletUi);
   jest.doMock('./wallet/dapp-tx.js', () => ({
     buildDappTxContext: jest.fn(),
     extractSelector: jest.fn(() => null),
@@ -102,6 +111,7 @@ const loadProvider = async (options = {}) => {
 
   const webview = createElement('webview');
   webview.send = jest.fn();
+  webview.getURL = jest.fn(() => options.webviewUrl || 'https://app.example');
   mod.setupWebviewProvider(webview);
 
   const sendRequest = (request) => {
@@ -111,7 +121,16 @@ const loadProvider = async (options = {}) => {
     });
   };
 
-  return { mod, webview, sendRequest, state, walletMocks, dappPermissions, safeSigning };
+  return {
+    mod,
+    webview,
+    sendRequest,
+    state,
+    walletMocks,
+    dappPermissions,
+    safeSigning,
+    walletUi,
+  };
 };
 
 const responsesSentTo = (webview) =>
@@ -251,6 +270,99 @@ describe('dapp-provider document binding', () => {
       id: 1,
       result: '0x64',
       error: null,
+    });
+  });
+});
+
+describe('dapp-provider onchain application binding', () => {
+  const APP_URL = 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/';
+
+  beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    jest.restoreAllMocks();
+  });
+
+  test('reports the chain encoded in the app origin', async () => {
+    const { webview, sendRequest } = await loadProvider({ webviewUrl: APP_URL });
+
+    sendRequest({ id: 10, method: 'eth_chainId', params: [] });
+    sendRequest({ id: 11, method: 'net_version', params: [] });
+    await flushMicrotasks();
+
+    expect(webview.send).toHaveBeenCalledWith('dapp:provider-response', {
+      id: 10,
+      result: '0x1',
+      error: null,
+    });
+    expect(webview.send).toHaveBeenCalledWith('dapp:provider-response', {
+      id: 11,
+      result: '1',
+      error: null,
+    });
+  });
+
+  test('routes read calls to the app origin chain, not the globally selected chain', async () => {
+    const { webview, sendRequest, walletMocks } = await loadProvider({ webviewUrl: APP_URL });
+
+    sendRequest({ id: 12, method: 'eth_call', params: [{ to: '0x1', data: '0x' }, 'latest'] });
+    await flushMicrotasks();
+
+    expect(walletMocks.requestChain).toHaveBeenCalledWith(
+      1,
+      'eth_call',
+      [{ to: '0x1', data: '0x' }, 'latest']
+    );
+    expect(webview.send).toHaveBeenCalledWith('dapp:provider-response', {
+      id: 12,
+      result: '0xfeed',
+      error: null,
+    });
+  });
+
+  test('pins the connect approval UI to the origin chain', async () => {
+    const { sendRequest, walletUi } = await loadProvider({ webviewUrl: APP_URL });
+
+    sendRequest({ id: 13, method: 'eth_requestAccounts', params: [] });
+    await flushMicrotasks();
+
+    expect(walletUi.setSelectedChainId).toHaveBeenCalledWith(1);
+    expect(walletUi.showDappConnect).toHaveBeenCalled();
+  });
+
+  test('rejects switching an onchain app away from its origin chain', async () => {
+    const { webview, sendRequest } = await loadProvider({ webviewUrl: APP_URL });
+
+    sendRequest({
+      id: 14,
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: '0x64' }],
+    });
+    await flushMicrotasks();
+
+    expect(webview.send).toHaveBeenCalledWith('dapp:provider-response', {
+      id: 14,
+      result: null,
+      error: {
+        code: 4200,
+        message: 'This onchain application is pinned to chain 1.',
+        data: undefined,
+      },
+    });
+  });
+
+  test('does not forward global wallet chain changes into a pinned app', async () => {
+    const { mod, webview } = await loadProvider({ webviewUrl: APP_URL });
+
+    mod.emitChainChanged(webview, '0x64');
+
+    expect(webview.send).not.toHaveBeenCalledWith('dapp:provider-event', {
+      event: 'chainChanged',
+      data: '0x64',
     });
   });
 });

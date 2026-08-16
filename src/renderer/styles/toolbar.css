@@ -389,6 +389,12 @@
   display: block;
 }
 
+/* Contract-hosted ERC-8244 application */
+.protocol-icon[data-protocol='onchain'] .icon-onchain {
+  display: block;
+  fill: #8c8cff;
+}
+
 /* Radicle - purple/violet (matches Radicle branding) */
 .protocol-icon[data-protocol='radicle'] .icon-radicle {
   display: block;

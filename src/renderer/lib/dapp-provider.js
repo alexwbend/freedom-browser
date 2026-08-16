@@ -15,6 +15,7 @@ import { buildDappTxContext, extractSelector } from './wallet/dapp-tx.js';
 import { isSafeAccount, GNOSIS_CHAIN_ID } from './wallet/wallet-utils.js';
 import { openSafeMessageBoard, abandonSafeMessageBoard } from './wallet/safe-signing.js';
 import { getPermissionKey } from './origin-utils.js';
+import { parseOnchainAppUrl } from './url-utils.js';
 
 // Feature flag state
 let identityWalletEnabled = false;
@@ -118,8 +119,25 @@ function getProviderState(webview) {
 /**
  * Get the current chain ID in hex format
  */
-async function getCurrentChainId() {
+function getOnchainApp(webview) {
   try {
+    return parseOnchainAppUrl(webview?.getURL?.());
+  } catch {
+    return null;
+  }
+}
+
+function getRequestDisplayUrl(webview) {
+  return getOnchainApp(webview)?.url || getDisplayUrl();
+}
+
+async function getCurrentChainId(webview = null) {
+  try {
+    // A contract-hosted app is part of a particular chain. Pinning provider
+    // reads to that authority prevents a background wallet selection or a
+    // same-address deployment on another chain from changing its meaning.
+    const app = getOnchainApp(webview);
+    if (app) return '0x' + app.chainId.toString(16);
     // Get from wallet UI's selected chain
     const chainId = getSelectedChainId();
     if (chainId) {
@@ -148,7 +166,7 @@ async function handleProviderRequest(webview, request) {
 
   // Get the display URL from address bar and derive permission key
   // This replaces the raw origin (which is 127.0.0.1 for IPFS/Swarm pages)
-  const displayUrl = getDisplayUrl();
+  const displayUrl = getRequestDisplayUrl(webview);
   const permissionKey = getPermissionKey(displayUrl);
 
   console.log('[DappProvider] Using permissionKey:', permissionKey);
@@ -164,9 +182,9 @@ async function handleProviderRequest(webview, request) {
 
     // Handle different method categories
     if (method === 'eth_chainId') {
-      result = await getCurrentChainId();
+      result = await getCurrentChainId(webview);
     } else if (method === 'net_version') {
-      const chainId = await getCurrentChainId();
+      const chainId = await getCurrentChainId(webview);
       result = String(parseInt(chainId, 16));
     } else if (method === 'eth_accounts') {
       // Return connected accounts (empty if not connected)
@@ -193,6 +211,8 @@ async function handleProviderRequest(webview, request) {
       } else {
         // Need to show connection approval UI
         console.log('[DappProvider] Showing connect UI for:', permissionKey);
+        const app = getOnchainApp(webview);
+        if (app) setSelectedChainId(app.chainId);
         result = await new Promise((resolve, reject) => {
           showDappConnect(displayUrl, permissionKey, resolve, reject, webview);
         });
@@ -200,7 +220,7 @@ async function handleProviderRequest(webview, request) {
       }
     } else if (READ_ONLY_METHODS.includes(method)) {
       // Proxy read-only calls to RPC
-      result = await proxyRpcCall(method, params);
+      result = await proxyRpcCall(webview, method, params);
     } else if (method === 'wallet_switchEthereumChain') {
       // Handle chain switching
       result = await handleSwitchChain(params, permissionKey, webview);
@@ -212,7 +232,8 @@ async function handleProviderRequest(webview, request) {
         throw { ...ERRORS.UNAUTHORIZED, message: 'Not connected. Call eth_requestAccounts first.' };
       }
 
-      const chainId = permission.chainId || parseInt(await getCurrentChainId(), 16);
+      const chainId = getOnchainApp(webview)?.chainId || permission.chainId ||
+        parseInt(await getCurrentChainId(webview), 16);
 
       assertSafeOnGnosis(permission, chainId, 'transact');
 
@@ -236,7 +257,8 @@ async function handleProviderRequest(webview, request) {
         throw { ...ERRORS.UNAUTHORIZED, message: 'Not connected. Call eth_requestAccounts first.' };
       }
 
-      const chainId = permission.chainId || parseInt(await getCurrentChainId(), 16);
+      const chainId = getOnchainApp(webview)?.chainId || permission.chainId ||
+        parseInt(await getCurrentChainId(webview), 16);
       assertSafeOnGnosis(permission, chainId, 'sign');
 
       if (permission.autoApprove?.signing) {
@@ -425,9 +447,9 @@ function webviewContentsId(webview) {
  * Uses the chain's capability-aware source order (Myotis, Colibri,
  * RPC quorum, then direct RPC fallback).
  */
-async function proxyRpcCall(method, params) {
+async function proxyRpcCall(webview, method, params) {
   // Get current chain ID
-  const chainIdHex = await getCurrentChainId();
+  const chainIdHex = await getCurrentChainId(webview);
   const chainId = parseInt(chainIdHex, 16);
 
   const data = await window.wallet.requestChain(chainId, method, params);
@@ -463,6 +485,13 @@ async function handleSwitchChain(params, permissionKey, webview) {
   }
 
   const requestedChainId = parseInt(params[0].chainId, 16);
+  const app = getOnchainApp(webview);
+  if (app && requestedChainId !== app.chainId) {
+    throw {
+      ...ERRORS.UNSUPPORTED_METHOD,
+      message: `This onchain application is pinned to chain ${app.chainId}.`,
+    };
+  }
   const result = await window.networks.getChains();
   const chains = result.success ? result.chains : {};
 
@@ -491,7 +520,7 @@ async function handleSwitchChain(params, permissionKey, webview) {
 
   // Emit chainChanged event to the dApp
   const chainIdHex = '0x' + requestedChainId.toString(16);
-  if (webview) {
+  if (webview && !app) {
     sendProviderEvent(webview, 'chainChanged', chainIdHex);
     console.log('[DappProvider] Emitted chainChanged:', chainIdHex);
   }
@@ -587,6 +616,10 @@ export function emitAccountsChanged(webview, accounts) {
  * Emit chainChanged event to a webview
  */
 export function emitChainChanged(webview, chainId) {
+  // The chain selector is global browser UI, but an ERC-8244 document's
+  // provider identity is fixed by its URL. Selecting another wallet chain
+  // must not emit a contradictory event into that document.
+  if (getOnchainApp(webview)) return;
   sendProviderEvent(webview, 'chainChanged', chainId);
 }
 
