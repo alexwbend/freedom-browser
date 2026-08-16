@@ -27,6 +27,7 @@ function loadPreloadModule(options = {}) {
       invokeResponses: {
         [IPC.ANT_GET_STATUS]: { status: 'running', error: null },
         [IPC.IPFS_GET_STATUS]: { status: 'stopped', error: null },
+        [IPC.MYOTIS_GET_STATUS]: { state: 'off', running: false, available: true },
         [IPC.RADICLE_GET_STATUS]: { status: 'error', error: 'offline' },
         ...(options.invokeResponses || {}),
       },
@@ -83,12 +84,13 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(27);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(28);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
       'electronAPI',
       'ant',
+      'myotis',
       'ipfs',
       'radicle',
       'tor',
@@ -159,6 +161,9 @@ describe('preload', () => {
       [exposures.ant, 'stop', [], IPC.ANT_STOP, []],
       [exposures.ant, 'getStatus', [], IPC.ANT_GET_STATUS, []],
       [exposures.ant, 'checkBinary', [], IPC.ANT_CHECK_BINARY, []],
+      [exposures.myotis, 'start', [], IPC.MYOTIS_START, []],
+      [exposures.myotis, 'stop', [], IPC.MYOTIS_STOP, []],
+      [exposures.myotis, 'getStatus', [], IPC.MYOTIS_GET_STATUS, []],
       [exposures.ipfs, 'start', [], IPC.IPFS_START, []],
       [exposures.ipfs, 'stop', [], IPC.IPFS_STOP, []],
       [exposures.ipfs, 'getStatus', [], IPC.IPFS_GET_STATUS, []],
@@ -277,12 +282,14 @@ describe('preload', () => {
   test('status update wrappers subscribe, fetch current state immediately, and clean up', async () => {
     const beeStatus = { status: 'running', error: null };
     const ipfsStatus = { status: 'stopped', error: null };
+    const myotisStatus = { state: 'off', running: false, available: true };
     const radicleStatus = { status: 'error', error: 'offline' };
     const torStatus = { status: 'stopped', error: null };
     const { exposures, ipcRenderer } = loadPreloadModule({
       invokeResponses: {
         [IPC.ANT_GET_STATUS]: beeStatus,
         [IPC.IPFS_GET_STATUS]: ipfsStatus,
+        [IPC.MYOTIS_GET_STATUS]: myotisStatus,
         [IPC.RADICLE_GET_STATUS]: radicleStatus,
         [IPC.TOR_GET_STATUS]: torStatus,
       },
@@ -291,6 +298,7 @@ describe('preload', () => {
     const statusCases = [
       [exposures.ant, IPC.ANT_STATUS_UPDATE, IPC.ANT_GET_STATUS, beeStatus, { status: 'starting', error: null }],
       [exposures.ipfs, IPC.IPFS_STATUS_UPDATE, IPC.IPFS_GET_STATUS, ipfsStatus, { status: 'running', error: null }],
+      [exposures.myotis, IPC.MYOTIS_STATUS_UPDATE, IPC.MYOTIS_GET_STATUS, myotisStatus, { state: 'ready', running: true }],
       [exposures.radicle, IPC.RADICLE_STATUS_UPDATE, IPC.RADICLE_GET_STATUS, radicleStatus, { status: 'running', error: null }],
       [exposures.tor, IPC.TOR_STATUS_UPDATE, IPC.TOR_GET_STATUS, torStatus, { status: 'running', error: null }],
     ];
@@ -325,5 +333,17 @@ describe('preload', () => {
       antApi: null,
       openlvSignaling: null,
     });
+  });
+
+  test('contains an eager Myotis status failure inside the preload bridge', async () => {
+    const { exposures, ipcRenderer } = loadPreloadModule();
+    const callback = jest.fn();
+    ipcRenderer.invoke.mockRejectedValueOnce(new Error('window closed'));
+
+    const cleanup = exposures.myotis.onStatusUpdate(callback);
+    await flushMicrotasks();
+
+    expect(callback).not.toHaveBeenCalled();
+    cleanup();
   });
 });

@@ -386,6 +386,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   restoreEndpointSource: guardInternal('restoreEndpointSource', (id) =>
     ipcRenderer.invoke('networks:restore-source', id)
   ),
+  resetEndpointSourceCoverage: guardInternal('resetEndpointSourceCoverage', (id, chainId) =>
+    ipcRenderer.invoke('networks:reset-source-coverage', id, chainId)
+  ),
   setNetworkApiKey: guardInternal('setNetworkApiKey', (providerId, apiKey) =>
     ipcRenderer.invoke('networks:set-api-key', providerId, apiKey)
   ),
@@ -411,6 +414,11 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   // Service registry snapshot (read-only).
   getServiceRegistry: guardInternal('getServiceRegistry', () =>
     ipcRenderer.invoke('service-registry:get')
+  ),
+  getMyotisStatus: guardInternal('getMyotisStatus', (chainId) =>
+    chainId == null
+      ? ipcRenderer.invoke('myotis:getStatus')
+      : ipcRenderer.invoke('myotis:getStatus', chainId)
   ),
 
   // Opens the sidebar publish-setup checklist in the host window.

@@ -279,7 +279,7 @@ function overrideProbeIpc() {
   });
 }
 
-// Bee / IPFS / Radicle managers are still loaded so their `getStatus`
+// Bee / IPFS / Myotis / Radicle managers are still loaded so their `getStatus`
 // handlers respond, but we replace start/stop with no-ops so a stray
 // click in a spec can't spawn the real binaries against the test
 // `userData` directory. The fake status is also tracked in-memory so
@@ -291,6 +291,18 @@ function overrideProbeIpc() {
 // — the renderer destructures these fields directly
 // (`src/renderer/lib/bee-ui.js`, `src/renderer/lib/ipfs-ui.js`).
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
+const stubMyotisStatuses = new Map([
+  [1, {
+    supported: true, available: true, version: '0.1.7', chainId: 1,
+    network: 'mainnet', displayName: 'Ethereum', running: true, state: 'ready',
+    beaconState: 'SYNCED', peerCount: 2, snapPeers: 1, finalizedBlockNumber: 25684159,
+  }],
+  [100, {
+    supported: true, available: true, version: '0.1.7', chainId: 100,
+    network: 'gnosis', displayName: 'Gnosis', running: false, state: 'off',
+    beaconState: 'STARTING', peerCount: 0, snapPeers: 0, finalizedBlockNumber: 0,
+  }],
+]);
 
 function overrideNodeIpc() {
   const setStatus = (service, status) => {
@@ -322,6 +334,28 @@ function overrideNodeIpc() {
   replaceHandler(IPC.IPFS_GET_STATUS, async () => ({
     status: stubNodeStatus.ipfs,
     error: null,
+  }));
+
+  const stubMyotisStatus = (chainId) => {
+    const status = stubMyotisStatuses.get(Number(chainId));
+    if (!status) throw new Error(`Unsupported Myotis chain ID: ${chainId}`);
+    return status;
+  };
+
+  replaceHandler(IPC.MYOTIS_START, async (_event, chainId = 1) => {
+    log.info('[test-harness] ignored myotis:start (test mode)');
+    const status = stubMyotisStatus(chainId);
+    Object.assign(status, { running: true, state: 'ready' });
+    return { ...status };
+  });
+  replaceHandler(IPC.MYOTIS_STOP, async (_event, chainId = 1) => {
+    log.info('[test-harness] ignored myotis:stop (test mode)');
+    const status = stubMyotisStatus(chainId);
+    Object.assign(status, { running: false, state: 'off' });
+    return { ...status };
+  });
+  replaceHandler(IPC.MYOTIS_GET_STATUS, async (_event, chainId = 1) => ({
+    ...stubMyotisStatus(chainId),
   }));
 
   replaceHandler(IPC.RADICLE_START, async () => {

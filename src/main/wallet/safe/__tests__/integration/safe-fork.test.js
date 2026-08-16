@@ -59,8 +59,7 @@ jest.mock('../../../tx-recorder', () => ({
     jest.requireActual('../../../transaction-service').signAndSendTransaction(params, signer),
 }));
 
-// Point the broadcast path (transaction-service → provider-manager) at
-// the anvil forks instead of the registry's live RPC pool.
+// Point protocol-kit and Safe's raw reads at the anvil forks.
 jest.mock('../../../provider-manager', () => {
   const { JsonRpcProvider: Provider } = require('ethers');
   const urls = { 100: 'http://127.0.0.1:18845', 8453: 'http://127.0.0.1:18846' };
@@ -81,6 +80,22 @@ jest.mock('../../../provider-manager', () => {
       },
     }),
     withRetry: (fn) => fn(),
+  };
+});
+
+// Transaction-service now routes reads, fees, and broadcasts through the
+// capability-aware chain router. Give that router a direct-only policy whose
+// RPC inventory is the same pair of local forks; otherwise it would correctly
+// follow the app's normal registry and accidentally exercise public chains.
+jest.mock('../../../../networks/network-registry', () => {
+  const urls = { 100: 'http://127.0.0.1:18845', 8453: 'http://127.0.0.1:18846' };
+  return {
+    getNetwork: (chainId) => ({
+      chainId: Number(chainId),
+      access: { readOrder: ['direct'], broadcastOrder: ['direct'] },
+      quorum: { k: 1, m: 1, timeoutMs: 15000 },
+    }),
+    getEndpoints: (chainId, role) => (role === 'rpc' && urls[chainId] ? [urls[chainId]] : []),
   };
 });
 

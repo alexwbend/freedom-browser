@@ -98,6 +98,10 @@ function buildNodeConfig(ports) {
       mode: 'managed',
       backend: 'freedom-ipfs',
     },
+    myotis: {
+      mode: 'managed',
+      backend: 'myotis-native',
+    },
     radicle: {
       mode: 'managed',
       httpPort: ports.radicleHttp,
@@ -124,6 +128,11 @@ function rebaseNodeConfig(nodes = {}, ports) {
       ...defaults.ipfs,
       mode: nodes.ipfs?.mode === 'disabled' ? 'disabled' : defaults.ipfs.mode,
       backend: 'freedom-ipfs',
+    },
+    myotis: {
+      ...defaults.myotis,
+      mode: nodes.myotis?.mode === 'disabled' ? 'disabled' : defaults.myotis.mode,
+      backend: 'myotis-native',
     },
     radicle: {
       ...defaults.radicle,
@@ -157,6 +166,11 @@ function fillMissingNodeConfig(nodes = {}, ports) {
       ...defaults.ipfs,
       mode: nodes.ipfs?.mode === 'disabled' ? 'disabled' : defaults.ipfs.mode,
       backend: 'freedom-ipfs',
+    },
+    myotis: {
+      ...defaults.myotis,
+      mode: nodes.myotis?.mode === 'disabled' ? 'disabled' : defaults.myotis.mode,
+      backend: 'myotis-native',
     },
     radicle: {
       ...defaults.radicle,
@@ -788,14 +802,18 @@ function updateProfileNodeConfig(profile, protocol, updates) {
     return null;
   }
 
-  if (!['bee', 'ipfs', 'radicle', 'tor'].includes(protocol)) {
+  if (!['bee', 'ipfs', 'myotis', 'radicle', 'tor'].includes(protocol)) {
     throw new Error(`Unsupported profile node protocol: ${protocol}`);
   }
 
-  const normalizedUpdates = protocol === 'ipfs'
+  const nativeBackend = {
+    ipfs: 'freedom-ipfs',
+    myotis: 'myotis-native',
+  }[protocol];
+  const normalizedUpdates = nativeBackend
     ? {
         mode: updates?.mode === 'disabled' ? 'disabled' : 'managed',
-        backend: 'freedom-ipfs',
+        backend: nativeBackend,
       }
     : updates;
 
@@ -805,7 +823,7 @@ function updateProfileNodeConfig(profile, protocol, updates) {
 
     if (record) {
       record.nodes = record.nodes || {};
-      record.nodes[protocol] = protocol === 'ipfs'
+      record.nodes[protocol] = nativeBackend
         ? normalizedUpdates
         : {
             ...(record.nodes[protocol] || {}),
@@ -820,7 +838,7 @@ function updateProfileNodeConfig(profile, protocol, updates) {
       : { ...profile.metadata };
 
     metadata.nodes = metadata.nodes || {};
-    metadata.nodes[protocol] = protocol === 'ipfs'
+    metadata.nodes[protocol] = nativeBackend
       ? normalizedUpdates
       : {
           ...(metadata.nodes[protocol] || {}),

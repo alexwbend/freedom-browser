@@ -89,6 +89,16 @@ function getTorDataDir() {
   return resolveDir('FREEDOM_TOR_DATA', 'tor-data');
 }
 
+function getMyotisDataDir(network = 'mainnet') {
+  // MYOTIS_DATA_DIR predates profile integration and remains an explicit
+  // development/test escape hatch. Normal launches resolve under the active
+  // profile's userData directory, which keeps every embedded client isolated.
+  const root = resolveDir('MYOTIS_DATA_DIR', 'myotis');
+  // Keep Ethereum at the legacy root so existing synced profiles retain
+  // their warm state. Additional networks are isolated below that root.
+  return network === 'mainnet' ? root : ensureDir(path.join(root, network));
+}
+
 function getRadicleDataDir() {
   const override = process.env.FREEDOM_RADICLE_DATA;
   if (override) {
@@ -165,6 +175,7 @@ module.exports = {
   getBeeDataDir,
   getIdentityDataDir,
   getIpfsDataDir,
+  getMyotisDataDir,
   getProfileCrashDir,
   getProfileTempDir,
   getProfileUserDataDir,

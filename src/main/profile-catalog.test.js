@@ -159,6 +159,10 @@ describe('profile catalog', () => {
     const result = ensureProfile(appRoot, 'default', { defaultProfileDir: profileDir });
 
     expect(result.metadata.nodes.bee.p2pPort).toBe(12633);
+    expect(result.metadata.nodes.myotis).toEqual({
+      mode: 'managed',
+      backend: 'myotis-native',
+    });
 
     const catalog = JSON.parse(
       fs.readFileSync(path.join(appRoot, 'profile-registry.json'), 'utf-8')
@@ -175,6 +179,14 @@ describe('profile catalog', () => {
     expect(metadata.nodes.tor).toMatchObject({
       mode: 'managed',
       socksPort: 19150,
+    });
+    expect(catalog.profiles[0].nodes.myotis).toEqual({
+      mode: 'managed',
+      backend: 'myotis-native',
+    });
+    expect(metadata.nodes.myotis).toEqual({
+      mode: 'managed',
+      backend: 'myotis-native',
     });
   });
 

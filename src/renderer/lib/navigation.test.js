@@ -336,6 +336,7 @@ const loadNavigationModule = async (options = {}) => {
   const trustPopoverTitle = createElement('div');
   const trustPopoverStatus = createElement('div');
   const trustPopoverTrustFields = createElement('div');
+  const trustPopoverContent = createElement('div');
   const trustPopoverContentFields = createElement('div');
   const trustPopoverTooltip = createElement('div');
   const document = createDocument({
@@ -352,6 +353,7 @@ const loadNavigationModule = async (options = {}) => {
       'trust-popover-title': trustPopoverTitle,
       'trust-popover-status': trustPopoverStatus,
       'trust-popover-trust-fields': trustPopoverTrustFields,
+      'trust-popover-content': trustPopoverContent,
       'trust-popover-content-fields': trustPopoverContentFields,
       'trust-popover-tooltip': trustPopoverTooltip,
     },
@@ -444,6 +446,7 @@ const loadNavigationModule = async (options = {}) => {
       protocolIcon,
       trustShield,
       trustPopover,
+      trustPopoverContent,
     },
   };
 };
@@ -2102,6 +2105,15 @@ describe('navigation', () => {
       expect(ctx.elements.trustPopover.hidden).toBe(false);
       expect(ctx.elements.trustShield.getAttribute('aria-expanded')).toBe('true');
     };
+
+    test('hides the destination section when the resolution has no content rows', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      openPopoverFor(ctx, 'vitalik.eth');
+
+      expect(ctx.elements.trustPopoverContent.hidden).toBe(true);
+    });
 
     test('closes when the address bar moves to a non-ENS URL', async () => {
       const ctx = await loadNavigationModule();

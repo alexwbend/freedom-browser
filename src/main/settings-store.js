@@ -40,6 +40,11 @@ const DEFAULT_SETTINGS = {
   // the decentralized protocols keep connecting directly).
   enableTorIntegration: false,
   startTorAtLaunch: false,
+  // Experimental: start the Myotis P2P Ethereum light client at launch.
+  // Off by default — opt-in while the tier is experimental; requires the
+  // addon (npm run myotis:download, or the packaged resource).
+  startMyotisAtLaunch: false,
+  startMyotisGnosisAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
   // When true, every download opens a native save dialog. Off by default:
