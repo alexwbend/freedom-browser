@@ -9,6 +9,7 @@
 const { parseUnits, formatUnits, Interface } = require('ethers');
 const { getProvider, withRetry } = require('./provider-manager');
 const { getTxExplorerUrl } = require('./chains');
+const { REMOTE_ERROR_CODES, createRemoteError } = require('./remote/errors');
 
 // ERC-20 transfer function interface
 const ERC20_INTERFACE = new Interface([
@@ -217,6 +218,30 @@ function isPositiveFee(value) {
 }
 
 /**
+ * Best-effort check that a device-broadcast tx really came from the
+ * signer's account: a compromised responder could report the hash of
+ * someone else's transaction. The tx usually reaches our RPC a beat
+ * after the device's, so "not visible yet" is not an error — only a
+ * visible mismatch is.
+ */
+async function verifyDeviceBroadcastFrom(provider, hash, expectedFrom, chainId) {
+  let tx;
+  try {
+    tx = await withRetry(() => provider.getTransaction(hash), 2, chainId);
+  } catch (err) {
+    console.warn('[TransactionService] Device-broadcast lookup failed:', err.message);
+    return;
+  }
+  if (!tx) {
+    console.warn('[TransactionService] Device-broadcast tx not visible on our RPC yet:', hash);
+    return;
+  }
+  if (tx.from.toLowerCase() !== expectedFrom.toLowerCase()) {
+    throw createRemoteError(REMOTE_ERROR_CODES.WRONG_ACCOUNT);
+  }
+}
+
+/**
  * Sign and broadcast a transaction.
  *
  * Signing and broadcasting are separate steps so the signer can be
@@ -253,6 +278,25 @@ async function signAndSendTransaction(params, signer) {
 
   try {
     const from = await signer.getAddress();
+
+    // Backends that can only sign-and-broadcast through their own channel
+    // (phone wallets) expose the optional sendTransaction capability: the
+    // remote wallet picks the nonce, estimates gas, and broadcasts via its
+    // own RPC — our gas parameters would be stale guesses by the time the
+    // user confirms on the device, so only the intent fields go over.
+    if (typeof signer.sendTransaction === 'function') {
+      const hash = await signer.sendTransaction({ to, value, data, chainId });
+      await verifyDeviceBroadcastFrom(provider, hash, from, chainId);
+      console.log('[TransactionService] Transaction broadcast by signer:', hash);
+      return {
+        hash,
+        from,
+        to,
+        value,
+        chainId,
+        explorerUrl: getTxExplorerUrl(chainId, hash),
+      };
+    }
 
     // Get nonce
     const nonce = await withRetry(() => provider.getTransactionCount(from, 'pending'), 2, chainId);
@@ -294,6 +338,13 @@ async function signAndSendTransaction(params, signer) {
     };
   } catch (err) {
     console.error('[TransactionService] Transaction failed:', err);
+
+    // Device-backend errors (LEDGER_*/REMOTE_*) carry a stable code and a
+    // user-facing message; rewrapping them here would strip the code and
+    // let the local-provider heuristics below mislabel them.
+    if (typeof err.code === 'string' && /^(LEDGER|REMOTE)_/.test(err.code)) {
+      throw err;
+    }
 
     // Parse common error messages
     if (err.message.includes('insufficient funds')) {
