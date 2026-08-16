@@ -13,7 +13,15 @@ import {
   endSignatureFlight,
 } from './signature-flight.js';
 import { open as openSidebarPanel } from '../sidebar.js';
-import { bypassUnlockGateForDevice, signingButtonLabel } from './wallet-utils.js';
+import {
+  bypassUnlockGateForDevice,
+  bypassUnlockGateForSafe,
+  signingButtonLabel,
+  isSafeAccount,
+  renderSafeFeePayer,
+  truncateAddress,
+} from './wallet-utils.js';
+import { openSafeSigningBoard, isSafeSigningBoardOpen } from './safe-signing.js';
 
 // DOM references
 let dappTxScreen;
@@ -221,6 +229,12 @@ async function populateDappTxDetails(txParams, chainId) {
     dappTxNetwork.textContent = chain?.name || `Chain ${chainId}`;
   }
 
+  if (dappTxFee && isSafeAccount(dappTxPending?.walletIndex)) {
+    // The executor EOA pays the execution fee, quoted after signing.
+    renderSafeFeePayer(dappTxFee, dappTxPending.walletIndex);
+    return;
+  }
+
   if (dappTxFee) {
     try {
       const walletsResult = await window.wallet.getDerivedWallets();
@@ -264,7 +278,10 @@ async function populateDappTxDetails(txParams, chainId) {
 
 async function checkDappTxUnlockStatus() {
   try {
-    if (bypassUnlockGateForDevice(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)) {
+    if (
+      bypassUnlockGateForDevice(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn) ||
+      bypassUnlockGateForSafe(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)
+    ) {
       return;
     }
 
@@ -360,17 +377,26 @@ async function approveDappTx() {
   // Snapshot the auto-approve intent now: the checkbox is shared DOM that
   // a later request can repopulate while this send is still in flight.
   const autoApprove = Boolean(dappTxAutoApproveCheckbox?.checked);
+  const safeAccount = isSafeAccount(walletIndex);
 
   try {
     request.signing = true;
     // Claim the sidebar for the whole flight: no other approval surface
     // may repaint over or tear down a live device confirmation.
-    beginSignatureFlight(request);
+    if (!safeAccount) beginSignatureFlight(request);
     if (dappTxApproveBtn) {
       dappTxApproveBtn.disabled = true;
       dappTxApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
     setDappTxCancelEnabled(false);
+
+    if (safeAccount) {
+      const hash = await sendViaSafeAccount(walletIndex, txParams, permissionKey);
+      console.log('[WalletUI] dApp Safe transaction executed:', hash);
+      resolve(hash);
+      closeDappTx();
+      return;
+    }
 
     const tx = {
       to: txParams.to,
@@ -414,6 +440,12 @@ async function approveDappTx() {
       closeDappTx();
     }
   } catch (err) {
+    if (err?.code === 4001) {
+      // The user discarded the Safe transaction — that IS the rejection.
+      rejectDappTx();
+      closeDappTx();
+      return;
+    }
     console.error('[WalletUI] dApp transaction failed:', err);
     showDappTxError(err.message || 'Transaction failed');
     if (dappTxApproveBtn) {
@@ -421,6 +453,12 @@ async function approveDappTx() {
       dappTxApproveBtn.textContent = 'Confirm';
     }
     setDappTxCancelEnabled(true);
+    // The signing board may have replaced this screen — bring the
+    // approval back so the error is actually visible.
+    if (safeAccount) {
+      walletState.identityView?.classList.add('hidden');
+      dappTxScreen?.classList.remove('hidden');
+    }
   } finally {
     request.signing = false;
     endSignatureFlight(request);
@@ -436,6 +474,83 @@ function setDappTxCancelEnabled(enabled) {
   if (dappTxBackBtn) dappTxBackBtn.disabled = !enabled;
 }
 
+/**
+ * Route a dApp transaction through the Safe signing board: start the
+ * pending SafeTx (free vault signatures collected silently), open the
+ * board for the rest, and resolve with the execution hash once the
+ * threshold is met and the executor broadcast lands. The user parking
+ * the board keeps the dApp waiting (its transaction is still pending);
+ * discarding rejects with EIP-1193 code 4001.
+ */
+async function sendViaSafeAccount(walletIndex, txParams, site) {
+  const value = txParams.value ? BigInt(txParams.value).toString() : '0';
+  const started = await window.wallet.safeSend(
+    walletIndex,
+    { to: txParams.to, value, data: txParams.data || '0x' },
+    buildSafeDappDisplay(txParams, value, site)
+  );
+  if (!started.success) {
+    throw new Error(started.error || 'Transaction failed');
+  }
+
+  const execution = awaitSafeExecution(walletIndex, started.state.safeTxHash);
+  openSafeSigningBoard(walletIndex, started.state);
+  return execution;
+}
+
+/** Resolve with the exec-tx hash / reject 4001 on discard, by board events. */
+function awaitSafeExecution(safeIndex, safeTxHash) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      window.removeEventListener('wallet:safe-executed', onExecuted);
+      window.removeEventListener('wallet:safe-discarded', onDiscarded);
+    };
+    const onExecuted = (event) => {
+      if (event.detail?.safeTxHash !== safeTxHash) return;
+      cleanup();
+      resolve(event.detail.hash);
+    };
+    const onDiscarded = (event) => {
+      if (event.detail?.safeIndex !== safeIndex) return;
+      cleanup();
+      reject({ code: 4001, message: 'User rejected the request' });
+    };
+    window.addEventListener('wallet:safe-executed', onExecuted);
+    window.addEventListener('wallet:safe-discarded', onDiscarded);
+  });
+}
+
+/**
+ * Presentation facts for the signing board / pending row. Native
+ * transfers reuse the board's own amount/recipient formatting; token
+ * transfers and arbitrary calldata carry a pre-composed `label` line.
+ * The raw to/asset/amount still feed the payment-history row, and
+ * `site` makes the board say who asked ("— requested by <site>").
+ */
+function buildSafeDappDisplay(txParams, value, site) {
+  const decoded = decodeErc20Transfer(txParams.data);
+  if (decoded) {
+    return {
+      site,
+      asset: String(txParams.to).toLowerCase(),
+      toAddress: decoded.toAddress,
+      amount: decoded.amount,
+      // unknown token decimals/symbol — don't pretend to format them
+      label: `sending tokens to ${truncateAddress(decoded.toAddress)}`,
+    };
+  }
+  if (!txParams.data || txParams.data === '0x') {
+    return { site, asset: null, toAddress: txParams.to, amount: value };
+  }
+  return {
+    site,
+    asset: null,
+    toAddress: txParams.to,
+    amount: value,
+    label: `a contract call to ${truncateAddress(txParams.to)}`,
+  };
+}
+
 function rejectDappTx() {
   if (dappTxPending?.reject) {
     dappTxPending.reject({ code: 4001, message: 'User rejected the request' });
@@ -444,7 +559,11 @@ function rejectDappTx() {
 
 function closeDappTx() {
   dappTxScreen?.classList.add('hidden');
-  walletState.identityView?.classList.remove('hidden');
+  // A Safe flow may still be showing the signing board (in-flow, not a
+  // modal) — restoring the identity view under it would double-render.
+  if (!isSafeSigningBoardOpen()) {
+    walletState.identityView?.classList.remove('hidden');
+  }
   dappTxPending = null;
   hideDappTxError();
   if (dappTxPasswordInput) dappTxPasswordInput.value = '';
