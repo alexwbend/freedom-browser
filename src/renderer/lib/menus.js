@@ -6,6 +6,7 @@ import { startRadicleInfoPolling, stopRadicleInfoPolling } from './radicle-ui.js
 import { hideTabContextMenu, getActiveWebview } from './tabs.js';
 import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
+import { matchesShortcut } from './shortcuts.js';
 
 const electronAPI = window.electronAPI;
 
@@ -124,6 +125,32 @@ export const updateZoomDisplay = () => {
   }
 };
 
+// Zoom bounds and step, matching the hamburger menu's − / + buttons.
+const ZOOM_STEP = 0.1;
+const ZOOM_MIN = 0.25;
+const ZOOM_MAX = 5;
+
+// Single zoom code path shared by the hamburger buttons, the View-menu
+// accelerators and the renderer keydown fallback, so the zoom-level readout
+// never drifts from the webview's real factor. getZoomFactor throws on a
+// webview that is not yet dom-ready — reachable now that a keystroke can
+// zoom a tab the moment it opens — so the read is guarded the same way
+// updateZoomDisplay guards it.
+const applyZoomFactor = (next) => {
+  const webview = getActiveWebview();
+  if (!webview) return;
+  try {
+    webview.setZoomFactor(next(webview.getZoomFactor()));
+  } catch {
+    return;
+  }
+  updateZoomDisplay();
+};
+
+export const zoomIn = () => applyZoomFactor((current) => Math.min(ZOOM_MAX, current + ZOOM_STEP));
+export const zoomOut = () => applyZoomFactor((current) => Math.max(ZOOM_MIN, current - ZOOM_STEP));
+export const zoomReset = () => applyZoomFactor(() => 1);
+
 // Format keyboard shortcuts for the current platform
 const formatShortcut = (shortcut, isMac) => {
   if (!shortcut) return '';
@@ -208,22 +235,41 @@ export const initMenus = () => {
 
   // Zoom controls
   zoomOutBtn?.addEventListener('click', () => {
-    const webview = getActiveWebview();
-    if (webview) {
-      const currentZoom = webview.getZoomFactor();
-      const newZoom = Math.max(0.25, currentZoom - 0.1);
-      webview.setZoomFactor(newZoom);
-      updateZoomDisplay();
-    }
+    zoomOut();
   });
 
   zoomInBtn?.addEventListener('click', () => {
-    const webview = getActiveWebview();
-    if (webview) {
-      const currentZoom = webview.getZoomFactor();
-      const newZoom = Math.min(5, currentZoom + 0.1);
-      webview.setZoomFactor(newZoom);
-      updateZoomDisplay();
+    zoomIn();
+  });
+
+  // View-menu zoom accelerators arrive here so all entry points share one
+  // code path (issue #88 — the shortcuts README documents were never wired).
+  electronAPI?.onZoomIn?.(() => {
+    zoomIn();
+  });
+
+  electronAPI?.onZoomOut?.(() => {
+    zoomOut();
+  });
+
+  electronAPI?.onZoomReset?.(() => {
+    zoomReset();
+  });
+
+  // Keyboard fallback for the zoom accelerators, resolved through the shared
+  // shortcut registry so user remaps apply live. Needed on the Linux
+  // frameless setups where menu accelerators never reach the app — the same
+  // reason tabs.js and navigation.js carry keydown fallbacks.
+  window.addEventListener('keydown', (event) => {
+    if (matchesShortcut(event, 'page.zoomIn')) {
+      event.preventDefault();
+      zoomIn();
+    } else if (matchesShortcut(event, 'page.zoomOut')) {
+      event.preventDefault();
+      zoomOut();
+    } else if (matchesShortcut(event, 'page.zoomReset')) {
+      event.preventDefault();
+      zoomReset();
     }
   });
 

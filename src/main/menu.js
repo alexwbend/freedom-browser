@@ -314,6 +314,44 @@ function buildViewSubmenu({ isFullScreen: fullScreen, showAppDevtools }) {
       },
     },
     { type: 'separator' },
+    // Zoom targets the active <webview>, so it goes through the renderer
+    // rather than Electron's zoomIn/zoomOut/resetZoom roles — those step
+    // zoomLevel on the focused webContents (the chrome, when the address
+    // bar has focus) and carry accelerators this registry cannot remap.
+    {
+      id: 'zoom-in',
+      label: 'Zoom In',
+      accelerator: acc('page.zoomIn'),
+      click: () => {
+        const win = getTargetWindow();
+        if (win) {
+          win.webContents.send('page:zoom-in');
+        }
+      },
+    },
+    {
+      id: 'zoom-out',
+      label: 'Zoom Out',
+      accelerator: acc('page.zoomOut'),
+      click: () => {
+        const win = getTargetWindow();
+        if (win) {
+          win.webContents.send('page:zoom-out');
+        }
+      },
+    },
+    {
+      id: 'zoom-reset',
+      label: 'Actual Size',
+      accelerator: acc('page.zoomReset'),
+      click: () => {
+        const win = getTargetWindow();
+        if (win) {
+          win.webContents.send('page:zoom-reset');
+        }
+      },
+    },
+    { type: 'separator' },
     {
       id: 'fullscreen',
       label: fullScreen ? 'Exit Full Screen' : 'Enter Full Screen',

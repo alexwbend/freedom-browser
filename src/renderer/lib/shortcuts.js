@@ -113,6 +113,34 @@ export const SHORTCUTS = [
     category: 'Page',
     editable: true,
   },
+  // Zoom acts on the active <webview>, not the chrome — hence custom View
+  // items rather than Electron's zoomIn/zoomOut/resetZoom roles, which
+  // step zoomLevel on the focused webContents and would bypass both this
+  // registry and the hamburger menu's zoom readout.
+  {
+    id: 'page.zoomIn',
+    description: 'Zoom In',
+    defaultAccelerator: 'CmdOrCtrl+=',
+    context: 'both',
+    category: 'Page',
+    editable: true,
+  },
+  {
+    id: 'page.zoomOut',
+    description: 'Zoom Out',
+    defaultAccelerator: 'CmdOrCtrl+-',
+    context: 'both',
+    category: 'Page',
+    editable: true,
+  },
+  {
+    id: 'page.zoomReset',
+    description: 'Actual Size',
+    defaultAccelerator: 'CmdOrCtrl+0',
+    context: 'both',
+    category: 'Page',
+    editable: true,
+  },
 
   // Navigation
   {
