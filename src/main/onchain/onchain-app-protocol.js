@@ -11,17 +11,22 @@
 const { ethers } = require('ethers');
 const log = require('../logger');
 const chainData = require('../networks/chain-data-router');
+const networkRegistry = require('../networks/network-registry');
+const { registerWebRequestHandler } = require('../webrequest-dispatcher');
 const {
   runWithPrivateLogContext,
   redactUrlForLog,
 } = require('../private/private-log-context');
 
 const HTML_SELECTOR = '0x33c34ac3';
+const PROVENANCE_HEADER = 'X-Freedom-Onchain-App-Provenance';
 const DEFAULT_CHAIN_ID = 1;
 const MAX_HTML_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const ETHEREUM_ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
 const HTML_RESULT_INTERFACE = new ethers.Interface(['function html() view returns (string)']);
+const provenanceByWebContentsId = new Map();
+const observedWebContentsIds = new Set();
 
 const ONCHAIN_APP_CSP = [
   "default-src 'none'",
@@ -93,7 +98,51 @@ function textResponse(status, message, extraHeaders = {}) {
   });
 }
 
+function buildOnchainProvenance(html, app, chainResult = {}) {
+  const network = networkRegistry.getNetwork(app.chainId);
+  return {
+    version: 1,
+    chainId: app.chainId,
+    network: network?.name || `Chain ${app.chainId}`,
+    contract: app.address,
+    htmlHash: ethers.keccak256(ethers.toUtf8Bytes(html)),
+    trust: chainResult.trust || {
+      level: chainResult.verified === true ? 'verified' : 'unverified',
+      method: chainResult.source || 'direct',
+      block: null,
+      agreed: [],
+      dissented: [],
+      queried: [],
+    },
+  };
+}
+
+function encodeOnchainProvenance(provenance) {
+  return Buffer.from(JSON.stringify(provenance), 'utf8').toString('base64url');
+}
+
+function decodeOnchainProvenance(value) {
+  if (typeof value !== 'string' || !value || value.length > 16_384) return null;
+  try {
+    const provenance = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (
+      provenance?.version !== 1 ||
+      !Number.isSafeInteger(provenance.chainId) ||
+      provenance.chainId <= 0 ||
+      !ETHEREUM_ADDRESS_RE.test(provenance.contract) ||
+      !/^0x[0-9a-f]{64}$/i.test(provenance.htmlHash) ||
+      !provenance.trust?.level
+    ) {
+      return null;
+    }
+    return provenance;
+  } catch {
+    return null;
+  }
+}
+
 function htmlResponse(html, app, chainResult, method) {
+  const provenance = buildOnchainProvenance(html, app, chainResult);
   const headers = {
     'Content-Type': 'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -106,6 +155,7 @@ function htmlResponse(html, app, chainResult, method) {
     'X-Freedom-Onchain-App-Contract': app.address,
     'X-Freedom-Onchain-App-Source': chainResult.source || 'unknown',
     'X-Freedom-Onchain-App-Verified': chainResult.verified === true ? 'true' : 'false',
+    [PROVENANCE_HEADER]: encodeOnchainProvenance(provenance),
   };
   return new Response(method === 'HEAD' ? null : html, { status: 200, headers });
 }
@@ -182,7 +232,8 @@ async function handleOnchainAppRequest(
         chainRequest(
           app.chainId,
           'eth_call',
-          [{ to: app.address, data: HTML_SELECTOR }, 'latest']
+          [{ to: app.address, data: HTML_SELECTOR }, 'latest'],
+          { includeTrust: true }
         )
       ),
       timeoutMs,
@@ -208,6 +259,69 @@ async function handleOnchainAppRequest(
   }
 }
 
+function responseHeader(responseHeaders, name) {
+  const wanted = name.toLowerCase();
+  for (const [key, values] of Object.entries(responseHeaders || {})) {
+    if (key.toLowerCase() !== wanted) continue;
+    return Array.isArray(values) ? values[0] : values;
+  }
+  return null;
+}
+
+function documentUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+function captureOnchainProvenance(details) {
+  if (details?.resourceType !== 'mainFrame' || details.statusCode !== 200) return null;
+  if (!documentUrl(details.url).startsWith('web3://')) return null;
+  const encoded = responseHeader(details.responseHeaders, PROVENANCE_HEADER);
+  const provenance = decodeOnchainProvenance(encoded);
+  const contents = details.webContents;
+  if (!provenance || !contents?.id) return null;
+
+  provenanceByWebContentsId.set(contents.id, {
+    url: documentUrl(details.url),
+    provenance,
+  });
+  if (!observedWebContentsIds.has(contents.id)) {
+    observedWebContentsIds.add(contents.id);
+    contents.once?.('destroyed', () => {
+      provenanceByWebContentsId.delete(contents.id);
+      observedWebContentsIds.delete(contents.id);
+    });
+  }
+  return null;
+}
+
+function installOnchainProvenanceCapture() {
+  registerWebRequestHandler(
+    'onHeadersReceived',
+    'onchain-provenance',
+    captureOnchainProvenance
+  );
+}
+
+function registerOnchainProvenanceIpc() {
+  const { ipcMain, webContents } = require('electron');
+  const IPC = require('../../shared/ipc-channels');
+  ipcMain.handle(IPC.ONCHAIN_APP_GET_PROVENANCE, (event, payload = {}) => {
+    const webContentsId = Number(payload.webContentsId);
+    if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return null;
+    const guest = webContents.fromId(webContentsId);
+    if (!guest || guest.hostWebContents?.id !== event.sender.id) return null;
+    const record = provenanceByWebContentsId.get(webContentsId);
+    if (!record || record.url !== documentUrl(payload.url)) return null;
+    return record.provenance;
+  });
+}
+
 function registerOnchainAppProtocol(targetSession, { privatePartition = null } = {}) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[onchain-app] session.protocol.handle unavailable — skipping');
@@ -231,8 +345,15 @@ module.exports = {
   ONCHAIN_APP_CSP,
   ONCHAIN_APP_PERMISSIONS_POLICY,
   REQUEST_TIMEOUT_MS,
+  PROVENANCE_HEADER,
+  buildOnchainProvenance,
+  captureOnchainProvenance,
+  decodeOnchainProvenance,
   decodeHtmlResult,
+  encodeOnchainProvenance,
   handleOnchainAppRequest,
+  installOnchainProvenanceCapture,
   parseOnchainAppUrl,
+  registerOnchainProvenanceIpc,
   registerOnchainAppProtocol,
 };

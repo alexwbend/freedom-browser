@@ -335,7 +335,63 @@ function stableValue(value) {
   return JSON.stringify(value);
 }
 
-async function requestQuorum(chainId, method, params) {
+function endpointHost(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
+}
+
+function isUserConfiguredRpc(chainId, url) {
+  const cid = String(chainId);
+  const source = registry.getEndpointSources(chainId, 'rpc').find(
+    (entry) => !entry.keyed && entry.coverage?.[cid] === url
+  );
+  if (!source) return false;
+  const metadata = registry.getEndpointSourceList().find((entry) => entry.id === source.id);
+  return Boolean(metadata && !metadata.builtin && !metadata.removed && !metadata.keyed);
+}
+
+function myotisTrust(beforeStatus = {}, afterStatus = {}) {
+  const beforeBlock = beforeStatus.optimisticBlockNumber ?? null;
+  const afterBlock = afterStatus.optimisticBlockNumber ?? null;
+  // The generic Myotis call executes at its optimistic head. Only label the
+  // answer with a block when that head stayed stable around the call; a
+  // separately sampled newer head must never be presented as the call's block.
+  const block = beforeBlock !== null && beforeBlock === afterBlock ? afterBlock : null;
+  return {
+    level: 'verified',
+    method: 'myotis',
+    finality: 'optimistic',
+    proof: 'P2P light client (optimistic beacon root — attested, not finalized)',
+    block,
+    agreed: ['myotis-p2p'],
+    dissented: [],
+    queried: ['myotis-p2p'],
+    quorum: { k: 1, m: 1, achieved: true },
+  };
+}
+
+function colibriTrust(chainId) {
+  const [proverUrl] = registry.getEndpoints(chainId, 'prover');
+  const prover = endpointHost(proverUrl);
+  return {
+    level: 'verified',
+    method: 'colibri',
+    prover,
+    proof: registry.getNetwork(chainId)?.zkProof === false
+      ? 'Sync-committee proof'
+      : 'ZK sync-committee proof',
+    block: null,
+    agreed: prover ? [prover] : [],
+    dissented: [],
+    queried: prover ? [prover] : [],
+    quorum: { k: 1, m: 1, achieved: true },
+  };
+}
+
+async function requestQuorum(chainId, method, params, { includeTrust = false } = {}) {
   const network = registry.getNetwork(chainId) || {};
   const quorum = network.quorum || {};
   const k = Math.max(1, Number(quorum.k) || 3);
@@ -348,18 +404,42 @@ async function requestQuorum(chainId, method, params) {
     urls.map((url) => requestRpcUrl(url, method, params, timeoutMs))
   );
   const groups = new Map();
-  for (const entry of settled) {
+  for (let index = 0; index < settled.length; index += 1) {
+    const entry = settled[index];
     if (entry.status !== 'fulfilled') continue;
     const key = stableValue(entry.value);
-    const group = groups.get(key) || { count: 0, value: entry.value };
+    const group = groups.get(key) || { count: 0, value: entry.value, urls: [] };
     group.count += 1;
+    group.urls.push(urls[index]);
     groups.set(key, group);
-    if (group.count >= m) return group.value;
+  }
+  for (const group of groups.values()) {
+    if (group.count < m) continue;
+    if (!includeTrust) return group.value;
+    const agreedUrls = new Set(group.urls);
+    const fulfilledUrls = settled
+      .map((entry, index) => entry.status === 'fulfilled' ? urls[index] : null)
+      .filter(Boolean);
+    return {
+      result: group.value,
+      trust: {
+        level: 'verified',
+        method: 'quorum',
+        block: null,
+        agreed: group.urls.map(endpointHost).filter(Boolean),
+        dissented: fulfilledUrls
+          .filter((url) => !agreedUrls.has(url))
+          .map(endpointHost)
+          .filter(Boolean),
+        queried: urls.map(endpointHost).filter(Boolean),
+        quorum: { k: urls.length, m, achieved: true },
+      },
+    };
   }
   throw new SourceUnavailableError(`RPC quorum did not reach ${m} matching responses`);
 }
 
-async function requestDirect(chainId, method, params) {
+async function requestDirect(chainId, method, params, { includeTrust = false } = {}) {
   const network = registry.getNetwork(chainId) || {};
   const timeoutMs = Math.max(500, Number(network.quorum?.timeoutMs) || 5000);
   const urls = registry.getEndpoints(chainId, 'rpc');
@@ -367,7 +447,22 @@ async function requestDirect(chainId, method, params) {
   let lastError;
   for (const url of urls) {
     try {
-      return await requestRpcUrl(url, method, params, timeoutMs);
+      const result = await requestRpcUrl(url, method, params, timeoutMs);
+      if (!includeTrust) return result;
+      const host = endpointHost(url);
+      const userConfigured = isUserConfiguredRpc(chainId, url);
+      return {
+        result,
+        trust: {
+          level: userConfigured ? 'user-configured' : 'unverified',
+          method: 'direct',
+          block: null,
+          agreed: host ? [host] : [],
+          dissented: [],
+          queried: host ? [host] : [],
+          quorum: { k: 1, m: 1, achieved: false },
+        },
+      };
     } catch (err) {
       lastError = err;
     }
@@ -401,15 +496,24 @@ async function requestDirectFeeQuote(chainId) {
   throw lastError || new SourceUnavailableError('All RPC endpoints failed');
 }
 
-async function requestSource(source, chainId, method, params) {
-  if (source === 'myotis') return requestMyotis(chainId, method, params);
-  if (source === 'colibri') return requestColibri(chainId, method, params);
-  if (source === 'quorum') return requestQuorum(chainId, method, params);
-  if (source === 'direct') return requestDirect(chainId, method, params);
+async function requestSource(source, chainId, method, params, { includeTrust = false } = {}) {
+  if (source === 'myotis') {
+    const beforeStatus = includeTrust ? myotis.getStatus?.(chainId) || {} : null;
+    const result = await requestMyotis(chainId, method, params);
+    if (!includeTrust) return result;
+    const afterStatus = myotis.getStatus?.(chainId) || {};
+    return { result, trust: myotisTrust(beforeStatus, afterStatus) };
+  }
+  if (source === 'colibri') {
+    const result = await requestColibri(chainId, method, params);
+    return includeTrust ? { result, trust: colibriTrust(chainId) } : result;
+  }
+  if (source === 'quorum') return requestQuorum(chainId, method, params, { includeTrust });
+  if (source === 'direct') return requestDirect(chainId, method, params, { includeTrust });
   throw new SourceUnavailableError(`Unknown chain source: ${source}`);
 }
 
-async function request(chainId, method, rawParams = []) {
+async function request(chainId, method, rawParams = [], { includeTrust = false } = {}) {
   if (!isReadMethod(method)) throw new Error(`Unsupported read method: ${method}`);
   const network = registry.getNetwork(chainId);
   if (!network) throw new Error(`Unsupported chain ID: ${chainId}`);
@@ -422,11 +526,15 @@ async function request(chainId, method, rawParams = []) {
   for (const source of order) {
     if (DIRECT_ONLY_METHODS.has(method) && source !== 'direct') continue;
     try {
-      const result = await requestSource(source, Number(chainId), method, params);
+      const sourceResult = await requestSource(source, Number(chainId), method, params, {
+        includeTrust,
+      });
+      const result = includeTrust ? sourceResult.result : sourceResult;
       return {
         result,
         source,
         verified: source === 'myotis' || source === 'colibri' || source === 'quorum',
+        ...(includeTrust && sourceResult.trust ? { trust: sourceResult.trust } : {}),
       };
     } catch (err) {
       failures.push(`${source}: ${err.message}`);

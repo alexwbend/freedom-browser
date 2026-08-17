@@ -1,10 +1,13 @@
 const mockRegistry = {
   getNetwork: jest.fn(),
   getEndpoints: jest.fn(),
+  getEndpointSources: jest.fn(() => []),
+  getEndpointSourceList: jest.fn(() => []),
 };
 const mockMyotis = {
   NETWORKS: new Map([[1, {}], [100, {}]]),
   isReady: jest.fn(),
+  getStatus: jest.fn(),
   getAccount: jest.fn(),
   ethCall: jest.fn(),
   estimateGas: jest.fn(),
@@ -37,6 +40,7 @@ describe('chain-data-router', () => {
       role === 'prover' ? ['https://prover.example'] : ['https://rpc.example']
     );
     mockMyotis.isReady.mockReturnValue(true);
+    mockMyotis.getStatus.mockReturnValue({ optimisticBlockNumber: 25_684_159 });
   });
 
   afterEach(() => {
@@ -143,6 +147,50 @@ describe('chain-data-router', () => {
       expect.objectContaining({ chainId: 100, to: '0xabc', block: 'latest' })
     );
     expect(mockRequestViaColibri).not.toHaveBeenCalled();
+  });
+
+  test('includes source-specific trust evidence only when requested', async () => {
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0x2a' });
+
+    await expect(
+      request(
+        1,
+        'eth_call',
+        [{ to: '0xabc', data: '0x70a08231' }, 'latest'],
+        { includeTrust: true }
+      )
+    ).resolves.toEqual({
+      result: '0x2a',
+      source: 'myotis',
+      verified: true,
+      trust: {
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+        proof: 'P2P light client (optimistic beacon root — attested, not finalized)',
+        block: 25_684_159,
+        agreed: ['myotis-p2p'],
+        dissented: [],
+        queried: ['myotis-p2p'],
+        quorum: { k: 1, m: 1, achieved: true },
+      },
+    });
+  });
+
+  test('does not attach a sampled Myotis block when the verified head moved during the call', async () => {
+    mockMyotis.getStatus
+      .mockReturnValueOnce({ optimisticBlockNumber: 25_684_159 })
+      .mockReturnValueOnce({ optimisticBlockNumber: 25_684_160 });
+    mockMyotis.ethCall.mockResolvedValue({ resultHex: '0x2a' });
+
+    const response = await request(
+      1,
+      'eth_call',
+      [{ to: '0xabc', data: '0x70a08231' }, 'latest'],
+      { includeTrust: true }
+    );
+
+    expect(response.trust.block).toBeNull();
   });
 
   test('falls through unsupported Myotis reads to the per-chain Colibri client', async () => {

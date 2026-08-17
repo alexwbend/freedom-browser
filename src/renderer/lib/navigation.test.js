@@ -58,6 +58,7 @@ const createTab = (id, url, overrides = {}) => {
     favicon: overrides.favicon || null,
     webview,
     navigationState,
+    onchainProvenance: overrides.onchainProvenance || null,
   };
 };
 
@@ -110,6 +111,9 @@ const loadNavigationModule = async (options = {}) => {
     getActiveTabState: jest.fn(() => activeRef.tab?.navigationState || null),
     setWebviewEventHandler: jest.fn((handler) => {
       tabsMocks.webviewEventHandler = handler;
+    }),
+    setOnchainProvenanceChangeHandler: jest.fn((handler) => {
+      tabsMocks.onchainProvenanceChangeHandler = handler;
     }),
     updateActiveTabTitle: jest.fn(),
     updateTabFavicon: jest.fn(),
@@ -355,6 +359,7 @@ const loadNavigationModule = async (options = {}) => {
   const trustPopoverStatus = createElement('div');
   const trustPopoverTrustFields = createElement('div');
   const trustPopoverContent = createElement('div');
+  const trustPopoverContentTitle = createElement('div');
   const trustPopoverContentFields = createElement('div');
   const trustPopoverTooltip = createElement('div');
   const document = createDocument({
@@ -372,6 +377,7 @@ const loadNavigationModule = async (options = {}) => {
       'trust-popover-status': trustPopoverStatus,
       'trust-popover-trust-fields': trustPopoverTrustFields,
       'trust-popover-content': trustPopoverContent,
+      'trust-popover-content-title': trustPopoverContentTitle,
       'trust-popover-content-fields': trustPopoverContentFields,
       'trust-popover-tooltip': trustPopoverTooltip,
     },

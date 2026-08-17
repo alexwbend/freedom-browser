@@ -106,6 +106,7 @@ function buildResponse(fixture) {
   const status = fixture.status ?? 200;
   const headers = {
     'Content-Type': fixture.contentType ?? 'text/html; charset=utf-8',
+    ...(fixture.headers || {}),
   };
   return new Response(fixture.body ?? '', { status, headers });
 }

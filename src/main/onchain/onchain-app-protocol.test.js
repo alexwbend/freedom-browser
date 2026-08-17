@@ -8,6 +8,10 @@ jest.mock('../networks/chain-data-router', () => ({
   request: jest.fn(),
 }));
 
+jest.mock('../networks/network-registry', () => ({
+  getNetwork: jest.fn((chainId) => ({ name: chainId === 1 ? 'Ethereum' : 'Gnosis Chain' })),
+}));
+
 const { ethers } = require('ethers');
 const chainData = require('../networks/chain-data-router');
 const log = require('../logger');
@@ -15,6 +19,8 @@ const {
   HTML_SELECTOR,
   MAX_HTML_BYTES,
   ONCHAIN_APP_CSP,
+  PROVENANCE_HEADER,
+  decodeOnchainProvenance,
   handleOnchainAppRequest,
   parseOnchainAppUrl,
   registerOnchainAppProtocol,
@@ -68,6 +74,12 @@ describe('handleOnchainAppRequest', () => {
       result: encodedHtml(html),
       source: 'myotis',
       verified: true,
+      trust: {
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+        block: 123,
+      },
     }));
 
     const response = await handleOnchainAppRequest(
@@ -75,10 +87,12 @@ describe('handleOnchainAppRequest', () => {
       { chainRequest }
     );
 
-    expect(chainRequest).toHaveBeenCalledWith(1, 'eth_call', [
-      { to: CANONICAL_ADDRESS, data: HTML_SELECTOR },
-      'latest',
-    ]);
+    expect(chainRequest).toHaveBeenCalledWith(
+      1,
+      'eth_call',
+      [{ to: CANONICAL_ADDRESS, data: HTML_SELECTOR }, 'latest'],
+      { includeTrust: true }
+    );
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe(html);
     expect(response.headers.get('content-type')).toBe('text/html; charset=utf-8');
@@ -88,6 +102,19 @@ describe('handleOnchainAppRequest', () => {
     expect(response.headers.get('x-freedom-onchain-app-chain-id')).toBe('1');
     expect(response.headers.get('x-freedom-onchain-app-contract')).toBe(CANONICAL_ADDRESS);
     expect(response.headers.get('x-freedom-onchain-app-verified')).toBe('true');
+    expect(decodeOnchainProvenance(response.headers.get(PROVENANCE_HEADER))).toEqual({
+      version: 1,
+      chainId: 1,
+      network: 'Ethereum',
+      contract: CANONICAL_ADDRESS,
+      htmlHash: ethers.keccak256(ethers.toUtf8Bytes(html)),
+      trust: {
+        level: 'verified',
+        method: 'myotis',
+        finality: 'optimistic',
+        block: 123,
+      },
+    });
   });
 
   test('uses the canonical html() selector', () => {
@@ -106,7 +133,12 @@ describe('handleOnchainAppRequest', () => {
     );
     expect(response.status).toBe(200);
     await expect(response.text()).resolves.toBe('');
-    expect(chainRequest).toHaveBeenCalledWith(100, 'eth_call', expect.any(Array));
+    expect(chainRequest).toHaveBeenCalledWith(
+      100,
+      'eth_call',
+      expect.any(Array),
+      { includeTrust: true }
+    );
   });
 
   test('rejects non-read methods without touching chain data', async () => {

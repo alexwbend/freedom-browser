@@ -4,9 +4,14 @@
 // accepts the contract:chain authority and renders it in a guest webview.
 
 const { test, expect } = require('./fixtures');
+const {
+  PROVENANCE_HEADER,
+  encodeOnchainProvenance,
+} = require('../src/main/onchain/onchain-app-protocol');
 
 const ADDRESS = '0x00000095643cffa7d9fae407a84dfcb6406456c6';
 const APP_URL = `web3://${ADDRESS}.eip155-1/`;
+const HTML_HASH = `0x${'ab'.repeat(32)}`;
 
 test('loads a contract-hosted app under its web3 contract-and-chain origin', async ({
   window,
@@ -14,6 +19,24 @@ test('loads a contract-hosted app under its web3 contract-and-chain origin', asy
 }) => {
   await harness.setContentFixture(APP_URL, {
     body: '<!doctype html><title>Onchain fixture</title><h1 id="app">ERC-8244 fixture</h1>',
+    headers: {
+      [PROVENANCE_HEADER]: encodeOnchainProvenance({
+        version: 1,
+        chainId: 1,
+        network: 'Ethereum',
+        contract: ADDRESS,
+        htmlHash: HTML_HASH,
+        trust: {
+          level: 'verified',
+          method: 'myotis',
+          finality: 'optimistic',
+          block: 25_684_159,
+          agreed: ['myotis-p2p'],
+          dissented: [],
+          queried: ['myotis-p2p'],
+        },
+      }),
+    },
   });
 
   // The chrome becomes visible just before the initial home webview commits;
@@ -29,7 +52,25 @@ test('loads a contract-hosted app under its web3 contract-and-chain origin', asy
   await input.press('Enter');
 
   await expect(input).toHaveValue(APP_URL);
-  await expect(window.locator('#protocol-icon')).toHaveAttribute('data-protocol', 'onchain');
+  const trustShield = window.locator('#trust-shield');
+  await expect(trustShield).toBeVisible();
+  await expect(trustShield).toHaveAttribute('data-trust', 'verified');
+  await trustShield.click();
+  await expect(window.locator('#trust-popover')).toBeVisible();
+  await expect(window.locator('#trust-popover-status')).toHaveText(
+    'Onchain application retrieval verified'
+  );
+  await expect(window.locator('#trust-popover-trust-fields')).toContainText(
+    'Verified by: Myotis light client'
+  );
+  await expect(window.locator('#trust-popover-trust-fields')).toContainText('Block: 25684159');
+  await expect(window.locator('#trust-popover-content-title')).toHaveText('Loads from');
+  await expect(window.locator('#trust-popover-content-fields')).toContainText(
+    `Contract: ${ADDRESS}`
+  );
+  await expect(
+    window.locator('#trust-popover-content-fields [data-copy]').last()
+  ).toHaveAttribute('data-copy', HTML_HASH);
   await expect
     .poll(
       () =>

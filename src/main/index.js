@@ -141,7 +141,11 @@ const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
 const { registerRadProtocol } = require('./radicle/rad-protocol');
-const { registerOnchainAppProtocol } = require('./onchain/onchain-app-protocol');
+const {
+  installOnchainProvenanceCapture,
+  registerOnchainAppProtocol,
+  registerOnchainProvenanceIpc,
+} = require('./onchain/onchain-app-protocol');
 
 // Register `bzz:`, `ipfs:`, `ipns:`, and `web3:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
@@ -339,6 +343,7 @@ async function bootstrap() {
   registerDappPermissionsIpc();
   registerPermissionsIpc();
   registerX402Ipc();
+  registerOnchainProvenanceIpc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
   registerPublishIpc();
@@ -375,6 +380,7 @@ async function bootstrap() {
   // After the rewriter (which owns scheme/gateway rewriting) and before
   // x402, so blocked requests never reach the payment flow.
   installAdblockInterception();
+  installOnchainProvenanceCapture();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
   // Per-site permission prompts (camera, mic, notifications, …) with

@@ -54,6 +54,9 @@ module.exports = {
   ENS_RESOLVE_REVERSE: 'ens:resolve-reverse',
   ENS_INVALIDATE_CONTENT: 'ens:invalidate-content',
 
+  // Contract-hosted application provenance (host chrome only)
+  ONCHAIN_APP_GET_PROVENANCE: 'onchain-app:get-provenance',
+
   // Tezos Domains website resolution
   TEZOS_DOMAINS_RESOLVE: 'tezos-domains:resolve',
   TEZOS_DOMAINS_INVALIDATE: 'tezos-domains:invalidate',

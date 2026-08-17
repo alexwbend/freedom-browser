@@ -37,6 +37,7 @@ import {
   getActiveTab,
   getActiveTabState,
   openInNewTabWithTarget,
+  setOnchainProvenanceChangeHandler,
   setWebviewEventHandler,
   updateActiveTabTitle,
   updateTabFavicon,
@@ -494,6 +495,7 @@ const toggleTrustPopover = () => {
   const badge = resolveTrustBadge({
     value: addressInput?.value || '',
     ensTrustByName: state.ensTrustByName,
+    onchainProvenance: getActiveTab()?.onchainProvenance,
   });
   if (!badge) return;
 
@@ -504,6 +506,7 @@ const toggleTrustPopover = () => {
   const statusEl = document.getElementById('trust-popover-status');
   const trustFieldsEl = document.getElementById('trust-popover-trust-fields');
   const contentEl = document.getElementById('trust-popover-content');
+  const contentTitleEl = document.getElementById('trust-popover-content-title');
   const contentFieldsEl = document.getElementById('trust-popover-content-fields');
 
   if (title) title.textContent = name;
@@ -516,7 +519,11 @@ const toggleTrustPopover = () => {
     level,
     uri: state.ensUriByName.get(name) || '',
     proto: state.ensProtocols.get(name),
+    onchainProvenance: badge.provenance,
   });
+  if (contentTitleEl) {
+    contentTitleEl.textContent = badge.kind === 'onchain' ? 'Loads from' : 'Resolves to';
+  }
 
   if (statusEl) {
     if (status === null) {
@@ -688,17 +695,20 @@ const updateProtocolIcon = () => {
     const badge = resolveTrustBadge({
       value: addressInput?.value || '',
       ensTrustByName: state.ensTrustByName,
+      onchainProvenance: getActiveTab()?.onchainProvenance,
     });
     if (badge) {
       trustShield.setAttribute('data-trust', badge.level);
       trustShield.setAttribute(
         'aria-label',
-        TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
+        badge.kind === 'onchain'
+          ? `Onchain application provenance: ${badge.level}`
+          : TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
       );
       trustShield.hidden = false;
     } else {
       trustShield.removeAttribute('data-trust');
-      trustShield.setAttribute('aria-label', 'Ethereum name resolution trust status');
+      trustShield.setAttribute('aria-label', 'Site provenance status');
       trustShield.hidden = true;
     }
 
@@ -2039,6 +2049,10 @@ export const initNavigation = () => {
   protocolIcon = document.getElementById('protocol-icon');
   trustShield = document.getElementById('trust-shield');
   trustPopover = document.getElementById('trust-popover');
+
+  setOnchainProvenanceChangeHandler((tabId) => {
+    if (isActiveTab(tabId)) updateProtocolIcon();
+  });
 
   if (trustShield) {
     // Don't stopPropagation: we want the click to bubble to the

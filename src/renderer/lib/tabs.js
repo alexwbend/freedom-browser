@@ -102,12 +102,17 @@ let webviewPreloadPath = null;
 
 // Event handler references (set by navigation.js)
 let onWebviewEvent = null;
+let onOnchainProvenanceChange = null;
 let onLoadTarget = null;
 let onReload = null;
 let onHardReload = null;
 
 export const setWebviewEventHandler = (handler) => {
   onWebviewEvent = handler;
+};
+
+export const setOnchainProvenanceChangeHandler = (handler) => {
+  onOnchainProvenanceChange = handler;
 };
 
 export const setLoadTargetHandler = (handler) => {
@@ -390,6 +395,37 @@ const isPrivateStartUrl = (url) =>
     url.startsWith('file:') &&
     url.endsWith('/pages/private.html'));
 
+const refreshOnchainProvenance = async (tab, url) => {
+  if (!tab?.navigationState) return;
+  const sequence = tab.navigationState.committedNavigationSequence;
+  tab.onchainProvenance = null;
+  onOnchainProvenanceChange?.(tab.id);
+  if (!url.startsWith('web3://') || !electronAPI?.getOnchainAppProvenance) return;
+
+  let webContentsId;
+  try {
+    webContentsId = tab.webview.getWebContentsId();
+  } catch {
+    return;
+  }
+
+  try {
+    const provenance = await electronAPI.getOnchainAppProvenance(webContentsId, url);
+    const current = tabState.tabs.find((candidate) => candidate.id === tab.id);
+    if (
+      !current ||
+      current.navigationState?.committedNavigationSequence !== sequence ||
+      current.url !== url
+    ) {
+      return;
+    }
+    current.onchainProvenance = provenance || null;
+    onOnchainProvenanceChange?.(current.id);
+  } catch (err) {
+    pushDebug(`[Tabs] Onchain provenance lookup failed: ${err.message}`);
+  }
+};
+
 // Create a webview element
 const createWebview = (tabId, initialUrl) => {
   const webview = document.createElement('webview');
@@ -546,6 +582,7 @@ const createWebview = (tabId, initialUrl) => {
           tab.navigationState.committedDisplayUrl = webviewUrl;
           tab.navigationState.committedNavigationSequence += 1;
         }
+        void refreshOnchainProvenance(tab, webviewUrl);
         // Clear any stale favicon from the previous page when navigating to
         // an internal page — page-favicon-updated will paint one back in if
         // the page declares a <link rel="icon">.
@@ -1121,6 +1158,7 @@ export const createTab = (url = null) => {
     isMuted: false,
     webview,
     navigationState: createNavigationState(),
+    onchainProvenance: null,
   };
 
   tabState.tabs.push(tab);
