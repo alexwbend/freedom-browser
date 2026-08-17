@@ -229,6 +229,20 @@ describe('Tab Navigation State Isolation', () => {
       expect(tabA.navigationState.committedDisplayUrl).toBe('ipfs://vitalik.eth');
     });
 
+    test('reverse-maps an onchain Chromium origin before committing its display URL', async () => {
+      const { createTab } = await import('./tabs.js');
+      const address = '0x00000095643cffa7d9fae407a84dfcb6406456c6';
+      const navigationUrl = `web3://${address}.eip155-100/swap?x=1#route`;
+      const tab = createTab(navigationUrl);
+      tab.webview.getURL.mockReturnValue(navigationUrl);
+      tab.webview._eventHandlers['did-navigate']({ url: navigationUrl });
+
+      expect(tab.url).toBe(navigationUrl);
+      expect(tab.navigationState.committedDisplayUrl).toBe(
+        `web3://${address}:100/swap?x=1#route`
+      );
+    });
+
     test('preserves committedDisplayUrl when did-navigate fires for about:blank', async () => {
       // about:blank navigations happen during "open in new window" before
       // the real loadURL runs. Letting them clobber `committedDisplayUrl`

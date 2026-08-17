@@ -18,7 +18,8 @@
  *   ipns://host/guide       → ipns://host      (hostname)
  *   ipns://myapp.eth/guide  → myapp.eth        (transport name-keyed)
  *   rad://z123/tree         → rad://z123       (RID)
- *   web3://0xabc….eip155-1/swap → same origin root (contract + chain)
+ *   web3://0xabc….eip155-1/swap → web3://0xabc… (mainnet app key)
+ *   web3://0xabc…:100/swap      → web3://0xabc…:100 (chain-scoped key)
  *   https://app.example.com → https://app.example.com
  */
 
@@ -106,7 +107,8 @@ export function getPermissionKey(displayUrl) {
   if (onchainMatch) {
     const chainId = onchainMatch[2] ? Number(onchainMatch[2]) : 1;
     if (Number.isSafeInteger(chainId) && chainId > 0) {
-      return `web3://${onchainMatch[1].toLowerCase()}.eip155-${chainId}`;
+      const chainSuffix = chainId === 1 ? '' : `:${chainId}`;
+      return `web3://${onchainMatch[1].toLowerCase()}${chainSuffix}`;
     }
   }
 

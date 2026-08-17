@@ -1,4 +1,8 @@
-import { applyEnsNamePreservation, deriveDisplayValue } from './url-utils.js';
+import {
+  applyEnsNamePreservation,
+  deriveDisplayValue,
+  parseOnchainAppUrl,
+} from './url-utils.js';
 import { getInternalPageName, parseEnsInput } from './page-urls.js';
 import { isDwebNameHost } from './origin-utils.js';
 
@@ -13,11 +17,9 @@ const extractEnsName = (normalizedValue) => parseEnsInput(normalizedValue)?.name
 // returns `{ level, name, trust }` so the shield can render and the popover
 // can fill in details.
 const onchainIdentity = (value) => {
-  const match = value.match(
-    /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([1-9][0-9]*)(?:[/?#]|$)/i
-  );
-  if (!match) return null;
-  return { contract: match[1].toLowerCase(), chainId: Number(match[2]) };
+  const parsed = parseOnchainAppUrl(value);
+  if (!parsed) return null;
+  return { contract: parsed.address, chainId: parsed.chainId };
 };
 
 export const resolveTrustBadge = ({

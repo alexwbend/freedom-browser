@@ -242,6 +242,23 @@ const loadNavigationModule = async (options = {}) => {
       const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
       return `web3://${match[1].toLowerCase()}.eip155-${chainId}${suffix}`;
     }),
+    formatOnchainAppDisplayUrl: jest.fn((input) => {
+      const raw = (input || '').trim();
+      const canonical = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)([/?#].*)?$/i
+      );
+      const friendly = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})(?::([1-9][0-9]*))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i
+      );
+      const match = canonical || friendly;
+      if (!match) return null;
+      const chainId = Number(match[2] || 1);
+      const rawSuffix = canonical
+        ? match[3] || '/'
+        : `${match[3] || '/'}${match[4] || ''}${match[5] || ''}`;
+      const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
+      return `web3://${match[1].toLowerCase()}${chainId === 1 ? '' : `:${chainId}`}${suffix}`;
+    }),
     looksLikeOnchainAppInput: jest.fn((input) => /^web3:/i.test((input || '').trim())),
     deriveDisplayValue: jest.fn((url) => `display:${url}`),
     deriveBzzBaseFromUrl: jest.fn((url) => (url.includes('/bzz/') ? 'https://gateway.example/bzz/hash/' : null)),
@@ -770,7 +787,7 @@ describe('navigation', () => {
       ctx.mod.loadTarget(`web3://${ADDRESS}`);
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(CANONICAL);
-      expect(ctx.elements.addressInput.value).toBe(CANONICAL);
+      expect(ctx.elements.addressInput.value).toBe(`web3://${ADDRESS.toLowerCase()}/`);
       expect(ctx.activeRef.tab.navigationState.pendingNavigationUrl).toBe(CANONICAL);
     });
 
@@ -783,6 +800,9 @@ describe('navigation', () => {
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
         `web3://${ADDRESS.toLowerCase()}.eip155-100/swap?token=eth#route`
+      );
+      expect(ctx.elements.addressInput.value).toBe(
+        `web3://${ADDRESS.toLowerCase()}:100/swap?token=eth#route`
       );
     });
 

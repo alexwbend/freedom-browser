@@ -81,11 +81,11 @@ export const state = {
   // bar value on focusin and tab-switched. Do not key reload or other
   // commit-sensitive decisions on this field; use `committedDisplayUrl`.
   addressBarSnapshot: '',
-  // URL of the last committed navigation (`webview.getURL()` at
-  // did-navigate time). Written only by tabs.js' per-webview did-navigate
-  // handler, so it stays stable when the user is mid-typing or while a
-  // navigation is still in flight. Used by reload and by
-  // `getDisplayUrlForWebview` for provider permission keying.
+  // User-facing identity of the last committed navigation. Written only by
+  // tabs.js' per-webview did-navigate handler, so it stays stable when the
+  // user is mid-typing or while a navigation is still in flight. Usually it
+  // equals `webview.getURL()`; synthetic onchain origins are reverse-mapped to
+  // their standard `web3://` form. The actual URL remains in per-tab state.
   committedDisplayUrl: '',
 
   // Webview

@@ -1,7 +1,8 @@
 // Native web3: navigation smoke for ERC-8244 contract-hosted applications.
 // The harness owns the protocol bytes here; main-process unit tests cover the
 // real html() call and response security policy. This test proves Chromium
-// accepts the contract:chain authority and renders it in a guest webview.
+// keeps the standard URL in browser chrome while rendering from a
+// Chromium-safe contract-and-chain origin in the guest webview.
 
 const { test, expect } = require('./fixtures');
 const {
@@ -11,6 +12,7 @@ const {
 
 const ADDRESS = '0x00000095643cffa7d9fae407a84dfcb6406456c6';
 const APP_URL = `web3://${ADDRESS}.eip155-1/`;
+const DISPLAY_URL = `web3://${ADDRESS}/`;
 const HTML_HASH = `0x${'ab'.repeat(32)}`;
 
 test('loads a contract-hosted app under its web3 contract-and-chain origin', async ({
@@ -51,7 +53,17 @@ test('loads a contract-hosted app under its web3 contract-and-chain origin', asy
   await input.fill(`web3://${ADDRESS}`);
   await input.press('Enter');
 
-  await expect(input).toHaveValue(APP_URL);
+  await expect(input).toHaveValue(DISPLAY_URL);
+  await expect
+    .poll(
+      () =>
+        window.evaluate(async (displayUrl) => {
+          const rows = await window.electronAPI.getHistory();
+          return rows.some((row) => row.url === displayUrl);
+        }, DISPLAY_URL),
+      { timeout: 10_000, message: 'waiting for the standard web3 URL in history' }
+    )
+    .toBe(true);
   const trustShield = window.locator('#trust-shield');
   await expect(trustShield).toBeVisible();
   await expect(trustShield).toHaveAttribute('data-trust', 'verified');

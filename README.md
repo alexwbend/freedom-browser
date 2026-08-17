@@ -47,14 +47,14 @@ When a user enters a `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, `.onio
 
 ## Contract-hosted Applications (ERC-8244)
 
-Freedom has native support for the draft ERC-8244 `html()` interface. Enter the friendly form `web3://<contract>:<chainId>/` in the address bar; omitting `:<chainId>` defaults to Ethereum mainnet. Freedom normalizes it to the Chromium-safe, chain-scoped origin:
+Freedom has native support for the draft ERC-8244 `html()` interface. Enter the ERC-4804-style form `web3://<contract>:<chainId>/` in the address bar; omitting `:<chainId>` defaults to Ethereum mainnet. Freedom keeps that standard form in browser chrome, history, bookmarks, copying, and permission prompts while the webview navigates to a Chromium-safe, chain-scoped origin internally:
 
 ```text
 web3://0x00000095643CFfA7D9fae407a84dfCB6406456c6
 → web3://0x00000095643cffa7d9fae407a84dfcb6406456c6.eip155-1/
 ```
 
-The `.eip155-<chainId>` suffix is a Freedom origin encoding, not an extra DNS or gateway dependency. A bare all-hex `0x…` standard-scheme host is rejected by Chromium as an oversized IPv4 literal, while using the chain as a URL port triggers unsafe-port rules and excludes large chain IDs. The canonical hostname keeps the contract and chain visible and gives each pair a distinct storage and wallet-permission origin.
+The `.eip155-<chainId>` suffix is invisible browser plumbing, not an extra DNS or gateway dependency. A bare all-hex `0x…` standard-scheme host is rejected by Chromium as an oversized IPv4 literal, while using the chain as a URL port triggers unsafe-port rules and excludes large chain IDs. The internal hostname gives each contract-and-chain pair a distinct web-storage origin; page scripts and DevTools therefore see that real internal origin, while Freedom's user-facing surfaces reverse-map it to the standard URL.
 
 The `web3:` protocol handler calls selector `0x33c34ac3` (`html()`) through the same capability-aware chain-data router used by the wallet: Myotis when available, then Colibri, RPC quorum, and direct RPC fallback according to network policy. It ABI-decodes the returned UTF-8 string and serves those bytes unchanged as `text/html`; paths, queries, and fragments remain available to the app as client-side routes. Reads have a 30-second browser deadline and an 8 MiB decoded-document limit.
 

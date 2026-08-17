@@ -113,13 +113,18 @@ describe('renderer origin-utils vs shared origin-utils', () => {
   test('onchain permissions include the contract and chain', () => {
     const address = '0x00000095643cffA7d9faE407A84Dfcb6406456C6';
     expect(renderer.getPermissionKey(`web3://${address}:1/swap`)).toBe(
-      `web3://${address.toLowerCase()}.eip155-1`
+      `web3://${address.toLowerCase()}`
     );
     expect(renderer.getPermissionKey(`web3://${address}:100/swap`)).toBe(
-      `web3://${address.toLowerCase()}.eip155-100`
+      `web3://${address.toLowerCase()}:100`
     );
     expect(renderer.getPermissionKey(`web3://${address}/`)).toBe(
-      `web3://${address.toLowerCase()}.eip155-1`
+      `web3://${address.toLowerCase()}`
+    );
+    expect(
+      renderer.getPermissionKey(`web3://${address.toLowerCase()}.eip155-100/swap`)
+    ).toBe(
+      `web3://${address.toLowerCase()}:100`
     );
   });
 

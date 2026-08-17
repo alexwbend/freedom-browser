@@ -220,7 +220,7 @@ describe('navigation-utils', () => {
       };
 
       expect(resolveTrustBadge({
-        value: `web3://${contract}.eip155-1/swap`,
+        value: `web3://${contract}/swap`,
         onchainProvenance: provenance,
       })).toEqual({
         kind: 'onchain',
@@ -230,7 +230,7 @@ describe('navigation-utils', () => {
         provenance,
       });
       expect(resolveTrustBadge({
-        value: `web3://${contract}.eip155-100/`,
+        value: `web3://${contract}:100/`,
         onchainProvenance: provenance,
       })).toBeNull();
     });

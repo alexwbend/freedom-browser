@@ -9,12 +9,13 @@ const ETHEREUM_ADDRESS_RE = /^0x[0-9a-f]{40}$/i;
 /**
  * Parse Freedom's ERC-8244 application URL.
  *
- * Freedom accepts the convenient `web3://<contract>:<chainId>/` input form,
- * then canonicalizes it to `web3://<contract>.eip155-<chainId>/`. Chromium's
+ * Freedom presents the ERC-4804-style `web3://<contract>:<chainId>/` form to
+ * users, while Chromium navigates to the equivalent
+ * `web3://<contract>.eip155-<chainId>/` origin internally. Chromium's
  * standard-scheme parser mistakes a bare all-hex `0x…` host for an oversized
  * IPv4 literal, and a port-shaped chain id both hits unsafe-port rules and
- * caps chain ids at 65535. The synthetic CAIP-style suffix avoids all three
- * problems while keeping contract + chain in the visible storage origin.
+ * caps chain ids at 65535. Keeping both forms in this one codec prevents that
+ * browser implementation detail from leaking into user-facing URL surfaces.
  */
 export const parseOnchainAppUrl = (input) => {
   const raw = typeof input === 'string' ? input.trim() : '';
@@ -34,6 +35,8 @@ export const parseOnchainAppUrl = (input) => {
   const rawSuffix = match[3] || '/';
   const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
   const canonicalUrl = `web3://${address}.eip155-${chainId}${suffix}`;
+  const displayChain = chainId === DEFAULT_ONCHAIN_APP_CHAIN_ID ? '' : `:${chainId}`;
+  const displayUrl = `web3://${address}${displayChain}${suffix}`;
   let parsed;
   try {
     parsed = new URL(canonicalUrl);
@@ -44,6 +47,7 @@ export const parseOnchainAppUrl = (input) => {
   return {
     address,
     chainId,
+    displayUrl,
     url: parsed.toString(),
   };
 };
@@ -51,6 +55,15 @@ export const parseOnchainAppUrl = (input) => {
 export const looksLikeOnchainAppInput = (input) => /^web3:/i.test((input || '').trim());
 
 export const formatOnchainAppUrl = (input) => parseOnchainAppUrl(input)?.url || null;
+
+export const formatOnchainAppDisplayUrl = (input) => {
+  const raw = typeof input === 'string' ? input.trim() : '';
+  if (raw.startsWith('view-source:')) {
+    const innerDisplay = formatOnchainAppDisplayUrl(raw.slice('view-source:'.length));
+    return innerDisplay ? `view-source:${innerDisplay}` : null;
+  }
+  return parseOnchainAppUrl(raw)?.displayUrl || null;
+};
 
 // Set of transports an Ethereum name contenthash can resolve to that the renderer
 // knows how to dispatch. Anything outside this set is treated as
@@ -468,6 +481,11 @@ export const deriveDisplayValue = (
       ipnsRoutePrefix
     );
     return innerDisplay ? `view-source:${innerDisplay}` : url;
+  }
+
+  const onchainDisplay = formatOnchainAppDisplayUrl(url);
+  if (onchainDisplay) {
+    return onchainDisplay;
   }
 
   if (bzzRoutePrefix && url.startsWith(bzzRoutePrefix)) {

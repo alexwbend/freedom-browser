@@ -20,6 +20,7 @@ import {
   deriveRadBaseFromUrl,
   deriveRadicleDisplayValue,
   formatOnchainAppUrl,
+  formatOnchainAppDisplayUrl,
   looksLikeOnchainAppInput,
   parseOnchainAppUrl,
 } from './url-utils.js';
@@ -41,6 +42,7 @@ describe('url-utils', () => {
       expect(parseOnchainAppUrl(`web3://${ADDRESS}:100/swap?x=1#route`)).toEqual({
         address: LOWER_ADDRESS,
         chainId: 100,
+        displayUrl: `web3://${LOWER_ADDRESS}:100/swap?x=1#route`,
         url: `web3://${LOWER_ADDRESS}.eip155-100/swap?x=1#route`,
       });
     });
@@ -55,6 +57,23 @@ describe('url-utils', () => {
       expect(formatOnchainAppUrl(`web3://${LOWER_ADDRESS}.eip155-11155111/`)).toBe(
         `web3://${LOWER_ADDRESS}.eip155-11155111/`
       );
+      expect(
+        formatOnchainAppDisplayUrl(
+          `web3://${LOWER_ADDRESS}.eip155-11155111/swap?x=1#route`
+        )
+      ).toBe(`web3://${LOWER_ADDRESS}:11155111/swap?x=1#route`);
+    });
+
+    test('keeps Chromium origin encoding out of user-facing URLs', () => {
+      expect(formatOnchainAppDisplayUrl(`web3://${LOWER_ADDRESS}.eip155-1/`)).toBe(
+        `web3://${LOWER_ADDRESS}/`
+      );
+      expect(formatOnchainAppDisplayUrl(`web3://${ADDRESS}:1/swap`)).toBe(
+        `web3://${LOWER_ADDRESS}/swap`
+      );
+      expect(
+        formatOnchainAppDisplayUrl(`view-source:web3://${LOWER_ADDRESS}.eip155-100/`)
+      ).toBe(`view-source:web3://${LOWER_ADDRESS}:100/`);
     });
 
     test.each([
@@ -382,6 +401,24 @@ describe('url-utils', () => {
     test('returns original url for non-bzz sites', () => {
       const url = 'https://google.com';
       expect(deriveDisplayValue(url, BZZ_ROUTE_PREFIX, HOME_URL)).toBe(url);
+    });
+
+    test('reverse-maps onchain navigation origins to standard display URLs', () => {
+      const address = '0x00000095643cffa7d9fae407a84dfcb6406456c6';
+      expect(
+        deriveDisplayValue(
+          `web3://${address}.eip155-1/swap?x=1#route`,
+          BZZ_ROUTE_PREFIX,
+          HOME_URL
+        )
+      ).toBe(`web3://${address}/swap?x=1#route`);
+      expect(
+        deriveDisplayValue(
+          `web3://${address}.eip155-100/swap?x=1#route`,
+          BZZ_ROUTE_PREFIX,
+          HOME_URL
+        )
+      ).toBe(`web3://${address}:100/swap?x=1#route`);
     });
 
     test('returns empty string for null/undefined/empty input', () => {

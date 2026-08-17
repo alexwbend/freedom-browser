@@ -29,6 +29,7 @@ import {
   isEnsBackedDisplay,
   isSupportedEnsTransport,
   formatOnchainAppUrl,
+  formatOnchainAppDisplayUrl,
   looksLikeOnchainAppInput,
 } from './url-utils.js';
 import { buildSearchUrl } from './search-utils.js';
@@ -1202,7 +1203,8 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
   // chain-data router. No gateway URL or page-owned RPC endpoint is involved.
   const onchainAppUrl = formatOnchainAppUrl(value);
   if (onchainAppUrl) {
-    const displayValue = displayOverride || onchainAppUrl;
+    const displayValue =
+      displayOverride || formatOnchainAppDisplayUrl(value) || onchainAppUrl;
     setAddressDisplayForTab(displayValue, targetTabId);
     navState.pendingTitleForUrl = onchainAppUrl;
     navState.pendingNavigationUrl = onchainAppUrl;
