@@ -58,7 +58,7 @@
     "ipfs:reset": "rm -rf ipfs-data && echo 'Legacy repo-root IPFS data reset.'",
     "tor:download": "node scripts/fetch-arti.js",
     "tor:reset": "rm -rf tor-data && echo 'Tor data reset.'",
-    "radicle:download": "node scripts/fetch-radicle.js",
+    "radicle:download": "node scripts/fetch-radicle-addon.js",
     "radicle:init": "node scripts/init-radicle.js",
     "radicle:status": "RADICLE_API=${RADICLE_API:-http://127.0.0.1:18780}; curl -s \"$RADICLE_API/\" | head -c 500",
     "radicle:reset": "rm -rf radicle-data && echo 'Radicle data reset.'",
