@@ -14,6 +14,7 @@ const IPC = require('../shared/ipc-channels');
 const { success, failure, validateNonEmptyString } = require('./ipc-contract');
 const { loadSettings } = require('./settings-store');
 const { getRadicleDataDir } = require('./profile-paths');
+const radicleEmbedded = require('./radicle-embedded');
 const seedStatus = require('./radicle/seed-status');
 const {
   getActiveProfile,
@@ -729,6 +730,52 @@ async function autoSeedDefaults() {
   }
 }
 
+/**
+ * Start the in-process node (MODE.EMBEDDED). The addon owns the node
+ * thread; there are no child processes and no health-check poller —
+ * failures surface directly on the calls that hit the node.
+ */
+async function startEmbeddedRadicle(superseded = () => false) {
+  const dataDir = getRadicleDataDir();
+
+  try {
+    const { did } = await radicleEmbedded.start(dataDir, 'FreedomBrowser');
+    if (superseded()) return;
+
+    activeRadHome = dataDir;
+    currentMode = MODE.EMBEDDED;
+    currentHttpPort = null;
+    currentHttpUrl = 'radapi://local';
+
+    updateService('radicle', {
+      api: 'radapi://local',
+      gateway: 'radapi://local',
+      mode: MODE.EMBEDDED,
+    });
+    setStatusMessage('radicle', 'Embedded node running');
+    updateState(STATUS.RUNNING);
+    log.info('[Radicle] Embedded node started, DID:', did, 'home:', dataDir);
+
+    // Background: dial the preferred seeds, then re-seed the default repo.
+    // Failures are non-fatal — reads from already-synced storage still work.
+    radicleEmbedded
+      .connectSeeds(15000)
+      .then((r) => {
+        log.info('[Radicle] Embedded node connected to', r.connected, 'seed(s)');
+        return radicleEmbedded.cloneRepo(FREEDOM_BROWSER_RID, 120000);
+      })
+      .then(() => log.info('[Radicle] Auto-seeded', FREEDOM_BROWSER_RID))
+      .catch((err) => log.warn('[Radicle] Embedded background init:', err.message));
+  } catch (err) {
+    log.error('[Radicle] Embedded node failed to start:', err.message);
+    updateState(STATUS.ERROR, err.message);
+    setStatusMessage('radicle', 'Node failed to start');
+    clearService('radicle');
+    currentMode = MODE.NONE;
+    activeRadHome = null;
+  }
+}
+
 async function startRadicle(opts = {}) {
   log.info('[Radicle] startRadicle() called, currentState:', currentState);
 
@@ -773,6 +820,15 @@ async function startRadicle(opts = {}) {
 
   if (isExternalRadicleConfig(profileConfig)) {
     await startExternalRadicle(profileConfig, superseded);
+    return;
+  }
+
+  // Embedded mode: run the node in-process via the libradicle addon —
+  // no radicle-node/radicle-httpd binaries, no localhost API. Preferred
+  // whenever the addon is present; flip `radicleEmbedded` off in settings
+  // to force the legacy binary path.
+  if (loadSettings().radicleEmbedded !== false && radicleEmbedded.isAvailable()) {
+    await startEmbeddedRadicle(superseded);
     return;
   }
 
@@ -1194,6 +1250,21 @@ function stopRadicle() {
     // bumps the generation; don't let our late process exits clobber its state.
     const supersededByNewStart = () => startGeneration !== stopGeneration;
 
+    // Embedded node: shut down the in-process runtime and join its thread.
+    if (currentMode === MODE.EMBEDDED) {
+      radicleEmbedded
+        .shutdown()
+        .catch((err) => log.warn('[Radicle] Embedded shutdown:', err.message))
+        .then(() => {
+          currentMode = MODE.NONE;
+          activeRadHome = null;
+          currentHttpUrl = null;
+          if (!supersededByNewStart()) finalizeStopped();
+          resolve();
+        });
+      return;
+    }
+
     // If we reused a node, stop only the httpd process this app started.
     if (currentMode === MODE.REUSED) {
       if (radicleHttpdProcess) {
@@ -1297,6 +1368,9 @@ function stopRadicle() {
 }
 
 function checkBinary() {
+  if (loadSettings().radicleEmbedded !== false && radicleEmbedded.isAvailable()) {
+    return true;
+  }
   const nodeBinPath = getRadicleBinaryPath('radicle-node');
   const httpdBinPath = getRadicleBinaryPath('radicle-httpd');
   return fs.existsSync(nodeBinPath) && fs.existsSync(httpdBinPath);
@@ -1340,6 +1414,16 @@ async function seedRepository(rid) {
   }
 
   log.info(`[Radicle] Seeding repository: ${fullRid}`);
+
+  if (currentMode === MODE.EMBEDDED) {
+    try {
+      await radicleEmbedded.cloneRepo(fullRid, 120000);
+      return success();
+    } catch (err) {
+      log.error(`[Radicle] Embedded seed failed for ${fullRid}:`, err.message);
+      return failure('SEED_FAILED', err.message, { rid: fullRid });
+    }
+  }
 
   // Two-phase: `rad seed` alone reports success once the *policy* is
   // written — its network fetch is best-effort and its exit code does not
@@ -1388,6 +1472,15 @@ function refetchRepository(rid) {
   if (!fullRid) {
     return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
   }
+  if (currentMode === MODE.EMBEDDED) {
+    return radicleEmbedded
+      .cloneRepo(fullRid, 120000)
+      .then(() => success())
+      .catch((err) => {
+        log.error(`[Radicle] Embedded sync failed for ${fullRid}:`, err.message);
+        return failure('SYNC_FAILED', err.message, { rid: fullRid });
+      });
+  }
   return startTrackedFetch(fullRid);
 }
 
@@ -1404,6 +1497,24 @@ async function getRepoPayload(rid) {
   const fullRid = validateAndNormalizeRid(rid);
   if (!fullRid) {
     return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  }
+
+  if (currentMode === MODE.EMBEDDED) {
+    try {
+      const info = await radicleEmbedded.repoInfo(fullRid);
+      return success({
+        payload: {
+          'xyz.radicle.project': {
+            name: info.name,
+            description: info.description,
+            defaultBranch: info.defaultBranch,
+          },
+        },
+      });
+    } catch (err) {
+      log.error(`[Radicle] Embedded payload failed for ${fullRid}:`, err.message);
+      return failure('GET_PAYLOAD_FAILED', err.message, { rid: fullRid });
+    }
   }
 
   const radBinPath = getRadicleBinaryPath('rad');
@@ -1434,6 +1545,16 @@ async function getRepoPayload(rid) {
 async function getConnections() {
   if (currentState !== STATUS.RUNNING) {
     return failure('RADICLE_NOT_RUNNING', 'Node not running', undefined, { count: 0 });
+  }
+
+  if (currentMode === MODE.EMBEDDED) {
+    try {
+      const { connectedPeers } = await radicleEmbedded.status();
+      return success({ count: connectedPeers });
+    } catch (err) {
+      log.error('[Radicle] Embedded connections failed:', err.message);
+      return failure('GET_CONNECTIONS_FAILED', err.message, undefined, { count: 0 });
+    }
   }
 
   const radBinPath = getRadicleBinaryPath('rad');

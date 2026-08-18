@@ -35,6 +35,10 @@ const DEFAULT_SETTINGS = {
   startAntAtLaunch: true,
   startIpfsAtLaunch: true,
   startRadicleAtLaunch: false,
+  // Run the Radicle node in-process via the libradicle napi addon instead
+  // of spawning radicle-node + radicle-httpd binaries. Falls back to the
+  // binary path automatically when the addon is not present.
+  radicleEmbedded: true,
   // Tor (.onion) access via the bundled Arti SOCKS proxy. Off by default;
   // when enabled, only *.onion traffic is routed through Tor (clearnet and
   // the decentralized protocols keep connecting directly).

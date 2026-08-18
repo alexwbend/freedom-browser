@@ -42,7 +42,7 @@ const {
   redactUrlForLog,
   redactedFailure,
 } = require('../private/private-log-context');
-const { getRadicleApiUrl } = require('../service-registry');
+const { getRadicleApiUrl, getRadicleMode, MODE } = require('../service-registry');
 const { loadSettings } = require('../settings-store');
 
 // Same RID shape the request-rewriter enforces: z + base58btc.
@@ -147,7 +147,12 @@ function buildHttpdUrl(radUrl) {
     return redactedFailure(503, () => 'Radicle node is not ready');
   }
 
-  return { ok: true, url: `${radicleApiUrl}/api/v1/repos/rad:${rid}${path}${search}` };
+  return {
+    ok: true,
+    url: `${radicleApiUrl}/api/v1/repos/rad:${rid}${path}${search}`,
+    rid: `rad:${rid}`,
+    path,
+  };
 }
 
 // JSON error body shaped like the bzz handler's so dweb error surfaces
@@ -184,6 +189,13 @@ async function handleRadRequest(request, { fetchImpl = fetch } = {}) {
         `${built.logMessage ?? redactForLog(built.message)}`
     );
     return jsonErrorResponse(built.status, built.message);
+  }
+
+  // Embedded mode: the node runs in-process — serve straight from it
+  // instead of proxying to a httpd daemon that isn't running.
+  if (getRadicleMode() === MODE.EMBEDDED) {
+    const { serveRepoApi } = require('../radicle-api-protocol');
+    return serveRepoApi(built.rid, built.path);
   }
 
   let upstream;

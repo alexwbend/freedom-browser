@@ -11,6 +11,8 @@ const IPC = require('../shared/ipc-channels');
 // Node modes
 const MODE = {
   BUNDLED: 'bundled',
+  // In-process node via the libradicle napi addon (no spawned binaries).
+  EMBEDDED: 'embedded',
   REUSED: 'reused',
   EXTERNAL: 'external',
   DISABLED: 'disabled',
@@ -268,6 +270,13 @@ function getRadicleApiUrl() {
 }
 
 /**
+ * Get the current Radicle service mode (MODE.*).
+ */
+function getRadicleMode() {
+  return registry.radicle.mode;
+}
+
+/**
  * Get the Arti SOCKS proxy host:port (or default)
  */
 function getTorSocksUrl() {
@@ -300,6 +309,7 @@ module.exports = {
   getAntApiUrl,
   getAntGatewayUrl,
   getRadicleApiUrl,
+  getRadicleMode,
   getTorSocksUrl,
   broadcastRegistryUpdate,
   registerServiceRegistryIpc,

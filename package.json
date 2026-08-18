@@ -2,7 +2,7 @@
   "name": "freedom-browser",
   "version": "0.8.1-dev",
   "license": "MPL-2.0",
-  "description": "Freedom – A browser for the decentralized web, with Swarm, IPFS, and ENS as first-class protocols.",
+  "description": "Freedom \u2013 A browser for the decentralized web, with Swarm, IPFS, and ENS as first-class protocols.",
   "author": {
     "name": "Freedom Team",
     "email": "browser@freedom.baby"
@@ -66,7 +66,8 @@
     "dapp:reset": "node scripts/reset-dapp-permissions.js",
     "serve:updates": "node scripts/serve-updates.js",
     "start:test-updater": "ENABLE_DEV_UPDATER=true npm start",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "radicle:build-addon": "node scripts/build-radicle-addon.js"
   },
   "build": {
     "appId": "baby.freedom.browser",

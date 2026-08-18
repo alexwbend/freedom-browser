@@ -1,5 +1,14 @@
 jest.mock('../service-registry', () => ({
   getRadicleApiUrl: jest.fn(() => 'http://127.0.0.1:8780'),
+  getRadicleMode: jest.fn(() => 'bundled'),
+  MODE: {
+    BUNDLED: 'bundled',
+    EMBEDDED: 'embedded',
+    REUSED: 'reused',
+    EXTERNAL: 'external',
+    DISABLED: 'disabled',
+    NONE: 'none',
+  },
 }));
 
 jest.mock('../settings-store', () => ({
@@ -40,7 +49,7 @@ describe('buildHttpdUrl', () => {
     ],
     ['bare rad:<rid> with path', `rad:${RID}/issues`, `${API}/api/v1/repos/rad:${RID}/issues`],
   ])('maps %s to the httpd repo endpoint', (_name, input, expected) => {
-    expect(buildHttpdUrl(input)).toEqual({ ok: true, url: expected });
+    expect(buildHttpdUrl(input)).toMatchObject({ ok: true, url: expected });
   });
 
   test('rejects when Radicle integration is disabled', () => {
@@ -83,7 +92,7 @@ describe('buildHttpdUrl', () => {
   });
 
   test('query string is not scanned for traversal', () => {
-    expect(buildHttpdUrl(`rad://${RID}/tree?q=..`)).toEqual({
+    expect(buildHttpdUrl(`rad://${RID}/tree?q=..`)).toMatchObject({
       ok: true,
       url: `${API}/api/v1/repos/rad:${RID}/tree?q=..`,
     });

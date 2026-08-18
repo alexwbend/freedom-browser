@@ -141,6 +141,7 @@ const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
 const { registerRadProtocol } = require('./radicle/rad-protocol');
+const { registerRadicleApiProtocol } = require('./radicle-api-protocol');
 
 // Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
@@ -159,6 +160,9 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // Embedded Radicle API (radicle-api-protocol.js). Standard host casing
+  // is fine here — RIDs travel in the path, not the host.
+  { scheme: 'radapi', privileges: DWEB_PROTOCOL_PRIVILEGES },
   // `rad` is deliberately NOT `standard`: standard schemes get their host
   // lowercased by URL canonicalization, which would destroy case-sensitive
   // base58 RIDs (`rad://z3gqcJUoA1n9…`). Non-standard keeps the URL opaque
@@ -348,6 +352,7 @@ async function bootstrap() {
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
     registerRadProtocol(defaultSession);
+    registerRadicleApiProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
