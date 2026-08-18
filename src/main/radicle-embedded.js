@@ -28,6 +28,10 @@ const REQUIRED_EXPORTS = [
   'cloneRepo',
   'unseedRepo',
   'listRepos',
+  'issues',
+  'issue',
+  'patches',
+  'patch',
   'identity',
   'createIssue',
   'commentIssue',
@@ -139,6 +143,10 @@ const connectSeeds = (timeoutMs = 15000) => call('connectSeeds', timeoutMs);
 const cloneRepo = (rid, timeoutMs = 120000) => call('cloneRepo', rid, timeoutMs);
 const unseedRepo = (rid) => call('unseedRepo', rid);
 const listRepos = () => call('listRepos');
+const issues = (rid) => call('issues', rid);
+const issue = (rid, issueId) => call('issue', rid, issueId);
+const patches = (rid) => call('patches', rid);
+const patch = (rid, patchId) => call('patch', rid, patchId);
 const identity = () => call('identity');
 const createIssue = (rid, title, description, labels = []) =>
   call('createIssue', rid, title, description, JSON.stringify(labels));
@@ -183,7 +191,9 @@ async function buildRepoMeta(rid) {
         },
       },
     },
-    visibility: { type: 'public' },
+    delegates: info.delegates || [],
+    threshold: info.threshold ?? 1,
+    visibility: info.visibility || { type: 'public' },
     seeding,
   };
 }
@@ -224,6 +234,10 @@ module.exports = {
   cloneRepo,
   unseedRepo,
   listRepos,
+  issues,
+  issue,
+  patches,
+  patch,
   identity,
   createIssue,
   commentIssue,

@@ -17,6 +17,10 @@ const {
 } = require('./service-registry');
 
 const FREEDOM_BROWSER_RID = 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE';
+const LEGACY_SEED_REPLACEMENTS = new Map([
+  ['iris.radicle.xyz', 'iris.radicle.network'],
+  ['rosa.radicle.xyz', 'rosa.radicle.network'],
+]);
 
 const STATUS = {
   STOPPED: 'stopped',
@@ -28,9 +32,43 @@ const STATUS = {
 
 let currentState = STATUS.STOPPED;
 let lastError = null;
-let startPromise = null;
-let stopRequested = false;
 let useInjectedIdentity = false;
+let lifecycleTail = Promise.resolve();
+
+function enqueueLifecycle(operation) {
+  const result = lifecycleTail.then(operation, operation);
+  lifecycleTail = result.catch(() => {});
+  return result;
+}
+
+function migrateLegacySeeds(radHome) {
+  const configPath = path.join(radHome, 'config.json');
+  if (!fs.existsSync(configPath)) return;
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (err) {
+    log.warn('[Radicle] Could not migrate legacy seed hosts:', err.message);
+    return;
+  }
+  if (!Array.isArray(config.preferredSeeds)) return;
+
+  let changed = false;
+  config.preferredSeeds = config.preferredSeeds.map((seed) => {
+    if (typeof seed !== 'string') return seed;
+    let normalized = seed;
+    for (const [legacyHost, currentHost] of LEGACY_SEED_REPLACEMENTS) {
+      normalized = normalized.replace(`@${legacyHost}:`, `@${currentHost}:`);
+    }
+    changed ||= normalized !== seed;
+    return normalized;
+  });
+  if (changed) {
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    log.info('[Radicle] Migrated legacy preferred seed hosts');
+  }
+}
 
 function validateAndNormalizeRid(rid) {
   if (!rid || typeof rid !== 'string') return null;
@@ -65,9 +103,8 @@ async function connectAndSeedDefault() {
   }
 }
 
-async function startRadicle() {
+async function startRadicleInternal() {
   if (currentState === STATUS.RUNNING) return getCurrentStatus();
-  if (startPromise) return startPromise;
   if (isDisabledForProfile()) {
     updateService('radicle', { api: null, gateway: null, mode: MODE.DISABLED });
     setStatusMessage('radicle', 'Node disabled for this profile');
@@ -81,44 +118,35 @@ async function startRadicle() {
     return getCurrentStatus();
   }
 
-  stopRequested = false;
   updateState(STATUS.STARTING);
-  startPromise = (async () => {
-    try {
-      const result = await embedded.start(getRadicleDataDir(), 'FreedomBrowser');
-      if (stopRequested) {
-        await embedded.shutdown();
-        clearService('radicle');
-        updateState(STATUS.STOPPED);
-        return getCurrentStatus();
-      }
-      updateService('radicle', {
-        api: 'radapi://local',
-        gateway: 'radapi://local',
-        mode: MODE.EMBEDDED,
-      });
-      setStatusMessage('radicle', 'Embedded node running');
-      updateState(STATUS.RUNNING);
-      log.info('[Radicle] Embedded node started:', result.did);
-      void connectAndSeedDefault();
-      return getCurrentStatus();
-    } catch (err) {
-      clearService('radicle');
-      updateState(STATUS.ERROR, err.message);
-      return getCurrentStatus();
-    } finally {
-      startPromise = null;
-    }
-  })();
-  return startPromise;
+  try {
+    const radHome = getRadicleDataDir();
+    migrateLegacySeeds(radHome);
+    const result = await embedded.start(radHome, 'FreedomBrowser');
+    updateService('radicle', {
+      api: 'radapi://local',
+      gateway: 'radapi://local',
+      mode: MODE.EMBEDDED,
+    });
+    setStatusMessage('radicle', 'Embedded node running');
+    updateState(STATUS.RUNNING);
+    log.info('[Radicle] Embedded node started:', result.did);
+    void connectAndSeedDefault();
+    return getCurrentStatus();
+  } catch (err) {
+    clearService('radicle');
+    updateState(STATUS.ERROR, err.message);
+    return getCurrentStatus();
+  }
 }
 
-async function stopRadicle() {
-  stopRequested = true;
+function startRadicle() {
+  return enqueueLifecycle(startRadicleInternal);
+}
+
+async function stopRadicleInternal() {
   if (currentState === STATUS.STOPPED) return getCurrentStatus();
   updateState(STATUS.STOPPING);
-  if (startPromise) await startPromise;
-  if (currentState === STATUS.STOPPED) return getCurrentStatus();
   try {
     await embedded.shutdown();
     clearService('radicle');
@@ -128,6 +156,10 @@ async function stopRadicle() {
     updateState(STATUS.ERROR, err.message);
   }
   return getCurrentStatus();
+}
+
+function stopRadicle() {
+  return enqueueLifecycle(stopRadicleInternal);
 }
 
 function requireRunning() {
@@ -245,28 +277,29 @@ function isValidAlias(alias) {
   );
 }
 
-async function setNodeAlias(alias) {
+function setNodeAlias(alias) {
   if (!isValidAlias(alias)) {
-    return failure(
+    return Promise.resolve(failure(
       'INVALID_ALIAS',
       'Alias must be 1–32 bytes with no whitespace or control characters'
-    );
+    ));
   }
-
-  const restart = currentState === STATUS.RUNNING;
-  if (restart) await stopRadicle();
-  const configPath = path.join(getRadicleDataDir(), 'config.json');
-  try {
-    let config = {};
-    if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    config.node = config.node || {};
-    config.node.alias = alias;
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-  } catch (err) {
-    return failure('ALIAS_WRITE_FAILED', err.message);
-  }
-  if (restart) await startRadicle();
-  return success({ alias, restarted: restart });
+  return enqueueLifecycle(async () => {
+    const restart = currentState === STATUS.RUNNING;
+    if (restart) await stopRadicleInternal();
+    const configPath = path.join(getRadicleDataDir(), 'config.json');
+    try {
+      let config = {};
+      if (fs.existsSync(configPath)) config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      config.node = config.node || {};
+      config.node.alias = alias;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+    } catch (err) {
+      return failure('ALIAS_WRITE_FAILED', err.message);
+    }
+    if (restart) await startRadicleInternal();
+    return success({ alias, restarted: restart });
+  });
 }
 
 function integrationEnabled() {

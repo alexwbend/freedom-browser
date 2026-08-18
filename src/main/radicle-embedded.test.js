@@ -10,6 +10,7 @@ const fs = require('fs');
 
 const REQUIRED_FAKE_EXPORTS = [
   'start', 'shutdown', 'connectSeeds', 'cloneRepo', 'unseedRepo', 'listRepos',
+  'issues', 'issue', 'patches', 'patch',
   'identity', 'createIssue', 'commentIssue', 'editIssueState', 'commentPatch',
   'importRepo', 'repoInfo', 'tree', 'blob', 'status', 'seeders',
 ].map((name) => `${name}: async () => JSON.stringify({ ok: true }),`).join('');
@@ -92,7 +93,8 @@ describe('buildRepoMeta shape', () => {
       'module.exports = {' +
         REQUIRED_FAKE_EXPORTS +
         'repoInfo: async () => JSON.stringify({ rid: "rad:zAbc", name: "demo",' +
-        ' description: "d", defaultBranch: "main", head: "sha1", issuesOpen: 2, patchesOpen: 1 }),' +
+        ' description: "d", defaultBranch: "main", head: "sha1", delegates: ["did:key:zMe"],' +
+        ' threshold: 1, visibility: { type: "public" }, issuesOpen: 2, patchesOpen: 1 }),' +
         'seeders: async () => JSON.stringify({ seeding: 7 }),' +
         '};'
     );
@@ -107,6 +109,8 @@ describe('buildRepoMeta shape', () => {
         defaultBranch: 'main',
       });
       expect(project.meta.head).toBe('sha1');
+      expect(meta.delegates).toEqual(['did:key:zMe']);
+      expect(meta.threshold).toBe(1);
       expect(meta.seeding).toBe(7);
       expect(meta.visibility).toEqual({ type: 'public' });
     });

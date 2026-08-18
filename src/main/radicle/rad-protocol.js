@@ -39,6 +39,7 @@ const {
   redactedFailure,
 } = require('../private/private-log-context');
 const { loadSettings } = require('../settings-store');
+const { decodeRepoApiPath, serveRepoApi } = require('../radicle-api-protocol');
 
 // Same RID shape the request-rewriter enforces: z + base58btc.
 const RID_RE = /^z[1-9A-HJ-NP-Za-km-z]{20,60}$/;
@@ -51,29 +52,7 @@ const ALLOWED_METHODS = new Set(['GET', 'HEAD']);
  * `/api/v1/repos/rad:<rid>` scope. Returns true when safe to forward.
  */
 function isSafeRepoPath(path) {
-  if (path === '') return true;
-  if (path.includes('\\')) return false;
-
-  const segments = path.split('/').slice(1); // drop the leading empty segment
-  for (let i = 0; i < segments.length; i++) {
-    const segment = segments[i];
-    // A single trailing empty segment is a legitimate trailing slash
-    // (tree endpoints use them); empty segments elsewhere are `//`.
-    if (segment === '') {
-      if (i === segments.length - 1) continue;
-      return false;
-    }
-    let decoded;
-    try {
-      decoded = decodeURIComponent(segment);
-    } catch {
-      return false;
-    }
-    if (decoded === '.' || decoded === '..') return false;
-    // eslint-disable-next-line no-control-regex
-    if (/[\u0000-\u001f]/.test(decoded)) return false;
-  }
-  return true;
+  return decodeRepoApiPath(path) !== null;
 }
 
 /**
@@ -151,8 +130,7 @@ async function handleRadRequest(request) {
     return jsonErrorResponse(built.status, built.message);
   }
 
-  const { serveRepoApi } = require('../radicle-api-protocol');
-  return serveRepoApi(built.rid, built.path, { method });
+  return serveRepoApi(built.rid, built.path, { method, search: built.search });
 }
 
 /**

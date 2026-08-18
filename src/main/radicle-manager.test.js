@@ -87,10 +87,62 @@ test('a stop during native startup shuts the completed runtime down once', async
   const ctx = loadManager({ embedded: { start } });
   const starting = ctx.mod.startRadicle();
   const stopping = ctx.mod.stopRadicle();
+  await Promise.resolve();
   finishStart({ did: 'did:key:z6MkNative' });
   await Promise.all([starting, stopping]);
   expect(ctx.embedded.shutdown).toHaveBeenCalledTimes(1);
   expect(ctx.mod.getCurrentStatus()).toEqual({ status: 'stopped', error: null });
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('a start requested during shutdown waits for shutdown to complete', async () => {
+  let finishShutdown;
+  const shutdown = jest.fn(() => new Promise((resolve) => { finishShutdown = resolve; }));
+  const ctx = loadManager({ embedded: { shutdown } });
+  await ctx.mod.startRadicle();
+
+  const stopping = ctx.mod.stopRadicle();
+  const restarting = ctx.mod.startRadicle();
+  await Promise.resolve();
+  expect(ctx.embedded.start).toHaveBeenCalledTimes(1);
+
+  finishShutdown({ ok: true });
+  await expect(stopping).resolves.toEqual({ status: 'stopped', error: null });
+  await expect(restarting).resolves.toEqual({ status: 'running', error: null });
+  expect(ctx.embedded.start).toHaveBeenCalledTimes(2);
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('migrates legacy preferred seed hosts before native startup', async () => {
+  const ctx = loadManager();
+  const configPath = path.join(ctx.dataDir, 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({
+    preferredSeeds: [
+      'z6MkIris@iris.radicle.xyz:8776',
+      'z6MkRosa@rosa.radicle.xyz:8776',
+      'z6MkCustom@seed.example:8776',
+    ],
+    custom: true,
+  }));
+
+  await ctx.mod.startRadicle();
+  expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({
+    preferredSeeds: [
+      'z6MkIris@iris.radicle.network:8776',
+      'z6MkRosa@rosa.radicle.network:8776',
+      'z6MkCustom@seed.example:8776',
+    ],
+    custom: true,
+  });
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('leaves malformed Radicle config untouched during seed migration', async () => {
+  const ctx = loadManager();
+  const configPath = path.join(ctx.dataDir, 'config.json');
+  fs.writeFileSync(configPath, '{not-json');
+  await ctx.mod.startRadicle();
+  expect(fs.readFileSync(configPath, 'utf8')).toBe('{not-json');
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
 

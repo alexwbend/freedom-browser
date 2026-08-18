@@ -62,6 +62,7 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
       if (record.cancelled || records.get(rid) !== record) return;
       record.state = 'failed';
       record.lastError = err.message;
+      if (/no seeds found/i.test(err.message)) record.seedersKnown = 0;
       record.finishedAt = Date.now();
       log.warn(`[seed-status] ${rid} fetch failed: ${err.message}`);
     });

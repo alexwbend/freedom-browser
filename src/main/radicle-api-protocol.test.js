@@ -11,21 +11,36 @@ jest.mock('./radicle-embedded', () => ({
   tree: jest.fn(),
   blob: jest.fn(),
   readme: jest.fn(),
+  issues: jest.fn(),
+  issue: jest.fn(),
+  patches: jest.fn(),
+  patch: jest.fn(),
+  repoInfo: jest.fn(),
+}));
+jest.mock('./settings-store', () => ({
+  loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
 }));
 
 const embedded = require('./radicle-embedded');
-const { handleRadicleApiRequest, registerRadicleApiProtocol } = require('./radicle-api-protocol');
+const { loadSettings } = require('./settings-store');
+const {
+  handleRadicleApiRequest,
+  registerRadicleApiProtocol,
+  serveRepoApi,
+} = require('./radicle-api-protocol');
 
 const RID = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
 describe('radapi protocol', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    loadSettings.mockReturnValue({ enableRadicleIntegration: true });
     embedded.status.mockResolvedValue({
       version: '0.1.0',
       connectedPeers: 3,
     });
     embedded.listRepos.mockResolvedValue(Array.from({ length: 7 }, (_, index) => ({ index })));
+    embedded.repoInfo.mockResolvedValue({ visibility: { type: 'public' } });
   });
 
   test('serves the root health check required by the repository viewer', async () => {
@@ -55,6 +70,37 @@ describe('radapi protocol', () => {
     });
   });
 
+  test('gates every endpoint on the integration setting', async () => {
+    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+    const response = await handleRadicleApiRequest(new Request('radapi://local/api/v1/stats'));
+    expect(response.status).toBe(403);
+    expect(embedded.status).not.toHaveBeenCalled();
+  });
+
+  test('rejects remote web origins and does not expose node responses through wildcard CORS', async () => {
+    const denied = await handleRadicleApiRequest(
+      new Request('radapi://local/', { headers: { Origin: 'https://hostile.example' } })
+    );
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+
+    const local = await handleRadicleApiRequest(
+      new Request('radapi://local/', { headers: { Origin: 'null' } })
+    );
+    expect(local.status).toBe(200);
+    expect(local.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  test('serves the local repository collection in viewer metadata shape', async () => {
+    embedded.listRepos.mockResolvedValueOnce([{ rid: RID }]);
+    embedded.buildRepoMeta.mockResolvedValueOnce({ rid: RID, payloads: {} });
+    const response = await handleRadicleApiRequest(
+      new Request('radapi://local/api/v1/repos?show=all')
+    );
+    await expect(response.json()).resolves.toEqual([{ rid: RID, payloads: {} }]);
+    expect(embedded.buildRepoMeta).toHaveBeenCalledWith(RID);
+  });
+
   test('routes repository metadata through the embedded serving core', async () => {
     embedded.buildRepoMeta.mockResolvedValue({ rid: RID });
 
@@ -77,6 +123,39 @@ describe('radapi protocol', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('application/json');
     await expect(response.text()).resolves.toBe('');
+  });
+
+  test('serves filtered issue and patch reads', async () => {
+    embedded.issues.mockResolvedValue([
+      { id: 'open', state: { status: 'open' } },
+      { id: 'closed', state: { status: 'closed' } },
+    ]);
+    embedded.patch.mockResolvedValue({ id: 'abc123' });
+
+    const issues = await serveRepoApi(RID, '/issues', { search: '?status=open' });
+    await expect(issues.json()).resolves.toEqual([{ id: 'open', state: { status: 'open' } }]);
+    const patch = await serveRepoApi(RID, '/patches/abc123');
+    await expect(patch.json()).resolves.toEqual({ id: 'abc123' });
+    expect(embedded.patch).toHaveBeenCalledWith(RID, 'abc123');
+  });
+
+  test('does not expose private repositories through the public repo API', async () => {
+    embedded.repoInfo.mockResolvedValueOnce({ visibility: { type: 'private' } });
+    const response = await serveRepoApi(RID, '/issues');
+    expect(response.status).toBe(403);
+    expect(embedded.issues).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    '/tree/main/..%2F..%2Fsecret',
+    '/blob/main/%2e%2e',
+    '/issues/%5csecret',
+    '/patches/a%00b',
+  ])('rejects encoded traversal and separator tricks in %s', async (apiPath) => {
+    const response = await serveRepoApi(RID, apiPath);
+    expect(response.status).toBe(400);
+    expect(embedded.tree).not.toHaveBeenCalled();
+    expect(embedded.blob).not.toHaveBeenCalled();
   });
 
   test('registers the request handler on the target session', async () => {

@@ -55,6 +55,17 @@ test('surfaces native fetch failures and allows retry', async () => {
   });
 });
 
+test('marks native no-seed failures as zero reachable seeds', async () => {
+  const failed = tracker.startFetch(RID, {
+    fetchRepo: async () => { throw new Error(`no seeds found for ${RID}`); },
+  });
+  await failed.done;
+  await expect(tracker.getStatus(RID)).resolves.toMatchObject({
+    state: 'failed',
+    seedersKnown: 0,
+  });
+});
+
 test('cancelled fetches cannot resurrect their record', async () => {
   let finish;
   tracker.startFetch(RID, {

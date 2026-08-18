@@ -113,3 +113,21 @@ test('imports a GitHub checkout directly through libradicle', async () => {
     'main'
   );
 });
+
+test('does not report success or persist a bridge when native import returns an invalid RID', async () => {
+  mockEmbedded.importRepo.mockResolvedValueOnce({ rid: 'not-a-radicle-id' });
+  const sender = { isDestroyed: () => false, send: jest.fn() };
+  await expect(
+    mockHandlers.get(IPC.GITHUB_BRIDGE_IMPORT)(
+      { sender },
+      'https://github.com/openai/invalid-native-project'
+    )
+  ).resolves.toMatchObject({
+    success: false,
+    error: { code: 'IMPORT_FAILED' },
+  });
+  expect(sender.send).not.toHaveBeenCalledWith(
+    IPC.GITHUB_BRIDGE_PROGRESS,
+    expect.objectContaining({ step: 'success' })
+  );
+});

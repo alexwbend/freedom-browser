@@ -427,14 +427,23 @@ async function importGitHubRepo(url, sender) {
       description || `Imported from github.com/${validation.owner}/${validation.repo}`,
       defaultBranch
     );
+    const normalizedRid =
+      typeof rid === 'string' && /^rad:z[1-9A-HJ-NP-Za-km-z]{20,60}$/.test(rid)
+        ? rid
+        : null;
+    if (!normalizedRid) {
+      throw new Error('Native Radicle import returned an invalid repository ID');
+    }
 
     sendProgress({ step: 'success', message: 'Repository seeded successfully!' });
-    console.log(`[GitHubBridge] Success: ${validation.owner}/${validation.repo} -> ${rid}`);
-    rememberBridge(validation.owner, validation.repo, rid);
+    console.log(
+      `[GitHubBridge] Success: ${validation.owner}/${validation.repo} -> ${normalizedRid}`
+    );
+    rememberBridge(validation.owner, validation.repo, normalizedRid);
 
     return {
       ...success(),
-      rid: rid.replace('rad:', ''),
+      rid: normalizedRid.slice(4),
       name: validation.repo,
       owner: validation.owner,
       description,

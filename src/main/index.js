@@ -393,6 +393,7 @@ async function bootstrap() {
       registerIpfsProtocol(privateSession, { privatePartition: partition });
       registerIpnsProtocol(privateSession, { privatePartition: partition });
       registerRadProtocol(privateSession, { privatePartition: partition });
+      registerRadicleApiProtocol(privateSession);
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),
