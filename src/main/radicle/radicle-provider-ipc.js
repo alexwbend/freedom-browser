@@ -30,7 +30,7 @@ const { ipcMain } = require('electron');
 const log = require('../logger');
 const IPC = require('../../shared/ipc-channels');
 const { loadSettings } = require('../settings-store');
-const { getRadicleApiUrl } = require('../service-registry');
+const embedded = require('../radicle-embedded');
 const {
   getCurrentStatus,
   getConnections,
@@ -147,25 +147,11 @@ async function handleGetNodeStatus(origin) {
 }
 
 async function handleListSeededRepos() {
-  // The local httpd's repo listing is the cheapest structured source.
-  const apiUrl = getRadicleApiUrl();
-  if (!apiUrl) throw providerError(ERRORS.UNAVAILABLE, 'Radicle node is not ready');
-  let res;
   try {
-    res = await fetch(`${apiUrl}/api/v1/repos?show=all&perPage=500`);
-  } catch {
-    throw providerError(ERRORS.UNAVAILABLE, 'Radicle httpd unreachable');
+    return await embedded.listRepos();
+  } catch (err) {
+    throw providerError(ERRORS.INTERNAL, err.message || 'repo listing failed');
   }
-  if (!res.ok) throw providerError(ERRORS.INTERNAL, `repo listing failed (${res.status})`);
-  const repos = await res.json();
-  return repos.map((repo) => {
-    const project = repo?.payloads?.['xyz.radicle.project']?.data ?? {};
-    return {
-      rid: repo.rid,
-      name: project.name ?? repo.rid,
-      description: project.description ?? '',
-    };
-  });
 }
 
 function requireRidParam(params) {
@@ -204,7 +190,7 @@ async function handleSync(origin, params) {
   const rid = requireRidParam(params);
   // Non-blocking: (re)start the background fetch and report where it
   // stands. The dApp polls radicle_getSeedStatus for the outcome.
-  const result = refetchRepository(rid);
+  const result = await refetchRepository(rid);
   if (!result.success) {
     throw providerError(ERRORS.INTERNAL, result.error?.message || 'sync failed', {
       reason: 'sync_failed',
@@ -215,7 +201,7 @@ async function handleSync(origin, params) {
 
 async function handleGetSeedStatus(origin, params) {
   const rid = requireRidParam(params);
-  const result = getSeedFetchStatus(rid);
+  const result = await getSeedFetchStatus(rid);
   if (!result.success) {
     throw providerError(ERRORS.INTERNAL, result.error?.message || 'status unavailable', {
       reason: 'status_failed',

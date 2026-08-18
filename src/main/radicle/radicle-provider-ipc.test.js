@@ -14,8 +14,14 @@ jest.mock('../settings-store', () => ({
   loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
 }));
 
-jest.mock('../service-registry', () => ({
-  getRadicleApiUrl: jest.fn(() => 'http://127.0.0.1:8780'),
+jest.mock('../radicle-embedded', () => ({
+  listRepos: jest.fn(async () => [
+    {
+      rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+      name: 'heartwood',
+      description: 'hw',
+    },
+  ]),
 }));
 
 const mockSeedFetchStatus = {
@@ -35,7 +41,7 @@ jest.mock('../radicle-manager', () => ({
   getConnections: jest.fn(async () => ({ success: true, count: 3 })),
   seedRepository: jest.fn(async () => ({ success: true, status: mockSeedFetchStatus })),
   unseedRepository: jest.fn(async () => ({ success: true })),
-  refetchRepository: jest.fn(() => ({ success: true, status: mockSeedFetchStatus })),
+  refetchRepository: jest.fn(async () => ({ success: true, status: mockSeedFetchStatus })),
   getSeedFetchStatus: jest.fn(() => ({ success: true, status: mockSeedFetchStatus })),
   validateAndNormalizeRid: jest.fn((rid) => {
     const m = /^(?:rad:)?(z[1-9A-HJ-NP-Za-km-z]{20,60})$/.exec(rid ?? '');
@@ -249,19 +255,9 @@ describe('node actions', () => {
     expect(manager.refetchRepository).toHaveBeenCalledWith(RID);
   });
 
-  test('radicle_listSeededRepos maps httpd payloads', async () => {
-    global.fetch = jest.fn(async () => ({
-      ok: true,
-      json: async () => [
-        {
-          rid: RID,
-          payloads: { 'xyz.radicle.project': { data: { name: 'heartwood', description: 'hw' } } },
-        },
-      ],
-    }));
+  test('radicle_listSeededRepos reads the native repository inventory', async () => {
     const repos = await executeRadicleMethod('radicle_listSeededRepos', {}, ORIGIN);
     expect(repos).toEqual([{ rid: RID, name: 'heartwood', description: 'hw' }]);
-    delete global.fetch;
   });
 });
 

@@ -25,7 +25,6 @@ describe('service-registry', () => {
     expect(mod.getIpfsGatewayUrl()).toBeNull();
     expect(mod.getAntApiUrl()).toBeNull();
     expect(mod.getAntGatewayUrl()).toBeNull();
-    expect(mod.getRadicleApiUrl()).toBeNull();
   });
 
   test('returns service URLs after registry hydration', () => {
@@ -41,17 +40,10 @@ describe('service-registry', () => {
       gateway: 'http://127.0.0.1:11633',
       mode: mod.MODE.BUNDLED,
     });
-    mod.updateService('radicle', {
-      api: 'http://127.0.0.1:18780',
-      gateway: 'http://127.0.0.1:18780',
-      mode: mod.MODE.BUNDLED,
-    });
-
     expect(mod.getIpfsApiUrl()).toBe('http://127.0.0.1:15001');
     expect(mod.getIpfsGatewayUrl()).toBe('http://localhost:18080');
     expect(mod.getAntApiUrl()).toBe('http://127.0.0.1:11633');
     expect(mod.getAntGatewayUrl()).toBe('http://127.0.0.1:11633');
-    expect(mod.getRadicleApiUrl()).toBe('http://127.0.0.1:18780');
   });
 
   test('updates a service and broadcasts the new registry state', () => {

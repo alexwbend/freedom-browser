@@ -174,7 +174,6 @@ describe('webview-preload', () => {
       ],
       ['seedRadicle', ['z3abc'], IPC.RADICLE_SEED, ['z3abc']],
       ['getRadicleStatus', [], IPC.RADICLE_GET_STATUS, []],
-      ['getRadicleRepoPayload', ['z3abc'], IPC.RADICLE_GET_REPO_PAYLOAD, ['z3abc']],
       ['syncRadicleRepo', ['z3abc'], IPC.RADICLE_SYNC_REPO, ['z3abc']],
     ];
 

@@ -38,16 +38,16 @@ describe('renderer state', () => {
     mod.updateRegistry({
       ant: { api: 'http://127.0.0.1:1999', gateway: 'http://127.0.0.1:1999' },
       ipfs: { api: 'http://127.0.0.1:5999', gateway: 'http://127.0.0.1:8999' },
-      radicle: { api: 'http://127.0.0.1:8781', gateway: 'http://127.0.0.1:8781' },
+      radicle: { api: 'radapi://local', gateway: 'radapi://local' },
     });
 
     expect(mod.buildAntUrl('/health')).toBe('http://127.0.0.1:1999/health');
     expect(mod.buildIpfsApiUrl('/api/v0/id')).toBe('http://127.0.0.1:5999/api/v0/id');
-    expect(mod.buildRadicleUrl('/api/v1')).toBe('http://127.0.0.1:8781/api/v1');
+    expect(mod.buildRadicleUrl('/api/v1')).toBe('radapi://local/api/v1');
     expect(mod.state.antBase).toBe('http://127.0.0.1:1999');
     expect(mod.state.ipfsBase).toBe('http://127.0.0.1:8999');
     expect(mod.state.ipfsApiBase).toBe('http://127.0.0.1:5999');
-    expect(mod.state.radicleBase).toBe('http://127.0.0.1:8781');
+    expect(mod.state.radicleBase).toBe('radapi://local');
   });
 
   test('normalizes the radicle feature flag and service display messages', async () => {

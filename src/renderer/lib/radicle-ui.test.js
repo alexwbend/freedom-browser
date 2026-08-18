@@ -209,14 +209,6 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleStatusValue.textContent).toBe('Connected');
     expect(ctx.elements.radicleStatusRow.classList.contains('visible')).toBe(true);
 
-    ctx.state.registry.radicle.mode = 'reused';
-    ctx.mod.updateRadicleToggleState();
-    expect(ctx.elements.radicleToggleBtn.classList.contains('external')).toBe(true);
-
-    ctx.state.registry.radicle.mode = 'none';
-    ctx.mod.updateRadicleToggleState();
-    expect(ctx.elements.radicleToggleBtn.classList.contains('external')).toBe(false);
-
     ctx.mod.updateRadicleUi('starting');
     expect(ctx.elements.radicleToggleSwitch.classList.contains('running')).toBe(true);
     expect(ctx.state.currentRadicleStatus).toBe('starting');

@@ -120,9 +120,6 @@ export const state = {
     return this.radicleBase ? `${this.radicleBase}/api/v1/repos/` : null;
   },
 
-  // Navigation state for Radicle
-  currentRadBase: null,
-
   // Tor (.onion) state
   currentTorStatus: 'stopped',
   suppressTorRunningStatus: false,

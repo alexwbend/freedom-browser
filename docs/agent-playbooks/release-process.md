@@ -79,26 +79,23 @@ Ant is the exception to the "resolve latest" rule: `scripts/fetch-ant.js` pins a
 
 `freedom-ipfs` is pinned the same way: desktop intentionally consumes a pinned GitHub release asset with a checked checksum, so updating it means changing the pinned release metadata in `scripts/fetch-freedom-ipfs-native.js`.
 
-The other fetch scripts resolve the latest from a **vendor-specific** upstream — do **not** use GitHub tags as a stand-in, they can lag the actual release pointer (Radicle in particular publishes new releases to `files.radicle.xyz` first; GitHub `/tags` showed `1.7.1` as the latest stable while `1.9.1` was already shipping).
+The remaining fetch scripts use their pinned upstream release metadata.
 
 | Binary                                                | Authoritative source the fetch script reads                                                                                |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/solardev-xyz/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
 | freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                  |
-| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                |
-| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                  |
+| libradicle (`scripts/fetch-radicle-addon.js`)         | pinned GitHub release in the fetch script                                                                                  |
 
 To check whether the bundled binary is stale, compare its self-reported version against the source above:
 
 ```
 ./ant-bin/<arch>/antd --version
-./radicle-bin/<arch>/rad --version
-./radicle-bin/<arch>/radicle-httpd --version
 ```
 
-For `freedom-ipfs`, compare the pinned release in `scripts/fetch-freedom-ipfs-native.js` against the release you intend to ship, then update the asset name/checksum together.
+For native addons, compare the pinned release in its fetch script against the release you intend to ship, then update the asset name/checksum together.
 
-For each binary that's behind, re-run its fetch script (`npm run ant:download` / `ipfs:download` / `radicle:download` — each fetches every supported arch) and verify the result still passes `npm run check-binaries`. Note: downloaded binary directories are gitignored, so the binary refresh usually produces no file-tree change. The build pipeline (§5) re-fetches at artifact-build time — Ant and freedom-ipfs install their pinned versions, while Radicle ships whatever upstream `latest` resolves to then — document the versions in the changelog and in the `chore(build): update bundled <name> to <version>` commit body.
+For each binary/addon that's behind, re-run its fetch script (`npm run ant:download` / `ipfs:download` / `radicle:download`) and verify the result still passes `npm run check-binaries`. Downloaded binary directories are gitignored, so the refresh usually produces no file-tree change. Document versions in the changelog and the matching build commit.
 
 ### Commit style
 
@@ -194,7 +191,7 @@ Cross-building rebuilds `better-sqlite3` in `node_modules` for the *target* plat
 Cross-built artifacts have **never been run** by the time §5 finishes. The Linux container can package the AppImage and `.deb`, and the mac host can cross-build the Windows NSIS installer, but neither can execute the result on its actual target platform. Smoke testing each artifact on a real instance of its target OS catches packaging-class bugs that `npm test` and the on-host `npm start` smoke (§4) cannot:
 
 - Wrong native-module ABI for the target arch (e.g. `better-sqlite3.node` linked for the wrong NODE_MODULE_VERSION, or a x64 binary in an arm64 package)
-- Missing or wrong-arch bundled binary in `extraResources` (`antd.exe`, `ipfs`, `rad`, `radicle-httpd`)
+- Missing or wrong-arch bundled binary/addon in `extraResources` (`antd.exe`, freedom-ipfs, `libradicle.node`)
 - `electron-builder` configuration mistakes (asar unpack rules, `extraResources` paths, NSIS installer flags, Gatekeeper / SmartScreen interaction)
 - Platform-specific code paths (file system paths, native menus, IPC permissions, system trust store, default-browser hooks)
 

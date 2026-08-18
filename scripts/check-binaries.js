@@ -11,6 +11,7 @@ const FREEDOM_IPFS_NATIVE_PREBUILDS_DIR = path.join(
 );
 const FREEDOM_IPFS_NATIVE_ADDON = 'freedom_ipfs_native.node';
 const RADICLE_BIN_DIR = path.join(__dirname, '..', 'radicle-bin');
+const RADICLE_EMBEDDED_ADDON = 'libradicle.node';
 const ARTI_BIN_DIR = path.join(__dirname, '..', 'arti-bin');
 
 function getPlatformArch() {
@@ -105,16 +106,12 @@ function checkBinaries(platforms) {
       missing.push(`freedom-ipfs native addon for ${platformDir}: ${freedomIpfsAddonPath}`);
     }
 
-    // Radicle: no official Windows binaries yet — skip check for win targets
+    // Radicle: no addon release for Windows yet — the integration reports
+    // unavailable there instead of falling back to external executables.
     if (os !== 'win') {
-      const nodePath = path.join(RADICLE_BIN_DIR, platformDir, 'radicle-node');
-      const httpdPath = path.join(RADICLE_BIN_DIR, platformDir, 'radicle-httpd');
-
-      if (!fs.existsSync(nodePath)) {
-        missing.push(`radicle-node binary for ${platformDir}: ${nodePath}`);
-      }
-      if (!fs.existsSync(httpdPath)) {
-        missing.push(`radicle-httpd binary for ${platformDir}: ${httpdPath}`);
+      const addonPath = path.join(RADICLE_BIN_DIR, platformDir, RADICLE_EMBEDDED_ADDON);
+      if (!fs.existsSync(addonPath)) {
+        missing.push(`libradicle embedded addon for ${platformDir}: ${addonPath}`);
       }
     }
   }
@@ -124,7 +121,7 @@ function checkBinaries(platforms) {
 
 /**
  * Arti (Tor) is OPTIONAL and built from source via `npm run tor:download`
- * (cargo), unlike the prebuilt Bee/Radicle downloads. It is intentionally not
+ * (cargo), unlike the prebuilt node/addon downloads. It is intentionally not
  * a required build binary: when absent, Tor simply isn't bundled and the
  * in-app toggle stays disabled. We still create the per-platform resource dir
  * so electron-builder's `extraResources` entry resolves cleanly instead of
@@ -169,4 +166,8 @@ function main() {
   process.exit(0);
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = { getPlatformArch, checkBinaries, ensureOptionalArti, main };

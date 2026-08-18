@@ -18,8 +18,8 @@ consent and origin-scoped permissions.
 Unlike `window.swarm`, this provider deliberately has **no read methods**
 for repository data. Freedom Browser resolves the `rad:` URL scheme
 directly: any page can `fetch('rad:<rid>/tree/<sha>/…')` and receive JSON
-from the user's local `radicle-httpd` (repo-scoped, `GET`/`HEAD` only,
-rate-limitable, CORS-open — see `src/main/radicle/rad-protocol.js`). Public
+from the user's in-process Radicle storage (repo-scoped, `GET`/`HEAD` only,
+CORS-open — see `src/main/radicle/rad-protocol.js`). Public
 repo data needs no consent: it is world-readable P2P content, and the same
 bytes are obtainable from any seed.
 
@@ -188,21 +188,10 @@ The user's Radicle identity. Bootstrap path for the signing grant, like
 
 ## Backend mapping (implementation note)
 
-Writes execute the bundled `rad` CLI against the node's `RAD_HOME`
-(verified non-interactive on rad 1.9.1):
-
-| Method           | Command                                                                                                                                  |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| createIssue      | `rad issue open --repo <rid> -t <title> -d <desc> [--labels …]` (verbose — `-q` prints nothing for `open`; the id is parsed from output) |
-| commentIssue     | `rad issue comment <id> --repo <rid> -m <body> -q`                                                                                       |
-| editIssueState   | `rad issue state <id> --repo <rid> --open/--closed/--solved`                                                                             |
-| commentPatch     | `rad patch comment <rev> --repo <rid> -m <body> -q` (only the long `--repo` form exists here)                                            |
-| seed/unseed/sync | `rad seed/unseed/sync <rid>`                                                                                                             |
-
-All COB writes work storage-only via `--repo` — no working copy needed.
-Writes announce to the network by default (that is the point); the node
-must be running. Announce failures surface as `-32603` with
-`data.reason = 'announce_failed'` but the local write persists.
+Every method calls the `libradicle` napi addon. Repository reads and lists,
+seed policy changes, network fetches, identity disclosure, and COB writes all
+operate against the profile's in-process node and storage. No Radicle CLI,
+HTTP daemon, loopback port, output parsing, or executable fallback is involved.
 
 ## Design decisions (v1)
 
@@ -212,14 +201,14 @@ must be running. Announce failures surface as `-32603` with
   fragment the user into unlinkable authors and break the delegate/ACL
   model. The identity is only disclosed behind the signing grant.
 - **Patch creation is out of scope.** Creating a patch requires commits
-  and a `git push` via `git-remote-rad`, i.e. a working copy. The
+  and a managed working copy. The
   recommended future design is browser-managed bare checkouts under the
   profile directory with a high-level
   `radicle_commitAndPush({ rid, changes[] })`, but v1 ships COB writes
   only (issues + patch comments cover the collaboration loop around
   existing patches).
-- **Private repos** are invisible to the `rad:` URL scheme (httpd does
-  not serve them). v1 does not expose them through the provider either.
+- **Private repos** are invisible to the public `rad:` URL scheme. v1 does
+  not expose them through the provider either.
 - **No repo creation** (`rad init`) in v1 — it needs a working copy and
   raises squatting/spam questions; revisit with patch creation.
 
@@ -228,9 +217,7 @@ must be running. Announce failures surface as `-32603` with
 - Origin identification comes from the browser's display URL, never from
   page-controlled values (same trust model as the Swarm provider).
 - The provider MUST validate RIDs (`z` + base58, 20–60 chars) and COB ids
-  (hex, 6–40 chars) before shelling out, and MUST pass them as discrete
-  argv entries (never through a shell) to make injection structurally
-  impossible.
+  (hex, 6–40 chars) before crossing the addon boundary.
 - Writes are irrevocable once announced. The signing-grant prompt MUST
   make clear that the site will be able to author content as the user on
   the Radicle network.

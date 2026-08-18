@@ -1,17 +1,17 @@
 /**
- * Embedded Radicle API serving — the subset of radicle-httpd's REST API
- * that Freedom consumes, backed by the in-process node
- * (radicle-embedded.js) instead of a localhost HTTP daemon.
+ * Embedded Radicle API serving — the repository-viewer API that Freedom
+ * consumes, backed directly by the in-process node.
  *
  * Two consumers share `serveRepoApi`:
  *  - the `radapi:` scheme registered here, fetched by the internal
  *    rad-browser.html page (its `base` param becomes `radapi://local`);
  *  - the `rad:` scheme handler (radicle/rad-protocol.js), which serves
- *    dweb pages and short-circuits to this module in embedded mode
- *    instead of proxying to httpd.
+ *    dweb pages through the same native serving core.
  *
  * Served repo endpoints:
- *   (root)              → repo metadata (httpd `GET /api/v1/repos/:rid` shape)
+ *   /                   → embedded node health/version
+ *   /api/v1/stats       → node summary used by the Nodes panel
+ *   (root)              → repo metadata used by the viewer
  *   /tree/SHA[/path]    → tree entries at head (SHA informational)
  *   /blob/SHA/path      → blob content
  *   /readme/SHA         → root readme blob
@@ -38,6 +38,34 @@ function json(body, status = 200) {
   });
 }
 
+function withoutBody(response) {
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+async function serveNodeApi(pathname) {
+  try {
+    const status = await embedded.status();
+    if (pathname === '/') {
+      return json({
+        version: status?.version || 'embedded',
+        mode: 'embedded',
+      });
+    }
+    const repos = await embedded.listRepos();
+    return json({
+      repos: { total: repos.length },
+      peers: { connected: status?.connectedPeers ?? 0 },
+    });
+  } catch (err) {
+    log.warn('[radapi] node status failed:', err.message);
+    return json({ error: err.message }, 503);
+  }
+}
+
 /**
  * Serve one repo-scoped API path from the embedded node.
  * @param {string} rid - Full RID with rad: prefix (validated here)
@@ -45,7 +73,7 @@ function json(body, status = 200) {
  *   '/tree/<sha>/src' or '/blob/<sha>/README.md' (URL-encoded segments ok)
  * @returns {Promise<Response>}
  */
-async function serveRepoApi(rid, apiPath) {
+async function serveRepoApi(rid, apiPath, { method = 'GET' } = {}) {
   if (!RID_RE.test(rid)) {
     return json({ error: 'invalid RID' }, 400);
   }
@@ -53,30 +81,43 @@ async function serveRepoApi(rid, apiPath) {
   const section = parts[0] || null;
   // Sections carry an informational commit SHA segment: tree/SHA[/path...],
   // blob/SHA/path..., readme/SHA, stats/tree/SHA.
-  const rest = parts.slice(2).map(decodeURIComponent).join('/');
+  let rest;
+  try {
+    rest = parts.slice(2).map(decodeURIComponent).join('/');
+  } catch {
+    return json({ error: 'invalid path encoding' }, 400);
+  }
 
   try {
+    let response;
     if (!section) {
-      return json(await embedded.buildRepoMeta(rid));
-    }
-    switch (section) {
-      case 'tree':
-        return json(await embedded.tree(rid, rest));
-      case 'blob': {
-        if (!rest) return json({ error: 'missing path' }, 400);
-        return json(await embedded.blob(rid, rest));
+      response = json(await embedded.buildRepoMeta(rid));
+    } else {
+      switch (section) {
+        case 'tree':
+          response = json(await embedded.tree(rid, rest));
+          break;
+        case 'blob':
+          response = rest
+            ? json(await embedded.blob(rid, rest))
+            : json({ error: 'missing path' }, 400);
+          break;
+        case 'readme': {
+          const readme = await embedded.readme(rid);
+          response = readme ? json(readme) : json({ error: 'no readme' }, 404);
+          break;
+        }
+        case 'stats':
+          response = json({});
+          break;
+        case 'remotes':
+          response = json([]);
+          break;
+        default:
+          response = json({ error: `unsupported endpoint: ${section}` }, 404);
       }
-      case 'readme': {
-        const readme = await embedded.readme(rid);
-        return readme ? json(readme) : json({ error: 'no readme' }, 404);
-      }
-      case 'stats':
-        return json({});
-      case 'remotes':
-        return json([]);
-      default:
-        return json({ error: `unsupported endpoint: ${section}` }, 404);
     }
+    return method === 'HEAD' ? withoutBody(response) : response;
   } catch (err) {
     const missing = /not found|does not exist|NotFound/i.test(err.message);
     if (!missing) {
@@ -86,16 +127,32 @@ async function serveRepoApi(rid, apiPath) {
   }
 }
 
-async function handle(request) {
-  const url = new URL(request.url);
+async function handleRadicleApiRequest(request) {
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return json({ error: 'invalid URL' }, 400);
+  }
+
+  if (url.pathname === '/' || url.pathname === '/api/v1/stats') {
+    const response = await serveNodeApi(url.pathname);
+    return request.method === 'HEAD' ? withoutBody(response) : response;
+  }
+
   // radapi://local/api/v1/repos/<rid>[/section...]
   const parts = url.pathname.split('/').filter(Boolean);
   if (parts[0] !== 'api' || parts[1] !== 'v1' || parts[2] !== 'repos' || !parts[3]) {
     return json({ error: 'not found' }, 404);
   }
-  const rid = decodeURIComponent(parts[3]);
+  let rid;
+  try {
+    rid = decodeURIComponent(parts[3]);
+  } catch {
+    return json({ error: 'invalid RID encoding' }, 400);
+  }
   const apiPath = parts.length > 4 ? `/${parts.slice(4).join('/')}` : '';
-  return serveRepoApi(rid, apiPath);
+  return serveRepoApi(rid, apiPath, { method: request.method });
 }
 
 /**
@@ -107,8 +164,8 @@ function registerRadicleApiProtocol(targetSession) {
     log.warn('[radapi] session.protocol.handle unavailable — skipping');
     return;
   }
-  targetSession.protocol.handle('radapi', (request) => handle(request));
+  targetSession.protocol.handle('radapi', (request) => handleRadicleApiRequest(request));
   log.info('[radapi] Protocol handler registered');
 }
 
-module.exports = { registerRadicleApiProtocol, serveRepoApi };
+module.exports = { registerRadicleApiProtocol, handleRadicleApiRequest, serveRepoApi };

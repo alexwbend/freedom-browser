@@ -42,7 +42,6 @@ const createTab = (id, url, overrides = {}) => {
     hasNavigatedDuringCurrentLoad: false,
     isWebviewLoading: false,
     currentBzzBase: null,
-    currentRadBase: null,
     addressBarSnapshot: '',
     committedDisplayUrl: '',
     cachedWebContentsId: null,
@@ -71,8 +70,8 @@ const loadNavigationModule = async (options = {}) => {
     bzzRoutePrefix: 'https://gateway.example/bzz/',
     ipfsRoutePrefix: 'https://gateway.example/ipfs/',
     ipnsRoutePrefix: 'https://gateway.example/ipns/',
-    radicleApiPrefix: 'http://127.0.0.1:8780/api/v1/repos/',
-    radicleBase: 'http://127.0.0.1:8780',
+    radicleApiPrefix: 'radapi://local/api/v1/repos/',
+    radicleBase: 'radapi://local',
     enableRadicleIntegration: options.enableRadicleIntegration || false,
     currentRadicleStatus: options.currentRadicleStatus || 'running',
     currentIpfsStatus: options.currentIpfsStatus || 'running',
@@ -224,7 +223,6 @@ const loadNavigationModule = async (options = {}) => {
     deriveDisplayValue: jest.fn((url) => `display:${url}`),
     deriveBzzBaseFromUrl: jest.fn((url) => (url.includes('/bzz/') ? 'https://gateway.example/bzz/hash/' : null)),
     deriveIpfsBaseFromUrl: jest.fn(() => null),
-    deriveRadBaseFromUrl: jest.fn(() => null),
     applyEnsNamePreservation: jest.fn((url) => url),
     buildEnsDisplayUri: jest.fn((protocol, name, suffix = '') => {
       if (!name) return null;
@@ -296,8 +294,6 @@ const loadNavigationModule = async (options = {}) => {
     addHistory: jest.fn().mockResolvedValue(undefined),
     setBzzBase: jest.fn(),
     clearBzzBase: jest.fn(),
-    setRadBase: jest.fn(),
-    clearRadBase: jest.fn(),
     startSwarmProbe: jest.fn((hash, path) => {
       const id = swarmProbeState.nextProbeId;
       swarmProbeState.startCalls.push({ id, hash, path });

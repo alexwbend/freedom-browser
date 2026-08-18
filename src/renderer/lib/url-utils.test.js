@@ -17,7 +17,6 @@ import {
   isValidRadicleId,
   parseRadicleInput,
   formatRadicleUrl,
-  deriveRadBaseFromUrl,
   deriveRadicleDisplayValue,
 } from './url-utils.js';
 
@@ -1172,7 +1171,7 @@ describe('url-utils', () => {
   });
 
   describe('parseRadicleInput', () => {
-    const RAD_PREFIX = 'http://127.0.0.1:8780/api/v1/repos/';
+    const RAD_PREFIX = 'radapi://local/api/v1/repos/';
     const SAMPLE_RID = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
     test('parses rad:RID', () => {
@@ -1219,44 +1218,8 @@ describe('url-utils', () => {
     });
   });
 
-  describe('deriveRadBaseFromUrl', () => {
-    const RAD_BASE = 'http://127.0.0.1:8780/api/v1/repos/';
-    const SAMPLE_RID = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
-
-    test('extracts base from Radicle API URL', () => {
-      const url = `${RAD_BASE}${SAMPLE_RID}/tree/main/README.md`;
-      expect(deriveRadBaseFromUrl(url)).toBe(`${RAD_BASE}${SAMPLE_RID}/`);
-    });
-
-    test('extracts base from URL object input', () => {
-      const url = new URL(`${RAD_BASE}${SAMPLE_RID}/commits`);
-      expect(deriveRadBaseFromUrl(url)).toBe(`${RAD_BASE}${SAMPLE_RID}/`);
-    });
-
-    test('returns null for legacy /projects/ path', () => {
-      const url = `http://127.0.0.1:8780/api/v1/projects/${SAMPLE_RID}/tree/main`;
-      expect(deriveRadBaseFromUrl(url)).toBeNull();
-    });
-
-    test('returns null for non-Radicle API paths', () => {
-      expect(deriveRadBaseFromUrl('http://127.0.0.1:8780/api/v1/')).toBeNull();
-      expect(deriveRadBaseFromUrl('http://127.0.0.1:8780/')).toBeNull();
-    });
-
-    test('returns null for invalid RID segment', () => {
-      const url = 'http://127.0.0.1:8780/api/v1/repos/not-a-rid/tree/main';
-      expect(deriveRadBaseFromUrl(url)).toBeNull();
-    });
-
-    test('returns null for invalid input values', () => {
-      expect(deriveRadBaseFromUrl(null)).toBeNull();
-      expect(deriveRadBaseFromUrl(undefined)).toBeNull();
-      expect(deriveRadBaseFromUrl('not-a-url')).toBeNull();
-    });
-  });
-
   describe('deriveRadicleDisplayValue', () => {
-    const RAD_PREFIX = 'http://127.0.0.1:8780/api/v1/repos/';
+    const RAD_PREFIX = 'radapi://local/api/v1/repos/';
     const SAMPLE_RID = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
     test('converts API URL to rad:// display', () => {

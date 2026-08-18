@@ -1844,15 +1844,10 @@
         {
           protocol: 'radicle',
           label: 'Radicle',
-          modes: ['managed', 'external', 'disabled'],
+          modes: ['managed', 'disabled'],
           settingKey: 'enableRadicleIntegration',
           hideOnWindows: true,
-          externalFields: [
-            { key: 'externalHttp', label: 'HTTP', placeholder: 'http://127.0.0.1:8780' },
-          ],
-          endpointLines: (config, service) => [
-            config?.externalHttp || service?.api || (config?.httpPort ? `http://127.0.0.1:${config.httpPort}` : null),
-          ].filter(Boolean),
+          endpointLines: () => ['Embedded libradicle native node'],
         },
         {
           protocol: 'tor',

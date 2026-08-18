@@ -183,11 +183,11 @@ Freedom runs Swarm, IPFS, Radicle, and Tor nodes, giving you access to decentral
 |                      | Swarm          | IPFS                                  | Radicle                        | Tor (.onion)                  |
 | -------------------- | -------------- | ------------------------------------- | ------------------------------ | ----------------------------- |
 | **Protocol**         | `bzz://`       | `ipfs://`, `ipns://`                  | `rad://`                       | `http(s)://*.onion`           |
-| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | radicle-node + radicle-httpd   | Arti SOCKS5 proxy             |
+| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | libradicle native addon       | Arti SOCKS5 proxy             |
 | **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)         | Onion service hostname        |
-| **Managed Gateway Port** | 11633+     | internal native handler               | 18780+                         | n/a                           |
-| **Managed API Port** | 11633+         | internal native handler               | 18780+                         | n/a                           |
-| **Managed P2P Port** | 12633+         | internal native handler               | 18776+                         | n/a                           |
+| **Managed Gateway Port** | 11633+     | internal native handler               | internal native handler       | n/a                           |
+| **Managed API Port** | 11633+         | internal native handler               | internal native handler       | n/a                           |
+| **Managed P2P Port** | 12633+         | internal native handler               | in-process                    | n/a                           |
 | **Managed SOCKS Port** | n/a         | n/a                                   | n/a                            | 19150+                        |
 | **Route Prefix**     | `/bzz/{hash}/` | `/ipfs/{cid}/`, `/ipns/{name}/`       | `/api/v1/repos/{rid}/`         | SOCKS5 for `.onion` hosts     |
 | **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | profile-scoped short Radicle home | `<profile>/tor-data/`         |
@@ -197,16 +197,16 @@ Freedom runs Swarm, IPFS, Radicle, and Tor nodes, giving you access to decentral
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, Radicle, and Arti data directories. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS uses the embedded native handler without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint in profile settings. External node identity, storage, and circuit state are shared outside that profile. IPFS always uses the embedded `freedom-ipfs` native node.
-3. **Port Conflict Handling**: If a managed Ant, Radicle, or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
+1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, Radicle, and Arti data directories. IPFS and Radicle use embedded native handlers without loopback API or gateway ports.
+2. **Explicit External Nodes**: Profiles can opt into external Swarm endpoints or an external Tor SOCKS5 endpoint in profile settings. IPFS and Radicle always use their embedded native nodes.
+3. **Port Conflict Handling**: If a managed Ant or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
 This means Freedom works seamlessly whether you:
 
 - Run it standalone (bundled Swarm and native IPFS nodes start automatically; Radicle is optional and behind an Experimental setting)
 - Create multiple independent browser profiles with their own browser data, vault, and managed node state
-- Already have system-wide Swarm/Radicle daemons running and explicitly configure a profile to use them
+- Already have a system-wide Swarm daemon and explicitly configure a profile to use it
 - Have port conflicts with other software (Freedom finds and records available profile ports)
 
 On macOS, the packaged app explicitly allows multiple bundle instances so profile
@@ -227,14 +227,13 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 
 ### Integrated Radicle Node (macOS & Linux)
 
-- **Two-Process Architecture**: Manages both `radicle-node` (P2P network) and `radicle-httpd` (HTTP API) as a coordinated pair.
+- **Embedded Native Node**: Runs Radicle in the Electron main process through the `libradicle` addon without a loopback HTTP API.
+- **Native Provider Actions**: `window.radicle` seeding, identity, repository listing, COB writes, and GitHub imports all use the addon directly.
 - **Automatic Identity**: Creates a Radicle identity on first run (no manual setup required).
 - **Experimental Gate**: Radicle is controlled via **Settings → Experimental → Enable Radicle integration (Beta)**.
 - **Node Toggle**: Once enabled, start and stop Radicle from the Nodes panel.
 - **Live Statistics**: View connected peers, seeded repos, version, and Node ID.
 - **Repository Seeding**: Seed Radicle repositories directly from the browser to help replicate them across the network.
-- **Stale Socket Cleanup**: Automatically cleans up control sockets from unclean shutdowns.
-- **Port Conflict Resolution**: Uses profile-specific managed ports and persists reassignment if one is unavailable.
 - **Windows**: Radicle is not available on Windows yet (no upstream binaries). The Experimental settings section is hidden on Windows builds.
 
 ### Universal Address Bar
@@ -404,14 +403,14 @@ Freedom automatically manages node connections per profile. The default profile'
 
 - **Swarm Ant**: `http://127.0.0.1:11633`
 - **IPFS**: embedded native `freedom-ipfs` handler; no desktop loopback gateway/API port is started
-- **Radicle httpd**: `http://127.0.0.1:18780`
+- **Radicle**: embedded `libradicle` handler; no desktop loopback API port is started
 - **Tor Arti SOCKS5**: `127.0.0.1:19150`
 
-Named profiles use the next profile slot for Ant, Radicle, and Tor (`11634`, `18781`, `19151`, and so on). The ecosystem default Swarm/Radicle/Tor ports (`1633`, `8780`, `9150`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS is native-only and does not expose or reuse Kubo API/gateway ports.
+Named profiles use the next profile slot for Ant and Tor (`11634`, `19151`, and so on). The ecosystem default Swarm/Tor ports (`1633`, `9150`) are treated as external/system-node endpoints. IPFS and Radicle are native-only and do not expose or reuse loopback API/gateway ports.
 
-If Freedom detects a compatible Swarm, Radicle, or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node. This check runs both during profile startup and when a managed node is started manually from the Nodes menu.
+If Freedom detects a compatible Swarm or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node.
 
-For advanced users who need to connect a profile to a remote or system Bee/Radicle node, or to an external Tor SOCKS5 endpoint, use **Settings → Profiles → Node endpoints** and switch the relevant protocol to external mode. Development-only renderer gateway overrides are still available via environment variables:
+For advanced users who need to connect a profile to a remote or system Bee node, or to an external Tor SOCKS5 endpoint, use **Settings → Profiles → Node endpoints** and switch the relevant protocol to external mode. Development-only renderer gateway overrides are still available via environment variables:
 
 ```bash
 # Connect to a remote Swarm node
@@ -489,9 +488,8 @@ profile-managed dev data.
 
 | Script | Description |
 |--------|-------------|
-| `npm run radicle:download` | Download the Radicle binaries for your platform |
-| `npm run radicle:init` | Initialize Radicle identity and configuration |
-| `npm run radicle:status` | Check the default profile's Radicle httpd root endpoint |
+| `npm run radicle:download` | Download the embedded addon for the current platform |
+| `npm run radicle:build-addon` | Build the embedded addon from a sibling `libradicle` checkout |
 | `npm run radicle:reset` | Delete all Radicle data and start fresh |
 
 ### Tor Scripts
@@ -821,8 +819,7 @@ npm run start:test-updater
 
 ### Radicle fails to start
 - Ensure **Settings → Experimental → Enable Radicle integration (Beta)** is enabled
-- Freedom automatically detects managed-port conflicts and persists a free profile port
-- Ensure both `radicle-node` and `radicle-httpd` binaries exist in `radicle-bin/`
+- Ensure `libradicle.node` exists in the current platform's `radicle-bin/` directory
 - If starting for the first time, Freedom creates a Radicle identity automatically
 - Check terminal output for specific error messages
 - Reset Radicle data: `npm run radicle:reset`

@@ -208,7 +208,6 @@ function loadIpcHandlersModule(options = {}) {
   const state = require('./state');
 
   state.activeBzzBases.clear();
-  state.activeRadBases.clear();
 
   return {
     app,
@@ -293,39 +292,6 @@ describe('ipc-handlers', () => {
     ).resolves.toEqual(success());
     expect(ctx.state.activeBzzBases.has(5)).toBe(false);
 
-    await expect(
-      ctx.ipcMain.invoke(IPC.RAD_SET_BASE, {
-        webContentsId: 12,
-        baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/',
-      })
-    ).resolves.toEqual(
-      failure(
-        'RADICLE_DISABLED',
-        'Radicle integration is disabled. Enable it in Settings > Experimental'
-      )
-    );
-
-    const enabledCtx = loadIpcHandlersModule({
-      settings: { enableRadicleIntegration: true },
-    });
-    enabledCtx.mod.registerBaseIpcHandlers();
-
-    await expect(
-      enabledCtx.ipcMain.invoke(IPC.RAD_SET_BASE, {
-        webContentsId: 12,
-        baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/',
-      })
-    ).resolves.toEqual(success());
-    expect(enabledCtx.state.activeRadBases.get(12)?.toString()).toBe(
-      'http://127.0.0.1:8780/api/v1/repos/rid/'
-    );
-
-    await expect(
-      enabledCtx.ipcMain.invoke(IPC.RAD_CLEAR_BASE, {
-        webContentsId: 12,
-      })
-    ).resolves.toEqual(success());
-    expect(enabledCtx.state.activeRadBases.has(12)).toBe(false);
   });
 
   test('registers window, app, and internal routing handlers', async () => {
@@ -1009,7 +975,7 @@ describe('ipc-handlers', () => {
         nodes: {
           bee: { mode: 'managed', apiPort: 11634 },
           ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
-          radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+          radicle: { mode: 'managed' },
           tor: { mode: 'managed', socksPort: 19151 },
         },
       },
@@ -1041,7 +1007,7 @@ describe('ipc-handlers', () => {
           nodes: {
             bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
             ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
-            radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+            radicle: { mode: 'managed' },
             tor: { mode: 'managed', socksPort: 19151 },
           },
         },
@@ -1061,7 +1027,7 @@ describe('ipc-handlers', () => {
       nodes: {
         bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
         ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
-        radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+        radicle: { mode: 'managed' },
         tor: { mode: 'managed', socksPort: 19151 },
       },
     });

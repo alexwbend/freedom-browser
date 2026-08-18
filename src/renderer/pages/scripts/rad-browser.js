@@ -63,7 +63,7 @@ displayRid.textContent = rid ? `rad://${rid}` : 'rad://...';
 
 // Safe in both text and quoted-attribute contexts. The textContent →
 // innerHTML trick escapes & < > but NOT quotes, and this page interpolates
-// httpd-supplied names (file paths, RIDs) into data-* attributes — a file
+// repository-supplied names (file paths, RIDs) into data-* attributes — a file
 // named `x" onmouseover="…` would break out and run with full freedomAPI
 // access on this privileged internal page.
 const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -343,34 +343,12 @@ function getHeadFromRemotes(remotes, defaultBranch) {
   return null;
 }
 
-// Fetch repo payload via CLI (workaround for radicle-httpd bug)
-async function fetchPayloadViaCli() {
-  if (!window.freedomAPI?.getRadicleRepoPayload) {
-    return null;
-  }
-  try {
-    const result = await window.freedomAPI.getRadicleRepoPayload(rid);
-    if (result.success && result.payload) {
-      return result.payload;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // =============================================
 // RENDERING
 // =============================================
 
-// Track if we used CLI fallback for metadata
-let usedCliFallback = false;
-
-function renderRepoHeader(meta, cliPayload = null) {
-  // Prefer HTTP API data, fall back to CLI payload
-  const httpProject = meta.payloads?.['xyz.radicle.project']?.data;
-  const cliProject = cliPayload?.['xyz.radicle.project'];
-  const project = httpProject || cliProject || {};
+function renderRepoHeader(meta) {
+  const project = meta.payloads?.['xyz.radicle.project']?.data || {};
 
   const name = project.name || `rad:${rid}`;
   const desc = project.description || '';
@@ -411,7 +389,6 @@ function renderRepoHeader(meta, cliPayload = null) {
           <span class="value">${visibility}</span>
         </div>
       </div>
-      ${usedCliFallback ? '<div class="metadata-notice">Metadata loaded via CLI fallback (httpd issue)</div>' : ''}
     `;
   repoHeaderEl.innerHTML = html;
 }
@@ -1090,20 +1067,9 @@ async function init() {
 
     // Success — we have the repo
     repoMeta = meta;
-    let cliPayload = null;
-    const httpProject = meta.payloads?.['xyz.radicle.project'];
-    headSha = httpProject?.meta?.head;
-    let defaultBranch = httpProject?.data?.defaultBranch;
-
-    // Fallback: if HTTP API is missing project payload, try CLI
-    if (!httpProject) {
-      cliPayload = await fetchPayloadViaCli();
-      if (cliPayload?.['xyz.radicle.project']) {
-        usedCliFallback = true;
-        const cliProject = cliPayload['xyz.radicle.project'];
-        defaultBranch = defaultBranch || cliProject.defaultBranch;
-      }
-    }
+    const projectPayload = meta.payloads?.['xyz.radicle.project'];
+    headSha = projectPayload?.meta?.head;
+    let defaultBranch = projectPayload?.data?.defaultBranch;
 
     // Fallback: if no head SHA from project payload, try to get it from remotes
     if (!headSha) {
@@ -1118,7 +1084,7 @@ async function init() {
     if (!headSha) {
       // Still no head SHA — can't browse files
       showState('success');
-      renderRepoHeader(meta, cliPayload);
+      renderRepoHeader(meta);
       repoHeaderEl.insertAdjacentHTML(
         'beforeend',
         '<div class="empty-state" style="margin-top:24px"><p>No commit history found for this repository.</p></div>'
@@ -1127,7 +1093,7 @@ async function init() {
     }
 
     showState('success');
-    renderRepoHeader(meta, cliPayload);
+    renderRepoHeader(meta);
 
     // Fetch stats in background
     fetchStats(headSha).then(renderStats);

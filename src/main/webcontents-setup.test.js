@@ -67,7 +67,6 @@ function loadWebContentsSetupModule(options = {}) {
   const state = require('./state');
 
   state.activeBzzBases.clear();
-  state.activeRadBases.clear();
 
   return {
     app,
@@ -92,7 +91,6 @@ describe('webcontents-setup', () => {
     });
 
     ctx.state.activeBzzBases.set(contents.id, new URL('http://127.0.0.1:1633/bzz/hash/'));
-    ctx.state.activeRadBases.set(contents.id, new URL('http://127.0.0.1:8780/api/v1/repos/rid/'));
 
     ctx.mod.registerWebContentsHandlers();
     ctx.app.emit('web-contents-created', {}, contents);
@@ -107,7 +105,6 @@ describe('webcontents-setup', () => {
 
     contents.emit('destroyed');
     expect(ctx.state.activeBzzBases.has(contents.id)).toBe(false);
-    expect(ctx.state.activeRadBases.has(contents.id)).toBe(false);
   });
 
   test('skips css injection for internal file pages and intercepts external window opens', () => {

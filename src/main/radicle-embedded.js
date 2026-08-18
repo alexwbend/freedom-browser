@@ -1,12 +1,13 @@
 /**
- * Embedded Radicle node — napi addon wrapper (no radicle-httpd, no
- * spawned radicle-node; the node runs in-process on a background thread).
+ * Embedded Radicle node — napi addon wrapper. The node, repository reads,
+ * seeding, identity and COB writes all run in-process.
  *
  * The addon is `libradicle.node`, built from the libradicle repo
  * (rad:z2SzCC9zYnP17QRPZUhrP2RTEwZHj). Load order:
  *   1. FREEDOM_RADICLE_ADDON env override (absolute path)
- *   2. radicle-bin/<platform>/libradicle.node (prebuilt, like myotis-bin)
- *   3. ../libradicle/target/{release,debug}/libradicle.node (dev sibling)
+ *   2. resources/radicle-bin/libradicle.node (packaged app)
+ *   3. radicle-bin/<platform>/libradicle.node (development prebuilt)
+ *   4. ../libradicle/target/{release,debug}/libradicle.node (dev sibling)
  *
  * Every addon export resolves to a JSON string; this module parses them
  * and throws on `{error}` payloads so callers deal in plain objects.
@@ -20,6 +21,26 @@ let addon = null;
 let addonPath = null;
 let started = false;
 
+const REQUIRED_EXPORTS = [
+  'start',
+  'shutdown',
+  'connectSeeds',
+  'cloneRepo',
+  'unseedRepo',
+  'listRepos',
+  'identity',
+  'createIssue',
+  'commentIssue',
+  'editIssueState',
+  'commentPatch',
+  'importRepo',
+  'repoInfo',
+  'tree',
+  'blob',
+  'status',
+  'seeders',
+];
+
 function platformKey() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   if (process.platform === 'darwin') return `mac-${arch}`;
@@ -31,6 +52,9 @@ function candidatePaths() {
   const candidates = [];
   if (process.env.FREEDOM_RADICLE_ADDON) {
     candidates.push(process.env.FREEDOM_RADICLE_ADDON);
+  }
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'radicle-bin', 'libradicle.node'));
   }
   candidates.push(
     path.join(__dirname, '..', '..', 'radicle-bin', platformKey(), 'libradicle.node')
@@ -44,15 +68,21 @@ function candidatePaths() {
 }
 
 /**
- * Load the addon if present. Returns null (and logs once) when no binary
- * is found — callers fall back to the legacy binary-spawning path.
+ * Load the addon if present. A missing addon is a packaging/startup error;
+ * there is deliberately no executable fallback.
  */
 function loadAddon() {
   if (addon) return addon;
   for (const candidate of candidatePaths()) {
     if (fs.existsSync(candidate)) {
       try {
-        addon = require(candidate);
+        const loaded = require(candidate);
+        const missing = REQUIRED_EXPORTS.filter((name) => typeof loaded[name] !== 'function');
+        if (missing.length) {
+          log.warn('[RadicleEmbedded] Incompatible addon at', candidate, 'missing:', missing);
+          continue;
+        }
+        addon = loaded;
         addonPath = candidate;
         log.info('[RadicleEmbedded] Loaded addon from', candidate);
         return addon;
@@ -107,6 +137,19 @@ function isStarted() {
 
 const connectSeeds = (timeoutMs = 15000) => call('connectSeeds', timeoutMs);
 const cloneRepo = (rid, timeoutMs = 120000) => call('cloneRepo', rid, timeoutMs);
+const unseedRepo = (rid) => call('unseedRepo', rid);
+const listRepos = () => call('listRepos');
+const identity = () => call('identity');
+const createIssue = (rid, title, description, labels = []) =>
+  call('createIssue', rid, title, description, JSON.stringify(labels));
+const commentIssue = (rid, issueId, body, replyTo) =>
+  call('commentIssue', rid, issueId, body, replyTo);
+const editIssueState = (rid, issueId, state) =>
+  call('editIssueState', rid, issueId, state);
+const commentPatch = (rid, revisionId, body) =>
+  call('commentPatch', rid, revisionId, body);
+const importRepo = (repoPath, name, description, defaultBranch) =>
+  call('importRepo', repoPath, name, description, defaultBranch);
 const repoInfo = (rid) => call('repoInfo', rid);
 const tree = (rid, treePath = '') => call('tree', rid, treePath);
 const blob = (rid, blobPath) => call('blob', rid, blobPath);
@@ -114,8 +157,7 @@ const status = () => call('status');
 const seeders = (rid) => call('seeders', rid);
 
 /**
- * Repo metadata shaped like radicle-httpd's `GET /api/v1/repos/:rid`,
- * covering the fields pages/scripts/rad-browser.js consumes.
+ * Repo metadata covering the fields pages/scripts/rad-browser.js consumes.
  */
 async function buildRepoMeta(rid) {
   const info = await repoInfo(rid);
@@ -171,6 +213,8 @@ async function readme(rid) {
 }
 
 module.exports = {
+  candidatePaths,
+  REQUIRED_EXPORTS,
   isAvailable,
   getAddonPath,
   start,
@@ -178,6 +222,14 @@ module.exports = {
   isStarted,
   connectSeeds,
   cloneRepo,
+  unseedRepo,
+  listRepos,
+  identity,
+  createIssue,
+  commentIssue,
+  editIssueState,
+  commentPatch,
+  importRepo,
   repoInfo,
   tree,
   blob,

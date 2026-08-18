@@ -8,6 +8,12 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
+const REQUIRED_FAKE_EXPORTS = [
+  'start', 'shutdown', 'connectSeeds', 'cloneRepo', 'unseedRepo', 'listRepos',
+  'identity', 'createIssue', 'commentIssue', 'editIssueState', 'commentPatch',
+  'importRepo', 'repoInfo', 'tree', 'blob', 'status', 'seeders',
+].map((name) => `${name}: async () => JSON.stringify({ ok: true }),`).join('');
+
 describe('radicle-embedded addon loading', () => {
   afterEach(() => {
     delete process.env.FREEDOM_RADICLE_ADDON;
@@ -29,6 +35,26 @@ describe('radicle-embedded addon loading', () => {
     });
   });
 
+  test('checks the packaged extraResources location', () => {
+    const original = Object.getOwnPropertyDescriptor(process, 'resourcesPath');
+    Object.defineProperty(process, 'resourcesPath', {
+      configurable: true,
+      value: path.join(os.tmpdir(), 'Freedom.app', 'Contents', 'Resources'),
+    });
+
+    try {
+      jest.isolateModules(() => {
+        const embedded = require('./radicle-embedded');
+        expect(embedded.candidatePaths()).toContain(
+          path.join(process.resourcesPath, 'radicle-bin', 'libradicle.node')
+        );
+      });
+    } finally {
+      if (original) Object.defineProperty(process, 'resourcesPath', original);
+      else delete process.resourcesPath;
+    }
+  });
+
   test('call() surfaces addon {error} payloads as thrown errors', async () => {
     // Fake addon: a real file on disk that require() can load.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rad-addon-'));
@@ -36,6 +62,7 @@ describe('radicle-embedded addon loading', () => {
     fs.writeFileSync(
       fake,
       'module.exports = {' +
+        REQUIRED_FAKE_EXPORTS +
         'repoInfo: async () => JSON.stringify({ error: "boom" }),' +
         'status: async () => JSON.stringify({ connectedPeers: 3 }),' +
         '};'
@@ -57,12 +84,13 @@ describe('buildRepoMeta shape', () => {
     jest.resetModules();
   });
 
-  test('produces the httpd fields rad-browser consumes', async () => {
+  test('produces the viewer metadata fields rad-browser consumes', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rad-addon-'));
     const fake = path.join(dir, 'libradicle.node.js');
     fs.writeFileSync(
       fake,
       'module.exports = {' +
+        REQUIRED_FAKE_EXPORTS +
         'repoInfo: async () => JSON.stringify({ rid: "rad:zAbc", name: "demo",' +
         ' description: "d", defaultBranch: "main", head: "sha1", issuesOpen: 2, patchesOpen: 1 }),' +
         'seeders: async () => JSON.stringify({ seeding: 7 }),' +

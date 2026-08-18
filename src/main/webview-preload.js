@@ -477,9 +477,6 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   getRadicleStatus: guardInternal('getRadicleStatus', () =>
     ipcRenderer.invoke('radicle:getStatus')
   ),
-  getRadicleRepoPayload: guardInternal('getRadicleRepoPayload', (rid) =>
-    ipcRenderer.invoke('radicle:getRepoPayload', rid)
-  ),
   syncRadicleRepo: guardInternal('syncRadicleRepo', (rid) =>
     ipcRenderer.invoke('radicle:syncRepo', rid)
   ),

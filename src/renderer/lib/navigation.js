@@ -24,7 +24,6 @@ import {
   looksLikeBzzInput,
   deriveDisplayValue,
   deriveBzzBaseFromUrl,
-  deriveRadBaseFromUrl,
   buildEnsDisplayUri,
   isEnsBackedDisplay,
   isSupportedEnsTransport,
@@ -787,29 +786,6 @@ const syncBzzBase = (nextBase) => {
     });
 };
 
-const syncRadBase = (nextBase) => {
-  const navState = getNavState();
-  if (!electronAPI || (!electronAPI.setRadBase && !electronAPI.clearRadBase)) {
-    return;
-  }
-  if (navState.currentRadBase === nextBase) {
-    return;
-  }
-  navState.currentRadBase = nextBase || null;
-  ensureWebContentsId()
-    .then((id) => {
-      if (!id) return;
-      if (navState.currentRadBase) {
-        electronAPI.setRadBase?.(id, navState.currentRadBase);
-      } else {
-        electronAPI.clearRadBase?.(id);
-      }
-    })
-    .catch((err) => {
-      console.error('Failed to sync rad base', err);
-    });
-};
-
 // EIP-681 carries value in the chain's base unit (wei for ETH et al.); we
 // assume 18 decimals for the native token, correct for every chain freedom
 // currently ships with.
@@ -1407,7 +1383,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       navState.pendingNavigationUrl = disabledUrl;
       navState.hasNavigatedDuringCurrentLoad = false;
       webview.loadURL(disabledUrl);
-      syncRadBase(null);
       syncBzzBase(null);
       return;
     }
@@ -1429,7 +1404,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       }
       pushDebug(`Loading ${radicleTarget.displayValue} via ${radicleTarget.targetUrl}`);
       // rad-browser.html handles its own API calls, no base sync needed
-      syncRadBase(null);
       syncBzzBase(null);
       return;
     }
@@ -1443,7 +1417,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     navState.pendingNavigationUrl = errorUrl.toString();
     navState.hasNavigatedDuringCurrentLoad = false;
     webview.loadURL(errorUrl.toString());
-    syncRadBase(null);
     syncBzzBase(null);
     return;
   }
@@ -1501,7 +1474,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       navState.hasNavigatedDuringCurrentLoad = false;
       webview.loadURL(errorUrl);
       syncBzzBase(null);
-      syncRadBase(null);
       return;
     }
     const cidMatch = ipfsTarget.displayValue.match(/^ipfs:\/\/([A-Za-z0-9]+)/);
@@ -1523,7 +1495,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     webview.loadURL(ipfsLoadUrl);
     pushDebug(`Loading ${ipfsTarget.displayValue} via ${ipfsLoadUrl}`);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1557,7 +1528,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     navState.hasNavigatedDuringCurrentLoad = false;
     webview.loadURL(errorUrl);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1576,7 +1546,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     });
     pushDebug(`[AddressBar] Loading target, set to: ${displayValue}`);
     syncBzzBase(target.baseUrl || null);
-    syncRadBase(null);
 
     // Augment with optional ENS-transport overrides. `swarmHash` lets the
     // probe target the resolved Swarm reference; `bzzLoadUrl` is what
@@ -1603,7 +1572,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     webview.loadURL(value);
     pushDebug(`Loading ${value}`);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1659,7 +1627,6 @@ export const loadHomePage = () => {
     return;
   }
   syncBzzBase(null);
-  syncRadBase(null);
   addressInput.value = '';
   updateProtocolIcon();
   navState.pendingNavigationUrl = homeUrlNormalized;
@@ -1908,13 +1875,11 @@ const handleNavigationEvent = (event) => {
         pushDebug(`[AddressBar] Skipped update (already ${derived})`);
       }
 
-      // Sync bases for protocols still using the rewriter (bzz, rad).
+      // Sync the only protocol still using the HTTP request rewriter (bzz).
       // `ipfs:`/`ipns:` are standard schemes with main-process protocol
       // handlers, so the renderer doesn't track an IPFS base anymore.
       const bzzBase = deriveBzzBaseFromUrl(event.url);
-      const radBase = deriveRadBaseFromUrl(event.url);
       syncBzzBase(bzzBase);
-      syncRadBase(radBase);
     }
 
     navState.pendingTitleForUrl = event.url;
@@ -2414,9 +2379,6 @@ export const initNavigation = () => {
           // renderer doesn't track an IPFS base anymore.
           if (tabNavState.currentBzzBase) {
             syncBzzBase(tabNavState.currentBzzBase);
-          }
-          if (tabNavState.currentRadBase) {
-            syncRadBase(tabNavState.currentRadBase);
           }
           // Sync navigationState.currentPageUrl if tab.url is more recent
           if (data.tab.url && data.tab.url !== tabNavState.currentPageUrl) {

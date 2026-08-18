@@ -35,7 +35,7 @@ describe('escapeHtml', () => {
   });
 
   // The regression: a textContent -> innerHTML escaper leaves quotes intact,
-  // and this page interpolates httpd-supplied names into data-path="…" on a
+  // and this page interpolates repository-supplied names into data-path="…" on a
   // privileged internal page with full freedomAPI access.
   test('escapes quotes so attribute contexts cannot be broken out of', () => {
     expect(escapeHtml('pwn.md" onmouseover="alert(1)')).toBe(
@@ -48,7 +48,7 @@ describe('escapeHtml', () => {
 
   // No renderable metacharacter may survive, whichever context the caller
   // interpolates into. (The rendered-DOM side of this is covered by driving
-  // the real page against a hostile httpd fixture.)
+  // the real page against a hostile repository fixture.)
   test('output carries no raw HTML metacharacters', () => {
     const hostile = `x" onmouseover="alert(1)" y='<b>&</b>'`;
     expect(escapeHtml(hostile)).not.toMatch(/["'<>]/);

@@ -30,7 +30,6 @@ module.exports = {
   RADICLE_CHECK_BINARY: 'radicle:checkBinary',
   RADICLE_SEED: 'radicle:seed',
   RADICLE_GET_CONNECTIONS: 'radicle:getConnections',
-  RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
   RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
 
@@ -78,11 +77,6 @@ module.exports = {
   BZZ_START_PROBE: 'bzz:start-probe',
   BZZ_AWAIT_PROBE: 'bzz:await-probe',
   BZZ_CANCEL_PROBE: 'bzz:cancel-probe',
-
-  // IPFS routing
-  // Radicle routing
-  RAD_SET_BASE: 'rad:set-base',
-  RAD_CLEAR_BASE: 'rad:clear-base',
 
   // Window
   WINDOW_SET_TITLE: 'window:set-title',

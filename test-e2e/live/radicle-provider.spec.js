@@ -2,7 +2,7 @@
 // offline against an isolated pre-baked node (see radicle-fixtures.js).
 //
 // Flow:
-//   1. Wait for the managed radicle-node + httpd to come up.
+//   1. Wait for the embedded native node to come up.
 //   2. Open canopy (production build, local static server) in a tab and
 //      browse the fixture repo — asserts the rad: protocol handler serves
 //      repo data to a web page (WP0 path).
@@ -10,15 +10,15 @@
 //   4. Open a new issue through canopy's UI → signing consent → assert the
 //      issue lands (read back through the rad: scheme).
 //
-// Prereqs: radicle binaries (npm run radicle:download) and a canopy build
+// Prereqs: the libradicle addon (npm run radicle:download) and a canopy build
 // (npm run build in ../canopy). Skips gracefully when either is missing.
 
 const {
   test,
   expect,
-  HAS_RADICLE_BINARIES,
+  HAS_RADICLE_ADDON,
   HAS_CANOPY_DIST,
-  RAD_BIN,
+  RADICLE_ADDON,
   CANOPY_DIST,
 } = require('../radicle-fixtures');
 
@@ -54,8 +54,8 @@ const navigate = async (window, url) => {
 
 test.describe('radicle provider e2e', () => {
   test.skip(
-    !HAS_RADICLE_BINARIES,
-    `Radicle E2E needs the rad binary at ${RAD_BIN}. Run \`npm run radicle:download\`.`
+    !HAS_RADICLE_ADDON,
+    `Radicle E2E needs the addon at ${RADICLE_ADDON}. Run \`npm run radicle:download\`.`
   );
   test.skip(
     !HAS_CANOPY_DIST,
@@ -78,7 +78,7 @@ test.describe('radicle provider e2e', () => {
       .toBe('running');
 
     // (2) Open canopy at the fixture repo. Reads go fetch('rad:<rid>/…')
-    // through the protocol handler into the local httpd.
+    // through the protocol handler into native storage.
     await navigate(window, `${canopyUrl}/#/${rid}`);
     await waitForWebview(
       window,

@@ -65,19 +65,19 @@ describe('navigation-utils extracted helpers', () => {
         homeUrlNormalized: 'file:///app/pages/home.html',
         ipfsRoutePrefix: 'http://127.0.0.1:8080/ipfs/',
         ipnsRoutePrefix: 'http://127.0.0.1:8080/ipns/',
-        radicleApiPrefix: 'http://127.0.0.1:8780/api/v1/repos/',
+        radicleApiPrefix: 'radapi://local/api/v1/repos/',
         knownEnsNames: new Map([['abcdef', 'name.eth']]),
       })
     ).toBe('bzz://name.eth/path');
 
     expect(
       mod.deriveDisplayAddress({
-        url: 'http://127.0.0.1:8780/api/v1/repos/zabc123/tree/main',
+        url: 'radapi://local/api/v1/repos/zabc123/tree/main',
         bzzRoutePrefix: 'http://127.0.0.1:1633/bzz/',
         homeUrlNormalized: 'file:///app/pages/home.html',
         ipfsRoutePrefix: 'http://127.0.0.1:8080/ipfs/',
         ipnsRoutePrefix: 'http://127.0.0.1:8080/ipns/',
-        radicleApiPrefix: 'http://127.0.0.1:8780/api/v1/repos/',
+        radicleApiPrefix: 'radapi://local/api/v1/repos/',
       })
     ).toBe('rad://zabc123/tree/main');
   });

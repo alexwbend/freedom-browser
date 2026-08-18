@@ -48,7 +48,7 @@ const fetchRadicleInfo = async () => {
   }
   if (!radicleInfoPanel?.classList.contains('visible')) return;
 
-  // Fetch connected peers count via IPC (uses rad node status --json)
+  // Fetch connected peers from the in-process node.
   if (window.radicle?.getConnections) {
     try {
       const connResult = await window.radicle.getConnections();
@@ -83,7 +83,7 @@ const fetchRadicleInfo = async () => {
 const fetchRadicleVersionOnce = async () => {
   if (state.radicleVersionFetched) return;
   try {
-    // radicle-httpd returns version at / (root endpoint)
+    // The internal native API returns its mode/version at the root endpoint.
     const response = await fetch(buildRadicleUrl('/'));
     if (response.ok) {
       const data = await response.json();
@@ -133,9 +133,8 @@ export const updateRadicleUi = (status, error) => {
 
   state.currentRadicleStatus = status;
 
-  // Update status line and toggle state from registry
+  // Update status line from registry.
   updateRadicleStatusLine();
-  updateRadicleToggleState();
 
   if (!radicleToggleBtn || !radicleToggleSwitch) return;
 
@@ -213,21 +212,6 @@ export const updateRadicleStatusLine = () => {
     radicleStatusLabel.textContent = '';
     radicleStatusValue.textContent = '';
     radicleStatusRow.classList.remove('visible');
-  }
-};
-
-// Update toggle visual state based on node mode
-export const updateRadicleToggleState = () => {
-  if (!state.enableRadicleIntegration) return;
-  if (!radicleToggleBtn) return;
-
-  const mode = state.registry?.radicle?.mode;
-  const isReused = mode === 'reused';
-
-  if (isReused) {
-    radicleToggleBtn.classList.add('external');
-  } else {
-    radicleToggleBtn.classList.remove('external');
   }
 };
 

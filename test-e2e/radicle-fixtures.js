@@ -1,14 +1,13 @@
 // Fixtures for the Radicle live E2E suite.
 //
 // Launches the app WITHOUT FREEDOM_TEST_MODE (real protocol handlers, real
-// radicle-node) but with every data dir isolated. The radicle home is
+// native Radicle node) but with every data dir isolated. The Radicle home is
 // pre-baked before launch:
-//  - a fresh identity (`rad auth`)
+//  - a fresh identity created by libradicle
 //  - an ISOLATED node config (no preferred seeds, no peers) so nothing the
 //    suite creates ever reaches the public network
-//  - a public fixture repo with one issue, created via the rad CLI, so
-//    reads (rad: scheme → local httpd) and writes (window.radicle → rad
-//    CLI) can be asserted fully offline
+//  - a public fixture repo with one issue, created through libradicle, so
+//    reads and window.radicle writes can be asserted fully offline
 //
 // Also serves the canopy production build (../canopy/dist) from a local
 // static server — the dApp under test.
@@ -28,30 +27,23 @@ function radicleBinDir() {
   return path.join(repoRoot, 'radicle-bin', `${platform}-${arch}`);
 }
 
-const RAD_BIN = path.join(radicleBinDir(), 'rad');
-const HAS_RADICLE_BINARIES = fs.existsSync(RAD_BIN);
+const RADICLE_ADDON = path.join(radicleBinDir(), 'libradicle.node');
+const HAS_RADICLE_ADDON = fs.existsSync(RADICLE_ADDON);
 
 const CANOPY_DIST = path.resolve(repoRoot, '..', 'canopy', 'dist');
 const HAS_CANOPY_DIST = fs.existsSync(path.join(CANOPY_DIST, 'index.html'));
 
 /** Pre-bake an isolated radicle home + public fixture repo. */
-function bakeRadicleHome(radHome, workdir) {
-  const env = { ...process.env, RAD_HOME: radHome, RAD_PASSPHRASE: '' };
-  const rad = (args, opts = {}) => execFileSync(RAD_BIN, args, { env, encoding: 'utf8', ...opts });
+async function bakeRadicleHome(radHome, workdir) {
+  const addon = require(RADICLE_ADDON);
+  const call = async (name, ...args) => {
+    const value = JSON.parse(await addon[name](...args));
+    if (value.error) throw new Error(value.error);
+    return value;
+  };
 
-  rad(['auth', '--alias', 'radicle-e2e']);
-
-  // Fully isolated node: no seeds, no peer discovery, no inbound listener.
-  const configPath = path.join(radHome, 'config.json');
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  config.preferredSeeds = [];
-  config.node.peers = { type: 'static' };
-  config.node.connect = [];
-  config.node.listen = [];
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-
-  // Public fixture repo (public so radicle-httpd serves it; the isolated
-  // node config guarantees it never leaves this machine).
+  // Public fixture repo; the isolated node config guarantees it never leaves
+  // this machine.
   fs.mkdirSync(workdir, { recursive: true });
   fs.writeFileSync(path.join(workdir, 'README.md'), '# e2e-sample\n\nCanopy e2e fixture.\n');
   fs.writeFileSync(path.join(workdir, 'index.js'), "console.log('hello');\n");
@@ -59,51 +51,34 @@ function bakeRadicleHome(radHome, workdir) {
     execFileSync('git', args, {
       cwd: workdir,
       env: {
-        ...env,
+        ...process.env,
         GIT_AUTHOR_NAME: 'e2e',
         GIT_AUTHOR_EMAIL: 'e2e@canopy.local',
         GIT_COMMITTER_NAME: 'e2e',
         GIT_COMMITTER_EMAIL: 'e2e@canopy.local',
-        PATH: `${radicleBinDir()}:${process.env.PATH}`,
       },
       encoding: 'utf8',
     });
   git(['init', '-q', '-b', 'main']);
   git(['add', '.']);
   git(['commit', '-q', '-m', 'initial commit']);
-  execFileSync(
-    RAD_BIN,
-    [
-      'init',
-      '--name',
-      'e2e-sample',
-      '--description',
-      'Canopy e2e fixture repo',
-      '--default-branch',
-      'main',
-      '--public',
-      '--no-confirm',
-    ],
-    { cwd: workdir, env, encoding: 'utf8' }
+  await call('start', radHome, 'radicle-e2e');
+  const { rid } = await call(
+    'importRepo', workdir, 'e2e-sample', 'Canopy e2e fixture repo', 'main'
   );
-  const rid = execFileSync(RAD_BIN, ['inspect', '--rid'], {
-    cwd: workdir,
-    env,
-    encoding: 'utf8',
-  }).trim();
+  await call(
+    'createIssue', rid, 'Fixture issue', 'Opened by the e2e fixture.', JSON.stringify([])
+  );
+  await call('shutdown');
 
-  rad([
-    'issue',
-    'open',
-    '--repo',
-    rid,
-    '--title',
-    'Fixture issue',
-    '--description',
-    'Opened by the e2e fixture.',
-    '--no-announce',
-    '-q',
-  ]);
+  // Fully isolated node: no public seeds, peer discovery, or inbound listener.
+  const configPath = path.join(radHome, 'config.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.preferredSeeds = [];
+  config.node.peers = { type: 'static' };
+  config.node.connect = [];
+  config.node.listen = [];
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
   return rid;
 }
@@ -144,7 +119,7 @@ const test = base.extend({
     const userDataDir = path.join(tmpRoot, 'userData');
     fs.mkdirSync(userDataDir, { recursive: true });
 
-    const rid = bakeRadicleHome(radHome, path.join(tmpRoot, 'fixture-repo'));
+    const rid = await bakeRadicleHome(radHome, path.join(tmpRoot, 'fixture-repo'));
 
     // Radicle on, auto-start on, wallet features off.
     fs.writeFileSync(
@@ -206,4 +181,4 @@ const test = base.extend({
   },
 });
 
-module.exports = { test, expect, HAS_RADICLE_BINARIES, HAS_CANOPY_DIST, RAD_BIN, CANOPY_DIST };
+module.exports = { test, expect, HAS_RADICLE_ADDON, HAS_CANOPY_DIST, RADICLE_ADDON, CANOPY_DIST };

@@ -1,6 +1,5 @@
 const log = require('./logger');
-const { activeBzzBases, activeRadBases } = require('./state');
-const { loadSettings } = require('./settings-store');
+const { activeBzzBases } = require('./state');
 const { registerWebRequestHandler } = require('./webrequest-dispatcher');
 const { URL } = require('url');
 
@@ -39,8 +38,8 @@ const sanitizeUrlForLog = (rawUrl) => {
 // see README "Swarm Content Retrieval" and "IPFS / IPNS Content
 // Retrieval". Requests for these schemes never reach the webRequest
 // rewriter — they're dispatched to the protocol handlers before
-// webRequest sees them, so this module only rewrites http(s) requests
-// relative to an active bzz/rad base.
+// webRequest sees them, so this module only rewrites HTTP(S) requests
+// relative to an active bzz base.
 
 /**
  * Determines if a request should be rewritten to stay within a content-addressed context.
@@ -155,21 +154,6 @@ function rewriteRequestForDispatch(details) {
   // dispatched to `src/main/ipfs/ipfs-protocol.js`, so the page origin is
   // `ipfs://<cid|name>/` and same-origin sub-resources never reach
   // webRequest as gateway URLs.
-
-  // Check for Radicle base
-  const radBaseUrl = activeRadBases.get(webContentsId);
-  if (radBaseUrl && loadSettings().enableRadicleIntegration === true) {
-    const { shouldRewrite } = shouldRewriteRequest(details.url, radBaseUrl);
-    if (shouldRewrite) {
-      const redirectTarget = buildRewriteTarget(details.url, radBaseUrl);
-      if (redirectTarget) {
-        log.info(
-          `[rewrite:rad] ${sanitizeUrlForLog(details.url)} -> ${sanitizeUrlForLog(redirectTarget)}`
-        );
-        return { redirectURL: redirectTarget };
-      }
-    }
-  }
 
   // Final guard: block requests to /bzz/ with missing or invalid hash
   // to prevent "bzz download: invalid path" errors on the Bee node
