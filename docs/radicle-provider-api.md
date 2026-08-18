@@ -192,6 +192,7 @@ Every method calls the `libradicle` napi addon. Repository reads and lists,
 seed policy changes, network fetches, identity disclosure, and COB writes all
 operate against the profile's in-process node and storage. No Radicle CLI,
 HTTP daemon, loopback port, output parsing, or executable fallback is involved.
+Successful COB mutations announce their updated refs before returning.
 
 ## Design decisions (v1)
 
