@@ -128,7 +128,7 @@ async function startRadicleInternal() {
       gateway: 'radapi://local',
       mode: MODE.EMBEDDED,
     });
-    setStatusMessage('radicle', 'Embedded node running');
+    setStatusMessage('radicle', null);
     updateState(STATUS.RUNNING);
     log.info('[Radicle] Embedded node started:', result.did);
     void connectAndSeedDefault();

@@ -75,6 +75,7 @@ test('starts and stops only the native addon', async () => {
   expect(ctx.registry.updateService).toHaveBeenCalledWith('radicle', {
     api: 'radapi://local', gateway: 'radapi://local', mode: 'embedded',
   });
+  expect(ctx.registry.setStatusMessage).toHaveBeenCalledWith('radicle', null);
   await expect(ctx.mod.stopRadicle()).resolves.toEqual({ status: 'stopped', error: null });
   expect(ctx.embedded.shutdown).toHaveBeenCalledTimes(1);
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
