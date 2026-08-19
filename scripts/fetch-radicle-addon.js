@@ -14,9 +14,9 @@ const https = require('https');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const { RADICLE_ADDON_RELEASE_TAG } = require('../src/shared/radicle-addon-version');
 
-const ADDON_VERSION = 'v0.3.0';
-const RELEASE_BASE = `https://github.com/solardev-xyz/libradicle/releases/download/${ADDON_VERSION}`;
+const RELEASE_BASE = `https://github.com/solardev-xyz/libradicle/releases/download/${RADICLE_ADDON_RELEASE_TAG}`;
 
 function platformKey() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
@@ -55,7 +55,7 @@ async function main() {
   }
   const assetName = `libradicle-${key}.node`;
 
-  console.log(`Downloading ${assetName} (${ADDON_VERSION})…`);
+  console.log(`Downloading ${assetName} (${RADICLE_ADDON_RELEASE_TAG})…`);
   const [binary, sums] = await Promise.all([
     fetchBuffer(`${RELEASE_BASE}/${assetName}`),
     fetchBuffer(`${RELEASE_BASE}/SHA256SUMS`),

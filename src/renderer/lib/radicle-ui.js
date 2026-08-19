@@ -1,5 +1,5 @@
 // Radicle node UI controls
-import { state, buildRadicleUrl, getDisplayMessage } from './state.js';
+import { state, getDisplayMessage } from './state.js';
 import { pushDebug } from './debug.js';
 
 // DOM elements (initialized in initRadicleUi)
@@ -27,7 +27,7 @@ export const stopRadicleInfoPolling = () => {
   }
   radicleInfoPanel?.classList.remove('visible');
   if (radiclePeersCount) radiclePeersCount.textContent = '0';
-  if (radicleReposCount) radicleReposCount.textContent = '';
+  if (radicleReposCount) radicleReposCount.textContent = '--';
   if (radicleVersionText) radicleVersionText.textContent = state.radicleVersionFetched ? state.radicleVersionValue : '';
 };
 
@@ -48,55 +48,36 @@ const fetchRadicleInfo = async () => {
   }
   if (!radicleInfoPanel?.classList.contains('visible')) return;
 
-  // Fetch connected peers from the in-process node.
+  // Fetch node information through the preload bridge. The internal radapi:
+  // protocol deliberately does not grant cross-origin access to the renderer.
   if (window.radicle?.getConnections) {
     try {
-      const connResult = await window.radicle.getConnections();
+      const info = await window.radicle.getConnections();
       if (!radicleInfoPanel?.classList.contains('visible')) return;
-      if (connResult.success && radiclePeersCount) {
-        radiclePeersCount.textContent = String(connResult.count);
+      if (info.success && radiclePeersCount) {
+        radiclePeersCount.textContent = String(info.count);
       } else if (radiclePeersCount) {
         radiclePeersCount.textContent = '0';
       }
+      if (radicleReposCount) {
+        radicleReposCount.textContent = Number.isInteger(info.reposCount)
+          ? String(info.reposCount)
+          : '--';
+      }
+      if (typeof info.version === 'string' && info.version) {
+        state.radicleVersionValue = `libradicle v${info.version}`;
+        state.radicleVersionFetched = true;
+      }
+      if (radicleVersionText) {
+        radicleVersionText.textContent = state.radicleVersionValue || '--';
+      }
     } catch {
       if (radiclePeersCount) radiclePeersCount.textContent = '0';
+      if (radicleReposCount) radicleReposCount.textContent = '--';
+      if (radicleVersionText) {
+        radicleVersionText.textContent = state.radicleVersionValue || '--';
+      }
     }
-  }
-
-  // Fetch seeded repos count from /api/v1/stats
-  try {
-    const statsResponse = await fetch(buildRadicleUrl('/api/v1/stats'));
-    if (!radicleInfoPanel?.classList.contains('visible')) return;
-    if (statsResponse.ok) {
-      const stats = await statsResponse.json();
-      const count = stats?.repos?.total ?? 0;
-      if (radicleReposCount) radicleReposCount.textContent = String(count);
-    } else if (radicleReposCount) {
-      radicleReposCount.textContent = '';
-    }
-  } catch {
-    if (radicleReposCount) radicleReposCount.textContent = '';
-  }
-
-};
-
-const fetchRadicleVersionOnce = async () => {
-  if (state.radicleVersionFetched) return;
-  try {
-    // The internal native API returns its mode/version at the root endpoint.
-    const response = await fetch(buildRadicleUrl('/'));
-    if (response.ok) {
-      const data = await response.json();
-      // Clean up version string - remove build hash if present
-      const rawVersion = data?.version || '';
-      state.radicleVersionValue = rawVersion.split('-')[0] || rawVersion;
-      state.radicleVersionFetched = true;
-      if (radicleVersionText) radicleVersionText.textContent = state.radicleVersionValue;
-    } else if (radicleVersionText) {
-      radicleVersionText.textContent = '';
-    }
-  } catch {
-    if (radicleVersionText) radicleVersionText.textContent = '';
   }
 };
 
@@ -113,7 +94,6 @@ export const startRadicleInfoPolling = () => {
   radicleInfoPanel?.classList.add('visible');
 
   fetchRadicleInfo();
-  if (!state.radicleVersionFetched) fetchRadicleVersionOnce();
 
   if (radicleInfoInterval) clearInterval(radicleInfoInterval);
   radicleInfoInterval = setInterval(fetchRadicleInfo, 2000);

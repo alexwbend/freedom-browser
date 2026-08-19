@@ -254,12 +254,34 @@ async function unseedRepository(rid) {
 
 async function getConnections() {
   const unavailable = requireRunning();
-  if (unavailable) return { ...unavailable, count: 0 };
+  if (unavailable) {
+    return {
+      ...unavailable,
+      count: 0,
+      reposCount: null,
+      version: embedded.getVersion(),
+    };
+  }
   try {
     const { connectedPeers } = await embedded.status();
-    return success({ count: connectedPeers });
+    let reposCount = null;
+    try {
+      const repos = await embedded.listRepos();
+      reposCount = Array.isArray(repos) ? repos.length : null;
+    } catch (err) {
+      log.warn('[Radicle] Could not read seeded repository count:', err.message);
+    }
+    return success({
+      count: connectedPeers,
+      reposCount,
+      version: embedded.getVersion(),
+    });
   } catch (err) {
-    return failure('GET_CONNECTIONS_FAILED', err.message, undefined, { count: 0 });
+    return failure('GET_CONNECTIONS_FAILED', err.message, undefined, {
+      count: 0,
+      reposCount: null,
+      version: embedded.getVersion(),
+    });
   }
 }
 

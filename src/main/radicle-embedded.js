@@ -16,6 +16,7 @@
 const log = require('./logger');
 const path = require('path');
 const fs = require('fs');
+const { RADICLE_ADDON_VERSION } = require('../shared/radicle-addon-version');
 
 let addon = null;
 let addonPath = null;
@@ -107,6 +108,10 @@ function isAvailable() {
 function getAddonPath() {
   loadAddon();
   return addonPath;
+}
+
+function getVersion() {
+  return RADICLE_ADDON_VERSION;
 }
 
 async function call(name, ...args) {
@@ -246,6 +251,7 @@ module.exports = {
   REQUIRED_EXPORTS,
   isAvailable,
   getAddonPath,
+  getVersion,
   start,
   shutdown,
   isStarted,

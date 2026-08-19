@@ -2,7 +2,6 @@ const { createDocument, createElement } = require('../../../test/helpers/fake-do
 
 const originalWindow = global.window;
 const originalDocument = global.document;
-const originalFetch = global.fetch;
 
 const flushMicrotasks = async () => {
   await Promise.resolve();
@@ -28,7 +27,6 @@ const loadRadicleModule = async (options = {}) => {
       },
     },
   };
-  const buildRadicleUrl = jest.fn((endpoint) => `http://radicle.test${endpoint}`);
   const getDisplayMessage = jest.fn(() => {
     return state.registry.radicle.tempMessage || state.registry.radicle.statusMessage;
   });
@@ -74,7 +72,14 @@ const loadRadicleModule = async (options = {}) => {
             .mockResolvedValue({ available: options.binaryAvailable ?? true }),
           getConnections: jest
             .fn()
-            .mockResolvedValue(options.connectionsResult || { success: true, count: 5 }),
+            .mockResolvedValue(
+              options.connectionsResult || {
+                success: true,
+                count: 5,
+                reposCount: 7,
+                version: '0.3.0',
+              }
+            ),
           start: jest
             .fn()
             .mockResolvedValue(options.startResult || { status: 'running', error: null }),
@@ -92,21 +97,6 @@ const loadRadicleModule = async (options = {}) => {
   const setIntervalMock = jest.spyOn(global, 'setInterval').mockImplementation(() => intervalId++);
   const clearIntervalMock = jest.spyOn(global, 'clearInterval').mockImplementation(() => {});
 
-  global.fetch =
-    options.fetchImpl ||
-    jest.fn(async (url) => {
-      if (url.endsWith('/api/v1/stats')) {
-        return {
-          ok: true,
-          json: async () => ({ repos: { total: 7 } }),
-        };
-      }
-
-      return {
-        ok: true,
-        json: async () => ({ version: '1.2.3-buildhash' }),
-      };
-    });
   global.window = {
     radicle: radicleApi,
     addEventListener: jest.fn((event, handler) => {
@@ -117,7 +107,6 @@ const loadRadicleModule = async (options = {}) => {
 
   jest.doMock('./state.js', () => ({
     state,
-    buildRadicleUrl,
     getDisplayMessage,
   }));
   jest.doMock('./debug.js', () => debugMocks);
@@ -127,7 +116,6 @@ const loadRadicleModule = async (options = {}) => {
   return {
     mod,
     state,
-    buildRadicleUrl,
     getDisplayMessage,
     debugMocks,
     setIntervalMock,
@@ -154,7 +142,6 @@ describe('radicle-ui', () => {
   afterEach(() => {
     global.window = originalWindow;
     global.document = originalDocument;
-    global.fetch = originalFetch;
     jest.restoreAllMocks();
   });
 
@@ -174,12 +161,10 @@ describe('radicle-ui', () => {
     await flushMicrotasks();
 
     expect(ctx.radicleApi.getConnections).toHaveBeenCalled();
-    expect(ctx.buildRadicleUrl).toHaveBeenCalledWith('/api/v1/stats');
-    expect(ctx.buildRadicleUrl).toHaveBeenCalledWith('/');
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(true);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('5');
     expect(ctx.elements.radicleReposCount.textContent).toBe('7');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('1.2.3');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.3.0');
     expect(ctx.state.radicleVersionFetched).toBe(true);
     expect(ctx.setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 2000);
 
@@ -188,8 +173,8 @@ describe('radicle-ui', () => {
     expect(ctx.clearIntervalMock).toHaveBeenCalled();
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(false);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('0');
-    expect(ctx.elements.radicleReposCount.textContent).toBe('');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('1.2.3');
+    expect(ctx.elements.radicleReposCount.textContent).toBe('--');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.3.0');
   });
 
   test('updates Radicle status lines, toggle state, and running transitions', async () => {

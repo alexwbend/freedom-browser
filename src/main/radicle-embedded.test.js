@@ -73,6 +73,7 @@ describe('radicle-embedded addon loading', () => {
     await jest.isolateModulesAsync(async () => {
       const embedded = require('./radicle-embedded');
       expect(embedded.isAvailable()).toBe(true);
+      expect(embedded.getVersion()).toBe('0.3.0');
       await expect(embedded.repoInfo('rad:zAbc')).rejects.toThrow('boom');
       await expect(embedded.status()).resolves.toEqual({ connectedPeers: 3 });
     });
