@@ -50,7 +50,8 @@ function requireText(value, { field, reason, maxBytes, allowEmpty = false }) {
 }
 
 function nativeError(err) {
-  err.reason = /not found/i.test(err.message) ? 'repo_not_found' : 'native_failed';
+  if (/announce refs failed/i.test(err.message)) err.reason = 'announce_failed';
+  else err.reason = /not found/i.test(err.message) ? 'repo_not_found' : 'native_failed';
   return err;
 }
 

@@ -11,6 +11,8 @@ jest.mock('./radicle-embedded', () => ({
   treeAt: jest.fn(),
   blobAt: jest.fn(),
   readmeAt: jest.fn(),
+  commits: jest.fn(),
+  commit: jest.fn(),
   remotes: jest.fn(),
   repoStats: jest.fn(),
   issues: jest.fn(),
@@ -174,6 +176,46 @@ describe('radapi protocol', () => {
     await expect(stats.json()).resolves.toEqual({ commits: 42, branches: 3, contributors: 5 });
     expect(embedded.remotes).toHaveBeenCalledWith(RID);
     expect(embedded.repoStats).toHaveBeenCalledWith(RID, REVISION);
+  });
+
+  test('serves paginated commit history and structured commit diffs', async () => {
+    embedded.commits.mockResolvedValue([{ id: REVISION, summary: 'head' }]);
+    embedded.commit.mockResolvedValue({
+      commit: { id: REVISION, summary: 'head' },
+      diff: { stats: { insertions: 2, deletions: 1 }, files: [] },
+    });
+
+    const history = await serveRepoApi(RID, '/commits', {
+      search: `?parent=${REVISION}&page=2&perPage=5`,
+    });
+    const detail = await serveRepoApi(RID, `/commits/${REVISION}`);
+
+    await expect(history.json()).resolves.toEqual([{ id: REVISION, summary: 'head' }]);
+    await expect(detail.json()).resolves.toEqual({
+      commit: { id: REVISION, summary: 'head' },
+      diff: { stats: { insertions: 2, deletions: 1 }, files: [] },
+    });
+    expect(embedded.commits).toHaveBeenCalledWith(RID, REVISION, 2, 5);
+    expect(embedded.commit).toHaveBeenCalledWith(RID, REVISION);
+  });
+
+  test('bounds commit pagination before crossing the native boundary', async () => {
+    embedded.commits.mockResolvedValue([]);
+    await serveRepoApi(RID, '/commits', {
+      search: `?parent=${REVISION}&page=9999999999&perPage=9999999999`,
+    });
+    expect(embedded.commits).toHaveBeenCalledWith(RID, REVISION, 1_000_000, 100);
+  });
+
+  test.each([
+    ['/commits', ''],
+    ['/commits', '?parent=main'],
+    ['/commits/main', ''],
+  ])('rejects invalid commit revisions in %s%s', async (apiPath, search) => {
+    const response = await serveRepoApi(RID, apiPath, { search });
+    expect(response.status).toBe(400);
+    expect(embedded.commits).not.toHaveBeenCalled();
+    expect(embedded.commit).not.toHaveBeenCalled();
   });
 
   test.each([

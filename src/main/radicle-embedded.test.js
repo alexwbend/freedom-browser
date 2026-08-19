@@ -10,10 +10,10 @@ const fs = require('fs');
 
 const REQUIRED_FAKE_EXPORTS = [
   'start', 'shutdown', 'connectSeeds', 'cloneRepo', 'cloneRepoWithProgress',
-  'cancelClone', 'unseedRepo', 'listRepos',
+  'cancelClone', 'unseedRepo', 'listRepos', 'listSeededRepos',
   'issues', 'issue', 'patches', 'patch',
   'identity', 'createIssue', 'commentIssue', 'editIssueState', 'commentPatch',
-  'importRepo', 'repoInfo', 'tree', 'treeAt', 'blob', 'blobAt',
+  'importRepo', 'repoInfo', 'commits', 'commit', 'tree', 'treeAt', 'blob', 'blobAt',
   'remotes', 'repoStats', 'status', 'seeders',
 ].map((name) => `${name}: async () => JSON.stringify({ ok: true }),`).join('');
 

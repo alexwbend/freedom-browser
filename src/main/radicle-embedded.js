@@ -31,6 +31,7 @@ const REQUIRED_EXPORTS = [
   'cancelClone',
   'unseedRepo',
   'listRepos',
+  'listSeededRepos',
   'issues',
   'issue',
   'patches',
@@ -42,6 +43,8 @@ const REQUIRED_EXPORTS = [
   'commentPatch',
   'importRepo',
   'repoInfo',
+  'commits',
+  'commit',
   'tree',
   'treeAt',
   'blob',
@@ -171,6 +174,7 @@ async function cloneRepoWithProgress(rid, timeoutMs = 120000, onProgress = () =>
 const cancelClone = (rid) => call('cancelClone', rid);
 const unseedRepo = (rid) => call('unseedRepo', rid);
 const listRepos = () => call('listRepos');
+const listSeededRepos = () => call('listSeededRepos');
 const issues = (rid) => call('issues', rid);
 const issue = (rid, issueId) => call('issue', rid, issueId);
 const patches = (rid) => call('patches', rid);
@@ -187,6 +191,9 @@ const commentPatch = (rid, revisionId, body) =>
 const importRepo = (repoPath, name, description, defaultBranch) =>
   call('importRepo', repoPath, name, description, defaultBranch);
 const repoInfo = (rid) => call('repoInfo', rid);
+const commits = (rid, parent, page = 0, perPage = 30) =>
+  call('commits', rid, parent, page, perPage);
+const commit = (rid, revision) => call('commit', rid, revision);
 const tree = (rid, treePath = '') => call('tree', rid, treePath);
 const treeAt = (rid, revision, treePath = '') => call('treeAt', rid, revision, treePath);
 const blob = (rid, blobPath) => call('blob', rid, blobPath);
@@ -273,6 +280,7 @@ module.exports = {
   cancelClone,
   unseedRepo,
   listRepos,
+  listSeededRepos,
   issues,
   issue,
   patches,
@@ -284,6 +292,8 @@ module.exports = {
   commentPatch,
   importRepo,
   repoInfo,
+  commits,
+  commit,
   tree,
   treeAt,
   blob,

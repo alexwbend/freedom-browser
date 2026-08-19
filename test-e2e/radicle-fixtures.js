@@ -6,8 +6,8 @@
 //  - a fresh identity created by libradicle
 //  - an ISOLATED node config (no preferred seeds, no peers) so nothing the
 //    suite creates ever reaches the public network
-//  - a public fixture repo with one issue, created through libradicle, so
-//    reads and window.radicle writes can be asserted fully offline
+//  - a two-commit public fixture repo with one issue, created through
+//    libradicle, so reads and window.radicle writes can be asserted offline
 //
 // Also serves the canopy production build (../canopy/dist) from a local
 // static server — the dApp under test.
@@ -62,6 +62,12 @@ async function bakeRadicleHome(radHome, workdir) {
   git(['init', '-q', '-b', 'main']);
   git(['add', '.']);
   git(['commit', '-q', '-m', 'initial commit']);
+  const firstCommit = git(['rev-parse', 'HEAD']).trim();
+  fs.appendFileSync(path.join(workdir, 'README.md'), '\nSecond revision.\n');
+  fs.writeFileSync(path.join(workdir, 'new.txt'), 'added in the second commit\n');
+  git(['add', '.']);
+  git(['commit', '-q', '-m', 'update fixture files']);
+  const secondCommit = git(['rev-parse', 'HEAD']).trim();
   await call('start', radHome, 'radicle-e2e');
   const { rid } = await call(
     'importRepo', workdir, 'e2e-sample', 'Canopy e2e fixture repo', 'main'
@@ -80,7 +86,7 @@ async function bakeRadicleHome(radHome, workdir) {
   config.node.listen = [];
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
-  return rid;
+  return { rid, firstCommit, secondCommit };
 }
 
 /** Serve a directory over local http; resolves to the base URL. */
@@ -119,7 +125,7 @@ const test = base.extend({
     const userDataDir = path.join(tmpRoot, 'userData');
     fs.mkdirSync(userDataDir, { recursive: true });
 
-    const rid = await bakeRadicleHome(radHome, path.join(tmpRoot, 'fixture-repo'));
+    const fixture = await bakeRadicleHome(radHome, path.join(tmpRoot, 'fixture-repo'));
 
     // Radicle on, auto-start on, wallet features off.
     fs.writeFileSync(
@@ -129,7 +135,7 @@ const test = base.extend({
 
     const canopy = await serveStatic(CANOPY_DIST);
 
-    await use({ tmpRoot, radHome, userDataDir, rid, canopyUrl: canopy.url });
+    await use({ tmpRoot, radHome, userDataDir, ...fixture, canopyUrl: canopy.url });
 
     canopy.server.close();
     for (const dir of [tmpRoot, radHome]) {

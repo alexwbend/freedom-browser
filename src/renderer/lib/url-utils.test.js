@@ -1140,6 +1140,7 @@ describe('url-utils', () => {
   describe('isValidRadicleId', () => {
     test('accepts valid Radicle ID', () => {
       expect(isValidRadicleId('z3gqcJUoA1n9HaHKufZs5FCSGazv5')).toBe(true);
+      expect(isValidRadicleId('z4V1sjrXqjvFdnCUbxPFqd5p4DtH5')).toBe(true);
     });
 
     test('accepts various valid RID lengths', () => {
@@ -1213,6 +1214,20 @@ describe('url-utils', () => {
   });
 
   describe('formatRadicleUrl', () => {
+    test('formats a valid RID against the static embedded route', () => {
+      const rid = 'z4V1sjrXqjvFdnCUbxPFqd5p4DtH5';
+      const originalWindow = global.window;
+      global.window = { location: { href: 'file:///app/index.html' } };
+      try {
+        const result = formatRadicleUrl(`rad://${rid}`, 'radapi://local');
+        expect(result.displayValue).toBe(`rad://${rid}`);
+        expect(result.targetUrl).toContain(`rid=${rid}`);
+        expect(result.targetUrl).toContain('base=radapi%3A%2F%2Flocal');
+      } finally {
+        global.window = originalWindow;
+      }
+    });
+
     test('returns null when the Radicle base is not ready', () => {
       expect(formatRadicleUrl('rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5', null)).toBeNull();
     });

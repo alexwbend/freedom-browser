@@ -22,6 +22,13 @@ jest.mock('../radicle-embedded', () => ({
       description: 'hw',
     },
   ]),
+  listSeededRepos: jest.fn(async () => [
+    {
+      rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+      name: 'heartwood',
+      description: 'hw',
+    },
+  ]),
 }));
 
 const mockSeedFetchStatus = {
@@ -255,7 +262,7 @@ describe('node actions', () => {
     expect(manager.refetchRepository).toHaveBeenCalledWith(RID);
   });
 
-  test('radicle_listSeededRepos reads the native repository inventory', async () => {
+  test('radicle_listSeededRepos reads native seeding policies', async () => {
     const repos = await executeRadicleMethod('radicle_listSeededRepos', {}, ORIGIN);
     expect(repos).toEqual([{ rid: RID, name: 'heartwood', description: 'hw' }]);
   });

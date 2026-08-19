@@ -148,7 +148,7 @@ async function handleGetNodeStatus(origin) {
 
 async function handleListSeededRepos() {
   try {
-    return await embedded.listRepos();
+    return await embedded.listSeededRepos();
   } catch (err) {
     throw providerError(ERRORS.INTERNAL, err.message || 'repo listing failed');
   }

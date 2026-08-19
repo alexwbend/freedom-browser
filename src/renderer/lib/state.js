@@ -9,6 +9,9 @@ const normalizeBaseUrl = (value) =>
 // Kubo-compatible loopback gateway; real loads go through ipfs:// / ipns://
 // and the main-process native freedom-ipfs request API.
 const NATIVE_IPFS_BASE = 'http://freedom-ipfs.localhost';
+// The embedded Radicle protocol is registered for the app lifetime. Node
+// readiness affects responses, not whether renderer navigation has a route.
+const NATIVE_RADICLE_BASE = 'radapi://local';
 const envAntApi = normalizeBaseUrl(window.nodeConfig?.antApi);
 
 export const state = {
@@ -114,8 +117,9 @@ export const state = {
   radicleVersionValue: '',
   suppressRadicleRunningStatus: false,
 
-  // Radicle Gateway config (updated from registry)
-  radicleBase: null,
+  // Canonical in-process Radicle API route. Keep this available while the
+  // node starts or is offline so valid RIDs never become validation errors.
+  radicleBase: NATIVE_RADICLE_BASE,
   get radicleApiPrefix() {
     return this.radicleBase ? `${this.radicleBase}/api/v1/repos/` : null;
   },
@@ -167,7 +171,7 @@ export const updateRegistry = (newRegistry) => {
   state.antBase = normalizeBaseUrl(newRegistry.ant?.api) || envAntApi;
   state.ipfsBase = normalizeBaseUrl(newRegistry.ipfs?.gateway) || NATIVE_IPFS_BASE;
   state.ipfsApiBase = normalizeBaseUrl(newRegistry.ipfs?.api);
-  state.radicleBase = normalizeBaseUrl(newRegistry.radicle?.api);
+  state.radicleBase = normalizeBaseUrl(newRegistry.radicle?.api) || NATIVE_RADICLE_BASE;
 };
 
 export const setRadicleIntegrationEnabled = (enabled) => {

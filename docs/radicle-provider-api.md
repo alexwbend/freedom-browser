@@ -119,9 +119,11 @@ Emits the `disconnect` provider event.
 Coarse node state for UI (peer count, running/stopped). `nid` is only
 included once the signing grant exists (the NID is identifying).
 
-### `radicle_listSeededRepos` → `[{ rid, name, description }]` (connection tier)
+### `radicle_listSeededRepos` → `[{ rid, name?, description? }]` (connection tier)
 
-The repos the user's node seeds. Unlike `swarm_listFeeds` this is NOT
+The repos the user's node is configured to seed, including an allow policy
+whose first fetch has not succeeded yet (metadata is absent until it lands).
+Unlike `swarm_listFeeds` this is NOT
 permission-free: the seeded-repo list is private information about the
 user, not data the origin could compute itself.
 

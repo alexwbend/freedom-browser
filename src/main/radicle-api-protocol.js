@@ -16,6 +16,8 @@
  *   /tree/SHA[/path]    → tree entries at the requested commit
  *   /blob/SHA/path      → blob content at the requested commit
  *   /readme/SHA         → root readme blob
+ *   /commits?parent=SHA → paginated commit history
+ *   /commits/SHA        → commit metadata and structured diff
  *   /stats/tree/SHA     → commit, branch, and contributor counts
  *   /remotes            → signed remote branch heads
  *   /issues[/ID]        → collaborative issue reads
@@ -112,6 +114,21 @@ function paginate(items, searchParams) {
   return filtered.slice(page * perPage, (page + 1) * perPage);
 }
 
+function pageParams(searchParams) {
+  const params =
+    searchParams instanceof URLSearchParams ? searchParams : new URLSearchParams(searchParams || '');
+  return {
+    page: Math.min(
+      1_000_000,
+      Math.max(0, Number.parseInt(params.get('page') || '0', 10) || 0)
+    ),
+    perPage: Math.min(
+      100,
+      Math.max(1, Number.parseInt(params.get('perPage') || '30', 10) || 30)
+    ),
+  };
+}
+
 /**
  * Serve one repo-scoped API path from the embedded node.
  * @param {string} rid - Full RID with rad: prefix (validated here)
@@ -163,6 +180,27 @@ async function serveRepoApi(
           } else {
             const readme = await embedded.readmeAt(rid, revision);
             response = readme ? json(readme) : json({ error: 'no readme' }, 404);
+          }
+          break;
+        }
+        case 'commits': {
+          if (parts.length > 2) return json({ error: 'invalid commit path' }, 400);
+          if (revision) {
+            response = REVISION_RE.test(revision)
+              ? json(await embedded.commit(rid, revision))
+              : json({ error: 'invalid revision' }, 400);
+          } else {
+            const params =
+              search instanceof URLSearchParams
+                ? search
+                : new URLSearchParams(search || '');
+            const parent = params.get('parent');
+            if (!REVISION_RE.test(parent || '')) {
+              response = json({ error: 'missing parent revision' }, 400);
+            } else {
+              const { page, perPage } = pageParams(params);
+              response = json(await embedded.commits(rid, parent, page, perPage));
+            }
           }
           break;
         }
