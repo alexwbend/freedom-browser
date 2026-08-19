@@ -1,4 +1,4 @@
-const RADICLE_ADDON_VERSION = '0.4.0';
+const RADICLE_ADDON_VERSION = '0.5.0';
 
 module.exports = {
   RADICLE_ADDON_VERSION,
