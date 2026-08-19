@@ -1981,7 +1981,9 @@ async function doResolveEnsContent(normalized) {
   try {
     [innerBytes] = ethers.AbiCoder.defaultAbiCoder().decode(['bytes'], consensus.resolvedData);
   } catch (err) {
-    log.warn(`[ens] Failed to decode contenthash bytes for ${nameForLog(normalized)}: ${err.message}`);
+    log.warn(
+      `[ens] Failed to decode contenthash bytes for ${nameForLog(normalized)}: ${err.message}`
+    );
     return cacheContentResult(normalized, {
       type: 'unsupported',
       reason: 'UNSUPPORTED_CONTENTHASH_FORMAT',
@@ -2447,7 +2449,8 @@ async function readMyotisReverse(normalizedAddress) {
       }
     } catch (err) {
       log.info(
-        `[${nameSystem.id}] myotis forward verification failed for ${nameForLog(normalizedAddress)}: ${err.message}`
+        `[${nameSystem.id}] myotis forward verification failed for ${nameForLog(normalizedAddress)}: ` +
+        `${err.message}`
       );
     }
 
@@ -2615,7 +2618,8 @@ async function resolveContractBackedReverseWithMethod(method, normalizedAddress,
       }
     } catch (err) {
       log.info(
-        `[${nameSystem.id}] ${method} forward verification failed for ${nameForLog(normalizedAddress)}: ${err.message}`
+        `[${nameSystem.id}] ${method} forward verification failed for ${nameForLog(normalizedAddress)}: ` +
+        `${err.message}`
       );
     }
 
@@ -2738,8 +2742,9 @@ function cacheReverseResult(normalizedAddress, result) {
 // address bar reaches the resolver through these handlers, so they are the
 // point where the sender's private-ness is still known. Marking the async
 // subtree redacts every downstream log site — including the ones inside
-// the consensus wave and the shared cache-and-log — without threading a
-// flag through every resolver hop. The resolution itself is unchanged.
+// the consensus wave, the per-method dispatch and the shared
+// cache-and-log — without threading a flag through every resolver hop. The
+// resolution itself is unchanged.
 function privateResolveContext(event) {
   return isPrivateWebContents(event?.sender);
 }

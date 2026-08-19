@@ -179,16 +179,16 @@ Don't hardcode `http://localhost:8080` — Freedom no longer exposes a desktop I
 
 ### Integrated Node Architecture
 
-Freedom runs Swarm, IPFS, Radicle, Tor, and an experimental Myotis Ethereum light client, giving you access to decentralized and onion networks from a single interface.
+Freedom runs Swarm, IPFS, Radicle, and Tor nodes, plus an experimental Myotis Ethereum light client, giving you access to decentralized and onion networks from a single interface.
 
 |                      | Swarm          | IPFS                                  | Myotis                         | Radicle                        | Tor (.onion)                  |
 | -------------------- | -------------- | ------------------------------------- | ------------------------------ | ------------------------------ | ----------------------------- |
 | **Protocol**         | `bzz://`       | `ipfs://`, `ipns://`                  | Verified Ethereum/Gnosis reads and transaction broadcast | `rad://`                       | `http(s)://*.onion`           |
 | **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | Myotis native addon            | radicle-node + radicle-httpd   | Arti SOCKS5 proxy             |
-| **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | ENS names and `0x` addresses | Repository ID (`z...`)         | Onion service hostname        |
-| **Managed Gateway Port** | 11633+     | internal native handler               | n/a; embedded native client    | 18780+                         | n/a                           |
-| **Managed API Port** | 11633+         | internal native handler               | n/a; embedded native client    | 18780+                         | n/a                           |
-| **Managed P2P Port** | 12633+         | internal native handler               | n/a; embedded native client    | 18776+                         | n/a                           |
+| **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | n/a                            | Repository ID (`z...`)         | Onion service hostname        |
+| **Managed Gateway Port** | 11633+     | internal native handler               | none; embedded native client   | 18780+                         | n/a                           |
+| **Managed API Port** | 11633+         | internal native handler               | none; embedded native client   | 18780+                         | n/a                           |
+| **Managed P2P Port** | 12633+         | internal native handler               | none; embedded native client   | 18776+                         | n/a                           |
 | **Managed SOCKS Port** | n/a         | n/a                                   | n/a                            | n/a                            | 19150+                        |
 | **Route Prefix**     | `/bzz/{hash}/` | `/ipfs/{cid}/`, `/ipns/{name}/`       | n/a                            | `/api/v1/repos/{rid}/`         | SOCKS5 for `.onion` hosts     |
 | **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | `<profile>/myotis/` (Ethereum) and `<profile>/myotis/gnosis/` | profile-scoped short Radicle home | `<profile>/tor-data/`         |
@@ -198,7 +198,7 @@ Freedom runs Swarm, IPFS, Radicle, Tor, and an experimental Myotis Ethereum ligh
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile owns separate Ant, native IPFS, Myotis, Radicle, and Arti data. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS and Myotis are embedded native clients without loopback API or gateway ports.
+1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, Myotis, Radicle, and Arti data directories. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS and Myotis are embedded native clients without loopback API or gateway ports.
 2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint in profile settings. External node identity, storage, and circuit state are shared outside that profile. IPFS and Myotis always use their embedded native clients.
 3. **Port Conflict Handling**: If a managed Ant, Radicle, or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
@@ -813,7 +813,7 @@ npm run start:test-updater
 - **Context Isolation**: Uses `contextIsolation: true` and `nodeIntegration: false`.
 - **Remote Module Disabled**: The remote module is not available.
 - **Minimal API Surface**: Only necessary IPC methods are exposed to the renderer. The `freedomAPI` (history, bookmarks, etc.) is restricted to internal `freedom://` pages — external websites cannot call it.
-- **Local Nodes**: Ant, IPFS, Myotis, Radicle, and Tor run locally when their integrations are enabled; no external services are required for their native P2P operation.
+- **Local Nodes**: Ant, IPFS, Myotis, Radicle, and Tor run locally when their integrations are enabled; no external services are required for basic operation.
 - **Permission Handling**: Web permissions are deny-by-default with per-site prompts for camera, microphone, notifications, clipboard reading, location, and MIDI. Decisions marked "Remember for this site" persist per profile (`permissions.json`, reviewable under Settings → Site Permissions); unremembered decisions last for the session. Pointer lock and fullscreen remain auto-allowed for better UX in Swarm/IPFS apps; everything else (HID, screen capture, …) is denied. Location grants expose the API but may not resolve reliably — Electron lacks Chromium's network location service.
 - **Public RPC Fallback**: ENS resolution uses public RPCs by default. For trustless verification, use a local Helios client.
 
