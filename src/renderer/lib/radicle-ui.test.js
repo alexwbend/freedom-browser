@@ -145,7 +145,7 @@ describe('radicle-ui', () => {
     jest.restoreAllMocks();
   });
 
-  test('starts and stops Radicle info polling and populates stats', async () => {
+  test('loads an initial Radicle snapshot and applies pushed info updates', async () => {
     const ctx = await loadRadicleModule({
       antMenuOpen: true,
       enableRadicleIntegration: true,
@@ -155,7 +155,7 @@ describe('radicle-ui', () => {
     });
 
     ctx.mod.initRadicleUi();
-    ctx.mod.startRadicleInfoPolling();
+    ctx.mod.startRadicleInfoUpdates();
     await flushMicrotasks();
     await flushMicrotasks();
     await flushMicrotasks();
@@ -166,15 +166,24 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleReposCount.textContent).toBe('7');
     expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.4.0');
     expect(ctx.state.radicleVersionFetched).toBe(true);
-    expect(ctx.setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 2000);
+    expect(ctx.setIntervalMock).not.toHaveBeenCalled();
 
-    ctx.mod.stopRadicleInfoPolling();
+    ctx.getStatusHandler()({
+      status: 'running',
+      error: null,
+      info: { success: true, count: 8, reposCount: 9, version: '0.5.0' },
+    });
+    expect(ctx.elements.radiclePeersCount.textContent).toBe('8');
+    expect(ctx.elements.radicleReposCount.textContent).toBe('9');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.5.0');
 
-    expect(ctx.clearIntervalMock).toHaveBeenCalled();
+    ctx.mod.stopRadicleInfoUpdates();
+
+    expect(ctx.clearIntervalMock).not.toHaveBeenCalled();
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(false);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('0');
     expect(ctx.elements.radicleReposCount.textContent).toBe('--');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.4.0');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.5.0');
   });
 
   test('updates Radicle status lines, toggle state, and running transitions', async () => {
@@ -232,8 +241,8 @@ describe('radicle-ui', () => {
       'libradicle addon not found - toggle disabled'
     );
     expect(ctx.radicleApi.onStatusUpdate).toHaveBeenCalledWith(expect.any(Function));
-    expect(ctx.radicleApi.getStatus).toHaveBeenCalled();
-    expect(ctx.setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 5000);
+    expect(ctx.radicleApi.getStatus).not.toHaveBeenCalled();
+    expect(ctx.setIntervalMock).not.toHaveBeenCalled();
 
     ctx.elements.radicleToggleBtn.dispatch('click');
     expect(ctx.radicleApi.start).not.toHaveBeenCalled();

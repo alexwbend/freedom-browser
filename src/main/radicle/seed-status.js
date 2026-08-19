@@ -149,6 +149,27 @@ function cancelFetch(rid) {
   return active ? record.done : null;
 }
 
+function subscribe(rid, listener) {
+  const record = records.get(rid);
+  if (!record || record.state !== 'fetching' || typeof listener !== 'function') return false;
+  const added = !record.listeners.has(listener);
+  record.listeners.add(listener);
+  if (added) {
+    try {
+      listener(publicStatus(record));
+    } catch (err) {
+      record.listeners.delete(listener);
+      log.warn(`[seed-status] listener failed for ${record.rid}: ${err.message}`);
+      return false;
+    }
+  }
+  return true;
+}
+
+function unsubscribe(listener) {
+  for (const record of records.values()) record.listeners.delete(listener);
+}
+
 async function getStatus(rid, { repoExists, getSeeders } = {}) {
   const record = records.get(rid);
   let inStorage = record?.state === 'fetched';
@@ -192,4 +213,4 @@ function _reset() {
   records.clear();
 }
 
-module.exports = { startFetch, cancelFetch, getStatus, _reset };
+module.exports = { startFetch, cancelFetch, subscribe, unsubscribe, getStatus, _reset };

@@ -614,6 +614,11 @@ contextBridge.exposeInMainWorld('radiclePermissions', {
 contextBridge.exposeInMainWorld('radicleProvider', {
   execute: (method, params, origin) =>
     ipcRenderer.invoke('radicle:provider-execute', { method, params, origin }),
+  onEvent: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('radicle:providerEvent', handler);
+    return () => ipcRenderer.removeListener('radicle:providerEvent', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('swarmFeedStore', {

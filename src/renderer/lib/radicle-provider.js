@@ -52,12 +52,14 @@ const SIGNING_METHODS = new Set([
 // document, and responses (whose ids a new document could reuse) are never
 // delivered into a document that didn't make the request.
 const navigationGenerations = new WeakMap();
+const providerWebviews = new Set();
 
 const getNavigationGeneration = (webview) => navigationGenerations.get(webview) ?? 0;
 
 /** Called from tabs.js when creating a webview. */
 export function setupRadicleProvider(webview) {
   if (!webview) return;
+  providerWebviews.add(webview);
 
   webview.addEventListener('ipc-message', (event) => {
     if (event.channel === 'radicle:provider-request') {
@@ -73,8 +75,19 @@ export function setupRadicleProvider(webview) {
     dismissRadicleConsent(webview);
   };
   webview.addEventListener('did-navigate', invalidateDocument);
-  webview.addEventListener('destroyed', invalidateDocument);
+  webview.addEventListener('destroyed', () => {
+    providerWebviews.delete(webview);
+    invalidateDocument();
+  });
 }
+
+window.radicleProvider?.onEvent?.(({ event, origin, data }) => {
+  for (const webview of providerWebviews) {
+    if (getPermissionKey(getDisplayUrlForWebview(webview)) === origin) {
+      sendRadicleEvent(webview, event, data);
+    }
+  }
+});
 
 async function handleRadicleRequest(webview, request) {
   const { id, method, params } = request;

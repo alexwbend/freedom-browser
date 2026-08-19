@@ -93,6 +93,32 @@ test('pushes every fetch transition to status listeners', async () => {
   expect(statuses.at(-1)).toMatchObject({ state: 'fetched', inStorage: true });
 });
 
+test('reattaches a deduplicated listener to an in-flight fetch', async () => {
+  let finish;
+  let emit;
+  const listener = jest.fn();
+  const initial = tracker.startFetch(RID, {
+    fetchRepo: (_rid, onProgress) => {
+      emit = onProgress;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  });
+
+  expect(tracker.subscribe(RID, listener)).toBe(true);
+  expect(tracker.subscribe(RID, listener)).toBe(true);
+  expect(listener).toHaveBeenCalledTimes(1);
+  emit({ phase: 'fetching', nid: 'z6MkSeed', index: 1, total: 1 });
+  expect(listener).toHaveBeenCalledTimes(2);
+
+  tracker.unsubscribe(listener);
+  emit({ phase: 'connecting', nid: 'z6MkSeed', index: 1, total: 1 });
+  expect(listener).toHaveBeenCalledTimes(2);
+  finish({ ok: true });
+  await initial.done;
+});
+
 test('surfaces native fetch failures and allows retry', async () => {
   const failed = tracker.startFetch(RID, {
     fetchRepo: async () => { throw new Error('network failed'); },

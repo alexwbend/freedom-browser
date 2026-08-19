@@ -885,7 +885,7 @@ try {
     (function() {
       const pendingRequests = new Map();
       let requestId = 0;
-      const eventListeners = { connect: [], disconnect: [] };
+      const eventListeners = { connect: [], disconnect: [], seedStatus: [] };
 
       function emitEvent(event, data) {
         if (eventListeners[event]) {
@@ -903,7 +903,8 @@ try {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_RADICLE_REQUEST', id, method, params: params || {} }, '*');
             // Execution itself is prompt — seed/sync hand the network fetch
-            // to a background tracker (poll radicle_getSeedStatus). But the
+            // to a background tracker (seedStatus events report progress;
+            // radicle_getSeedStatus restores a snapshot after reload). But the
             // methods below can first block on a consent prompt while the
             // user deliberates; timing those out at 60s rejects the page
             // promise while the grant and the write still land in main, so

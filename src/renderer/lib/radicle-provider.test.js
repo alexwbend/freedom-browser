@@ -54,6 +54,7 @@ const loadProvider = async (options = {}) => {
   };
 
   const execute = jest.fn(async () => ({ result: 'ok' }));
+  let providerEventHandler = null;
 
   global.window = {
     electronAPI: {
@@ -61,7 +62,13 @@ const loadProvider = async (options = {}) => {
     },
     addEventListener: jest.fn(),
     radiclePermissions: permissions,
-    radicleProvider: { execute },
+    radicleProvider: {
+      execute,
+      onEvent: jest.fn((handler) => {
+        providerEventHandler = handler;
+        return jest.fn();
+      }),
+    },
   };
 
   jest.doMock('./dapp-provider.js', () => ({
@@ -87,7 +94,16 @@ const loadProvider = async (options = {}) => {
     });
   };
 
-  return { mod, webview, sendRequest, state, consentMocks, permissions, execute };
+  return {
+    mod,
+    webview,
+    sendRequest,
+    state,
+    consentMocks,
+    permissions,
+    execute,
+    emitProviderEvent: (event) => providerEventHandler(event),
+  };
 };
 
 const responsesSentTo = (webview) =>
@@ -100,6 +116,30 @@ describe('radicle-provider', () => {
   });
 
   describe('happy paths (same document throughout)', () => {
+    test('routes pushed seed status only to the matching current origin', async () => {
+      const { webview, state, emitProviderEvent } = await loadProvider();
+      const status = { rid: 'rad:z371PVmDHdjJucejRoRYJcDEvD5pp', state: 'fetching' };
+
+      emitProviderEvent({
+        event: 'seedStatus',
+        origin: 'https://app.example',
+        data: status,
+      });
+      expect(webview.send).toHaveBeenCalledWith('radicle:provider-event', {
+        event: 'seedStatus',
+        data: status,
+      });
+
+      webview.send.mockClear();
+      state.displayUrl = 'https://other.example';
+      emitProviderEvent({
+        event: 'seedStatus',
+        origin: 'https://app.example',
+        data: status,
+      });
+      expect(webview.send).not.toHaveBeenCalled();
+    });
+
     test('signing request prompts, grants, executes, and responds', async () => {
       const { webview, sendRequest, consentMocks, permissions, execute } = await loadProvider({
         permission: { origin: 'https://app.example' },

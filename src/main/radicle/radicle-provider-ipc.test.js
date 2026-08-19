@@ -1,6 +1,14 @@
+const mockProviderSend = jest.fn();
+const mockIpcHandle = jest.fn();
+
 jest.mock('electron', () => ({
   app: { getPath: jest.fn(() => '/tmp/test-user-data') },
-  ipcMain: { handle: jest.fn() },
+  ipcMain: { handle: mockIpcHandle },
+  BrowserWindow: {
+    getAllWindows: jest.fn(() => [
+      { webContents: { isDestroyed: jest.fn(() => false), send: mockProviderSend } },
+    ]),
+  },
 }));
 
 jest.mock('../logger', () => ({
@@ -50,6 +58,7 @@ jest.mock('../radicle-manager', () => ({
   unseedRepository: jest.fn(async () => ({ success: true })),
   refetchRepository: jest.fn(async () => ({ success: true, status: mockSeedFetchStatus })),
   getSeedFetchStatus: jest.fn(() => ({ success: true, status: mockSeedFetchStatus })),
+  unsubscribeSeedStatus: jest.fn(),
   validateAndNormalizeRid: jest.fn((rid) => {
     const m = /^(?:rad:)?(z[1-9A-HJ-NP-Za-km-z]{20,60})$/.exec(rid ?? '');
     return m ? `rad:${m[1]}` : null;
@@ -83,7 +92,7 @@ jest.mock('./radicle-permissions', () => ({
   revokePermission: jest.fn(() => true),
 }));
 
-const { executeRadicleMethod } = require('./radicle-provider-ipc');
+const { executeRadicleMethod, registerRadicleProviderIpc } = require('./radicle-provider-ipc');
 const { loadSettings } = require('../settings-store');
 const manager = require('../radicle-manager');
 const cob = require('./cob-service');
@@ -98,6 +107,36 @@ beforeEach(() => {
   manager.getCurrentStatus.mockReturnValue({ status: 'running', error: null });
   permissions.getPermission.mockReturnValue({ origin: ORIGIN, signing: false });
   permissions.hasSigningGrant.mockReturnValue(false);
+});
+
+test('provider IPC broadcasts pushed seed progress with origin routing metadata', async () => {
+  registerRadicleProviderIpc();
+  const executeHandler = mockIpcHandle.mock.calls.find(
+    ([channel]) => channel === 'radicle:provider-execute'
+  )[1];
+  manager.seedRepository.mockImplementationOnce(async (_rid, onStatus) => {
+    onStatus(mockSeedFetchStatus);
+    return { success: true, status: mockSeedFetchStatus };
+  });
+
+  await executeHandler({}, {
+    method: 'radicle_seed',
+    params: { rid: RID },
+    origin: ORIGIN,
+  });
+
+  expect(mockProviderSend).toHaveBeenCalledWith('radicle:providerEvent', {
+    event: 'seedStatus',
+    origin: ORIGIN,
+    data: mockSeedFetchStatus,
+  });
+
+  await executeHandler({}, {
+    method: 'radicle_disconnect',
+    params: {},
+    origin: ORIGIN,
+  });
+  expect(manager.unsubscribeSeedStatus).toHaveBeenCalledWith(expect.any(Function));
 });
 
 const expectProviderError = async (promise, code, reason) => {
@@ -177,7 +216,7 @@ describe('radicle_getCapabilities', () => {
   test('reports canUseNode true when connected and running', async () => {
     const caps = await executeRadicleMethod('radicle_getCapabilities', {}, ORIGIN);
     expect(caps).toEqual({
-      specVersion: '0.1',
+      specVersion: '0.2',
       canUseNode: true,
       reason: null,
       writes: ['issue', 'issueComment', 'issueState', 'patchComment'],
@@ -214,10 +253,34 @@ describe('node actions', () => {
     expect(manager.seedRepository).toHaveBeenCalledWith(RID);
   });
 
+  test('radicle_seed forwards native progress to the provider event callback', async () => {
+    const onSeedStatus = jest.fn();
+    manager.seedRepository.mockImplementationOnce(async (_rid, onStatus) => {
+      onStatus(mockSeedFetchStatus);
+      return { success: true, status: mockSeedFetchStatus };
+    });
+
+    await executeRadicleMethod('radicle_seed', { rid: RID }, ORIGIN, { onSeedStatus });
+
+    expect(manager.seedRepository).toHaveBeenCalledWith(RID, onSeedStatus);
+    expect(onSeedStatus).toHaveBeenCalledWith(mockSeedFetchStatus);
+  });
+
   test('radicle_getSeedStatus returns tracker status', async () => {
     const result = await executeRadicleMethod('radicle_getSeedStatus', { rid: RID }, ORIGIN);
     expect(result).toEqual(mockSeedFetchStatus);
     expect(manager.getSeedFetchStatus).toHaveBeenCalledWith(RID);
+  });
+
+  test('radicle_getSeedStatus reattaches pushed progress after reload', async () => {
+    const onSeedStatus = jest.fn();
+    await executeRadicleMethod(
+      'radicle_getSeedStatus',
+      { rid: RID },
+      ORIGIN,
+      { onSeedStatus }
+    );
+    expect(manager.getSeedFetchStatus).toHaveBeenCalledWith(RID, onSeedStatus);
   });
 
   test('radicle_disconnect revokes the origin grant, works while node stopped', async () => {

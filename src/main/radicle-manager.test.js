@@ -37,10 +37,12 @@ function loadManager(options = {}) {
     clearService: jest.fn(),
     MODE: { EMBEDDED: 'embedded', DISABLED: 'disabled' },
   };
+  const statusSend = jest.fn();
+  const windows = options.windows || [{ webContents: { send: statusSend } }];
 
   jest.doMock('electron', () => ({
     ipcMain,
-    BrowserWindow: { getAllWindows: jest.fn(() => []) },
+    BrowserWindow: { getAllWindows: jest.fn(() => windows) },
   }));
   jest.doMock('./logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
   jest.doMock('./settings-store', () => ({ loadSettings: jest.fn(() => settings) }));
@@ -52,7 +54,7 @@ function loadManager(options = {}) {
   jest.doMock('./service-registry', () => registry);
 
   const mod = require('./radicle-manager');
-  return { mod, embedded, registry, ipcMain, handlers, settings, dataDir };
+  return { mod, embedded, registry, ipcMain, handlers, settings, dataDir, statusSend };
 }
 
 afterEach(() => {
@@ -78,6 +80,22 @@ test('starts and stops only the native addon', async () => {
   expect(ctx.registry.setStatusMessage).toHaveBeenCalledWith('radicle', null);
   await expect(ctx.mod.stopRadicle()).resolves.toEqual({ status: 'stopped', error: null });
   expect(ctx.embedded.shutdown).toHaveBeenCalledTimes(1);
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('pushes connection and repository metrics after native state changes', async () => {
+  const ctx = loadManager();
+  await ctx.mod.startRadicle();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  expect(ctx.statusSend).toHaveBeenCalledWith(
+    'radicle:statusUpdate',
+    expect.objectContaining({
+      status: 'running',
+      info: expect.objectContaining({ success: true, count: 3, reposCount: 2 }),
+    })
+  );
+  await ctx.mod.stopRadicle();
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
 

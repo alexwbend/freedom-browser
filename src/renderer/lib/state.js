@@ -112,7 +112,6 @@ export const state = {
 
   // Radicle state
   currentRadicleStatus: 'stopped',
-  radicleInfoInterval: null,
   radicleVersionFetched: false,
   radicleVersionValue: '',
   suppressRadicleRunningStatus: false,

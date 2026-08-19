@@ -34,6 +34,7 @@ let currentState = STATUS.STOPPED;
 let lastError = null;
 let useInjectedIdentity = false;
 let lifecycleTail = Promise.resolve();
+let infoUpdatePromise = null;
 
 function enqueueLifecycle(operation) {
   const result = lifecycleTail.then(operation, operation);
@@ -79,13 +80,34 @@ function validateAndNormalizeRid(rid) {
   return `rad:${bare}`;
 }
 
+function broadcastStatus(extra = {}) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.RADICLE_STATUS_UPDATE, {
+      status: currentState,
+      error: lastError,
+      ...extra,
+    });
+  }
+}
+
 function updateState(status, error = null) {
   log.info('[Radicle] State change:', currentState, '->', status, error || '');
   currentState = status;
   lastError = error;
-  for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(IPC.RADICLE_STATUS_UPDATE, { status, error });
-  }
+  broadcastStatus();
+  if (status === STATUS.RUNNING) void pushInfoUpdate();
+}
+
+function pushInfoUpdate() {
+  if (currentState !== STATUS.RUNNING) return Promise.resolve();
+  if (infoUpdatePromise) return infoUpdatePromise;
+  infoUpdatePromise = getConnections()
+    .then((info) => broadcastStatus({ info }))
+    .catch((err) => log.warn('[Radicle] Could not publish node info:', err.message))
+    .finally(() => {
+      infoUpdatePromise = null;
+    });
+  return infoUpdatePromise;
 }
 
 function isDisabledForProfile() {
@@ -96,8 +118,10 @@ async function connectAndSeedDefault() {
   try {
     const { connected } = await embedded.connectSeeds(15000);
     log.info(`[Radicle] Connected to ${connected} preferred seed(s)`);
+    await pushInfoUpdate();
     await embedded.cloneRepo(FREEDOM_BROWSER_RID, 120000);
     log.info(`[Radicle] Default repository available: ${FREEDOM_BROWSER_RID}`);
+    await pushInfoUpdate();
   } catch (err) {
     log.warn('[Radicle] Background network initialization failed:', err.message);
   }
@@ -182,11 +206,21 @@ async function getSeederCount(rid) {
 }
 
 function startTrackedFetch(rid, onStatus) {
+  const publishStatus = (status) => {
+    onStatus?.(status);
+    if (
+      status?.progress?.phase === 'connecting' ||
+      status?.progress?.phase === 'fetching' ||
+      status?.state !== 'fetching'
+    ) {
+      void pushInfoUpdate();
+    }
+  };
   const status = seedStatus.startFetch(rid, {
     fetchRepo: (value, onProgress) =>
       embedded.cloneRepoWithProgress(value, 120000, onProgress),
     getSeeders: getSeederCount,
-    onStatus,
+    onStatus: publishStatus,
   });
   return success({ status });
 }
@@ -203,14 +237,19 @@ async function refetchRepository(rid, onStatus) {
   return seedRepository(rid, onStatus);
 }
 
-async function getSeedFetchStatus(rid) {
+async function getSeedFetchStatus(rid, onStatus) {
   const fullRid = validateAndNormalizeRid(rid);
   if (!fullRid) return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  if (onStatus) seedStatus.subscribe(fullRid, onStatus);
   const status = await seedStatus.getStatus(fullRid, {
     repoExists,
     getSeeders: getSeederCount,
   });
   return success({ status });
+}
+
+function unsubscribeSeedStatus(listener) {
+  seedStatus.unsubscribe(listener);
 }
 
 async function cancelCloneWithRetry(rid) {
@@ -247,6 +286,7 @@ async function unseedRepository(rid) {
   }
   try {
     await embedded.unseedRepo(fullRid);
+    await pushInfoUpdate();
     return success();
   } catch (err) {
     return failure('UNSEED_FAILED', err.message, { rid: fullRid });
@@ -401,6 +441,7 @@ module.exports = {
   seedRepository,
   unseedRepository,
   getSeedFetchStatus,
+  unsubscribeSeedStatus,
   refetchRepository,
   validateAndNormalizeRid,
   getNodeAlias,

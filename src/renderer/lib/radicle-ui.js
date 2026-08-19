@@ -17,14 +17,7 @@ let radicleNodesSection = null;
 // Binary availability state
 let radicleBinaryAvailable = true;
 
-// Polling state
-let radicleInfoInterval = null;
-
-export const stopRadicleInfoPolling = () => {
-  if (radicleInfoInterval) {
-    clearInterval(radicleInfoInterval);
-    radicleInfoInterval = null;
-  }
+export const stopRadicleInfoUpdates = () => {
   radicleInfoPanel?.classList.remove('visible');
   if (radiclePeersCount) radiclePeersCount.textContent = '0';
   if (radicleReposCount) radicleReposCount.textContent = '--';
@@ -35,15 +28,36 @@ const updateRadicleSectionVisibility = () => {
   const enabled = state.enableRadicleIntegration === true;
   radicleNodesSection?.classList.toggle('hidden', !enabled);
   if (!enabled) {
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     radicleToggleSwitch?.classList.remove('running');
   }
 };
 
-const fetchRadicleInfo = async () => {
+const applyRadicleInfo = (info) => {
+  if (!radicleInfoPanel?.classList.contains('visible')) return;
+  if (info.success && radiclePeersCount) {
+    radiclePeersCount.textContent = String(info.count);
+  } else if (radiclePeersCount) {
+    radiclePeersCount.textContent = '0';
+  }
+  if (radicleReposCount) {
+    radicleReposCount.textContent = Number.isInteger(info.reposCount)
+      ? String(info.reposCount)
+      : '--';
+  }
+  if (typeof info.version === 'string' && info.version) {
+    state.radicleVersionValue = `libradicle v${info.version}`;
+    state.radicleVersionFetched = true;
+  }
+  if (radicleVersionText) {
+    radicleVersionText.textContent = state.radicleVersionValue || '--';
+  }
+};
+
+const refreshRadicleInfo = async () => {
   if (!state.antMenuOpen) return;
   if (state.currentRadicleStatus === 'stopped') {
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     return;
   }
   if (!radicleInfoPanel?.classList.contains('visible')) return;
@@ -53,24 +67,7 @@ const fetchRadicleInfo = async () => {
   if (window.radicle?.getConnections) {
     try {
       const info = await window.radicle.getConnections();
-      if (!radicleInfoPanel?.classList.contains('visible')) return;
-      if (info.success && radiclePeersCount) {
-        radiclePeersCount.textContent = String(info.count);
-      } else if (radiclePeersCount) {
-        radiclePeersCount.textContent = '0';
-      }
-      if (radicleReposCount) {
-        radicleReposCount.textContent = Number.isInteger(info.reposCount)
-          ? String(info.reposCount)
-          : '--';
-      }
-      if (typeof info.version === 'string' && info.version) {
-        state.radicleVersionValue = `libradicle v${info.version}`;
-        state.radicleVersionFetched = true;
-      }
-      if (radicleVersionText) {
-        radicleVersionText.textContent = state.radicleVersionValue || '--';
-      }
+      applyRadicleInfo(info);
     } catch {
       if (radiclePeersCount) radiclePeersCount.textContent = '0';
       if (radicleReposCount) radicleReposCount.textContent = '--';
@@ -81,22 +78,19 @@ const fetchRadicleInfo = async () => {
   }
 };
 
-export const startRadicleInfoPolling = () => {
+export const startRadicleInfoUpdates = () => {
   if (!state.enableRadicleIntegration) {
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     return;
   }
   if (!state.antMenuOpen || state.currentRadicleStatus === 'stopped') {
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     return;
   }
 
   radicleInfoPanel?.classList.add('visible');
 
-  fetchRadicleInfo();
-
-  if (radicleInfoInterval) clearInterval(radicleInfoInterval);
-  radicleInfoInterval = setInterval(fetchRadicleInfo, 2000);
+  void refreshRadicleInfo();
 };
 
 export const updateRadicleUi = (status, error) => {
@@ -137,9 +131,12 @@ export const updateRadicleUi = (status, error) => {
 
   if (state.antMenuOpen) {
     if (status === 'stopped') {
-      stopRadicleInfoPolling();
-    } else if (!radicleInfoInterval && radicleToggleSwitch?.classList.contains('running')) {
-      startRadicleInfoPolling();
+      stopRadicleInfoUpdates();
+    } else if (
+      radicleToggleSwitch?.classList.contains('running') &&
+      !radicleInfoPanel?.classList.contains('visible')
+    ) {
+      startRadicleInfoUpdates();
     }
   }
 };
@@ -220,7 +217,7 @@ export const initRadicleUi = () => {
     if (state.currentRadicleStatus === 'running' || state.currentRadicleStatus === 'starting') {
       state.suppressRadicleRunningStatus = true;
       radicleToggleSwitch?.classList.remove('running');
-      stopRadicleInfoPolling();
+      stopRadicleInfoUpdates();
       pushDebug('User toggled Radicle Off');
       window.radicle
         .stop()
@@ -232,7 +229,7 @@ export const initRadicleUi = () => {
     } else {
       state.suppressRadicleRunningStatus = false;
       radicleToggleSwitch?.classList.add('running');
-      startRadicleInfoPolling();
+      startRadicleInfoUpdates();
       pushDebug('User toggled Radicle On');
       window.radicle
         .start()
@@ -246,20 +243,12 @@ export const initRadicleUi = () => {
 
   // Listen for status updates from main process
   if (window.radicle) {
-    const handleStatus = ({ status, error }) => {
+    const handleStatus = ({ status, error, info }) => {
       pushDebug(`Radicle Status Update: ${status} ${error ? `(${error})` : ''}`);
       updateRadicleUi(status, error);
+      if (info) applyRadicleInfo(info);
     };
     window.radicle.onStatusUpdate(handleStatus);
-
-    // Initial status check
-    const refreshRadicleStatus = () => {
-      window.radicle.getStatus().then(({ status, error }) => {
-        updateRadicleUi(status, error);
-      });
-    };
-    refreshRadicleStatus();
-    setInterval(refreshRadicleStatus, 5000);
   }
 
   window.addEventListener('settings:updated', (event) => {
