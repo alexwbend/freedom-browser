@@ -77,7 +77,7 @@ const loadRadicleModule = async (options = {}) => {
                 success: true,
                 count: 5,
                 reposCount: 7,
-                version: '0.3.0',
+                version: '0.4.0',
               }
             ),
           start: jest
@@ -164,7 +164,7 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(true);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('5');
     expect(ctx.elements.radicleReposCount.textContent).toBe('7');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.3.0');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.4.0');
     expect(ctx.state.radicleVersionFetched).toBe(true);
     expect(ctx.setIntervalMock).toHaveBeenCalledWith(expect.any(Function), 2000);
 
@@ -174,7 +174,7 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(false);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('0');
     expect(ctx.elements.radicleReposCount.textContent).toBe('--');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.3.0');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.4.0');
   });
 
   test('updates Radicle status lines, toggle state, and running transitions', async () => {

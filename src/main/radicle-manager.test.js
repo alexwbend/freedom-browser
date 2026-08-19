@@ -28,7 +28,7 @@ function loadManager(options = {}) {
     seeders: jest.fn(async () => ({ seeding: 2 })),
     status: jest.fn(async () => ({ connectedPeers: 3 })),
     listRepos: jest.fn(async () => [{ rid: 'rad:zRepoOne' }, { rid: 'rad:zRepoTwo' }]),
-    getVersion: jest.fn(() => '0.3.0'),
+    getVersion: jest.fn(() => '0.4.0'),
     ...options.embedded,
   };
   const registry = {
@@ -171,7 +171,7 @@ test('window.radicle operations use native calls and expose fetch status', async
     success: true,
     count: 3,
     reposCount: 2,
-    version: '0.3.0',
+    version: '0.4.0',
   });
   await expect(ctx.mod.unseedRepository(rid)).resolves.toMatchObject({ success: true });
   expect(ctx.embedded.unseedRepo).toHaveBeenCalledWith(rid);
