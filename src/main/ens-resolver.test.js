@@ -3,6 +3,17 @@ jest.mock('electron', () => ({
   ipcMain: { handle: jest.fn() },
 }));
 
+// The persistent-log guard asserts on what reaches the logger, so the
+// logger is a mock rather than electron-log's test-mode no-op.
+const mockLog = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+jest.mock('./logger', () => mockLog);
+
+// Private-ness is decided from the IPC sender; the registry itself needs a
+// real BrowserWindow, so stub the one predicate ens-resolver uses.
+jest.mock('./private/private-windows', () => ({
+  isPrivateWebContents: (webContents) => webContents?.isPrivate === true,
+}));
+
 // Mock ens-prefetch so tests can assert when it fires and when it aborts,
 // without spinning up a real net.request. Default impl returns a fresh
 // abort-recording handle each call.
@@ -269,14 +280,18 @@ jest.mock('ethers', () => {
 
 const { ethers } = require('ethers');
 const {
+  registerEnsIpc,
   resolveEnsContent,
   resolveEnsAddress,
   resolveEnsReverse,
   invalidateCachedProvider,
+  clearEnsResolutionCaches,
   universalResolverCall,
   isResolverNotFoundError,
 } = require('./ens-resolver');
 const resolverLog = require('./logger');
+const { ipcMain } = require('electron');
+const IPC = require('../shared/ipc-channels');
 
 // Fake block anchor — stable hash so consensus legs querying the same
 // block get deterministic agreement.
@@ -3329,5 +3344,110 @@ describe('ens-resolver', () => {
       expect(mockResolveReverseViaColibri).not.toHaveBeenCalled();
       expect(mockUrReverse).not.toHaveBeenCalled();
     });
+  });
+});
+
+// PRIVATE MODE GUARD (name logging). log.info/warn/error land in the
+// persistent <userData>/logs/main.log, which outlives the private window
+// and the app — so a name resolved for a private tab (and the target it
+// resolved to) must never appear there, while normal browsing keeps the
+// full diagnostic line.
+describe('ens-resolver private-window logging', () => {
+  const IPFS_V0 = 'QmW81r84Aihiqqi2Jw6nM1LnpeMfRCenRxtjwHNkXVkZYa';
+  const SECRET = 'whistleblower-site.eth';
+
+  function handlerFor(channel) {
+    const entry = ipcMain.handle.mock.calls.find(([name]) => name === channel);
+    if (!entry) throw new Error(`no handler registered for ${channel}`);
+    return entry[1];
+  }
+
+  // Every string the resolver logged, across all levels.
+  function loggedText() {
+    return [mockLog.info, mockLog.warn, mockLog.error]
+      .flatMap((fn) => fn.mock.calls)
+      .map((call) => call.map((arg) => String(arg?.message || arg)).join(' '))
+      .join('\n');
+  }
+
+  const privateEvent = { sender: { isPrivate: true } };
+  const normalEvent = { sender: { isPrivate: false } };
+
+  beforeEach(() => {
+    clearEnsResolutionCaches();
+    ipcMain.handle.mockClear();
+    registerEnsIpc();
+    mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+  });
+
+  test('a private ENS_RESOLVE logs neither the name nor the resolved target', async () => {
+    const result = await handlerFor(IPC.ENS_RESOLVE)(privateEvent, { name: SECRET });
+
+    // The resolution itself is unchanged — only the logging is redacted.
+    expect(result).toMatchObject({ type: 'ok', name: SECRET, uri: `ipfs://${IPFS_V0}` });
+    const text = loggedText();
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toContain(IPFS_V0);
+    // The line is still emitted, so the log still shows a resolve happened.
+    expect(text).toContain('[ens] Resolved: <private>');
+  });
+
+  test('a normal ENS_RESOLVE keeps the full diagnostic line', async () => {
+    await handlerFor(IPC.ENS_RESOLVE)(normalEvent, { name: 'public-site.eth' });
+
+    const text = loggedText();
+    expect(text).toContain('public-site.eth');
+    expect(text).toContain(IPFS_V0);
+  });
+
+  test('the redaction covers the consensus wave, not just the final line', async () => {
+    await handlerFor(IPC.ENS_RESOLVE)(privateEvent, { name: SECRET });
+    const consensusLines = mockLog.info.mock.calls
+      .map((call) => call.join(' '))
+      .filter((line) => line.includes('[ens] consensus kind='));
+    expect(consensusLines.length).toBeGreaterThan(0);
+    for (const line of consensusLines) {
+      expect(line).toContain('name=<private>');
+      expect(line).not.toContain(SECRET);
+    }
+  });
+
+  test('a private address lookup and cache invalidation stay out of the log', async () => {
+    mockUrResolve.mockResolvedValue(
+      urReturnsAddress('0x1111111111111111111111111111111111111111')
+    );
+    await handlerFor(IPC.ENS_RESOLVE_ADDRESS)(privateEvent, { name: SECRET });
+    expect(loggedText()).not.toContain(SECRET);
+
+    // Populate the content cache from a normal window, then invalidate it
+    // from the private one: the eviction line must not name it either.
+    mockUrResolve.mockResolvedValue(urReturnsBytes(ipfsContenthashFor(IPFS_V0)));
+    await handlerFor(IPC.ENS_RESOLVE)(normalEvent, { name: SECRET });
+    mockLog.info.mockClear();
+    await handlerFor(IPC.ENS_INVALIDATE_CONTENT)(privateEvent, { name: SECRET });
+    const text = loggedText();
+    expect(text).toContain('content cache invalidated for <private>');
+    expect(text).not.toContain(SECRET);
+  });
+
+  test('a resolution that throws logs no name either', async () => {
+    // An invalid label throws out of ens_normalize, whose message quotes
+    // the offending name — the catch-all log line must not pass it through.
+    const result = await handlerFor(IPC.ENS_RESOLVE)(privateEvent, {
+      name: 'invalid_label.eth',
+    });
+
+    expect(result.reason).toBe('RESOLUTION_ERROR');
+    expect(mockLog.error).toHaveBeenCalled();
+    expect(loggedText()).not.toContain('invalid_label');
+  });
+
+  test('a private resolve does not redact a later normal resolve', async () => {
+    await handlerFor(IPC.ENS_RESOLVE)(privateEvent, { name: SECRET });
+    clearEnsResolutionCaches();
+    mockLog.info.mockClear();
+
+    await handlerFor(IPC.ENS_RESOLVE)(normalEvent, { name: 'public-site.eth' });
+    expect(loggedText()).toContain('[ens] Resolved: public-site.eth');
   });
 });

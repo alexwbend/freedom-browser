@@ -16,6 +16,7 @@ let menuDropdown = null;
 let historyBtn = null;
 let newTabMenuBtn = null;
 let newWindowMenuBtn = null;
+let newPrivateWindowMenuBtn = null;
 let zoomOutBtn = null;
 let zoomInBtn = null;
 let zoomLevelDisplay = null;
@@ -158,6 +159,7 @@ export const initMenus = () => {
   historyBtn = document.getElementById('history-btn');
   newTabMenuBtn = document.getElementById('new-tab-menu-btn');
   newWindowMenuBtn = document.getElementById('new-window-menu-btn');
+  newPrivateWindowMenuBtn = document.getElementById('new-private-window-menu-btn');
   zoomOutBtn = document.getElementById('zoom-out-btn');
   zoomInBtn = document.getElementById('zoom-in-btn');
   zoomLevelDisplay = document.getElementById('zoom-level');
@@ -191,6 +193,14 @@ export const initMenus = () => {
   newWindowMenuBtn?.addEventListener('click', () => {
     setMenuOpen(false);
     electronAPI?.newWindow?.();
+  });
+
+  // New Private Window button. Without it the feature is keyboard-only on
+  // the Linux frameless / auto-hidden-menu-bar setups the renderer keydown
+  // fallback exists for — i.e. undiscoverable in the UI.
+  newPrivateWindowMenuBtn?.addEventListener('click', () => {
+    setMenuOpen(false);
+    electronAPI?.newPrivateWindow?.();
   });
 
   // History button

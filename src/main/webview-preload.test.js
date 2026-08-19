@@ -37,6 +37,7 @@ function loadWebviewPreloadModule(options = {}) {
     syncResponses: {
       [IPC.GET_INTERNAL_PAGES]: internalPages,
       [IPC.GET_ETHEREUM_INJECT_SOURCE]: '/* ethereum inject source stub */',
+      [IPC.PRIVATE_IS_PRIVATE]: options.isPrivateWindow === true,
     },
     invokeResponses: {
       [IPC.HISTORY_GET]: [{ url: 'https://example.com' }],
@@ -776,5 +777,91 @@ describe('injected provider request timeouts', () => {
   test('swarm prompt/long-running methods use the same 300s budget', () => {
     expect(timeoutFor('swarmScript', 'swarm', 'swarm_getSigningIdentity')).toBe(300000);
     expect(timeoutFor('swarmScript', 'swarm', 'swarm_readChunk')).toBe(60000);
+  });
+});
+
+// PRIVATE MODE GUARD coverage (providers): in private windows none of
+// window.ethereum / window.swarm / window.radicle is injected and none of the
+// provider bridges are installed — a dApp probing for a wallet sees nothing.
+describe('webview-preload private windows', () => {
+  let consoleLogSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    global.navigator = originalNavigator;
+    global.location = originalLocation;
+    jest.restoreAllMocks();
+  });
+
+  const providerChannels = [
+    'dapp:provider-response',
+    'dapp:provider-event',
+    'swarm:provider-response',
+    'swarm:provider-event',
+    'radicle:provider-response',
+    'radicle:provider-event',
+  ];
+
+  test('private window: no provider bridges, no page-world injection attempts', () => {
+    const { ipcRenderer, document } = loadWebviewPreloadModule({
+      isPrivateWindow: true,
+      location: {
+        href: 'https://dapp.example/',
+        protocol: 'https:',
+        pathname: '/',
+      },
+    });
+
+    expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.PRIVATE_IS_PRIVATE);
+
+    // No provider IPC bridges installed.
+    const onChannels = ipcRenderer.on.mock.calls.map(([channel]) => channel);
+    for (const channel of providerChannels) {
+      expect(onChannels).not.toContain(channel);
+    }
+
+    // No message bridges (page → host) registered on window.
+    const messageListeners = global.window.addEventListener.mock.calls.filter(
+      ([event]) => event === 'message'
+    );
+    expect(messageListeners).toHaveLength(0);
+
+    // No <script> injection is even attempted (createElement is absent on
+    // the doc mock and would have logged an injection failure).
+    expect(document.addEventListener.mock.calls.map(([e]) => e)).not.toContain(
+      'DOMContentLoaded'
+    );
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[webview-preload] Loaded (freedomAPI + context menu — private window, providers disabled)'
+    );
+  });
+
+  test('normal window: provider bridges are installed as before', () => {
+    const { ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://dapp.example/',
+        protocol: 'https:',
+        pathname: '/',
+      },
+    });
+
+    const onChannels = ipcRenderer.on.mock.calls.map(([channel]) => channel);
+    for (const channel of providerChannels) {
+      expect(onChannels).toContain(channel);
+    }
+
+    const messageListeners = global.window.addEventListener.mock.calls.filter(
+      ([event]) => event === 'message'
+    );
+    // ethereum, swarm and radicle page→host bridges.
+    expect(messageListeners).toHaveLength(3);
   });
 });
