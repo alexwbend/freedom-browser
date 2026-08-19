@@ -471,7 +471,7 @@ async function bootstrap() {
   }
 
   // In test mode the harness has already seeded service-registry with
-  // fake endpoints. Spawning real Bee / IPFS / Radicle binaries against
+  // fake endpoints. Starting real Ant / IPFS / Radicle runtimes against
   // a temp userData would fail port checks, take seconds, and defeat
   // the purpose of fixture-driven tests.
   if (!TEST_MODE) {

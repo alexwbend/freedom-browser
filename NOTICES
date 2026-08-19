@@ -12,6 +12,11 @@ freedom-ipfs
   Copyright (c) 2026 Freedom IPFS contributors
   https://github.com/solardev-xyz/freedom-ipfs
 
+libradicle
+  License: MIT OR Apache-2.0
+  Copyright (c) solardev-xyz contributors
+  https://github.com/solardev-xyz/libradicle
+
 Electron
   License: MIT
   Copyright (c) Electron contributors

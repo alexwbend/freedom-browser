@@ -229,7 +229,7 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleNodesSection.classList.contains('hidden')).toBe(true);
     expect(ctx.elements.radicleToggleBtn.classList.contains('disabled')).toBe(true);
     expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith(
-      'Radicle binaries not found - toggle disabled'
+      'libradicle addon not found - toggle disabled'
     );
     expect(ctx.radicleApi.onStatusUpdate).toHaveBeenCalledWith(expect.any(Function));
     expect(ctx.radicleApi.getStatus).toHaveBeenCalled();

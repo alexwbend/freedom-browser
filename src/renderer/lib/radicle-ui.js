@@ -150,7 +150,7 @@ const setToggleDisabled = (disabled) => {
   if (disabled) {
     radicleToggleBtn.classList.add('disabled');
     radicleToggleBtn.setAttribute('disabled', 'true');
-    radicleToggleBtn.setAttribute('title', 'Radicle binaries not found');
+    radicleToggleBtn.setAttribute('title', 'libradicle addon not found');
   } else {
     radicleToggleBtn.classList.remove('disabled');
     radicleToggleBtn.removeAttribute('disabled');
@@ -164,7 +164,7 @@ const refreshRadicleBinaryAvailability = () => {
     radicleBinaryAvailable = available;
     setToggleDisabled(!available);
     if (!available) {
-      pushDebug('Radicle binaries not found - toggle disabled');
+      pushDebug('libradicle addon not found - toggle disabled');
     }
   });
 };

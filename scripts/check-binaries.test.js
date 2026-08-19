@@ -24,4 +24,15 @@ describe('Radicle build inputs', () => {
     expect(packageJson.scripts['radicle:download']).toBe('node scripts/fetch-radicle-addon.js');
     expect(packageJson.scripts['radicle:download-addon']).toBeUndefined();
   });
+
+  test.each(['mac', 'linux'])('packages only the embedded addon on %s', (target) => {
+    const resource = packageJson.build[target].extraResources.find(
+      ({ to }) => to === 'radicle-bin'
+    );
+
+    expect(resource).toMatchObject({
+      from: 'radicle-bin/${os}-${arch}/',
+      filter: ['libradicle.node'],
+    });
+  });
 });

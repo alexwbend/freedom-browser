@@ -490,7 +490,7 @@ profile-managed dev data.
 |--------|-------------|
 | `npm run radicle:download` | Download the embedded addon for the current platform |
 | `npm run radicle:build-addon` | Build the embedded addon from a sibling `libradicle` checkout |
-| `npm run radicle:reset` | Delete all Radicle data and start fresh |
+| `npm run radicle:reset` | Remove legacy repo-root Radicle data; managed profiles are unchanged |
 
 ### Tor Scripts
 
@@ -619,7 +619,7 @@ DEBUG=1 /Applications/Freedom.app/Contents/MacOS/Freedom
 
 - Toggle the debug panel via **Menu (☰) > Debug Console**.
 - Check the terminal for main process logs (visible at `info` level and above in development):
-  - Ant/IPFS/Radicle stdout and stderr
+  - Ant process output and embedded IPFS/Radicle lifecycle logs
   - IPC events
   - Request rewrites
   - ENS resolution
@@ -645,7 +645,7 @@ Output goes to the `dist/` folder as DMG and ZIP archives.
 
 The build includes:
 
-- Bundled Ant, freedom-ipfs native addon, and Radicle binaries
+- Bundled Ant, freedom-ipfs native addon, and libradicle native addon
 - Ant configuration template
 - All renderer assets
 
@@ -679,7 +679,7 @@ npm run dist -- --win --arm64
 
 Output goes to the `dist/` folder as NSIS installer and ZIP archive.
 
-**Note:** Windows builds do not include Radicle binaries (no official upstream release yet). The Experimental settings section is hidden automatically on Windows.
+**Note:** Windows builds do not include the libradicle addon because no Windows artifact is published yet. The Experimental settings section is hidden automatically on Windows.
 
 #### Apple Code Signing & Notarization
 
@@ -822,11 +822,11 @@ npm run start:test-updater
 - Ensure `libradicle.node` exists in the current platform's `radicle-bin/` directory
 - If starting for the first time, Freedom creates a Radicle identity automatically
 - Check terminal output for specific error messages
-- Reset Radicle data: `npm run radicle:reset`
+- For a fresh Radicle identity and repository store, create a new browser profile
 
 ### Using an external node
 
-- If you have a system-wide Swarm/Radicle daemon or Tor SOCKS5 endpoint running, configure external mode in **Settings → Profiles → Node endpoints**
+- If you have a system-wide Swarm node or Tor SOCKS5 endpoint running, configure external mode in **Settings → Profiles → Node endpoints**
 - External mode is per profile and per protocol
 - The Nodes panel shows external/shared status when connected to an external node
 - Freedom does not stop external nodes on quit
