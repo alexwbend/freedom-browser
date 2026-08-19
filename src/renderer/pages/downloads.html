@@ -143,6 +143,21 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      /* Entries from private windows: shown while the window lives, purged
+         with it. */
+      .private-badge {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: #3a2f52;
+        border: 1px solid #55447a;
+        color: #cfc4ea;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        vertical-align: 2px;
+      }
       .download-url {
         font-size: 12px;
         color: #58a6ff;
@@ -537,7 +552,9 @@
               </svg>
             </div>
             <div class="download-content">
-              <div class="download-name">${escapeHtml(entry.filename)}</div>
+              <div class="download-name">${escapeHtml(entry.filename)}${
+                entry.is_private ? '<span class="private-badge" data-test="download-private-badge">Private</span>' : ''
+              }</div>
               <div class="download-url">${escapeHtml(entry.url)}</div>
               <div class="download-status${failed ? ' error' : ''}">${escapeHtml(actionError || statusText(entry))}</div>
               ${

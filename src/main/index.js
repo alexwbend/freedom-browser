@@ -180,8 +180,10 @@ const { registerHistoryIpc, closeDb: closeHistoryDb } = require('./history');
 const {
   registerDownloadsIpc,
   attachDownloadsManager,
+  cancelPartitionDownloads: cancelPrivateDownloads,
 } = require('./downloads/downloads-manager');
 const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
+const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
 const myotisManager = require('./myotis/myotis-manager');
@@ -205,6 +207,13 @@ const {
   startRadicle,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
+const {
+  registerTorIpc,
+  stopTor,
+  startTor,
+  registerOnionRoutingSession,
+  unregisterOnionRoutingSession,
+} = require('./tor-manager');
 const { registerIdentityIpc, hasVault, setBeeLifecycle } = require('./identity-manager');
 const { registerQuickUnlockIpc } = require('./quick-unlock');
 const { registerWalletIpc } = require('./wallet/wallet-ipc');
@@ -216,6 +225,7 @@ const { registerDappPermissionsIpc } = require('./wallet/dapp-permissions');
 const {
   installPermissionHandlers,
   registerPermissionsIpc,
+  clearPrivateDecisions: clearPrivatePermissionDecisions,
 } = require('./permissions/permissions-manager');
 const { registerSwarmIpc } = require('./swarm/stamp-service');
 const { registerPublishIpc } = require('./swarm/publish-service');
@@ -230,6 +240,7 @@ const { registerSwarmProviderIpc } = require('./swarm/swarm-provider-ipc');
 const { registerRadiclePermissionsIpc } = require('./radicle/radicle-permissions');
 const { registerRadicleProviderIpc } = require('./radicle/radicle-provider-ipc');
 const { registerFeedStoreIpc } = require('./swarm/feed-store');
+const { registerPermissionManifestIpc } = require('./swarm/permission-manifests');
 const { registerGithubBridgeIpc, cleanupTempDirs } = require('./github-bridge');
 const { registerServiceRegistryIpc } = require('./service-registry');
 const { promptForDefaultExternalCandidates } = require('./profile-external-candidates');
@@ -240,10 +251,15 @@ const {
   getMainWindows,
 } = require('./windows/mainWindow');
 focusCurrentProfileWindow = focusOrCreateMainWindow;
+const {
+  createPrivateWindow,
+  setPrivateSessionConfigurator,
+  registerPrivateCleanup,
+} = require('./private/private-windows');
 const { initUpdater } = require('./updater');
 const { setupApplicationMenu, updateTabMenuItems } = require('./menu');
 const { registerWebContentsHandlers } = require('./webcontents-setup');
-const { installTestHarness } = require('./test-harness');
+const { installTestHarness, registerStubProtocols } = require('./test-harness');
 
 app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
 log.info('[profile] Active profile:', {
@@ -273,6 +289,7 @@ async function bootstrap() {
   registerBaseIpcHandlers({
     onSetTitle: setWindowTitle,
     onNewWindow: createMainWindow,
+    onNewPrivateWindow: createPrivateWindow,
   });
   registerSettingsIpc();
   registerAdblockIpc();
@@ -287,6 +304,7 @@ async function bootstrap() {
   registerIpfsIpc();
   myotisManager.registerMyotisIpc();
   registerRadicleIpc();
+  registerTorIpc();
   registerGithubBridgeIpc();
   registerServiceRegistryIpc();
   registerIdentityIpc();
@@ -313,6 +331,7 @@ async function bootstrap() {
   registerRadiclePermissionsIpc();
   registerRadicleProviderIpc();
   registerFeedStoreIpc();
+  registerPermissionManifestIpc();
 
   // Resolve any pending broadcast txs that didn't get a final receipt
   // before the previous run exited. Fire-and-forget — the wallet stack
@@ -349,6 +368,51 @@ async function bootstrap() {
   // protocol handlers, whose responses route through Chromium's download
   // manager like any http(s) response.
   attachDownloadsManager(defaultSession);
+  // Private windows: each gets a unique non-persisted `private-<uuid>`
+  // partition whose session is configured here, before the window's first
+  // webview loads — same protocol handlers (or their test-mode stubs),
+  // request rewriter and downloads hook (rows kept in memory only, never
+  // in the profile database) as the default session, and permission
+  // prompts whose decisions stay session-only. One deliberate exception:
+  // PRIVATE MODE GUARD (x402): payment interception is NOT attached to
+  // private sessions. The wallet providers are unavailable in private
+  // windows, so no payment could ever be signed; excluding the x402
+  // handlers keeps 402 responses flowing to the page untouched.
+  setPrivateSessionConfigurator((privateSession, { partition }) => {
+    // The dweb protocol handlers log request URLs (and, underneath, the
+    // names they resolve) to the persistent main.log. Passing the partition
+    // marks this session's registrations private so those lines are
+    // redacted — see src/main/private/private-log-context.js.
+    if (TEST_MODE) {
+      registerStubProtocols(privateSession, { privatePartition: partition });
+    } else {
+      registerBzzProtocol(privateSession, { privatePartition: partition });
+      registerIpfsProtocol(privateSession, { privatePartition: partition });
+      registerIpnsProtocol(privateSession, { privatePartition: partition });
+      registerRadProtocol(privateSession, { privatePartition: partition });
+    }
+    attachWebRequestDispatcher(privateSession, {
+      exclude: (name) => name.startsWith('x402-'),
+    });
+    attachDownloadsManager(privateSession, { privatePartition: partition });
+    installPermissionHandlers(privateSession, { privatePartition: partition });
+    // `.onion` routing is per-session: the PAC on the default session does
+    // not cover this partition, so without this registration a private window
+    // resolves *.onion DIRECT and hands the onion hostname to the system
+    // resolver. Applies the live policy immediately when Tor is already up.
+    registerOnionRoutingSession(partition, privateSession);
+  });
+  // On private-window close: cancel the window's still-running downloads
+  // FIRST (once its rows are gone nothing can see or stop them, and a
+  // finished file would leave no record anywhere), then drop the window's
+  // in-memory download rows (they never touch SQLite — completed files stay
+  // on disk, Chromium semantics) and its session-only permission decisions.
+  // The session's storage is cleared by the private-windows module itself.
+  registerPrivateCleanup((partition) => cancelPrivateDownloads(partition));
+  registerPrivateCleanup((partition) => dropPrivateDownloads(partition));
+  registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
+  registerPrivateCleanup((partition) => unregisterOnionRoutingSession(partition));
+
   registerWebContentsHandlers();
   setupApplicationMenu();
 
@@ -398,6 +462,7 @@ async function bootstrap() {
         bee: settings.startBeeAtLaunch !== false,
         radicle:
           settings.enableRadicleIntegration === true && settings.startRadicleAtLaunch !== false,
+        tor: settings.enableTorIntegration === true && settings.startTorAtLaunch === true,
       },
       logger: log,
     });
@@ -430,6 +495,9 @@ async function bootstrap() {
     }
     if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
       myotisManager.startMyotis({ chainId: 100 });
+    }
+    if (settings.enableTorIntegration && settings.startTorAtLaunch) {
+      startTor({ targetSession: defaultSession });
     }
   }
 
@@ -511,9 +579,9 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, Myotis, and Radicle to stop...');
+  log.info('[App] Waiting for Ant, IPFS, Myotis, Radicle, and Tor to stop...');
   myotisManager.stopAllMyotis();
-  await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
+  await Promise.all([stopAnt(), stopIpfs(), stopRadicle(), stopTor()]);
   log.info('[App] All processes stopped, quitting...');
 
   app.quit();

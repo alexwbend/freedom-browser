@@ -16,6 +16,7 @@ const MYOTIS_BIN_DIR = path.join(__dirname, '..', 'myotis-bin');
 // Anything else (e.g. win-arm64) is skipped with a notice — the app degrades
 // gracefully to Colibri/quorum when the addon is absent.
 const MYOTIS_SUPPORTED = new Set(['mac-x64', 'mac-arm64', 'linux-x64', 'linux-arm64', 'win-x64']);
+const ARTI_BIN_DIR = path.join(__dirname, '..', 'arti-bin');
 
 function getPlatformArch() {
   const args = process.argv.slice(2);
@@ -138,6 +139,29 @@ function checkBinaries(platforms) {
   return missing;
 }
 
+/**
+ * Arti (Tor) is OPTIONAL and built from source via `npm run tor:download`
+ * (cargo), unlike the prebuilt Bee/Radicle downloads. It is intentionally not
+ * a required build binary: when absent, Tor simply isn't bundled and the
+ * in-app toggle stays disabled. We still create the per-platform resource dir
+ * so electron-builder's `extraResources` entry resolves cleanly instead of
+ * failing late during packaging.
+ */
+function ensureOptionalArti(platforms) {
+  for (const { os, arch } of platforms) {
+    if (os === 'win') continue; // Arti is bundled for macOS/Linux only
+    const platformDir = `${os}-${arch}`;
+    const artiPath = path.join(ARTI_BIN_DIR, platformDir, 'arti');
+    if (!fs.existsSync(artiPath)) {
+      fs.mkdirSync(path.join(ARTI_BIN_DIR, platformDir), { recursive: true });
+      console.warn(
+        `⚠️  Arti (Tor) binary not found for ${platformDir} — Tor will not be bundled.\n` +
+          `   Optional; build it with: npm run tor:download  (requires a Rust toolchain)`
+      );
+    }
+  }
+}
+
 function main() {
   const platforms = getPlatformArch();
   console.log(`Checking binaries for: ${platforms.map((p) => `${p.os}-${p.arch}`).join(', ')}`);
@@ -155,6 +179,9 @@ function main() {
     console.error('  npm run adblock:download\n');
     process.exit(1);
   }
+
+  // Optional binaries (non-fatal): warn and prepare resource dirs.
+  ensureOptionalArti(platforms);
 
   console.log('✅ All required binaries found.\n');
   process.exit(0);

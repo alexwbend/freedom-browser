@@ -130,6 +130,46 @@ test('remapping New Tab applies live and restores cleanly', async ({ window }) =
   await expect(tabs).toHaveCount(initialTabs + 2);
 });
 
+// New Private Window is a menu-context shortcut with a renderer keydown
+// fallback (the menu bar is frameless/auto-hidden on Linux, so the
+// accelerator never fires from chrome focus). The fallback must resolve
+// through the registry like every other binding, or a remap is silently
+// ignored and the stale default stays live.
+test('remapping New Private Window rebinds the renderer fallback', async ({
+  electronApp,
+  window,
+}) => {
+  const privateWindowCount = () =>
+    electronApp.windows().filter((page) => page.url().includes('privatePartition=private-')).length;
+
+  await openShortcutsSettings(window);
+  expect(privateWindowCount()).toBe(0);
+
+  // Record Cmd/Ctrl+Shift+U for New Private Window.
+  await recordBinding(window, 'window.newPrivate', 'U', 'KeyU');
+  await expect
+    .poll(() => effectiveAccelerator(window, 'window.newPrivate'), {
+      message: 'Waiting for the override to persist',
+    })
+    .toMatch(/^(Ctrl|Cmd|Shift)\+.*U$/);
+
+  // The new combo opens a private window…
+  await window.locator('[data-test="address-input"]').click();
+  await window.keyboard.press('ControlOrMeta+Shift+U');
+  await expect
+    .poll(privateWindowCount, {
+      message: 'Waiting for the private window opened by the remapped combo',
+      timeout: 15_000,
+    })
+    .toBe(1);
+
+  // …and the old default no longer does.
+  await window.locator('[data-test="address-input"]').click();
+  await window.keyboard.press('ControlOrMeta+Shift+N');
+  await window.waitForTimeout(1500);
+  expect(privateWindowCount()).toBe(1);
+});
+
 test('conflicting combos warn with a swap offer instead of silently rebinding', async ({
   window,
 }) => {

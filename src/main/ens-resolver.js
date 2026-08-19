@@ -8,6 +8,20 @@ const registry = require('./networks/network-registry');
 const { prefetchGatewayUrl, NOOP_HANDLE: NOOP_PREFETCH } = require('./ens-prefetch');
 const myotisManager = require('./myotis/myotis-manager');
 const { capCache } = require('./cache-utils');
+const {
+  runWithPrivateLogContext,
+  redactForLog,
+} = require('./private/private-log-context');
+const { isPrivateWebContents } = require('./private/private-windows');
+
+// PRIVATE MODE GUARD (name logging): the name being resolved IS the
+// browsing history of the tab that asked for it, and log.info/warn land in
+// the persistent <userData>/logs/main.log, which outlives the private
+// window and the app. Every log line below that carries a name, an address
+// or a resolved target goes through these. The context is set by the IPC
+// handlers (from event.sender) and by the dweb protocol handlers (from
+// their session) — see src/main/private/private-log-context.js.
+const nameForLog = (name) => redactForLog(name);
 
 // Canonical ENS Universal Resolver — a DAO-owned proxy that delegates to
 // the current implementation, so future UR upgrades don't require a code
@@ -1579,7 +1593,7 @@ async function resolveViaQuorum(normalizedName, callData, kind = 'content', opti
   const firstSelection = waveAvailable.slice(0, effectiveK);
 
   log.info(
-    `[ens] consensus kind=${kind} name=${normalizedName} k=${effectiveK} m=${effectiveM} ` +
+    `[ens] consensus kind=${kind} name=${nameForLog(normalizedName)} k=${effectiveK} m=${effectiveM} ` +
     `block=${block.hash}@${block.number} providers=[${firstSelection.map(hostOf).join(',')}]`
   );
 
@@ -1758,7 +1772,7 @@ function logForwardMethodOutcome({
   const outcome = result?.outcome ? String(result.outcome).toUpperCase() : 'SKIP';
   const trust = result?.trust?.level || 'none';
   log.info(
-    `[ens] method=${method} name=${normalizedName} kind=${kind} outcome=${outcome} ` +
+    `[ens] method=${method} name=${nameForLog(normalizedName)} kind=${kind} outcome=${outcome} ` +
     `trust=${trust} action=${action} reason=${reason || 'none'} durationMs=${durationMs}`
   );
 }
@@ -1808,7 +1822,7 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
   let lastError = null;
 
   log.info(
-    `[ens] policy name=${normalizedName} kind=${kind} order=[${order.join(',')}] ` +
+    `[ens] policy name=${nameForLog(normalizedName)} kind=${kind} order=[${order.join(',')}] ` +
     `preferVerified=${preferVerified}`
   );
 
@@ -1825,7 +1839,7 @@ async function consensusResolve(normalizedName, callData, kind = 'content', opti
       if (err?.code === 'MYOTIS_LIFECYCLE_CHANGED') throw err;
       lastError = err;
       log.warn(
-        `[ens] ${method}-fallback name=${normalizedName} kind=${kind} ` +
+        `[ens] ${method}-fallback name=${nameForLog(normalizedName)} kind=${kind} ` +
         formatResolutionErrorForLog(err)
       );
       logForwardMethodOutcome({
@@ -1956,7 +1970,7 @@ async function doResolveEnsContent(normalized) {
     if (out.reason === 'NO_CONTENTHASH' && out.error) {
       // Unknown UR/CCIP reverts are transient failures, not authoritative
       // empty records. Let reloads re-probe instead of pinning a negative.
-      log.info(`[ens] NO_CONTENTHASH for ${normalized} (not cached)`);
+      log.info(`[ens] NO_CONTENTHASH for ${nameForLog(normalized)} (not cached)`);
       return out;
     }
     return cacheContentResult(normalized, out);
@@ -1967,7 +1981,7 @@ async function doResolveEnsContent(normalized) {
   try {
     [innerBytes] = ethers.AbiCoder.defaultAbiCoder().decode(['bytes'], consensus.resolvedData);
   } catch (err) {
-    log.warn(`[ens] Failed to decode contenthash bytes for ${normalized}: ${err.message}`);
+    log.warn(`[ens] Failed to decode contenthash bytes for ${nameForLog(normalized)}: ${err.message}`);
     return cacheContentResult(normalized, {
       type: 'unsupported',
       reason: 'UNSUPPORTED_CONTENTHASH_FORMAT',
@@ -1990,7 +2004,9 @@ async function doResolveEnsContent(normalized) {
 
   const parsed = parseContentHashBytes(innerBytes);
   if (!parsed) {
-    log.warn(`[ens] UNSUPPORTED_CONTENTHASH_FORMAT for ${normalized}: ${innerBytes}`);
+    log.warn(
+      `[ens] UNSUPPORTED_CONTENTHASH_FORMAT for ${nameForLog(normalized)}: ${redactForLog(innerBytes)}`
+    );
     return cacheContentResult(normalized, {
       type: 'unsupported',
       reason: 'UNSUPPORTED_CONTENTHASH_FORMAT',
@@ -2119,14 +2135,14 @@ async function resolveWithCache(name, cache, doResolve, label) {
 
   const cached = cache.get(normalized);
   if (cached && Date.now() < cached.expiresAt) {
-    log.debug(`[ens] ${label} cache hit for ${normalized}`);
+    log.debug(`[ens] ${label} cache hit for ${nameForLog(normalized)}`);
     return cached.result;
   }
 
   const dedupKey = `${label}:${normalized}`;
   const existing = inFlightResolves.get(dedupKey);
   if (existing) {
-    log.info(`[ens] ${label} joining in-flight resolution for ${normalized}`);
+    log.info(`[ens] ${label} joining in-flight resolution for ${nameForLog(normalized)}`);
     return existing;
   }
 
@@ -2152,7 +2168,7 @@ async function resolveAcrossStableLifecycle(normalized, cache, doResolve, label)
     } catch (err) {
       if (epoch === resolutionLifecycleEpoch) throw err;
       log.info(
-        `[ens] ${label} lifecycle changed during failed resolution for ${normalized}; ` +
+        `[ens] ${label} lifecycle changed during failed resolution for ${nameForLog(normalized)}; ` +
         `restarting (${attempt}/${MAX_LIFECYCLE_RESTARTS})`
       );
       continue;
@@ -2165,7 +2181,7 @@ async function resolveAcrossStableLifecycle(normalized, cache, doResolve, label)
     const cached = cache.get(normalized);
     if (cached?.result === result) cache.delete(normalized);
     log.info(
-      `[ens] ${label} lifecycle changed during resolution for ${normalized}; ` +
+      `[ens] ${label} lifecycle changed during resolution for ${nameForLog(normalized)}; ` +
       `discarding stale result and restarting (${attempt}/${MAX_LIFECYCLE_RESTARTS})`
     );
   }
@@ -2231,7 +2247,7 @@ async function doResolveEnsAddress(normalized) {
   try {
     [address] = ethers.AbiCoder.defaultAbiCoder().decode(['address'], consensus.resolvedData);
   } catch (err) {
-    log.warn(`[ens] Failed to decode addr bytes for ${normalized}: ${err.message}`);
+    log.warn(`[ens] Failed to decode addr bytes for ${nameForLog(normalized)}: ${err.message}`);
     return cacheAddressResult(normalized, {
       success: false,
       name: normalized,
@@ -2281,9 +2297,11 @@ function cacheAndLog(cache, normalized, result, okValue) {
   cache.set(normalized, { result, expiresAt: Date.now() + ttl });
   capCache(cache);
   if (okValue) {
-    log.info(`[ens] Resolved: ${normalized} → ${okValue} (ttl=${ttl}ms)`);
+    log.info(
+      `[ens] Resolved: ${nameForLog(normalized)} → ${redactForLog(okValue)} (ttl=${ttl}ms)`
+    );
   } else {
-    log.info(`[ens] ${result.reason || result.type} for ${normalized} (ttl=${ttl}ms)`);
+    log.info(`[ens] ${result.reason || result.type} for ${nameForLog(normalized)} (ttl=${ttl}ms)`);
   }
   return result;
 }
@@ -2429,7 +2447,7 @@ async function readMyotisReverse(normalizedAddress) {
       }
     } catch (err) {
       log.info(
-        `[${nameSystem.id}] myotis forward verification failed for ${normalizedAddress}: ${err.message}`
+        `[${nameSystem.id}] myotis forward verification failed for ${nameForLog(normalizedAddress)}: ${err.message}`
       );
     }
 
@@ -2597,7 +2615,7 @@ async function resolveContractBackedReverseWithMethod(method, normalizedAddress,
       }
     } catch (err) {
       log.info(
-        `[${nameSystem.id}] ${method} forward verification failed for ${normalizedAddress}: ${err.message}`
+        `[${nameSystem.id}] ${method} forward verification failed for ${nameForLog(normalizedAddress)}: ${err.message}`
       );
     }
 
@@ -2627,7 +2645,7 @@ function logReverseMethodOutcome(method, normalizedAddress, result, action, reas
     : result?.system || result?.trust?.system || 'none';
   const trust = result?.trust?.level || 'none';
   log.info(
-    `[ens] reverse method=${method} address=${normalizedAddress} outcome=${outcome} ` +
+    `[ens] reverse method=${method} address=${nameForLog(normalizedAddress)} outcome=${outcome} ` +
     `system=${system} trust=${trust} action=${action}${reason ? ` reason=${reason}` : ''}`
   );
 }
@@ -2640,7 +2658,7 @@ async function doResolveEnsReverse(normalizedAddress) {
   let lastError = null;
 
   log.info(
-    `[ens] reverse policy address=${normalizedAddress} order=[${order.join(',')}] ` +
+    `[ens] reverse policy address=${nameForLog(normalizedAddress)} order=[${order.join(',')}] ` +
     `preferVerified=${preferVerified}`
   );
 
@@ -2667,7 +2685,7 @@ async function doResolveEnsReverse(normalizedAddress) {
       if (err?.code === 'MYOTIS_LIFECYCLE_CHANGED') throw err;
       lastError = err;
       log.warn(
-        `[ens] reverse method=${method} address=${normalizedAddress} outcome=ERROR ` +
+        `[ens] reverse method=${method} address=${nameForLog(normalizedAddress)} outcome=ERROR ` +
         `action=continue error=${err.message}`
       );
       continue;
@@ -2716,60 +2734,78 @@ function cacheReverseResult(normalizedAddress, result) {
   return cacheAndLog(ensReverseCache, normalizedAddress, result, result.name);
 }
 
+// PRIVATE MODE GUARD (name logging): a name typed in a private window's
+// address bar reaches the resolver through these handlers, so they are the
+// point where the sender's private-ness is still known. Marking the async
+// subtree redacts every downstream log site — including the ones inside
+// the consensus wave and the shared cache-and-log — without threading a
+// flag through every resolver hop. The resolution itself is unchanged.
+function privateResolveContext(event) {
+  return isPrivateWebContents(event?.sender);
+}
+
 function registerEnsIpc() {
-  ipcMain.handle(IPC.ENS_RESOLVE, async (_event, payload = {}) => {
+  ipcMain.handle(IPC.ENS_RESOLVE, async (event, payload = {}) => {
     const { name } = payload;
 
-    try {
-      const result = await resolveEnsContent(name);
-      return result;
-    } catch (err) {
-      log.error('[ens] resolution error', err);
-      return {
-        type: 'error',
-        name: (name || '').trim().toLowerCase(),
-        reason: 'RESOLUTION_ERROR',
-        error: err.message,
-      };
-    }
+    return runWithPrivateLogContext(privateResolveContext(event), async () => {
+      try {
+        const result = await resolveEnsContent(name);
+        return result;
+      } catch (err) {
+        log.error('[ens] resolution error', redactForLog(err));
+        return {
+          type: 'error',
+          name: (name || '').trim().toLowerCase(),
+          reason: 'RESOLUTION_ERROR',
+          error: err.message,
+        };
+      }
+    });
   });
 
-  ipcMain.handle(IPC.ENS_RESOLVE_ADDRESS, async (_event, payload = {}) => {
+  ipcMain.handle(IPC.ENS_RESOLVE_ADDRESS, async (event, payload = {}) => {
     const { name } = payload;
-    try {
-      return await resolveEnsAddress(name);
-    } catch (err) {
-      log.error('[ens] address resolution error', err);
-      return {
-        success: false,
-        name: (name || '').trim().toLowerCase(),
-        reason: 'RESOLUTION_ERROR',
-        error: err.message,
-      };
-    }
+    return runWithPrivateLogContext(privateResolveContext(event), async () => {
+      try {
+        return await resolveEnsAddress(name);
+      } catch (err) {
+        log.error('[ens] address resolution error', redactForLog(err));
+        return {
+          success: false,
+          name: (name || '').trim().toLowerCase(),
+          reason: 'RESOLUTION_ERROR',
+          error: err.message,
+        };
+      }
+    });
   });
 
-  ipcMain.handle(IPC.ENS_RESOLVE_REVERSE, async (_event, payload = {}) => {
+  ipcMain.handle(IPC.ENS_RESOLVE_REVERSE, async (event, payload = {}) => {
     const { address } = payload;
-    try {
-      return await resolveEnsReverse(address);
-    } catch (err) {
-      log.error('[ens] reverse resolution error', err);
-      return {
-        success: false,
-        address: typeof address === 'string' ? address.toLowerCase() : null,
-        reason: 'RESOLUTION_ERROR',
-        error: err.message,
-      };
-    }
+    return runWithPrivateLogContext(privateResolveContext(event), async () => {
+      try {
+        return await resolveEnsReverse(address);
+      } catch (err) {
+        log.error('[ens] reverse resolution error', redactForLog(err));
+        return {
+          success: false,
+          address: typeof address === 'string' ? address.toLowerCase() : null,
+          reason: 'RESOLUTION_ERROR',
+          error: err.message,
+        };
+      }
+    });
   });
 
   // Drop the cached contenthash for `name`. Used by the renderer's
   // swarm-probe failure handler so a "Try Again" click does a fresh
   // resolution rather than re-probing a stale contenthash.
-  ipcMain.handle(IPC.ENS_INVALIDATE_CONTENT, async (_event, payload = {}) => {
+  ipcMain.handle(IPC.ENS_INVALIDATE_CONTENT, async (event, payload = {}) => {
     const { name } = payload;
-    return invalidateEnsContent(name);
+    return runWithPrivateLogContext(privateResolveContext(event), () =>
+      invalidateEnsContent(name)
+    );
   });
 }
 
@@ -2787,7 +2823,7 @@ function invalidateEnsContent(name) {
   const had = ensResultCache.has(key);
   ensResultCache.delete(key);
   if (had) {
-    log.info(`[ens] content cache invalidated for ${key}`);
+    log.info(`[ens] content cache invalidated for ${nameForLog(key)}`);
   }
   return had;
 }

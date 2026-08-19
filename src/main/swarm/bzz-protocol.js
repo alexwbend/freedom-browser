@@ -47,6 +47,12 @@ const {
   resolveContentName,
 } = require('../content-name-resolver');
 const { isDwebNameHost } = require('../../shared/origin-utils');
+const {
+  runWithPrivateLogContext,
+  redactForLog,
+  redactUrlForLog,
+  redactedFailure,
+} = require('../private/private-log-context');
 
 // Per-attempt retry schedule. First entry is the delay BEFORE the 2nd
 // attempt, etc. Total backoff budget ≈ sum of all values (~50s). The probe
@@ -121,8 +127,10 @@ function sanitizeRequestHeaders(requestHeaders) {
  *
  * Returns one of:
  *  - `{ ok: true, url }`              — usable Bee gateway URL.
- *  - `{ ok: false, status, message }` — semantic failure (404 mismatch /
- *    no contenthash, 415 unsupported codec, 502 resolver conflict/error).
+ *  - `{ ok: false, status, message, logMessage }` — semantic failure (404
+ *    mismatch / no contenthash, 415 unsupported codec, 502 resolver
+ *    conflict/error). `message` goes to the page, `logMessage` to the
+ *    persistent log — see `redactedFailure`, which builds both.
  *  - `null`                           — malformed input. Caller emits 400
  *    to keep the existing "invalid bzz reference" surface stable.
  */
@@ -139,7 +147,7 @@ async function buildGatewayUrl(bzzUrl) {
   if (BZZ_HASH_RE.test(host)) {
     const antApiUrl = getAntApiUrl();
     if (!antApiUrl) {
-      return { ok: false, status: 503, message: 'Swarm node is not ready' };
+      return redactedFailure(503, () => 'Swarm node is not ready');
     }
 
     return {
@@ -151,7 +159,7 @@ async function buildGatewayUrl(bzzUrl) {
   if (isDwebNameHost(host) && !hasEmptyLabel(host)) {
     const antApiUrl = getAntApiUrl();
     if (!antApiUrl) {
-      return { ok: false, status: 503, message: 'Swarm node is not ready' };
+      return redactedFailure(503, () => 'Swarm node is not ready');
     }
 
     return resolveEnsToGatewayUrl(host, parsed, antApiUrl);
@@ -181,30 +189,35 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
   try {
     result = await resolveContentName(host);
   } catch (err) {
-    log.warn(`[bzz-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`);
-    return {
-      ok: false,
-      status: 502,
-      message: `${fallbackSystemLabel} resolver error: ${err.message}`,
-    };
+    // The resolver's own error text routinely names what it was asked to
+    // resolve, so it is redacted here and in the failure's log variant.
+    log.warn(
+      `[bzz-protocol] ${fallbackSystemLabel} resolver threw for ${redactForLog(host)}: ` +
+        `${redactForLog(err.message)}`
+    );
+    return redactedFailure(
+      502,
+      (detail) => `${fallbackSystemLabel} resolver error: ${detail}`,
+      err.message
+    );
   }
 
   if (!result) {
-    return {
-      ok: false,
-      status: 502,
-      message: `${fallbackSystemLabel} resolver returned no result for ${host}`,
-    };
+    return redactedFailure(
+      502,
+      (name) => `${fallbackSystemLabel} resolver returned no result for ${name}`,
+      host
+    );
   }
 
   if (result.type === 'ok') {
     const systemLabel = nameSystemLabelForResult(result, host);
     if (result.protocol !== 'bzz') {
-      return {
-        ok: false,
-        status: 404,
-        message: `${systemLabel} name ${host} resolves to ${result.protocol}, not Swarm`,
-      };
+      return redactedFailure(
+        404,
+        (name) => `${systemLabel} name ${name} resolves to ${result.protocol}, not Swarm`,
+        host
+      );
     }
     return {
       ok: true,
@@ -214,33 +227,36 @@ async function resolveEnsToGatewayUrl(host, parsed, antApiUrl) {
 
   if (result.type === 'not_found') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return {
-      ok: false,
-      status: 404,
-      message: `${systemLabel} name ${host} has no contenthash (${result.reason || 'unknown'})`,
-    };
+    const reason = result.reason || 'unknown';
+    return redactedFailure(
+      404,
+      (name) => `${systemLabel} name ${name} has no contenthash (${reason})`,
+      host
+    );
   }
 
   if (result.type === 'unsupported') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return {
-      ok: false,
-      status: 415,
-      message: `${systemLabel} name ${host} contenthash format unsupported`,
-    };
+    return redactedFailure(
+      415,
+      (name) => `${systemLabel} name ${name} contenthash format unsupported`,
+      host
+    );
   }
 
   if (result.type === 'conflict') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return { ok: false, status: 502, message: `${systemLabel} providers disagree on ${host}` };
+    return redactedFailure(502, (name) => `${systemLabel} providers disagree on ${name}`, host);
   }
 
   // result.type === 'error' or anything we didn't model — degrade to 502.
-  return {
-    ok: false,
-    status: 502,
-    message: `${nameSystemLabelForResult(result, host)} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
-  };
+  const systemLabel = nameSystemLabelForResult(result, host);
+  return redactedFailure(
+    502,
+    (name, detail) => `${systemLabel} resolution failed for ${name}: ${detail}`,
+    host,
+    result.error || result.reason || 'unknown'
+  );
 }
 
 // JSON 4xx/5xx response with the Swarm-shaped body the rest of the handler
@@ -350,7 +366,8 @@ async function fetchWithRetry(
     const delay = RETRY_DELAYS_MS[i];
     log.debug(
       `[bzz-protocol] retry ${i + 1}/${RETRY_DELAYS_MS.length} in ${delay}ms ` +
-        `(status=${result.response?.status ?? result.error?.code ?? 'error'}) ${gatewayUrl}`
+        `(status=${result.response?.status ?? result.error?.code ?? 'error'}) ` +
+        `${redactUrlForLog(gatewayUrl)}`
     );
     await sleep(delay, signal);
     if (signal?.aborted) break;
@@ -375,7 +392,14 @@ async function handleBzzRequest(
     return jsonErrorResponse(400, 'invalid bzz reference');
   }
   if (!built.ok) {
-    log.info(`[bzz-protocol] ${built.status} for ${request.url}: ${built.message}`);
+    // `built.message` is the page-facing text and embeds the requested
+    // name; only the failure's own log variant may reach the persistent
+    // log. Fail closed: a failure that didn't declare one is assumed to
+    // name the destination.
+    log.info(
+      `[bzz-protocol] ${built.status} for ${redactUrlForLog(request.url)}: ` +
+        `${built.logMessage ?? redactForLog(built.message)}`
+    );
     return jsonErrorResponse(built.status, built.message);
   }
   const gatewayUrl = built.url;
@@ -395,7 +419,7 @@ async function handleBzzRequest(
     const code = err?.cause?.code || err?.code || '';
     const isConnRefused = code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND';
     log.warn(
-      `[bzz-protocol] fetch failed for ${gatewayUrl}: ${err?.message || err}` +
+      `[bzz-protocol] fetch failed for ${redactUrlForLog(gatewayUrl)}: ${err?.message || err}` +
         (code ? ` (${code})` : '')
     );
     return jsonErrorResponse(
@@ -411,13 +435,21 @@ async function handleBzzRequest(
  * registered privileged via `protocol.registerSchemesAsPrivileged` before
  * `app.ready` — see `main/index.js`.
  */
-function registerBzzProtocol(targetSession) {
+function registerBzzProtocol(targetSession, { privatePartition = null } = {}) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[bzz-protocol] session.protocol.handle unavailable — skipping');
     return;
   }
+  // PRIVATE MODE GUARD (request logging): this handler is registered once
+  // per session, so a private window's session gets its own registration —
+  // the one place where private-ness is known for every request it serves.
+  // Marking the whole handler redacts the URL and gateway log lines here
+  // AND the name-resolution ones underneath (see private-log-context.js).
+  const isPrivate = !!privatePartition;
   try {
-    targetSession.protocol.handle('bzz', (request) => handleBzzRequest(request));
+    targetSession.protocol.handle('bzz', (request) =>
+      runWithPrivateLogContext(isPrivate, () => handleBzzRequest(request))
+    );
     log.info('[bzz-protocol] handler registered');
   } catch (err) {
     log.error('[bzz-protocol] failed to register handler:', err);

@@ -3,6 +3,12 @@
  * accepted via `will-download`, mirrored live while the DownloadItem is in
  * flight and left behind as history once it settles.
  *
+ * PRIVATE MODE GUARD (downloads): private-window downloads never reach
+ * this store — their rows live in private-downloads-store.js (in-memory,
+ * partition-scoped). The is_private / session_partition columns remain for
+ * schema continuity and the legacy startup sweep (removeAllPrivateDownloads)
+ * that cleans rows written by older builds.
+ *
  * States: 'in_progress' | 'completed' | 'cancelled' | 'interrupted'.
  * Rows left 'in_progress' by a crash are swept to 'interrupted' on the
  * next startup (see markStaleInProgressAsInterrupted).
@@ -86,8 +92,22 @@ function migrateDatabase() {
     db.pragma('user_version = 1');
   }
 
+  if (version < 2) {
+    log.info('[Downloads] Running migration to version 2 (private-window columns)');
+    // Historical: older builds flagged private-window rows here so they
+    // could be purged later. Private rows no longer reach SQLite at all
+    // (see private-downloads-store.js); the columns stay for schema
+    // continuity and the legacy startup sweep.
+    // (`session_partition`, not `partition` — PARTITION is an SQL keyword.)
+    db.exec(`
+      ALTER TABLE downloads ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE downloads ADD COLUMN session_partition TEXT;
+    `);
+    db.pragma('user_version = 2');
+  }
+
   // Future migrations go here:
-  // if (version < 2) { ... db.pragma('user_version = 2'); }
+  // if (version < 3) { ... db.pragma('user_version = 3'); }
 }
 
 // Prepared statements (lazily initialized)
@@ -102,8 +122,8 @@ function getStatements() {
     insert: database.prepare(`
       INSERT INTO downloads (
         url, filename, save_path, mime_type, total_bytes, received_bytes,
-        state, start_time, end_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        state, start_time, end_time, is_private, session_partition
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     update: database.prepare(`
       UPDATE downloads SET
@@ -135,6 +155,9 @@ function getStatements() {
     sweepStale: database.prepare(`
       UPDATE downloads SET state = 'interrupted', end_time = ? WHERE state = 'in_progress'
     `),
+    removeAllPrivate: database.prepare(`
+      DELETE FROM downloads WHERE is_private = 1
+    `),
     count: database.prepare(`
       SELECT COUNT(*) as count FROM downloads
     `),
@@ -144,13 +167,17 @@ function getStatements() {
 }
 
 /**
- * Insert a new download row (state starts as in_progress)
+ * Insert a new download row (state starts as in_progress).
+ * `isPrivate` / `partition` write the legacy private columns; the manager
+ * never passes them anymore (private rows are in-memory only) — they exist
+ * so tests can fabricate rows for the legacy startup sweep.
  * @param {object} entry - { url, filename, savePath, mimeType, totalBytes, startTime }
  * @returns {object} The inserted row shape (with id)
  */
 function insertDownload(entry) {
-  const { url, filename, savePath, mimeType, totalBytes, startTime } = entry;
+  const { url, filename, savePath, mimeType, totalBytes, startTime, isPrivate, partition } = entry;
   const start = startTime || Date.now();
+  const privateFlag = isPrivate ? 1 : 0;
 
   const stmt = getStatements().insert;
   const result = stmt.run(
@@ -162,10 +189,12 @@ function insertDownload(entry) {
     0,
     STATES.IN_PROGRESS,
     start,
-    null
+    null,
+    privateFlag,
+    partition || null
   );
 
-  log.info('[Downloads] Recorded download start:', filename);
+  log.info('[Downloads] Recorded download start:', filename, privateFlag ? '(private)' : '');
 
   return {
     id: result.lastInsertRowid,
@@ -178,6 +207,8 @@ function insertDownload(entry) {
     state: STATES.IN_PROGRESS,
     start_time: start,
     end_time: null,
+    is_private: privateFlag,
+    session_partition: partition || null,
   };
 }
 
@@ -255,6 +286,25 @@ function clearDownloads() {
 }
 
 /**
+ * PRIVATE MODE GUARD (downloads history): legacy startup sweep. Current
+ * code never writes private rows to SQLite (they live in
+ * private-downloads-store.js), but builds before that change did — drop
+ * any such rows left behind in an old profile. Files on disk are
+ * untouched. Note: a plain DELETE cannot scrub previously written
+ * SQLite/WAL pages, which is exactly why private rows are no longer
+ * written here in the first place.
+ * @returns {number} Number of rows removed
+ */
+function removeAllPrivateDownloads() {
+  const stmt = getStatements().removeAllPrivate;
+  const result = stmt.run();
+  if (result.changes > 0) {
+    log.info('[Downloads] Purged', result.changes, 'stale private download entries at startup');
+  }
+  return result.changes;
+}
+
+/**
  * Sweep rows left 'in_progress' by a previous run (crash / force quit) to
  * 'interrupted'. Call once at startup, before any UI reads the table.
  * @returns {number} Number of rows swept
@@ -289,6 +339,7 @@ module.exports = {
   getDownloadById,
   removeDownload,
   clearDownloads,
+  removeAllPrivateDownloads,
   markStaleInProgressAsInterrupted,
   getDownloadCount,
 };

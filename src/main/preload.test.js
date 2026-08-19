@@ -84,7 +84,7 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(25);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(27);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
@@ -93,6 +93,7 @@ describe('preload', () => {
       'myotis',
       'ipfs',
       'radicle',
+      'tor',
       'githubBridge',
       'serviceRegistry',
       'identity',
@@ -107,6 +108,7 @@ describe('preload', () => {
       'sitePermissions',
       'dappPermissions',
       'swarmPermissions',
+      'swarmManifest',
       'swarmProvider',
       'radiclePermissions',
       'radicleProvider',
@@ -169,12 +171,23 @@ describe('preload', () => {
       [exposures.radicle, 'getStatus', [], IPC.RADICLE_GET_STATUS, []],
       [exposures.radicle, 'checkBinary', [], IPC.RADICLE_CHECK_BINARY, []],
       [exposures.radicle, 'getConnections', [], IPC.RADICLE_GET_CONNECTIONS, []],
+      [exposures.tor, 'start', [], IPC.TOR_START, []],
+      [exposures.tor, 'stop', [], IPC.TOR_STOP, []],
+      [exposures.tor, 'getStatus', [], IPC.TOR_GET_STATUS, []],
+      [exposures.tor, 'checkBinary', [], IPC.TOR_CHECK_BINARY, []],
+      [exposures.tor, 'getVersion', [], IPC.TOR_GET_VERSION, []],
       [exposures.githubBridge, 'import', ['https://github.com/openai/project'], IPC.GITHUB_BRIDGE_IMPORT, ['https://github.com/openai/project']],
       [exposures.githubBridge, 'checkGit', [], IPC.GITHUB_BRIDGE_CHECK_GIT, []],
       [exposures.githubBridge, 'checkPrerequisites', [], IPC.GITHUB_BRIDGE_CHECK_PREREQUISITES, []],
       [exposures.githubBridge, 'validateUrl', ['https://github.com/openai/project'], IPC.GITHUB_BRIDGE_VALIDATE_URL, ['https://github.com/openai/project']],
       [exposures.githubBridge, 'checkExisting', ['https://github.com/openai/project'], IPC.GITHUB_BRIDGE_CHECK_EXISTING, ['https://github.com/openai/project']],
       [exposures.serviceRegistry, 'getRegistry', [], IPC.SERVICE_REGISTRY_GET, []],
+      [exposures.swarmPermissions, 'revokeMessaging', ['origin.eth'], IPC.SWARM_REVOKE_MESSAGING, ['origin.eth']],
+      [exposures.swarmManifest, 'check', [{ origin: 'origin.eth', committedUrl: 'bzz://origin.eth/' }], IPC.SWARM_MANIFEST_CHECK, [{ origin: 'origin.eth', committedUrl: 'bzz://origin.eth/' }]],
+      [exposures.swarmManifest, 'decide', ['token', 'allow'], IPC.SWARM_MANIFEST_DECIDE, [{ token: 'token', outcome: 'allow' }]],
+      [exposures.swarmManifest, 'get', ['origin.eth'], IPC.SWARM_MANIFEST_GET, ['origin.eth']],
+      [exposures.swarmManifest, 'useIndividual', ['origin.eth', 'feeds'], IPC.SWARM_MANIFEST_USE_INDIVIDUAL, [{ origin: 'origin.eth', capability: 'feeds' }]],
+      [exposures.swarmManifest, 'disconnect', ['origin.eth'], IPC.SWARM_MANIFEST_DISCONNECT, ['origin.eth']],
       [exposures.swarmFeedStore, 'previewAppScopedIdentity', ['origin.eth', { label: 'Draft' }], IPC.SWARM_PREVIEW_APP_SCOPED_IDENTITY, ['origin.eth', { label: 'Draft' }]],
       [exposures.swarmFeedStore, 'ensureEthereumWalletIdentity', ['origin.eth', 2, { activate: true }], IPC.SWARM_ENSURE_ETHEREUM_WALLET_IDENTITY, ['origin.eth', 2, { activate: true }]],
       [exposures.sitePermissions, 'respondToPrompt', [{ id: 1, decision: 'allow', remember: true }], IPC.PERMISSIONS_PROMPT_RESPONSE, [{ id: 1, decision: 'allow', remember: true }]],
@@ -269,12 +282,14 @@ describe('preload', () => {
     const ipfsStatus = { status: 'stopped', error: null };
     const myotisStatus = { state: 'off', running: false, available: true };
     const radicleStatus = { status: 'error', error: 'offline' };
+    const torStatus = { status: 'stopped', error: null };
     const { exposures, ipcRenderer } = loadPreloadModule({
       invokeResponses: {
         [IPC.ANT_GET_STATUS]: beeStatus,
         [IPC.IPFS_GET_STATUS]: ipfsStatus,
         [IPC.MYOTIS_GET_STATUS]: myotisStatus,
         [IPC.RADICLE_GET_STATUS]: radicleStatus,
+        [IPC.TOR_GET_STATUS]: torStatus,
       },
     });
 
@@ -283,6 +298,7 @@ describe('preload', () => {
       [exposures.ipfs, IPC.IPFS_STATUS_UPDATE, IPC.IPFS_GET_STATUS, ipfsStatus, { status: 'running', error: null }],
       [exposures.myotis, IPC.MYOTIS_STATUS_UPDATE, IPC.MYOTIS_GET_STATUS, myotisStatus, { state: 'ready', running: true }],
       [exposures.radicle, IPC.RADICLE_STATUS_UPDATE, IPC.RADICLE_GET_STATUS, radicleStatus, { status: 'running', error: null }],
+      [exposures.tor, IPC.TOR_STATUS_UPDATE, IPC.TOR_GET_STATUS, torStatus, { status: 'running', error: null }],
     ];
 
     for (const [target, updateChannel, getStatusChannel, initialStatus, pushedStatus] of statusCases) {

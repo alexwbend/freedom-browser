@@ -95,6 +95,10 @@ function getMyotisDataDir(network = 'mainnet') {
   return network === 'mainnet' ? root : ensureDir(path.join(root, network));
 }
 
+function getTorDataDir() {
+  return resolveDir('FREEDOM_TOR_DATA', 'tor-data');
+}
+
 function getRadicleDataDir() {
   const override = process.env.FREEDOM_RADICLE_DATA;
   if (override) {
@@ -177,4 +181,5 @@ module.exports = {
   getProfileUserDataDir,
   getQuickUnlockCredentialPath,
   getRadicleDataDir,
+  getTorDataDir,
 };

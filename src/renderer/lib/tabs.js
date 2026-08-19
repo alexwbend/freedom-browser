@@ -5,6 +5,7 @@ import { hideBookmarkContextMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
 import { setupWebviewContextMenu } from './page-context-menu.js';
 import { homeUrl, getInternalPageName, internalPages } from './page-urls.js';
+import { getPrivatePartition, isPrivateWindow } from './private-mode.js';
 import { setupWebviewProvider, setActiveWebview } from './dapp-provider.js';
 import { setupSwarmProvider } from './swarm-provider.js';
 import { setupRadicleProvider } from './radicle-provider.js';
@@ -235,6 +236,12 @@ export const getDisplayUrlForWebview = (webview) => {
   return tab.navigationState?.committedDisplayUrl || '';
 };
 
+export const getNavigationKeyForWebview = (webview) => {
+  const tab = tabState.tabs.find((candidate) => candidate.webview === webview);
+  if (!tab) return '';
+  return `${tab.id}:${tab.navigationState?.committedNavigationSequence || 0}`;
+};
+
 // Create default navigation state for a tab
 const createNavigationState = () => ({
   currentPageUrl: '',
@@ -260,6 +267,7 @@ const createNavigationState = () => ({
   // it so provider permission keys never see unsubmitted drafts or
   // pending destinations.
   committedDisplayUrl: '',
+  committedNavigationSequence: 0,
   cachedWebContentsId: null,
   resolvingWebContentsId: null,
   pendingSwarmProbeId: null,
@@ -358,9 +366,41 @@ export const updateActiveTabTitle = (title) => {
   }
 };
 
+// The friendly URL of the private start page; private windows open new
+// tabs here instead of the home page.
+const PRIVATE_START_URL = 'freedom://private';
+
+// URL every fresh tab in this window starts on.
+const defaultNewTabUrl = () => (isPrivateWindow() ? PRIVATE_START_URL : homeUrl);
+
+// True for both forms the private start page appears as in tab.url —
+// the friendly freedom:// form while resolving and the resolved
+// file://…/pages/private.html form once loaded.
+//
+// The resolved form is a bare suffix match, so it is scoped to private
+// windows: in a NORMAL window a perfectly ordinary web page whose path ends
+// in /pages/private.html (https://example.com/pages/private.html) would
+// otherwise be silently excluded from the Ctrl/Cmd+Shift+T reopen stack.
+// The internal page only ever loads from a file:// URL inside a private
+// window, so the narrower check loses nothing.
+const isPrivateStartUrl = (url) =>
+  url === PRIVATE_START_URL ||
+  (isPrivateWindow() &&
+    typeof url === 'string' &&
+    url.startsWith('file:') &&
+    url.endsWith('/pages/private.html'));
+
 // Create a webview element
 const createWebview = (tabId, initialUrl) => {
   const webview = document.createElement('webview');
+  // PRIVATE MODE GUARD (partition): in a private window every webview runs
+  // on the window's unique non-persisted `private-<uuid>` session. The
+  // partition attribute only takes effect before the first navigation, so
+  // it is stamped here — before `src` is assigned — and never mutated.
+  const privatePartition = getPrivatePartition();
+  if (privatePartition) {
+    webview.setAttribute('partition', privatePartition);
+  }
   webview.setAttribute('allowpopups', '');
   webview.setAttribute('allowfullscreen', '');
   webview.setAttribute(
@@ -504,6 +544,7 @@ const createWebview = (tabId, initialUrl) => {
         // the actual page identity.
         if (tab.navigationState && event.url && event.url !== 'about:blank') {
           tab.navigationState.committedDisplayUrl = webviewUrl;
+          tab.navigationState.committedNavigationSequence += 1;
         }
         // Clear any stale favicon from the previous page when navigating to
         // an internal page — page-favicon-updated will paint one back in if
@@ -1063,14 +1104,17 @@ export const createTab = (url = null) => {
   // a blank entry in the back history; see resolveInternalPageUrl). tab.url keeps
   // the friendly freedom:// form so the address bar and singleton-tab reuse still
   // match on it while the page loads.
-  const resolvedInternalUrl = resolveInternalPageUrl(url);
+  // Empty/null falls back to this window's default new-tab page — the
+  // private start page in private windows, the home page otherwise.
+  const fallbackUrl = defaultNewTabUrl();
+  const resolvedInternalUrl = resolveInternalPageUrl(url || fallbackUrl);
   const isDirect = resolvedInternalUrl != null || isDirectLoadUrl(url);
-  const webviewUrl = resolvedInternalUrl || (isDirect ? url || homeUrl : 'about:blank');
+  const webviewUrl = resolvedInternalUrl || (isDirect ? url || fallbackUrl : 'about:blank');
   const webview = createWebview(tabId, webviewUrl);
 
   const tab = {
     id: tabId,
-    url: url || homeUrl,
+    url: url || fallbackUrl,
     title: 'New Tab',
     isLoading: false,
     isAudible: false,
@@ -1122,9 +1166,12 @@ export const closeTab = (tabId) => {
 
   const tab = tabState.tabs[tabIndex];
 
-  // Save to closed tabs stack for reopening later (skip blank/empty tabs)
+  // Save to closed tabs stack for reopening later (skip blank/empty tabs
+  // and the private start page). The stack itself is per-window renderer
+  // state, so a private window's closed tabs die with the window and can
+  // never be resurrected from a normal window's Cmd/Ctrl+Shift+T.
   const tabUrl = tab.url || tab.navigationState?.currentPageUrl;
-  if (tabUrl && tabUrl !== 'about:blank' && tabUrl !== homeUrl) {
+  if (tabUrl && tabUrl !== 'about:blank' && tabUrl !== homeUrl && !isPrivateStartUrl(tabUrl)) {
     closedTabsStack.push({ url: tabUrl, title: tab.title });
     if (closedTabsStack.length > MAX_CLOSED_TABS) {
       closedTabsStack.shift();
@@ -1610,12 +1657,12 @@ export const initTabs = async () => {
 
   // New tab button
   newTabBtn?.addEventListener('click', () => {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   });
 
   // Menu IPC handlers
   electronAPI?.onNewTab?.(() => {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   });
 
   electronAPI?.onCloseTab?.(() => {
@@ -1754,7 +1801,13 @@ export const initTabs = async () => {
     // New tab
     if (matchesShortcut(event, 'tab.new')) {
       event.preventDefault();
-      createTab(homeUrl);
+      createTab(defaultNewTabUrl());
+    }
+    // New private window (fallback for when the menu accelerator doesn't
+    // handle it — e.g. the frameless/auto-hidden menu bar on Linux)
+    if (matchesShortcut(event, 'window.newPrivate')) {
+      event.preventDefault();
+      electronAPI?.newPrivateWindow?.();
     }
     // Close tab (skip pinned tabs)
     if (matchesShortcut(event, 'tab.close')) {
@@ -1828,6 +1881,6 @@ export const initTabs = async () => {
       setTimeout(() => onLoadTarget(initialUrl), 50);
     }
   } else {
-    createTab(homeUrl);
+    createTab(defaultNewTabUrl());
   }
 };

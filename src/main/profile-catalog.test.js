@@ -176,6 +176,18 @@ describe('profile catalog', () => {
       mode: 'managed',
       backend: 'myotis-native',
     });
+    expect(metadata.nodes.myotis).toEqual({
+      mode: 'managed',
+      backend: 'myotis-native',
+    });
+    expect(catalog.profiles[0].nodes.tor).toMatchObject({
+      mode: 'managed',
+      socksPort: 19150,
+    });
+    expect(metadata.nodes.tor).toMatchObject({
+      mode: 'managed',
+      socksPort: 19150,
+    });
   });
 
   test('adopts an existing profile directory with metadata instead of assigning a fresh slot', () => {
@@ -221,6 +233,10 @@ describe('profile catalog', () => {
       apiPort: 11640,
       p2pPort: 12640,
       externalApi: 'http://127.0.0.1:1633',
+    });
+    expect(result.metadata.nodes.tor).toMatchObject({
+      mode: 'managed',
+      socksPort: 19157,
     });
 
     const catalog = JSON.parse(

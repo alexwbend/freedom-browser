@@ -13,6 +13,7 @@ const { loadSettings } = require('./settings-store');
 const { fetchBuffer, fetchToFile } = require('./http-fetch');
 const { success, failure, validateWebContentsId } = require('./ipc-contract');
 const IPC = require('../shared/ipc-channels');
+const { normalizeSocksEndpoint } = require('../shared/socks-endpoint');
 const {
   startProbe: startSwarmProbe,
   cancelProbe: cancelSwarmProbe,
@@ -29,6 +30,7 @@ const {
   validateProfileDeletionForActiveApp,
 } = require('./profile-resolver');
 const { openOrFocusProfile } = require('./profile-launcher');
+const { isPrivateWebContents } = require('./private/private-windows');
 const { readProfileFocusAck, requestProfileQuitAsync } = require('./profile-focus-handoff');
 const { isProfileLocked } = require('./profile-lock');
 
@@ -158,6 +160,7 @@ function serializeActiveProfile() {
       ipfs: metadata.nodes.ipfs ? { ...metadata.nodes.ipfs } : null,
       myotis: metadata.nodes.myotis ? { ...metadata.nodes.myotis } : null,
       radicle: metadata.nodes.radicle ? { ...metadata.nodes.radicle } : null,
+      tor: metadata.nodes.tor ? { ...metadata.nodes.tor } : null,
     };
   }
 
@@ -211,16 +214,24 @@ const PROFILE_NODE_MODES = {
   ipfs: new Set(['managed', 'disabled']),
   myotis: new Set(['managed', 'disabled']),
   radicle: new Set(['managed', 'external', 'disabled']),
+  tor: new Set(['managed', 'external', 'disabled']),
 };
 const PROFILE_NODE_FIELDS = {
   bee: ['mode', 'externalApi'],
   ipfs: ['mode'],
   myotis: ['mode'],
   radicle: ['mode', 'externalHttp'],
+  tor: ['mode', 'externalSocks'],
 };
 const EXTERNAL_FIELDS = {
   bee: ['externalApi'],
   radicle: ['externalHttp'],
+  tor: ['externalSocks'],
+};
+const PROFILE_NODE_ENDPOINT_NORMALIZERS = {
+  externalApi: normalizeProfileNodeEndpoint,
+  externalHttp: normalizeProfileNodeEndpoint,
+  externalSocks: normalizeSocksEndpoint,
 };
 
 function normalizeProfileNodeEndpoint(rawValue) {
@@ -280,7 +291,8 @@ function validateProfileNodeConfigUpdate(protocol, patch = {}) {
       continue;
     }
 
-    const normalized = normalizeProfileNodeEndpoint(patch[field]);
+    const normalizeEndpoint = PROFILE_NODE_ENDPOINT_NORMALIZERS[field] || (() => null);
+    const normalized = normalizeEndpoint(patch[field]);
     if (patch[field] && !normalized) {
       return {
         ok: false,
@@ -725,9 +737,20 @@ function registerBaseIpcHandlers(callbacks = {}) {
     const win = event.sender.getOwnerBrowserWindow();
     if (!win) return;
     const formatted = formatWindowTitle(title);
-    log.info(`[main] Setting window title to: "${formatted}" (requested: "${title}")`);
+    // PRIVATE MODE GUARD (window title): a private page's <title> — and, for
+    // view-source/error tabs, its full URL, which the renderer sends as the
+    // title — must not reach the persistent on-disk log, nor seed the
+    // process-wide `currentWindowTitle` that every later normal window
+    // inherits at ready-to-show. The private window's own native title still
+    // updates (matching Chrome/Firefox), it just stays out of shared state.
+    const isPrivate = isPrivateWebContents(event.sender);
+    if (isPrivate) {
+      log.info('[main] Setting window title for a private window (title redacted)');
+    } else {
+      log.info(`[main] Setting window title to: "${formatted}" (requested: "${title}")`);
+    }
     win.setTitle(formatted);
-    if (callbacks.onSetTitle) {
+    if (!isPrivate && callbacks.onSetTitle) {
       callbacks.onSetTitle(formatted);
     }
   });
@@ -803,11 +826,41 @@ function registerBaseIpcHandlers(callbacks = {}) {
     }
   });
 
-  ipcMain.on(IPC.WINDOW_NEW_WITH_URL, (_event, url) => {
+  // PRIVATE MODE GUARD (windows): "Open Link in New Window" carries a URL out
+  // of the window that asked for it. Asked from a private window, the link
+  // must land in another PRIVATE window — routing it through createMainWindow
+  // would load it on the persistent default session, where history records
+  // it, cookies and site data stick, and wallet providers inject. Resolve the
+  // sender through the private registry so the guard holds whatever the
+  // renderer sends.
+  ipcMain.on(IPC.WINDOW_NEW_WITH_URL, (event, url) => {
+    if (isPrivateWebContents(event?.sender)) {
+      if (callbacks.onNewPrivateWindow) {
+        callbacks.onNewPrivateWindow(url);
+      } else {
+        // Never fall back to a normal window: dropping the request is the
+        // safe failure here.
+        log.warn('[private] no private-window factory — dropping window:new-with-url');
+      }
+      return;
+    }
     if (callbacks.onNewWindow) {
       // Pass URL directly to createMainWindow to avoid home page flash
       callbacks.onNewWindow(url);
     }
+  });
+
+  ipcMain.on(IPC.WINDOW_NEW_PRIVATE, () => {
+    if (callbacks.onNewPrivateWindow) {
+      callbacks.onNewPrivateWindow();
+    }
+  });
+
+  // Sync: a webview preload asks (before any page script runs) whether it
+  // lives inside a private window, to gate wallet provider injection.
+  // PRIVATE MODE GUARD (providers): consumer is src/main/webview-preload.js.
+  ipcMain.on(IPC.PRIVATE_IS_PRIVATE, (event) => {
+    event.returnValue = isPrivateWebContents(event.sender);
   });
 
   ipcMain.on(IPC.APP_SHOW_ABOUT, () => {

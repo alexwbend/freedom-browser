@@ -1,10 +1,16 @@
 jest.mock('electron', () => ({ ipcMain: { handle: jest.fn() } }));
 jest.mock('./logger', () => ({ error: jest.fn(), warn: jest.fn(), info: jest.fn() }));
+// Private-ness is decided from the IPC sender; the registry itself needs a
+// real BrowserWindow, so stub the one predicate this module uses.
+jest.mock('./private/private-windows', () => ({
+  isPrivateWebContents: (webContents) => webContents?.isPrivate === true,
+}));
 
 const {
   invalidateTezosDomain,
   isTezosDomainName,
   parsePublishedUri,
+  registerTezosDomainsIpc,
   resolveTezosDomain,
   scriptExprHash,
 } = require('./tezos-domains-resolver');
@@ -371,5 +377,73 @@ describe('Tezos Domains resolver', () => {
     } finally {
       Date.now.mockRestore();
     }
+  });
+});
+
+// PRIVATE MODE GUARD (name logging) — mirrors the ENS resolver: the .tez
+// name a private tab asked for must not reach the persistent main.log,
+// which outlives the private window and the app.
+describe('Tezos Domains private-window logging', () => {
+  const { ipcMain } = require('electron');
+  const log = require('./logger');
+  const IPC = require('../shared/ipc-channels');
+
+  // The three built-in endpoints the IPC handler resolves through (it takes
+  // no endpoint override), keyed by origin like createRpcFetch expects.
+  const OCTEZ = 'https://tezos-mainnet.octez.io';
+  const TZKT = 'https://rpc.tzkt.io';
+  const TZBETA = 'https://rpc.tzbeta.net';
+
+  function handlerFor(channel) {
+    const entry = ipcMain.handle.mock.calls.find(([name]) => name === channel);
+    if (!entry) throw new Error(`no handler registered for ${channel}`);
+    return entry[1];
+  }
+
+  const loggedText = () =>
+    [log.info, log.warn, log.error]
+      .flatMap((fn) => fn.mock.calls)
+      .map((call) => call.join(' '))
+      .join('\n');
+
+  let realFetch;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    invalidateTezosDomain();
+    ipcMain.handle.mockClear();
+    registerTezosDomainsIpc();
+    realFetch = global.fetch;
+    // Two providers agree, the third dissents — the path that logs the name.
+    global.fetch = createRpcFetch(null, {
+      recordsByEndpoint: {
+        [OCTEZ]: record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]),
+        [TZBETA]: record([['web:content_url', 'ipfs://bafybeigdyrzt/site']]),
+        [TZKT]: record([['web:content_url', 'ipfs://bafyOTHER/site']]),
+      },
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = realFetch;
+  });
+
+  test('a private resolve logs no name; a normal one still does', async () => {
+    const resolve = handlerFor(IPC.TEZOS_DOMAINS_RESOLVE);
+
+    await resolve({ sender: { isPrivate: true } }, { name: 'secret-site.tez' });
+    const privateText = loggedText();
+    expect(privateText).toContain('disagreed with the majority for <private>');
+    expect(privateText).not.toContain('secret-site.tez');
+
+    log.info.mockClear();
+    log.warn.mockClear();
+    log.error.mockClear();
+    invalidateTezosDomain();
+    await resolve(
+      { sender: { isPrivate: false } },
+      { name: 'public-site.tez' }
+    );
+    expect(loggedText()).toContain('disagreed with the majority for public-site.tez');
   });
 });

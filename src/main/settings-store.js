@@ -40,6 +40,11 @@ const DEFAULT_SETTINGS = {
   // addon (npm run myotis:download, or the packaged resource).
   startMyotisAtLaunch: false,
   startMyotisGnosisAtLaunch: false,
+  // Tor (.onion) access via the bundled Arti SOCKS proxy. Off by default;
+  // when enabled, only *.onion traffic is routed through Tor (clearnet and
+  // the decentralized protocols keep connecting directly).
+  enableTorIntegration: false,
+  startTorAtLaunch: false,
   autoUpdate: true,
   showBookmarkBar: false,
   // When true, every download opens a native save dialog. Off by default:
