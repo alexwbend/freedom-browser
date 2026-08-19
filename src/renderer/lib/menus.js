@@ -2,6 +2,7 @@
 import { state } from './state.js';
 import { startAntInfoPolling, stopAntInfoPolling } from './ant-ui.js';
 import { startIpfsInfoPolling, stopIpfsInfoPolling } from './ipfs-ui.js';
+import { startMyotisInfoPolling, stopMyotisInfoPolling } from './myotis-ui.js';
 import { startRadicleInfoPolling, stopRadicleInfoPolling } from './radicle-ui.js';
 import { hideTabContextMenu, getActiveWebview } from './tabs.js';
 import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
@@ -90,6 +91,7 @@ export const setAntMenuOpen = (open) => {
     showMenuBackdrop();
     startAntInfoPolling();
     startIpfsInfoPolling();
+    startMyotisInfoPolling();
     startRadicleInfoPolling();
   } else {
     if (!state.menuOpen) {
@@ -97,6 +99,7 @@ export const setAntMenuOpen = (open) => {
     }
     stopAntInfoPolling();
     stopIpfsInfoPolling();
+    stopMyotisInfoPolling();
     stopRadicleInfoPolling();
     if (beePeersCount) beePeersCount.textContent = '0';
     if (beeNetworkPeers) beeNetworkPeers.textContent = '0';

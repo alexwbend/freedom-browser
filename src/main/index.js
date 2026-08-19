@@ -186,6 +186,7 @@ const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const myotisManager = require('./myotis/myotis-manager');
 const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
@@ -301,6 +302,7 @@ async function bootstrap() {
   registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
+  myotisManager.registerMyotisIpc();
   registerRadicleIpc();
   registerTorIpc();
   registerGithubBridgeIpc();
@@ -480,6 +482,20 @@ async function bootstrap() {
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
     }
+    // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
+    // (requires the addon — myotis:download or packaged resource); the
+    // MYOTIS_NODE_PATH env var force-starts regardless (spike/e2e harness).
+    // Syncs invisibly in the background; the ENS resolver starts preferring
+    // it once the node reports ready.
+    if (
+      myotisManager.isEnabled() &&
+      (settings.startMyotisAtLaunch || process.env.MYOTIS_NODE_PATH)
+    ) {
+      myotisManager.startMyotis();
+    }
+    if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
+      myotisManager.startMyotis({ chainId: 100 });
+    }
     if (settings.enableTorIntegration && settings.startTorAtLaunch) {
       startTor({ targetSession: defaultSession });
     }
@@ -563,7 +579,8 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, Radicle, and Tor to stop...');
+  log.info('[App] Waiting for Ant, IPFS, Myotis, Radicle, and Tor to stop...');
+  myotisManager.stopAllMyotis();
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle(), stopTor()]);
   log.info('[App] All processes stopped, quitting...');
 

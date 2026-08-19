@@ -35,6 +35,11 @@ const DEFAULT_SETTINGS = {
   startAntAtLaunch: true,
   startIpfsAtLaunch: true,
   startRadicleAtLaunch: false,
+  // Experimental: start the Myotis P2P Ethereum light client at launch.
+  // Off by default — opt-in while the tier is experimental; requires the
+  // addon (npm run myotis:download, or the packaged resource).
+  startMyotisAtLaunch: false,
+  startMyotisGnosisAtLaunch: false,
   // Tor (.onion) access via the bundled Arti SOCKS proxy. Off by default;
   // when enabled, only *.onion traffic is routed through Tor (clearnet and
   // the decentralized protocols keep connecting directly).

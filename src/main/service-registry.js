@@ -27,6 +27,14 @@ const registry = {
     tempMessage: null,
     tempMessageTimeout: null,
   },
+  myotis: {
+    api: null,
+    gateway: null,
+    mode: MODE.NONE,
+    statusMessage: null,
+    tempMessage: null,
+    tempMessageTimeout: null,
+  },
   ant: {
     api: null, // e.g., 'http://127.0.0.1:11633'
     gateway: null, // Same as api for Ant/Bee-compatible HTTP
@@ -105,6 +113,7 @@ function getService(service) {
 function getRegistry() {
   return {
     ipfs: { ...registry.ipfs },
+    myotis: { ...registry.myotis },
     ant: { ...registry.ant },
     radicle: { ...registry.radicle },
     tor: { ...registry.tor },

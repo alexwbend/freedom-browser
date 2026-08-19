@@ -501,6 +501,7 @@ const toggleTrustPopover = () => {
   const title = document.getElementById('trust-popover-title');
   const statusEl = document.getElementById('trust-popover-status');
   const trustFieldsEl = document.getElementById('trust-popover-trust-fields');
+  const contentEl = document.getElementById('trust-popover-content');
   const contentFieldsEl = document.getElementById('trust-popover-content-fields');
 
   if (title) title.textContent = name;
@@ -640,6 +641,7 @@ const toggleTrustPopover = () => {
   if (contentFieldsEl) {
     contentFieldsEl.replaceChildren(...contentRows.map(buildRow));
   }
+  if (contentEl) contentEl.hidden = contentRows.length === 0;
 
   // Record the identity of what's now rendered before we flip the
   // popover open — `setTrustPopoverOpen(true)` doesn't clear it, only
