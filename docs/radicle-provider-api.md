@@ -144,16 +144,22 @@ Resolves:
 ```
 {
   rid,
-  state: 'fetched' | 'fetching' | 'failed' | 'idle',
+  state: 'fetched' | 'fetching' | 'failed' | 'cancelled' | 'idle',
   inStorage: boolean,       // ground truth: repo is served locally
   seedersKnown: number|null, // network seeders discovered for the fetch
   attemptCount: number,
   recentAttempts: [{ nid, ok, error?, at }],  // last 5 per-seed results
+  progress: { phase, candidates?, nid?, addr?, index?, total?, reason? }|null,
   lastError: string|null,
   startedAt: number|null,
   finishedAt: number|null
 }
 ```
+
+`progress.phase` is one of `starting`, `resolving`, `connecting`,
+`fetching`, `peer-failed`, `done`, `failed`, or `cancelled`. Peer-level
+events are streamed by the embedded node; byte-level percentages are not
+currently available from Heartwood's fetch transport.
 
 `idle` means nothing is known this session (not tracked, not stored).
 A `failed` repo may still flip to `fetched` later — the node keeps

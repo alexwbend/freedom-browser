@@ -17,7 +17,8 @@ function publicStatus(record) {
     inStorage: record.state === 'fetched',
     seedersKnown: record.seedersKnown,
     attemptCount: record.attemptCount,
-    recentAttempts: [],
+    recentAttempts: record.recentAttempts.map((attempt) => ({ ...attempt })),
+    progress: record.progress ? { ...record.progress } : null,
     lastError: record.lastError,
     startedAt: record.startedAt,
     finishedAt: record.finishedAt,
@@ -37,6 +38,8 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
     state: 'fetching',
     seedersKnown: existing?.seedersKnown ?? null,
     attemptCount: (existing?.attemptCount ?? 0) + 1,
+    recentAttempts: [],
+    progress: { phase: 'starting' },
     lastError: null,
     startedAt: Date.now(),
     finishedAt: null,
@@ -44,11 +47,45 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
   };
   records.set(rid, record);
 
-  record.done = Promise.resolve()
-    .then(() => fetchRepo(rid))
-    .then(async () => {
+  const onProgress = (progress) => {
+    if (record.cancelled || records.get(rid) !== record || !progress?.phase) return;
+    const previous = record.progress;
+    record.progress = { ...progress };
+    if (progress.phase === 'peer-failed') {
+      record.recentAttempts.push({
+        nid: progress.nid,
+        ok: false,
+        error: progress.reason,
+        at: Date.now(),
+      });
+      record.recentAttempts = record.recentAttempts.slice(-5);
+    }
+    if (progress.phase === 'done' && previous?.nid) {
+      record.recentAttempts.push({ nid: previous.nid, ok: true, at: Date.now() });
+      record.recentAttempts = record.recentAttempts.slice(-5);
+    }
+  };
+
+  let fetchResult;
+  try {
+    // Invoke synchronously so the native task is registered before startFetch
+    // returns. This minimizes the seed-then-immediate-unseed cancellation race.
+    fetchResult = fetchRepo(rid, onProgress);
+  } catch (err) {
+    fetchResult = Promise.reject(err);
+  }
+
+  record.done = Promise.resolve(fetchResult)
+    .then(async (result) => {
       if (record.cancelled || records.get(rid) !== record) return;
+      if (result?.cancelled) {
+        record.state = 'cancelled';
+        record.progress = { phase: 'cancelled' };
+        record.finishedAt = Date.now();
+        return;
+      }
       record.state = 'fetched';
+      record.progress = { phase: 'done' };
       record.finishedAt = Date.now();
       if (getSeeders) {
         try {
@@ -61,6 +98,7 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
     .catch((err) => {
       if (record.cancelled || records.get(rid) !== record) return;
       record.state = 'failed';
+      record.progress = { phase: 'failed', reason: err.message };
       record.lastError = err.message;
       if (/no seeds found/i.test(err.message)) record.seedersKnown = 0;
       record.finishedAt = Date.now();
@@ -72,8 +110,13 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
 
 function cancelFetch(rid) {
   const record = records.get(rid);
-  if (record) record.cancelled = true;
+  const active = record?.state === 'fetching';
+  if (record) {
+    record.cancelled = true;
+    record.progress = { phase: 'cancelled' };
+  }
   records.delete(rid);
+  return active ? record.done : null;
 }
 
 async function getStatus(rid, { repoExists, getSeeders } = {}) {
@@ -103,6 +146,7 @@ async function getStatus(rid, { repoExists, getSeeders } = {}) {
       seedersKnown,
       attemptCount: 0,
       recentAttempts: [],
+      progress: null,
       lastError: null,
       startedAt: null,
       finishedAt: null,

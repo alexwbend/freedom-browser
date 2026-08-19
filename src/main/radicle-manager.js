@@ -183,7 +183,8 @@ async function getSeederCount(rid) {
 
 function startTrackedFetch(rid) {
   const status = seedStatus.startFetch(rid, {
-    fetchRepo: (value) => embedded.cloneRepo(value, 120000),
+    fetchRepo: (value, onProgress) =>
+      embedded.cloneRepoWithProgress(value, 120000, onProgress),
     getSeeders: getSeederCount,
   });
   return success({ status });
@@ -211,12 +212,38 @@ async function getSeedFetchStatus(rid) {
   return success({ status });
 }
 
+async function cancelCloneWithRetry(rid) {
+  const delays = [0, 10, 25, 50, 100];
+  for (const delay of delays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const result = await embedded.cancelClone(rid);
+      if (result?.cancelled) return true;
+    } catch (err) {
+      log.warn(`[Radicle] Could not request clone cancellation for ${rid}:`, err.message);
+      return false;
+    }
+  }
+  return false;
+}
+
 async function unseedRepository(rid) {
   const unavailable = requireRunning();
   if (unavailable) return unavailable;
   const fullRid = validateAndNormalizeRid(rid);
   if (!fullRid) return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
-  seedStatus.cancelFetch(fullRid);
+  const fetchDone = seedStatus.cancelFetch(fullRid);
+  const cancellation = fetchDone ? cancelCloneWithRetry(fullRid) : Promise.resolve(false);
+  // Heartwood's pack transfer is a blocking operation, so native
+  // cancellation can only be observed when that call returns. Re-apply
+  // the policy afterward to prevent a late clone from leaving the repo
+  // seeded after the user explicitly unseeded it, even if the immediate
+  // unseed attempt fails.
+  if (fetchDone) {
+    void Promise.all([fetchDone, cancellation])
+      .then(() => embedded.unseedRepo(fullRid))
+      .catch((err) => log.warn(`[Radicle] Final unseed failed for ${fullRid}:`, err.message));
+  }
   try {
     await embedded.unseedRepo(fullRid);
     return success();

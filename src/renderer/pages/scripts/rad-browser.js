@@ -943,6 +943,24 @@ async function pollSeedStatus() {
   return result?.success ? result.status : null;
 }
 
+function seedProgressText(status) {
+  const progress = status?.progress;
+  switch (progress?.phase) {
+    case 'resolving':
+      return `Found ${progress.candidates} candidate peer${progress.candidates === 1 ? '' : 's'}…`;
+    case 'connecting':
+      return `Connecting to ${progress.addr || progress.nid} (${progress.index}/${progress.total})…`;
+    case 'fetching':
+      return `Fetching repository (${progress.index}/${progress.total})…`;
+    case 'peer-failed':
+      return `Trying another seed (${progress.index}/${progress.total})…`;
+    default:
+      return status.seedersKnown != null
+        ? `Fetching from the network… (${status.seedersKnown} seeds known)`
+        : 'Fetching from the network…';
+  }
+}
+
 async function seedRepository() {
   if (!rid) return;
 
@@ -975,10 +993,8 @@ async function seedRepository() {
           status.lastError || 'The network fetch failed — no seed could deliver the repository'
         );
       }
-      seedStatus.textContent =
-        status.seedersKnown != null
-          ? `Fetching from the network… (${status.seedersKnown} seeds known)`
-          : 'Fetching from the network…';
+      if (status.state === 'cancelled') throw new Error('The network fetch was cancelled');
+      seedStatus.textContent = seedProgressText(status);
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     throw new Error('The fetch is still running in the background — reload this page later');

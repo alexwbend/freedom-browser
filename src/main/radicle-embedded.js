@@ -26,6 +26,8 @@ const REQUIRED_EXPORTS = [
   'shutdown',
   'connectSeeds',
   'cloneRepo',
+  'cloneRepoWithProgress',
+  'cancelClone',
   'unseedRepo',
   'listRepos',
   'issues',
@@ -111,6 +113,10 @@ async function call(name, ...args) {
   const a = loadAddon();
   if (!a) throw new Error('radicle addon not available');
   const raw = await a[name](...args);
+  return parseResult(raw);
+}
+
+function parseResult(raw) {
   const value = JSON.parse(raw);
   if (value && value.error) {
     throw new Error(value.error);
@@ -141,6 +147,19 @@ function isStarted() {
 
 const connectSeeds = (timeoutMs = 15000) => call('connectSeeds', timeoutMs);
 const cloneRepo = (rid, timeoutMs = 120000) => call('cloneRepo', rid, timeoutMs);
+async function cloneRepoWithProgress(rid, timeoutMs = 120000, onProgress = () => {}) {
+  const a = loadAddon();
+  if (!a) throw new Error('radicle addon not available');
+  const raw = await a.cloneRepoWithProgress(rid, timeoutMs, (eventRaw) => {
+    try {
+      onProgress(JSON.parse(eventRaw));
+    } catch (err) {
+      log.warn('[RadicleEmbedded] Ignoring invalid clone progress event:', err.message);
+    }
+  });
+  return parseResult(raw);
+}
+const cancelClone = (rid) => call('cancelClone', rid);
 const unseedRepo = (rid) => call('unseedRepo', rid);
 const listRepos = () => call('listRepos');
 const issues = (rid) => call('issues', rid);
@@ -232,6 +251,8 @@ module.exports = {
   isStarted,
   connectSeeds,
   cloneRepo,
+  cloneRepoWithProgress,
+  cancelClone,
   unseedRepo,
   listRepos,
   issues,

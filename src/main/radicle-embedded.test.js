@@ -9,7 +9,8 @@ const os = require('os');
 const fs = require('fs');
 
 const REQUIRED_FAKE_EXPORTS = [
-  'start', 'shutdown', 'connectSeeds', 'cloneRepo', 'unseedRepo', 'listRepos',
+  'start', 'shutdown', 'connectSeeds', 'cloneRepo', 'cloneRepoWithProgress',
+  'cancelClone', 'unseedRepo', 'listRepos',
   'issues', 'issue', 'patches', 'patch',
   'identity', 'createIssue', 'commentIssue', 'editIssueState', 'commentPatch',
   'importRepo', 'repoInfo', 'tree', 'blob', 'status', 'seeders',
@@ -74,6 +75,32 @@ describe('radicle-embedded addon loading', () => {
       expect(embedded.isAvailable()).toBe(true);
       await expect(embedded.repoInfo('rad:zAbc')).rejects.toThrow('boom');
       await expect(embedded.status()).resolves.toEqual({ connectedPeers: 3 });
+    });
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('parses streaming clone progress and exposes native cancellation', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rad-addon-'));
+    const fake = path.join(dir, 'libradicle.node.js');
+    fs.writeFileSync(
+      fake,
+      'module.exports = {' +
+        REQUIRED_FAKE_EXPORTS +
+        'cloneRepoWithProgress: async (_rid, _timeout, callback) => {' +
+        ' callback(JSON.stringify({ phase: "resolving", candidates: 2 }));' +
+        ' return JSON.stringify({ ok: true }); },' +
+        'cancelClone: () => JSON.stringify({ cancelled: true }),' +
+        '};'
+    );
+    process.env.FREEDOM_RADICLE_ADDON = fake;
+    await jest.isolateModulesAsync(async () => {
+      const embedded = require('./radicle-embedded');
+      const onProgress = jest.fn();
+      await expect(
+        embedded.cloneRepoWithProgress('rad:zAbc', 1234, onProgress)
+      ).resolves.toEqual({ ok: true });
+      expect(onProgress).toHaveBeenCalledWith({ phase: 'resolving', candidates: 2 });
+      await expect(embedded.cancelClone('rad:zAbc')).resolves.toEqual({ cancelled: true });
     });
     fs.rmSync(dir, { recursive: true, force: true });
   });

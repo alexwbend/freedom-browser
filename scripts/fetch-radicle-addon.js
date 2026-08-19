@@ -15,7 +15,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
-const ADDON_VERSION = 'v0.2.3';
+const ADDON_VERSION = 'v0.3.0';
 const RELEASE_BASE = `https://github.com/solardev-xyz/libradicle/releases/download/${ADDON_VERSION}`;
 
 function platformKey() {

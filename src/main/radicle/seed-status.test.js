@@ -37,6 +37,36 @@ test('tracks a native fetch from fetching to fetched', async () => {
   });
 });
 
+test('records streamed peer progress and recent outcomes', async () => {
+  let finish;
+  let emit;
+  const fetchRepo = jest.fn((_rid, onProgress) => {
+    emit = onProgress;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  const initial = tracker.startFetch(RID, { fetchRepo });
+  expect(fetchRepo).toHaveBeenCalledTimes(1);
+
+  emit({ phase: 'resolving', candidates: 2 });
+  emit({
+    phase: 'peer-failed', nid: 'z6MkFirst', index: 1, total: 2, reason: 'offline',
+  });
+  emit({ phase: 'fetching', nid: 'z6MkSecond', index: 2, total: 2 });
+  emit({ phase: 'done' });
+  finish({ ok: true });
+  await initial.done;
+
+  await expect(tracker.getStatus(RID)).resolves.toMatchObject({
+    state: 'fetched',
+    seedersKnown: null,
+    progress: { phase: 'done' },
+    recentAttempts: [
+      { nid: 'z6MkFirst', ok: false, error: 'offline' },
+      { nid: 'z6MkSecond', ok: true },
+    ],
+  });
+});
+
 test('surfaces native fetch failures and allows retry', async () => {
   const failed = tracker.startFetch(RID, {
     fetchRepo: async () => { throw new Error('network failed'); },
@@ -72,8 +102,9 @@ test('cancelled fetches cannot resurrect their record', async () => {
     fetchRepo: () => new Promise((resolve) => { finish = resolve; }),
   });
   await Promise.resolve();
-  tracker.cancelFetch(RID);
+  const done = tracker.cancelFetch(RID);
+  expect(done).toBeDefined();
   finish();
-  await Promise.resolve();
+  await done;
   await expect(tracker.getStatus(RID)).resolves.toMatchObject({ state: 'idle' });
 });

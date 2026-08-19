@@ -15,6 +15,12 @@ function loadManager(options = {}) {
     shutdown: jest.fn(async () => ({ ok: true })),
     connectSeeds: jest.fn(async () => ({ connected: 1 })),
     cloneRepo: jest.fn(async () => ({ ok: true })),
+    cloneRepoWithProgress: jest.fn(async (_rid, _timeout, onProgress) => {
+      onProgress({ phase: 'resolving', candidates: 2 });
+      onProgress({ phase: 'done' });
+      return { ok: true };
+    }),
+    cancelClone: jest.fn(async () => ({ cancelled: true })),
     unseedRepo: jest.fn(async () => ({ unseeded: true })),
     repoInfo: jest.fn(async () => ({
       name: 'native', description: 'repo', defaultBranch: 'main',
@@ -156,11 +162,47 @@ test('window.radicle operations use native calls and expose fetch status', async
   await Promise.resolve();
   await Promise.resolve();
   await expect(ctx.mod.getSeedFetchStatus(rid)).resolves.toMatchObject({
-    success: true, status: { rid, inStorage: true },
+    success: true,
+    status: { rid, inStorage: true, progress: { phase: 'done' }, seedersKnown: 2 },
   });
   await expect(ctx.mod.getConnections()).resolves.toMatchObject({ success: true, count: 3 });
   await expect(ctx.mod.unseedRepository(rid)).resolves.toMatchObject({ success: true });
   expect(ctx.embedded.unseedRepo).toHaveBeenCalledWith(rid);
+  await ctx.mod.stopRadicle();
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('unseed requests native cancellation and re-applies policy after a late clone', async () => {
+  let finishClone;
+  const cancelClone = jest
+    .fn()
+    .mockResolvedValueOnce({ cancelled: false })
+    .mockResolvedValueOnce({ cancelled: false })
+    .mockResolvedValue({ cancelled: true });
+  const cloneRepoWithProgress = jest.fn((_rid, _timeout, onProgress) => {
+    onProgress({ phase: 'fetching', nid: 'z6MkSeed', index: 1, total: 1 });
+    return new Promise((resolve) => { finishClone = resolve; });
+  });
+  const ctx = loadManager({ embedded: { cloneRepoWithProgress, cancelClone } });
+  await ctx.mod.startRadicle();
+  const rid = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+
+  await ctx.mod.seedRepository(rid);
+  await expect(ctx.mod.getSeedFetchStatus(rid)).resolves.toMatchObject({
+    success: true,
+    status: { state: 'fetching', progress: { phase: 'fetching', nid: 'z6MkSeed' } },
+  });
+  await expect(ctx.mod.unseedRepository(rid)).resolves.toMatchObject({ success: true });
+  expect(ctx.embedded.cancelClone).toHaveBeenCalledWith(rid);
+  expect(ctx.embedded.unseedRepo).toHaveBeenCalledTimes(1);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(ctx.embedded.cancelClone).toHaveBeenCalledTimes(3);
+
+  finishClone({ cancelled: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(ctx.embedded.unseedRepo).toHaveBeenCalledTimes(2);
+
   await ctx.mod.stopRadicle();
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
