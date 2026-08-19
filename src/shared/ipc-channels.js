@@ -32,6 +32,7 @@ module.exports = {
   RADICLE_GET_CONNECTIONS: 'radicle:getConnections',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
   RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
+  RADICLE_SEED_STATUS_UPDATE: 'radicle:seedStatusUpdate',
 
   // Tor (Arti) node management — routes .onion traffic via a local SOCKS proxy
   TOR_START: 'tor:start',

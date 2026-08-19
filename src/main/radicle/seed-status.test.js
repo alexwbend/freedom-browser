@@ -67,6 +67,32 @@ test('records streamed peer progress and recent outcomes', async () => {
   });
 });
 
+test('pushes every fetch transition to status listeners', async () => {
+  let emit;
+  let finish;
+  const statuses = [];
+  const initial = tracker.startFetch(RID, {
+    fetchRepo: (_rid, onProgress) => {
+      emit = onProgress;
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+    onStatus: (status) => statuses.push(status),
+  });
+
+  emit({ phase: 'connecting', nid: 'z6MkSeed', addr: 'seed:8776', index: 1, total: 1 });
+  finish({ ok: true });
+  await initial.done;
+
+  expect(statuses.map((status) => status.progress?.phase)).toEqual([
+    'starting',
+    'connecting',
+    'done',
+  ]);
+  expect(statuses.at(-1)).toMatchObject({ state: 'fetched', inStorage: true });
+});
+
 test('surfaces native fetch failures and allows retry', async () => {
   const failed = tracker.startFetch(RID, {
     fetchRepo: async () => { throw new Error('network failed'); },

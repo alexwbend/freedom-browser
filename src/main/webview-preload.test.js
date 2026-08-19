@@ -281,6 +281,25 @@ describe('webview-preload', () => {
     expect(callback).not.toHaveBeenCalled();
   });
 
+  test('onRadicleSeedStatus forwards pushed clone progress', () => {
+    const { exposures, ipcRenderer } = loadWebviewPreloadModule();
+    const callback = jest.fn();
+    const status = {
+      rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+      state: 'fetching',
+      progress: { phase: 'fetching', index: 1, total: 2 },
+    };
+
+    const unsubscribe = exposures.freedomAPI.onRadicleSeedStatus(callback);
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
+    expect(callback).toHaveBeenCalledWith(status);
+
+    unsubscribe();
+    callback.mockClear();
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
+    expect(callback).not.toHaveBeenCalled();
+  });
+
   test('onProfileUpdated forwards the broadcast and unsubscribes on pagehide', () => {
     const { exposures, ipcRenderer } = loadWebviewPreloadModule();
 

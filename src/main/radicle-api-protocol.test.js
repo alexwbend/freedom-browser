@@ -8,9 +8,11 @@ jest.mock('./radicle-embedded', () => ({
   status: jest.fn(),
   listRepos: jest.fn(),
   buildRepoMeta: jest.fn(),
-  tree: jest.fn(),
-  blob: jest.fn(),
-  readme: jest.fn(),
+  treeAt: jest.fn(),
+  blobAt: jest.fn(),
+  readmeAt: jest.fn(),
+  remotes: jest.fn(),
+  repoStats: jest.fn(),
   issues: jest.fn(),
   issue: jest.fn(),
   patches: jest.fn(),
@@ -30,6 +32,7 @@ const {
 } = require('./radicle-api-protocol');
 
 const RID = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+const REVISION = '0123456789abcdef0123456789abcdef01234567';
 
 describe('radapi protocol', () => {
   beforeEach(() => {
@@ -139,6 +142,55 @@ describe('radapi protocol', () => {
     expect(embedded.patch).toHaveBeenCalledWith(RID, 'abc123');
   });
 
+  test('pins tree, blob, and readme reads to the requested commit', async () => {
+    embedded.treeAt.mockResolvedValue({ entries: [], lastCommit: { id: REVISION } });
+    embedded.blobAt.mockResolvedValue({ name: 'README.md', content: 'old' });
+    embedded.readmeAt.mockResolvedValue({ name: 'README.md', content: 'old' });
+
+    const tree = await serveRepoApi(RID, `/tree/${REVISION}/src`);
+    const blob = await serveRepoApi(RID, `/blob/${REVISION}/README.md`);
+    const readme = await serveRepoApi(RID, `/readme/${REVISION}`);
+
+    expect(tree.status).toBe(200);
+    expect(blob.status).toBe(200);
+    expect(readme.status).toBe(200);
+    expect(embedded.treeAt).toHaveBeenCalledWith(RID, REVISION, 'src');
+    expect(embedded.blobAt).toHaveBeenCalledWith(RID, REVISION, 'README.md');
+    expect(embedded.readmeAt).toHaveBeenCalledWith(RID, REVISION);
+  });
+
+  test('serves signed remotes and revision-scoped repository stats', async () => {
+    embedded.remotes.mockResolvedValue([
+      { id: 'z6MkDelegate', delegate: true, heads: { main: REVISION } },
+    ]);
+    embedded.repoStats.mockResolvedValue({ commits: 42, branches: 3, contributors: 5 });
+
+    const remotes = await serveRepoApi(RID, '/remotes');
+    const stats = await serveRepoApi(RID, `/stats/tree/${REVISION}`);
+
+    await expect(remotes.json()).resolves.toEqual([
+      { id: 'z6MkDelegate', delegate: true, heads: { main: REVISION } },
+    ]);
+    await expect(stats.json()).resolves.toEqual({ commits: 42, branches: 3, contributors: 5 });
+    expect(embedded.remotes).toHaveBeenCalledWith(RID);
+    expect(embedded.repoStats).toHaveBeenCalledWith(RID, REVISION);
+  });
+
+  test.each([
+    '/tree/main/src',
+    '/tree/0123456/src',
+    '/blob/HEAD/README.md',
+    '/readme/main',
+    '/stats/tree/main',
+  ])('rejects non-object-id revisions in %s', async (apiPath) => {
+    const response = await serveRepoApi(RID, apiPath);
+    expect(response.status).toBe(400);
+    expect(embedded.treeAt).not.toHaveBeenCalled();
+    expect(embedded.blobAt).not.toHaveBeenCalled();
+    expect(embedded.readmeAt).not.toHaveBeenCalled();
+    expect(embedded.repoStats).not.toHaveBeenCalled();
+  });
+
   test('does not expose private repositories through the public repo API', async () => {
     embedded.repoInfo.mockResolvedValueOnce({ visibility: { type: 'private' } });
     const response = await serveRepoApi(RID, '/issues');
@@ -154,8 +206,8 @@ describe('radapi protocol', () => {
   ])('rejects encoded traversal and separator tricks in %s', async (apiPath) => {
     const response = await serveRepoApi(RID, apiPath);
     expect(response.status).toBe(400);
-    expect(embedded.tree).not.toHaveBeenCalled();
-    expect(embedded.blob).not.toHaveBeenCalled();
+    expect(embedded.treeAt).not.toHaveBeenCalled();
+    expect(embedded.blobAt).not.toHaveBeenCalled();
   });
 
   test('registers the request handler on the target session', async () => {

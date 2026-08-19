@@ -12,6 +12,7 @@ const PUBLIC_SEED = 'https://seed.radicle.xyz';
 // App state
 let repoMeta = null; // Repo metadata from API root
 let headSha = null; // HEAD commit SHA
+let pinnedRevision = false; // true when the URL selects a historical commit
 let projectName = ''; // Repo name
 let currentView = null; // 'root' | 'tree' | 'blob'
 let currentPath = ''; // Current path within repo
@@ -70,6 +71,30 @@ const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+const FULL_REVISION_RE = /^[0-9a-f]{40}$/;
+
+function parseViewerPath(rawPath) {
+  const path = String(rawPath || '').replace(/^\/+/, '');
+  const [view, revision, ...rest] = path.split('/');
+  if ((view === 'tree' || view === 'blob') && FULL_REVISION_RE.test(revision || '')) {
+    const contentPath = rest.join('/');
+    return {
+      logicalPath: contentPath ? `${view}/${contentPath}` : '',
+      revision,
+    };
+  }
+  return { logicalPath: path, revision: null };
+}
+
+function serializeViewerPath(logicalPath, revision) {
+  if (!revision) return logicalPath;
+  if (logicalPath.startsWith('blob/')) {
+    return `blob/${revision}/${logicalPath.slice(5)}`;
+  }
+  const treePath = logicalPath.startsWith('tree/') ? logicalPath.slice(5) : '';
+  return `tree/${revision}${treePath ? `/${treePath}` : ''}`;
 }
 
 function timeAgo(timestamp) {
@@ -690,8 +715,9 @@ async function navigate(newPath) {
 
   // Update URL
   const url = new URL(window.location);
-  if (newPath) {
-    url.searchParams.set('path', newPath);
+  const serializedPath = serializeViewerPath(newPath, pinnedRevision ? headSha : null);
+  if (serializedPath) {
+    url.searchParams.set('path', serializedPath);
   } else {
     url.searchParams.delete('path');
   }
@@ -938,11 +964,6 @@ function getErrorMessage(resultOrError) {
   return 'Unknown error';
 }
 
-async function pollSeedStatus() {
-  const result = await window.freedomAPI.getRadicleSeedStatus?.(rid);
-  return result?.success ? result.status : null;
-}
-
 function seedProgressText(status) {
   const progress = status?.progress;
   switch (progress?.phase) {
@@ -968,40 +989,62 @@ async function seedRepository() {
   seedStatus.className = 'seed-status show seeding';
   seedStatus.textContent = 'Setting seeding policy…';
 
+  let unsubscribe = () => {};
+  let timeout;
   try {
     if (!window.freedomAPI?.seedRadicle) {
       throw new Error('Freedom API not available');
     }
-    // seedRadicle writes the policy and starts a background network
-    // fetch — the repo is NOT local yet. Poll the honest fetch status
-    // and only reload once the repository actually landed.
+    let resolveTerminal;
+    let rejectTerminal;
+    const terminal = new Promise((resolve, reject) => {
+      resolveTerminal = resolve;
+      rejectTerminal = reject;
+    });
+    const requestedRid = `rad:${rid}`;
+    const handleStatus = (status) => {
+      if (!status || status.rid !== requestedRid) return;
+      if (status.inStorage || status.state === 'fetched') {
+        resolveTerminal(status);
+      } else if (status.state === 'failed') {
+        rejectTerminal(
+          new Error(
+            status.lastError || 'The network fetch failed — no seed could deliver the repository'
+          )
+        );
+      } else if (status.state === 'cancelled') {
+        rejectTerminal(new Error('The network fetch was cancelled'));
+      } else {
+        seedStatus.textContent = seedProgressText(status);
+      }
+    };
+
+    unsubscribe = window.freedomAPI.onRadicleSeedStatus?.(handleStatus) || (() => {});
+
+    // seedRadicle writes the policy and starts a background network fetch.
+    // Status transitions arrive over IPC; the invoke result is also fed into
+    // the same handler so a fetch that completes immediately cannot race us.
     const result = await window.freedomAPI.seedRadicle(rid);
     if (!result.success) throw new Error(getErrorMessage(result));
-
-    const deadline = Date.now() + 240_000;
-    while (Date.now() < deadline) {
-      const status = await pollSeedStatus();
-      if (!status) break;
-      if (status.inStorage || status.state === 'fetched') {
-        seedStatus.className = 'seed-status show success';
-        seedStatus.textContent = 'Repository fetched! Reloading…';
-        setTimeout(() => window.location.reload(), 800);
-        return;
-      }
-      if (status.state === 'failed') {
-        throw new Error(
-          status.lastError || 'The network fetch failed — no seed could deliver the repository'
-        );
-      }
-      if (status.state === 'cancelled') throw new Error('The network fetch was cancelled');
-      seedStatus.textContent = seedProgressText(status);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-    throw new Error('The fetch is still running in the background — reload this page later');
+    handleStatus(result.status);
+    timeout = setTimeout(
+      () =>
+        rejectTerminal(
+          new Error('The fetch is still running in the background — reload this page later')
+        ),
+      240_000
+    );
+    await terminal;
+    seedStatus.className = 'seed-status show success';
+    seedStatus.textContent = 'Repository fetched! Reloading…';
+    setTimeout(() => window.location.reload(), 800);
   } catch (err) {
     seedBtn.disabled = false;
     seedStatus.className = 'seed-status show error';
     seedStatus.textContent = `Could not fetch repository: ${err.message}`;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    unsubscribe();
   }
 }
 
@@ -1111,11 +1154,17 @@ async function init() {
     showState('success');
     renderRepoHeader(meta);
 
-    // Fetch stats in background
-    fetchStats(headSha).then(renderStats);
+    // A direct `rad://RID/tree/<commit>/...` or `/blob/<commit>/...`
+    // pins all reads and subsequent in-repo navigation to that commit.
+    const requested = parseViewerPath(params.get('path'));
+    const urlPath = requested.logicalPath;
+    if (requested.revision) {
+      pinnedRevision = true;
+      headSha = requested.revision;
+    }
 
-    // Check if we have a path from URL (for back/forward or direct link)
-    const urlPath = params.get('path') || '';
+    // Stats follow the selected revision, not necessarily default-branch HEAD.
+    fetchStats(headSha).then(renderStats);
 
     // Set initial state in history
     if (!history.state) {

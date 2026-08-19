@@ -181,25 +181,26 @@ async function getSeederCount(rid) {
   return (await embedded.seeders(rid)).seeding;
 }
 
-function startTrackedFetch(rid) {
+function startTrackedFetch(rid, onStatus) {
   const status = seedStatus.startFetch(rid, {
     fetchRepo: (value, onProgress) =>
       embedded.cloneRepoWithProgress(value, 120000, onProgress),
     getSeeders: getSeederCount,
+    onStatus,
   });
   return success({ status });
 }
 
-async function seedRepository(rid) {
+async function seedRepository(rid, onStatus) {
   const unavailable = requireRunning();
   if (unavailable) return unavailable;
   const fullRid = validateAndNormalizeRid(rid);
   if (!fullRid) return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
-  return startTrackedFetch(fullRid);
+  return startTrackedFetch(fullRid, onStatus);
 }
 
-async function refetchRepository(rid) {
-  return seedRepository(rid);
+async function refetchRepository(rid, onStatus) {
+  return seedRepository(rid, onStatus);
 }
 
 async function getSeedFetchStatus(rid) {
@@ -370,13 +371,21 @@ function registerRadicleIpc() {
     integrationEnabled() ? getCurrentStatus() : disabled()
   );
   ipcMain.handle(IPC.RADICLE_CHECK_BINARY, () => ({ available: checkBinary() }));
-  ipcMain.handle(IPC.RADICLE_SEED, async (_event, rid) => {
+  const pushStatus = (event) => (status) => {
+    if (!event?.sender?.isDestroyed?.()) {
+      event?.sender?.send?.(IPC.RADICLE_SEED_STATUS_UPDATE, status);
+    }
+  };
+
+  ipcMain.handle(IPC.RADICLE_SEED, async (event, rid) => {
     if (!integrationEnabled()) return failure('RADICLE_DISABLED', disabled().error);
     if (!validateNonEmptyString(rid)) return failure('INVALID_RID', 'Missing repository ID');
-    return seedRepository(rid);
+    return seedRepository(rid, pushStatus(event));
   });
   ipcMain.handle(IPC.RADICLE_GET_CONNECTIONS, () => getConnections());
-  ipcMain.handle(IPC.RADICLE_SYNC_REPO, (_event, rid) => refetchRepository(rid));
+  ipcMain.handle(IPC.RADICLE_SYNC_REPO, (event, rid) =>
+    refetchRepository(rid, pushStatus(event))
+  );
   ipcMain.handle(IPC.RADICLE_GET_SEED_STATUS, (_event, rid) => getSeedFetchStatus(rid));
 }
 

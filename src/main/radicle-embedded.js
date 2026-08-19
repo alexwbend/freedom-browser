@@ -43,7 +43,11 @@ const REQUIRED_EXPORTS = [
   'importRepo',
   'repoInfo',
   'tree',
+  'treeAt',
   'blob',
+  'blobAt',
+  'remotes',
+  'repoStats',
   'status',
   'seeders',
 ];
@@ -184,7 +188,11 @@ const importRepo = (repoPath, name, description, defaultBranch) =>
   call('importRepo', repoPath, name, description, defaultBranch);
 const repoInfo = (rid) => call('repoInfo', rid);
 const tree = (rid, treePath = '') => call('tree', rid, treePath);
+const treeAt = (rid, revision, treePath = '') => call('treeAt', rid, revision, treePath);
 const blob = (rid, blobPath) => call('blob', rid, blobPath);
+const blobAt = (rid, revision, blobPath) => call('blobAt', rid, revision, blobPath);
+const remotes = (rid) => call('remotes', rid);
+const repoStats = (rid, revision) => call('repoStats', rid, revision);
 const status = () => call('status');
 const seeders = (rid) => call('seeders', rid);
 
@@ -235,11 +243,15 @@ const README_CANDIDATES = [
  * Shaped like a blob response: `{ binary, content, name, path }`.
  */
 async function readme(rid) {
-  const { entries } = await tree(rid, '');
+  return readmeAt(rid);
+}
+
+async function readmeAt(rid, revision) {
+  const { entries } = revision ? await treeAt(rid, revision, '') : await tree(rid, '');
   const names = new Set(entries.filter((e) => e.kind === 'blob').map((e) => e.name));
   for (const candidate of README_CANDIDATES) {
     if (names.has(candidate)) {
-      const result = await blob(rid, candidate);
+      const result = revision ? await blobAt(rid, revision, candidate) : await blob(rid, candidate);
       return { ...result, path: candidate };
     }
   }
@@ -273,9 +285,14 @@ module.exports = {
   importRepo,
   repoInfo,
   tree,
+  treeAt,
   blob,
+  blobAt,
+  remotes,
+  repoStats,
   status,
   seeders,
   buildRepoMeta,
   readme,
+  readmeAt,
 };

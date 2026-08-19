@@ -13,17 +13,16 @@
  *   /api/v1/stats       → node summary used by the Nodes panel
  *   /api/v1/repos       → locally seeded repositories
  *   (root)              → repo metadata used by the viewer
- *   /tree/SHA[/path]    → tree entries at head (SHA informational)
- *   /blob/SHA/path      → blob content
+ *   /tree/SHA[/path]    → tree entries at the requested commit
+ *   /blob/SHA/path      → blob content at the requested commit
  *   /readme/SHA         → root readme blob
- *   /stats/...          → {} (viewer treats stats as optional)
- *   /remotes            → [] (viewer falls back gracefully)
+ *   /stats/tree/SHA     → commit, branch, and contributor counts
+ *   /remotes            → signed remote branch heads
  *   /issues[/ID]        → collaborative issue reads
  *   /patches[/ID]       → collaborative patch reads
  *
- * Tree/blob reads serve the head of the default branch — the viewer
- * always passes the head SHA it got from the repo metadata, so pinning
- * other commits is follow-up work.
+ * Revisions are full commit object IDs only. Refs and arbitrary revspecs
+ * are deliberately rejected at this boundary.
  */
 
 const log = require('./logger');
@@ -31,6 +30,7 @@ const embedded = require('./radicle-embedded');
 const { loadSettings } = require('./settings-store');
 
 const RID_RE = /^rad:z[1-9A-HJ-NP-Za-km-z]{20,60}$/;
+const REVISION_RE = /^[0-9a-f]{40}$/;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD']);
 
 function json(body, status = 200, { cors = true } = {}) {
@@ -130,6 +130,7 @@ async function serveRepoApi(
   const parts = decodeRepoApiPath(apiPath);
   if (!parts) return json({ error: 'invalid repository path' }, 400);
   const section = parts[0] || null;
+  const revision = parts[1];
 
   try {
     if (!allowPrivate) {
@@ -144,27 +145,35 @@ async function serveRepoApi(
     } else {
       switch (section) {
         case 'tree':
-          response = parts[1]
-            ? json(await embedded.tree(rid, parts.slice(2).join('/')))
+          response = REVISION_RE.test(revision || '')
+            ? json(await embedded.treeAt(rid, revision, parts.slice(2).join('/')))
             : json({ error: 'missing revision' }, 400);
           break;
         case 'blob': {
           const blobPath = parts.slice(2).join('/');
-          response = parts[1] && blobPath
-            ? json(await embedded.blob(rid, blobPath))
-            : json({ error: 'missing path' }, 400);
+          response =
+            REVISION_RE.test(revision || '') && blobPath
+              ? json(await embedded.blobAt(rid, revision, blobPath))
+              : json({ error: 'missing path' }, 400);
           break;
         }
         case 'readme': {
-          const readme = await embedded.readme(rid);
-          response = readme ? json(readme) : json({ error: 'no readme' }, 404);
+          if (!REVISION_RE.test(revision || '')) {
+            response = json({ error: 'missing revision' }, 400);
+          } else {
+            const readme = await embedded.readmeAt(rid, revision);
+            response = readme ? json(readme) : json({ error: 'no readme' }, 404);
+          }
           break;
         }
         case 'stats':
-          response = json({});
+          response =
+            parts[1] === 'tree' && REVISION_RE.test(parts[2] || '')
+              ? json(await embedded.repoStats(rid, parts[2]))
+              : json({ error: 'invalid stats path' }, 400);
           break;
         case 'remotes':
-          response = json([]);
+          response = json(await embedded.remotes(rid));
           break;
         case 'issues':
           if (parts.length > 2) return json({ error: 'invalid issue path' }, 400);

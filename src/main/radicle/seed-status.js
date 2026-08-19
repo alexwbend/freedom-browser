@@ -3,12 +3,24 @@
  *
  * The native clone call performs the seed policy update and fetch on libuv's
  * worker pool. This module keeps that promise out of IPC request lifetimes so
- * window.radicle can start a fetch and poll it honestly.
+ * window.radicle can start a fetch without keeping an IPC request open.
+ * Internal Freedom pages also receive each transition as it happens.
  */
 
 const log = require('../logger');
 
 const records = new Map();
+
+function publish(record) {
+  const status = publicStatus(record);
+  for (const listener of record.listeners) {
+    try {
+      listener(status);
+    } catch (err) {
+      log.warn(`[seed-status] listener failed for ${record.rid}: ${err.message}`);
+    }
+  }
+}
 
 function publicStatus(record) {
   const status = {
@@ -29,9 +41,14 @@ function publicStatus(record) {
   return status;
 }
 
-function startFetch(rid, { fetchRepo, getSeeders }) {
+function startFetch(rid, { fetchRepo, getSeeders, onStatus }) {
   const existing = records.get(rid);
-  if (existing?.state === 'fetching') return publicStatus(existing);
+  if (existing?.state === 'fetching') {
+    if (onStatus) existing.listeners.add(onStatus);
+    const status = publicStatus(existing);
+    if (onStatus) onStatus(status);
+    return status;
+  }
 
   const record = {
     rid,
@@ -44,8 +61,10 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
     startedAt: Date.now(),
     finishedAt: null,
     cancelled: false,
+    listeners: new Set(onStatus ? [onStatus] : []),
   };
   records.set(rid, record);
+  publish(record);
 
   const onProgress = (progress) => {
     if (record.cancelled || records.get(rid) !== record || !progress?.phase) return;
@@ -64,6 +83,7 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
       record.recentAttempts.push({ nid: previous.nid, ok: true, at: Date.now() });
       record.recentAttempts = record.recentAttempts.slice(-5);
     }
+    publish(record);
   };
 
   let fetchResult;
@@ -82,6 +102,8 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
         record.state = 'cancelled';
         record.progress = { phase: 'cancelled' };
         record.finishedAt = Date.now();
+        publish(record);
+        record.listeners.clear();
         return;
       }
       record.state = 'fetched';
@@ -94,6 +116,8 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
           log.warn(`[seed-status] seed count failed for ${rid}: ${err.message}`);
         }
       }
+      publish(record);
+      record.listeners.clear();
     })
     .catch((err) => {
       if (record.cancelled || records.get(rid) !== record) return;
@@ -102,6 +126,8 @@ function startFetch(rid, { fetchRepo, getSeeders }) {
       record.lastError = err.message;
       if (/no seeds found/i.test(err.message)) record.seedersKnown = 0;
       record.finishedAt = Date.now();
+      publish(record);
+      record.listeners.clear();
       log.warn(`[seed-status] ${rid} fetch failed: ${err.message}`);
     });
 
@@ -113,7 +139,11 @@ function cancelFetch(rid) {
   const active = record?.state === 'fetching';
   if (record) {
     record.cancelled = true;
+    record.state = 'cancelled';
     record.progress = { phase: 'cancelled' };
+    record.finishedAt = Date.now();
+    publish(record);
+    record.listeners.clear();
   }
   records.delete(rid);
   return active ? record.done : null;

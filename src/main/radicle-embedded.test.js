@@ -13,7 +13,8 @@ const REQUIRED_FAKE_EXPORTS = [
   'cancelClone', 'unseedRepo', 'listRepos',
   'issues', 'issue', 'patches', 'patch',
   'identity', 'createIssue', 'commentIssue', 'editIssueState', 'commentPatch',
-  'importRepo', 'repoInfo', 'tree', 'blob', 'status', 'seeders',
+  'importRepo', 'repoInfo', 'tree', 'treeAt', 'blob', 'blobAt',
+  'remotes', 'repoStats', 'status', 'seeders',
 ].map((name) => `${name}: async () => JSON.stringify({ ok: true }),`).join('');
 
 describe('radicle-embedded addon loading', () => {

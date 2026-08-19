@@ -27,6 +27,12 @@ function loadHelpers(names) {
 }
 
 const { escapeHtml } = loadHelpers(['HTML_ESCAPES', 'escapeHtml']);
+const { parseViewerPath, serializeViewerPath } = loadHelpers([
+  'FULL_REVISION_RE',
+  'parseViewerPath',
+  'serializeViewerPath',
+]);
+const REVISION = '0123456789abcdef0123456789abcdef01234567';
 
 describe('escapeHtml', () => {
   test('escapes the text-context metacharacters', () => {
@@ -60,5 +66,37 @@ describe('escapeHtml', () => {
   test('nullish input yields an empty string', () => {
     expect(escapeHtml(null)).toBe('');
     expect(escapeHtml(undefined)).toBe('');
+  });
+});
+
+describe('historical revision routing', () => {
+  test('extracts full commit ids from tree and blob routes', () => {
+    expect(parseViewerPath(`/tree/${REVISION}/src/main.rs`)).toEqual({
+      logicalPath: 'tree/src/main.rs',
+      revision: REVISION,
+    });
+    expect(parseViewerPath(`blob/${REVISION}/README.md`)).toEqual({
+      logicalPath: 'blob/README.md',
+      revision: REVISION,
+    });
+    expect(parseViewerPath(`tree/${REVISION}`)).toEqual({ logicalPath: '', revision: REVISION });
+  });
+
+  test('does not interpret branch names or abbreviated hashes as revisions', () => {
+    expect(parseViewerPath('tree/main/src')).toEqual({
+      logicalPath: 'tree/main/src',
+      revision: null,
+    });
+    expect(parseViewerPath('tree/0123456/src')).toEqual({
+      logicalPath: 'tree/0123456/src',
+      revision: null,
+    });
+  });
+
+  test('keeps subsequent navigation pinned to the selected revision', () => {
+    expect(serializeViewerPath('', REVISION)).toBe(`tree/${REVISION}`);
+    expect(serializeViewerPath('tree/src', REVISION)).toBe(`tree/${REVISION}/src`);
+    expect(serializeViewerPath('blob/README.md', REVISION)).toBe(`blob/${REVISION}/README.md`);
+    expect(serializeViewerPath('tree/src', null)).toBe('tree/src');
   });
 });

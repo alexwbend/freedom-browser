@@ -234,3 +234,27 @@ test('IPC keeps integration gating and RID validation', async () => {
   });
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
+
+test('IPC pushes native seed progress back to the requesting internal page', async () => {
+  const ctx = loadManager();
+  const IPC = require('../shared/ipc-channels');
+  await ctx.mod.startRadicle();
+  ctx.mod.registerRadicleIpc();
+  const sender = { isDestroyed: jest.fn(() => false), send: jest.fn() };
+  const rid = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+
+  await expect(ctx.handlers.get(IPC.RADICLE_SEED)({ sender }, rid)).resolves.toMatchObject({
+    success: true,
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  expect(sender.send).toHaveBeenCalledWith(
+    IPC.RADICLE_SEED_STATUS_UPDATE,
+    expect.objectContaining({ rid, progress: { phase: 'resolving', candidates: 2 } })
+  );
+  expect(sender.send).toHaveBeenCalledWith(
+    IPC.RADICLE_SEED_STATUS_UPDATE,
+    expect.objectContaining({ rid, state: 'fetched', progress: { phase: 'done' } })
+  );
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
