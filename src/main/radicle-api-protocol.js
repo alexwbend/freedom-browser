@@ -29,7 +29,7 @@
 
 const log = require('./logger');
 const embedded = require('./radicle-embedded');
-const { loadSettings } = require('./settings-store');
+const { isDisabledForProfile } = require('./radicle-manager');
 
 const RID_RE = /^rad:z[1-9A-HJ-NP-Za-km-z]{20,60}$/;
 const REVISION_RE = /^[0-9a-f]{40}$/;
@@ -247,8 +247,8 @@ async function handleRadicleApiRequest(request) {
     return json({ error: 'invalid URL' }, 400, { cors: false });
   }
 
-  if (loadSettings().enableRadicleIntegration !== true) {
-    return json({ error: 'Radicle integration is disabled' }, 403, { cors: false });
+  if (isDisabledForProfile()) {
+    return json({ error: 'Radicle is disabled for this profile' }, 403, { cors: false });
   }
   const method = (request.method || 'GET').toUpperCase();
   if (!ALLOWED_METHODS.has(method)) {

@@ -18,10 +18,6 @@ jest.mock('../logger', () => ({
   debug: jest.fn(),
 }));
 
-jest.mock('../settings-store', () => ({
-  loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
-}));
-
 jest.mock('../radicle-embedded', () => ({
   listRepos: jest.fn(async () => [
     {
@@ -52,6 +48,7 @@ const mockSeedFetchStatus = {
 };
 
 jest.mock('../radicle-manager', () => ({
+  isDisabledForProfile: jest.fn(() => false),
   getCurrentStatus: jest.fn(() => ({ status: 'running', error: null })),
   getConnections: jest.fn(async () => ({ success: true, count: 3 })),
   seedRepository: jest.fn(async () => ({ success: true, status: mockSeedFetchStatus })),
@@ -93,7 +90,6 @@ jest.mock('./radicle-permissions', () => ({
 }));
 
 const { executeRadicleMethod, registerRadicleProviderIpc } = require('./radicle-provider-ipc');
-const { loadSettings } = require('../settings-store');
 const manager = require('../radicle-manager');
 const cob = require('./cob-service');
 const permissions = require('./radicle-permissions');
@@ -103,7 +99,7 @@ const RID = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  loadSettings.mockReturnValue({ enableRadicleIntegration: true });
+  manager.isDisabledForProfile.mockReturnValue(false);
   manager.getCurrentStatus.mockReturnValue({ status: 'running', error: null });
   permissions.getPermission.mockReturnValue({ origin: ORIGIN, signing: false });
   permissions.hasSigningGrant.mockReturnValue(false);
@@ -160,12 +156,12 @@ describe('dispatch and gating', () => {
     await expectProviderError(executeRadicleMethod('radicle_getCapabilities', {}, null), 4100);
   });
 
-  test('integration disabled → 4900 for every method', async () => {
-    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+  test('profile disabled → 4900 for every method', async () => {
+    manager.isDisabledForProfile.mockReturnValue(true);
     await expectProviderError(
       executeRadicleMethod('radicle_getCapabilities', {}, ORIGIN),
       4900,
-      'integration-disabled'
+      'profile-disabled'
     );
   });
 

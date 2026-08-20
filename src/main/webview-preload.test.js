@@ -163,6 +163,7 @@ describe('webview-preload', () => {
       ['getActiveProfile', [], IPC.PROFILE_GET_ACTIVE, []],
       ['listProfiles', [], IPC.PROFILE_LIST, []],
       ['getServiceRegistry', [], IPC.SERVICE_REGISTRY_GET, []],
+      ['getMyotisStatus', [], IPC.MYOTIS_GET_STATUS, []],
       ['openPublishSetup', [], IPC.SIDEBAR_OPEN_PUBLISH_SETUP, []],
       ['getBookmarks', [], IPC.BOOKMARKS_GET, []],
       ['openInNewTab', ['https://example.com'], IPC.OPEN_URL_IN_NEW_TAB, ['https://example.com']],
@@ -220,6 +221,7 @@ describe('webview-preload', () => {
         IPC.PROFILE_UPDATE_NODE_CONFIG,
         [{ protocol: 'bee', config: { mode: 'disabled' } }],
       ],
+      ['checkRadicleBinary', [], IPC.RADICLE_CHECK_BINARY, []],
     ];
 
     for (const [method, args, channel, expectedArgs] of mutationCases) {

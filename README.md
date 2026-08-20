@@ -4,7 +4,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
 Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols.
-It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS, Linux, and Windows x64/ARM64.
+It ships with integrated Swarm, IPFS, Radicle, and experimental Myotis nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS, Linux, and Windows x64/ARM64.
 
 ---
 
@@ -24,6 +24,7 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm run ant:download
    npm run ipfs:download
    npm run radicle:download
+   npm run myotis:download
    ```
 
 4. **Launch the app:**
@@ -32,13 +33,13 @@ It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to
    npm start
    ```
 
-5. Swarm and IPFS nodes start automatically by default. To use `rad://`, first enable **Settings → Experimental → Enable Radicle integration (Beta)**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
+5. Swarm and IPFS nodes start automatically by default. Radicle and Myotis are first-class, opt-in embedded nodes under **Settings → Automatic Startup**. Enter a Swarm hash, IPFS CID, Radicle ID, `bzz://` URL, `ipfs://` URL, `rad://` URL, or `.eth`/`.box`/`.wei`/`.gwei`/`.tez` domain in the address bar.
 
 ---
 
 ## Architecture
 
-Freedom Browser is an Electron application. Protocol logic lives in the main process; the renderer is a modular UI layer that talks to it over IPC (channels defined in `src/shared/ipc-channels.js`). The main process manages node lifecycles (`ant-manager.js`, `ipfs-manager.js`, `radicle-manager.js`, `tor-manager.js`), URL rewriting (`request-rewriter.js`), and persistent data (settings, bookmarks, history). A central `service-registry.js` tracks node endpoints, modes, and status, and broadcasts state to all windows — both node managers and the request rewriter read from it.
+Freedom Browser is an Electron application. Protocol logic lives in the main process; the renderer is a modular UI layer that talks to it over IPC (channels defined in `src/shared/ipc-channels.js`). The main process manages node lifecycles (`ant-manager.js`, `ipfs-manager.js`, `myotis/myotis-manager.js`, `radicle-manager.js`, `tor-manager.js`), URL rewriting (`request-rewriter.js`), and persistent data (settings, bookmarks, history). A central `service-registry.js` tracks node endpoints, modes, and status, and broadcasts state to all windows — both node managers and the request rewriter read from it.
 
 When a user enters a `bzz://`, `ipfs://`, `ipns://`, `rad://`, `.onion`, or ENS URL, the main process either dispatches to a custom protocol handler (`bzz`, `ipfs`, `ipns`) that proxies to the local node, rewrites the URL to the active gateway URL via the registry (`rad`), or routes `.onion` hosts through the active profile's Tor SOCKS5 endpoint. `rad://` handling is gated by the Radicle integration setting, and `.onion` routing is gated by the Tor integration setting. `bzz://` navigation is additionally gated by a cold-start probe (see next section). `ipfs://` / `ipns://` navigation goes straight to the native IPFS protocol handler, so no renderer warm-up probe is needed.
 
@@ -176,35 +177,35 @@ Don't hardcode `http://localhost:8080` — Freedom no longer exposes a desktop I
 
 ## Features
 
-### Triple Node Architecture
+### Integrated Node Architecture
 
-Freedom runs Swarm, IPFS, Radicle, and Tor nodes, giving you access to decentralized and onion networks from a single interface.
+Freedom runs Swarm, IPFS, Radicle, and Tor nodes, plus an experimental Myotis Ethereum light client, giving you access to decentralized and onion networks from a single interface.
 
-|                      | Swarm          | IPFS                                  | Radicle                        | Tor (.onion)                  |
-| -------------------- | -------------- | ------------------------------------- | ------------------------------ | ----------------------------- |
-| **Protocol**         | `bzz://`       | `ipfs://`, `ipns://`                  | `rad://`                       | `http(s)://*.onion`           |
-| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | libradicle native addon       | Arti SOCKS5 proxy             |
-| **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)         | Onion service hostname        |
-| **Managed Gateway Port** | 11633+     | internal native handler               | internal native handler       | n/a                           |
-| **Managed API Port** | 11633+         | internal native handler               | internal native handler       | n/a                           |
-| **Managed P2P Port** | 12633+         | internal native handler               | in-process                    | n/a                           |
-| **Managed SOCKS Port** | n/a         | n/a                                   | n/a                            | 19150+                        |
-| **Route Prefix**     | `/bzz/{hash}/` | `/ipfs/{cid}/`, `/ipns/{name}/`       | `/api/v1/repos/{rid}/`         | SOCKS5 for `.onion` hosts     |
-| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | profile-scoped short Radicle home | `<profile>/tor-data/`         |
-| **Binary Directory** | `ant-bin/`     | `native/freedom-ipfs-node/`           | `radicle-bin/`                 | `arti-bin/`                   |
+|                      | Swarm          | IPFS                                  | Myotis                         | Radicle                        | Tor (.onion)                  |
+| -------------------- | -------------- | ------------------------------------- | ------------------------------ | ------------------------------ | ----------------------------- |
+| **Protocol**         | `bzz://`       | `ipfs://`, `ipns://`                  | Verified Ethereum/Gnosis reads and transaction broadcast | `rad://`                       | `http(s)://*.onion`           |
+| **Node Software**    | Ant (antd, bee-compatible) | freedom-ipfs native      | Myotis native addon            | libradicle native addon        | Arti SOCKS5 proxy             |
+| **Hash Format**      | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | n/a                            | Repository ID (`z...`)         | Onion service hostname        |
+| **Managed Gateway Port** | 11633+     | internal native handler               | none; embedded native client   | internal native handler        | n/a                           |
+| **Managed API Port** | 11633+         | internal native handler               | none; embedded native client   | internal native handler        | n/a                           |
+| **Managed P2P Port** | 12633+         | internal native handler               | none; embedded native client   | in-process                     | n/a                           |
+| **Managed SOCKS Port** | n/a         | n/a                                   | n/a                            | n/a                            | 19150+                        |
+| **Route Prefix**     | `/bzz/{hash}/` | `/ipfs/{cid}/`, `/ipns/{name}/`       | n/a                            | `/api/v1/repos/{rid}/`         | SOCKS5 for `.onion` hosts     |
+| **Data Directory**   | `<profile>/ant-data/` | `<profile>/ipfs-data/freedom-ipfs/` | `<profile>/myotis/` (Ethereum) and `<profile>/myotis/gnosis/` | profile-scoped short Radicle home | `<profile>/tor-data/`         |
+| **Binary Directory** | `ant-bin/`     | `native/freedom-ipfs-node/`           | `myotis-bin/`                  | `radicle-bin/`                 | `arti-bin/`                   |
 
 ### Smart Node Connection
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, Radicle, and Arti data directories. IPFS and Radicle use embedded native handlers without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm endpoints or an external Tor SOCKS5 endpoint in profile settings. IPFS and Radicle always use their embedded native nodes.
+1. **Independent Managed Nodes**: Each profile has its own Ant, native IPFS, Myotis, Radicle, and Arti data directories. IPFS, Myotis, and Radicle use embedded native handlers without loopback API or gateway ports.
+2. **Explicit External Nodes**: Profiles can opt into an external Swarm endpoint or Tor SOCKS5 endpoint. IPFS, Myotis, and Radicle always use their embedded native nodes.
 3. **Port Conflict Handling**: If a managed Ant or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
 This means Freedom works seamlessly whether you:
 
-- Run it standalone (bundled Swarm and native IPFS nodes start automatically; Radicle is optional and behind an Experimental setting)
+- Run it standalone (bundled Swarm and native IPFS nodes start automatically; Radicle and Myotis startup are opt-in)
 - Create multiple independent browser profiles with their own browser data, vault, and managed node state
 - Already have a system-wide Swarm daemon and explicitly configure a profile to use it
 - Have port conflicts with other software (Freedom finds and records available profile ports)
@@ -225,13 +226,23 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Native Transport**: Uses the embedded `freedom-ipfs` native addon instead of a loopback Kubo process.
 - **Live Diagnostics**: View native gateway stats and request progress while IPFS/IPNS pages load.
 
+### Integrated Myotis Ethereum Light Client (Experimental)
+
+- **Per-profile clients**: Each profile has independent Ethereum and Gnosis runtimes and state, and never reuses a separately installed Myotis application.
+- **Native transport**: Runs in-process through the Myotis native addon, with no HTTP API or managed port.
+- **Independent controls**: Ethereum and Gnosis have separate autostart, runtime toggle, sync status, peer count, and finalized-block controls.
+- **Chain data routing**: Wallet balances, transaction preparation, signed-transaction broadcast, and compatible dapp reads prefer Myotis, then Colibri verification, RPC quorum, and direct RPC according to each chain's settings. Unsupported methods transparently continue to the next source.
+- **Gnosis verification**: Both Myotis and Colibri are available as verified Gnosis sources; Colibri keeps separate verifier state per chain.
+- **Verified ENS reads**: Once synced, ENS content, address, and forward-verified reverse records are resolved against finalized Ethereum state before Freedom falls back to its configured verification method. ERC-3668/CCIP-Read records use their declared gateway only to retrieve the callback payload; Myotis verifies the callback against the same chain state.
+- **WNS/GNS adapters**: Freedom executes the existing WNS and GNS NameNFT calls through Myotis's local EVM path. Myotis v0.1.7 serves generic contract calls from the beacon optimistic head without a finalized verdict, so the UI labels those answers unverified rather than overstating their trust.
+
 ### Integrated Radicle Node
 
 - **Embedded Native Node**: Runs Radicle in the Electron main process through the `libradicle` addon without a loopback HTTP API.
 - **Native Provider Actions**: `window.radicle` seeding, identity, repository listing, COB writes, and GitHub imports all use the addon directly.
 - **Automatic Identity**: Creates a Radicle identity on first run (no manual setup required).
-- **Experimental Gate**: Radicle is controlled via **Settings → Experimental → Enable Radicle integration (Beta)**.
-- **Node Toggle**: Once enabled, start and stop Radicle from the Nodes panel.
+- **Profile Control**: Enable or disable Radicle for each profile under **Settings → Nodes**.
+- **Node Toggle**: Start and stop Radicle from the Nodes panel; automatic startup remains opt-in.
 - **Live Statistics**: View connected peers, seeded repos, version, and Node ID.
 - **Repository Seeding**: Seed Radicle repositories directly from the browser to help replicate them across the network.
 - **Windows**: The embedded node is available in Windows x64 and ARM64 builds.
@@ -259,6 +270,8 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 - **Automatic Resolution**: `.eth`, `.box`, `.wei`, and `.gwei` domains resolve to their Swarm, IPFS, or IPNS content. `.eth` and `.box` use ENS; `.wei` uses Wei Name Service (WNS); `.gwei` uses Gwei Name Service (GNS).
 - **CCIP-Read Support**: `.box` domains resolve via offchain CCIP-Read (EIP-3668) through 3dns.xyz.
+- **Ordered Resolution Policy**: Settings → Name Resolution presents Myotis, Colibri, RPC quorum, and direct RPC as one ordered list. Methods can be enabled, disabled, and reprioritized per profile. By default Freedom tries Myotis, then Colibri, then RPC quorum; direct RPC is disabled.
+- **Verified-Answer Preference**: An unverified result can be held provisionally while later enabled methods try to produce a verified answer. If none succeeds, Freedom uses the provisional result and applies the configured warning behavior.
 - **Protocol Detection**: Automatically detects and routes to Swarm (`bzz://`), IPFS (`ipfs://`), or IPNS (`ipns://`) content.
 - **Transport-Aware Address Bar**: After resolution, the address bar shows the resolved transport with the name as the host — e.g. `vitalik.eth` resolves and displays as `ipfs://vitalik.eth`, a Swarm-backed `mysite.eth` displays as `bzz://mysite.eth`, a WNS-backed `alice.wei` displays as `ipfs://alice.wei`, and a GNS-backed `apoorv.gwei` displays as `ipfs://apoorv.gwei`. The legacy `ens://` form is still accepted as input (and stored bookmarks keep working) but is no longer the canonical display.
 - **Typed Scheme Is an Assertion**: Typing `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, or the equivalent `.wei`/`.gwei` forms only resolves if the contenthash matches the typed transport. Mismatches surface as a "resolves to X, not Y" message rather than silently switching transports — same rule the `bzz://` protocol handler enforces for subresource fetches. Bare names and the legacy `ens://` form make no assertion and accept any supported transport.
@@ -379,9 +392,8 @@ Access built-in browser pages using the `freedom://` protocol:
 ### Settings & UI
 
 - **Theme**: Light, Dark, or System (follows OS preference).
-- **Node Auto-start**: Toggle whether Swarm and IPFS nodes start automatically at launch (enabled by default).
+- **Node Auto-start**: Toggle whether Swarm, IPFS, Radicle, and experimental Myotis start automatically at launch. Radicle and Myotis remain off by default.
 - **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
-- **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
 - **Hamburger Menu**: Access browser features (New Tab, New Window, History, Zoom, Print, Developer Tools, Settings, About).
@@ -389,7 +401,7 @@ Access built-in browser pages using the `freedom://` protocol:
 ### Error Handling
 
 - **Friendly Error Pages**: Clear error messages with the original URL preserved.
-- **Feature-Gated Radicle Errors**: Opening `rad://` while integration is disabled shows: `Radicle integration is disabled. Enable it in Settings > Experimental`.
+- **Profile-Aware Radicle Errors**: Opening `rad://` while Radicle is disabled points to Settings > Nodes.
 - **Retry on Reload**: Pressing reload on an error page retries the original request.
 - **Graceful Degradation**: Navigation errors don't crash the browser.
 
@@ -403,10 +415,11 @@ Freedom automatically manages node connections per profile. The default profile'
 
 - **Swarm Ant**: `http://127.0.0.1:11633`
 - **IPFS**: embedded native `freedom-ipfs` handler; no desktop loopback gateway/API port is started
+- **Myotis**: embedded native Ethereum light client; no desktop loopback API or managed port is started
 - **Radicle**: embedded `libradicle` handler; no desktop loopback API port is started
 - **Tor Arti SOCKS5**: `127.0.0.1:19150`
 
-Named profiles use the next profile slot for Ant and Tor (`11634`, `19151`, and so on). The ecosystem default Swarm/Tor ports (`1633`, `9150`) are treated as external/system-node endpoints. IPFS and Radicle are native-only and do not expose or reuse loopback API/gateway ports.
+Named profiles use the next profile slot for Ant and Tor (`11634`, `19151`, and so on). The ecosystem default Swarm/Tor ports (`1633`, `9150`) are treated as external/system-node endpoints. IPFS, Myotis, and Radicle are native-only and do not expose or reuse loopback API/gateway ports.
 
 If Freedom detects a compatible Swarm or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node.
 
@@ -425,7 +438,7 @@ Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, `rad://`, and `.onion` URLs alwa
 
 ### Ethereum Name Resolution
 
-ENS, WNS, and GNS domains are resolved using Ethereum JSON-RPC. ENS uses the ENS Universal Resolver; WNS reads the Wei Name Service contract directly; GNS reads the Gwei Name Service contract directly. The browser tries multiple public RPC providers in sequence (see `src/main/ens-resolver.js` for the current list). You can prepend your own endpoint by setting the `ETH_RPC` environment variable.
+ENS, WNS, and GNS domains share an ordered, per-profile resolution policy. Myotis resolves through the embedded P2P light client, Colibri verifies remote proofs locally, RPC quorum requires byte-identical responses from independent providers, and direct RPC trusts one configured endpoint. ENS uses the ENS Universal Resolver; WNS reads the Wei Name Service contract directly; GNS reads the Gwei Name Service contract directly. Configure method order under **Settings → Name Resolution** and RPC endpoints under **Settings → Chains**.
 
 **Recommended: Helios Light Client**
 
@@ -548,7 +561,7 @@ the Tor Project's pure-Rust Tor client. It is **off by default** and gated behin
   via electron-builder `extraResources`. Bundling is **optional**: if `arti-bin`
   hasn't been built, `npm run build/dist` still succeeds (a non-fatal warning from
   `check-binaries.js`) and simply ships without Tor — the in-app toggle stays
-  disabled until the binary is present. Like Radicle, Tor is macOS/Linux-only for
+  disabled until the binary is present. Tor is macOS/Linux-only for
   now; the toggle is hidden on Windows.
 - **Data.** Arti state/cache live under `<profile>/tor-data` (override with
   `FREEDOM_TOR_DATA`).
@@ -559,12 +572,12 @@ the Tor Project's pure-Rust Tor client. It is **off by default** and gated behin
 
 | Directory             | Contents                                                                                                                  |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `src/main/`           | Electron main process — node managers (Ant, IPFS, Radicle), ENS resolver, IPC, settings, history, bookmarks, auto-updater |
+| `src/main/`           | Electron main process — node managers (Ant, IPFS, Myotis, Radicle), ENS resolver, IPC, settings, history, bookmarks, auto-updater |
 | `src/renderer/`       | UI — tabs, navigation, address bar, menus, context menus, bookmarks bar, debug console, settings modal                    |
 | `src/renderer/pages/` | Internal pages (home, history, error, links, protocol-test, rad-browser)                                                  |
 | `src/shared/`         | Constants shared between main and renderer                                                                                |
 | `config/`             | Ant config template, default bookmarks, macOS entitlements                                                                |
-| `scripts/`            | Build and setup helpers (binary downloads, Ant/IPFS/Radicle init)                                                         |
+| `scripts/`            | Build and setup helpers (binary/addon downloads, Ant/IPFS/Myotis/Radicle init)                                          |
 | `assets/`             | App icons                                                                                                                 |
 
 ---
@@ -583,7 +596,7 @@ npm test
 
 The suite covers most of `src/main/` and `src/renderer/lib/` — see `src/**/*.test.js` for the full list. Notable areas include:
 
-- **Networking & protocols**: `bzz-protocol`, `swarm-probe`, `swarm-service`, `swarm-provider-ipc`, `request-rewriter`, `ens-resolver`, `ipfs-manager`, `radicle-manager`, `ant-manager`, `service-registry`
+- **Networking & protocols**: `bzz-protocol`, `swarm-probe`, `swarm-service`, `swarm-provider-ipc`, `request-rewriter`, `ens-resolver`, `ipfs-manager`, `myotis-manager`, `radicle-manager`, `ant-manager`, `service-registry`
 - **Renderer navigation & UI**: `navigation`, `navigation-utils`, `tabs`, `tabs-ui`, `bookmarks-ui`, `autocomplete`, `menus`, `page-context-menu`, `settings-ui`, `wallet/*`
 - **Identity, vault & wallet**: `identity/derivation`, `identity/vault`, `identity/formats`, `wallet/dapp-permissions`, `wallet/transaction-service`
 - **Parsing & utilities**: `url-utils`, `cid-utils`, `origin-utils`, `ethereum-uri`, `page-urls`, `brand`
@@ -804,7 +817,7 @@ npm run start:test-updater
 - **Context Isolation**: Uses `contextIsolation: true` and `nodeIntegration: false`.
 - **Remote Module Disabled**: The remote module is not available.
 - **Minimal API Surface**: Only necessary IPC methods are exposed to the renderer. The `freedomAPI` (history, bookmarks, etc.) is restricted to internal `freedom://` pages — external websites cannot call it.
-- **Local Nodes**: Ant, IPFS, Radicle, and Tor run locally when their integrations are enabled; no external services required for basic operation.
+- **Local Nodes**: Ant, IPFS, Myotis, Radicle, and Tor run locally when their integrations are enabled; no external services are required for basic operation.
 - **Permission Handling**: Web permissions are deny-by-default with per-site prompts for camera, microphone, notifications, clipboard reading, location, and MIDI. Decisions marked "Remember for this site" persist per profile (`permissions.json`, reviewable under Settings → Site Permissions); unremembered decisions last for the session. Pointer lock and fullscreen remain auto-allowed for better UX in Swarm/IPFS apps; everything else (HID, screen capture, …) is denied. Location grants expose the API but may not resolve reliably — Electron lacks Chromium's network location service.
 - **Public RPC Fallback**: ENS resolution uses public RPCs by default. For trustless verification, use a local Helios client.
 
@@ -825,7 +838,7 @@ npm run start:test-updater
 - Reset IPFS data: `npm run ipfs:reset`
 
 ### Radicle fails to start
-- Ensure **Settings → Experimental → Enable Radicle integration (Beta)** is enabled
+- Ensure Radicle is managed for the profile under **Settings → Nodes**
 - Ensure `libradicle.node` exists in the current platform's `radicle-bin/` directory
 - If starting for the first time, Freedom creates a Radicle identity automatically
 - Check terminal output for specific error messages
@@ -846,6 +859,6 @@ npm run start:test-updater
 
 ### Content not loading
 
-- Ensure the respective node (Ant, IPFS, or Radicle) is running (check Nodes panel, for Radicle, first enable it in **Settings → Experimental**)
+- Ensure the respective node (Ant, IPFS, or Radicle) is running in the Nodes panel
 - Verify the Swarm reference (64 or 128 hex), CID, or Radicle ID is correct
 - Check the debug console for error messages

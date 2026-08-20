@@ -21,12 +21,12 @@ jest.mock('./radicle-embedded', () => ({
   patch: jest.fn(),
   repoInfo: jest.fn(),
 }));
-jest.mock('./settings-store', () => ({
-  loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
+jest.mock('./radicle-manager', () => ({
+  isDisabledForProfile: jest.fn(() => false),
 }));
 
 const embedded = require('./radicle-embedded');
-const { loadSettings } = require('./settings-store');
+const { isDisabledForProfile } = require('./radicle-manager');
 const {
   handleRadicleApiRequest,
   registerRadicleApiProtocol,
@@ -39,7 +39,7 @@ const REVISION = '0123456789abcdef0123456789abcdef01234567';
 describe('radapi protocol', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    loadSettings.mockReturnValue({ enableRadicleIntegration: true });
+    isDisabledForProfile.mockReturnValue(false);
     embedded.status.mockResolvedValue({
       version: '0.1.0',
       connectedPeers: 3,
@@ -75,8 +75,8 @@ describe('radapi protocol', () => {
     });
   });
 
-  test('gates every endpoint on the integration setting', async () => {
-    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+  test('gates every endpoint on the active profile node mode', async () => {
+    isDisabledForProfile.mockReturnValue(true);
     const response = await handleRadicleApiRequest(new Request('radapi://local/api/v1/stats'));
     expect(response.status).toBe(403);
     expect(embedded.status).not.toHaveBeenCalled();

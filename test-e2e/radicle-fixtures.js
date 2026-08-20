@@ -130,7 +130,7 @@ const test = base.extend({
     // Radicle on, auto-start on, wallet features off.
     fs.writeFileSync(
       path.join(userDataDir, 'settings.json'),
-      JSON.stringify({ enableRadicleIntegration: true, startRadicleAtLaunch: true })
+      JSON.stringify({ startRadicleAtLaunch: true })
     );
 
     const canopy = await serveStatic(CANOPY_DIST);

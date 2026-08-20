@@ -1,5 +1,5 @@
-jest.mock('../settings-store', () => ({
-  loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
+jest.mock('../radicle-manager', () => ({
+  isDisabledForProfile: jest.fn(() => false),
 }));
 jest.mock('../logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
 jest.mock('../radicle-api-protocol', () => ({
@@ -24,7 +24,7 @@ jest.mock('../radicle-api-protocol', () => ({
   }),
 }));
 
-const { loadSettings } = require('../settings-store');
+const { isDisabledForProfile } = require('../radicle-manager');
 const { serveRepoApi } = require('../radicle-api-protocol');
 const log = require('../logger');
 const { buildRadReference, handleRadRequest, registerRadProtocol } = require('./rad-protocol');
@@ -33,7 +33,7 @@ const RID = 'z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  loadSettings.mockReturnValue({ enableRadicleIntegration: true });
+  isDisabledForProfile.mockReturnValue(false);
 });
 
 describe('buildRadReference', () => {
@@ -44,8 +44,8 @@ describe('buildRadReference', () => {
     expect(buildRadReference(input)).toEqual({ ok: true, rid, path, search });
   });
 
-  test('rejects disabled integration', () => {
-    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+  test('rejects a profile-disabled Radicle node', () => {
+    isDisabledForProfile.mockReturnValue(true);
     expect(buildRadReference(`rad://${RID}`)).toMatchObject({ ok: false, status: 403 });
   });
 
@@ -97,7 +97,7 @@ describe('private-session logging', () => {
   }
 
   test('redacts failed private rad URLs', async () => {
-    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+    isDisabledForProfile.mockReturnValue(true);
     const session = fakeSession();
     registerRadProtocol(session, { privatePartition: 'private-test' });
     await session.handlers.get('rad')({ url: `rad://${RID}/secret.md`, method: 'GET' });

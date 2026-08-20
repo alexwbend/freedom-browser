@@ -5,7 +5,6 @@ import { updateBookmarkButtonVisibility } from './bookmarks-ui.js';
 import { updateGithubBridgeIcon } from './github-bridge-ui.js';
 import {
   applyEnsSuffix,
-  buildRadicleDisabledUrl,
   buildTrustRows,
   buildViewSourceNavigation,
   deriveDisplayAddress,
@@ -249,9 +248,6 @@ const cancelPendingSwarmProbe = (navState) => {
 };
 
 const electronAPI = window.electronAPI;
-const RADICLE_DISABLED_MESSAGE =
-  'Radicle integration is disabled. Enable it in Settings > Experimental';
-
 // DOM elements (initialized in initNavigation)
 let addressInput = null;
 let navForm = null;
@@ -500,6 +496,7 @@ const toggleTrustPopover = () => {
   const title = document.getElementById('trust-popover-title');
   const statusEl = document.getElementById('trust-popover-status');
   const trustFieldsEl = document.getElementById('trust-popover-trust-fields');
+  const contentEl = document.getElementById('trust-popover-content');
   const contentFieldsEl = document.getElementById('trust-popover-content-fields');
 
   if (title) title.textContent = name;
@@ -639,6 +636,7 @@ const toggleTrustPopover = () => {
   if (contentFieldsEl) {
     contentFieldsEl.replaceChildren(...contentRows.map(buildRow));
   }
+  if (contentEl) contentEl.hidden = contentRows.length === 0;
 
   // Record the identity of what's now rendered before we flip the
   // popover open — `setTrustPopoverOpen(true)` doesn't clear it, only
@@ -667,7 +665,6 @@ const updateProtocolIcon = () => {
     const protocol = resolveProtocolIconType({
       value: addressInput?.value || '',
       ensProtocols: state.ensProtocols,
-      enableRadicleIntegration: state.enableRadicleIntegration,
       currentPageSecure,
     });
     if (protocol) {
@@ -1376,16 +1373,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try Radicle (rad:RID or rad://RID)
   if (value.trim().toLowerCase().startsWith('rad:') || value.trim().toLowerCase().startsWith('rad://')) {
-    if (!state.enableRadicleIntegration) {
-      pushDebug(RADICLE_DISABLED_MESSAGE);
-      const disabledUrl = buildRadicleDisabledUrl(window.location.href, value.trim());
-      addressInput.value = value.trim();
-      navState.pendingNavigationUrl = disabledUrl;
-      navState.hasNavigatedDuringCurrentLoad = false;
-      webview.loadURL(disabledUrl);
-      syncBzzBase(null);
-      return;
-    }
     const radicleTarget = formatRadicleUrl(value, state.radicleBase);
     if (radicleTarget) {
       const radicleDisplayValue = displayOverride || radicleTarget.displayValue;
@@ -1953,10 +1940,6 @@ export const onSettingsChanged = (settings = null) => {
   }
 
   updateProtocolIcon();
-  if (!state.enableRadicleIntegration && addressInput?.value?.trim().toLowerCase().startsWith('rad:')) {
-    loadTarget(addressInput.value);
-    return;
-  }
   if (navState.currentPageUrl && navState.currentPageUrl.startsWith('bzz://')) {
     loadTarget(addressInput.value);
   }

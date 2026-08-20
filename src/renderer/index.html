@@ -258,7 +258,10 @@
               <div class="trust-popover-info">
                 <div class="trust-popover-status" id="trust-popover-status"></div>
                 <div class="trust-popover-fields" id="trust-popover-trust-fields"></div>
-                <div class="trust-popover-fields" id="trust-popover-content-fields"></div>
+                <div class="trust-popover-content" id="trust-popover-content">
+                  <div class="trust-popover-section-title">Resolves to</div>
+                  <div class="trust-popover-fields" id="trust-popover-content-fields"></div>
+                </div>
               </div>
               <div class="trust-popover-tooltip" id="trust-popover-tooltip" hidden>Copy</div>
             </div>
@@ -676,6 +679,66 @@
             <div class="ipfs-info-row">
               <span class="ipfs-info-label">Version:</span>
               <span id="ipfs-version-text"></span>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="nodes-divider" id="myotis-divider"></div>
+
+          <!-- Myotis Section -->
+          <button id="myotis-toggle-btn" class="menu-item ipfs-toggle" type="button">
+            <span class="ipfs-toggle-label">
+              Ethereum
+              <span class="ipfs-toggle-switch" id="myotis-toggle-switch">
+                <span class="ipfs-toggle-knob"></span>
+              </span>
+            </span>
+          </button>
+          <div class="ipfs-info" id="myotis-info">
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">State:</span>
+              <span id="myotis-state-text">Off</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Connected Peers:</span>
+              <span id="myotis-peers-count">0</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Finalized Block:</span>
+              <span id="myotis-finalized-block">--</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Version:</span>
+              <span id="myotis-version-text">Myotis</span>
+            </div>
+          </div>
+
+          <div class="nodes-divider" id="myotis-gnosis-divider"></div>
+
+          <button id="myotis-gnosis-toggle-btn" class="menu-item ipfs-toggle" type="button">
+            <span class="ipfs-toggle-label">
+              Gnosis
+              <span class="ipfs-toggle-switch" id="myotis-gnosis-toggle-switch">
+                <span class="ipfs-toggle-knob"></span>
+              </span>
+            </span>
+          </button>
+          <div class="ipfs-info" id="myotis-gnosis-info">
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">State:</span>
+              <span id="myotis-gnosis-state-text">Off</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Connected Peers:</span>
+              <span id="myotis-gnosis-peers-count">0</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Finalized Block:</span>
+              <span id="myotis-gnosis-finalized-block">--</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Version:</span>
+              <span id="myotis-gnosis-version-text">Myotis</span>
             </div>
           </div>
 

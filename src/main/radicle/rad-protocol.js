@@ -27,7 +27,7 @@
  *  - Responses stream through with `Access-Control-Allow-Origin: *` so
  *    cross-origin dweb pages (the primary consumer) can read them. Repo
  *    data is public P2P content; the sensitive surface is excluded above.
- *  - Gated on the `enableRadicleIntegration` setting (403 when disabled),
+ *  - Gated on the active profile's Radicle node mode (403 when disabled),
  *    checked per-request like every other Radicle consumer in main.
  */
 
@@ -38,7 +38,7 @@ const {
   redactUrlForLog,
   redactedFailure,
 } = require('../private/private-log-context');
-const { loadSettings } = require('../settings-store');
+const { isDisabledForProfile } = require('../radicle-manager');
 const { decodeRepoApiPath, serveRepoApi } = require('../radicle-api-protocol');
 
 // Same RID shape the request-rewriter enforces: z + base58btc.
@@ -67,8 +67,8 @@ function isSafeRepoPath(path) {
  *  - `null`                           — malformed input. Caller emits 400.
  */
 function buildRadReference(radUrl) {
-  if (loadSettings().enableRadicleIntegration !== true) {
-    return redactedFailure(403, () => 'Radicle integration is disabled');
+  if (isDisabledForProfile()) {
+    return redactedFailure(403, () => 'Radicle is disabled for this profile');
   }
 
   if (typeof radUrl !== 'string' || !radUrl.startsWith('rad:')) return null;

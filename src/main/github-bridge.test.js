@@ -24,12 +24,10 @@ const mockEmbedded = {
 
 jest.mock('electron', () => ({ ipcMain: mockIpcMain }));
 jest.mock('child_process', () => ({ execFile: mockExecFile }));
-jest.mock('./settings-store', () => ({
-  loadSettings: jest.fn(() => ({ enableRadicleIntegration: true })),
-}));
 jest.mock('./radicle-manager', () => ({
   getRadicleDataPath: jest.fn(() => mockDataDir),
   getCurrentStatus: jest.fn(() => ({ status: 'running', error: null })),
+  isDisabledForProfile: jest.fn(() => false),
   STATUS: { RUNNING: 'running' },
 }));
 jest.mock('./radicle-embedded', () => mockEmbedded);

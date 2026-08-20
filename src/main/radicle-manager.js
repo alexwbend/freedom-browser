@@ -4,7 +4,6 @@ const { ipcMain, BrowserWindow } = require('electron');
 const log = require('./logger');
 const IPC = require('../shared/ipc-channels');
 const { success, failure, validateNonEmptyString } = require('./ipc-contract');
-const { loadSettings } = require('./settings-store');
 const { getRadicleDataDir } = require('./profile-paths');
 const { getActiveProfile } = require('./profile-resolver');
 const embedded = require('./radicle-embedded');
@@ -79,6 +78,22 @@ function pushInfoUpdate() {
 
 function isDisabledForProfile() {
   return getActiveProfile()?.metadata?.nodes?.radicle?.mode === 'disabled';
+}
+
+async function syncProfileMode() {
+  if (isDisabledForProfile()) {
+    await stopRadicle();
+    updateService('radicle', { api: null, gateway: null, mode: MODE.DISABLED });
+    setStatusMessage('radicle', 'Disabled for this profile');
+    updateState(STATUS.STOPPED);
+    return getCurrentStatus();
+  }
+
+  if (currentState === STATUS.STOPPED) {
+    clearService('radicle');
+    updateState(STATUS.STOPPED);
+  }
+  return getCurrentStatus();
 }
 
 async function connectAndSeedDefault() {
@@ -384,24 +399,10 @@ function setNodeAlias(alias) {
   });
 }
 
-function integrationEnabled() {
-  return loadSettings().enableRadicleIntegration === true;
-}
-
 function registerRadicleIpc() {
-  const disabled = () => ({
-    status: STATUS.STOPPED,
-    error: 'Radicle integration is disabled. Enable it in Settings > Experimental',
-  });
-
-  ipcMain.handle(IPC.RADICLE_START, async () => {
-    if (!integrationEnabled()) return disabled();
-    return startRadicle();
-  });
+  ipcMain.handle(IPC.RADICLE_START, () => startRadicle());
   ipcMain.handle(IPC.RADICLE_STOP, () => stopRadicle());
-  ipcMain.handle(IPC.RADICLE_GET_STATUS, () =>
-    integrationEnabled() ? getCurrentStatus() : disabled()
-  );
+  ipcMain.handle(IPC.RADICLE_GET_STATUS, () => getCurrentStatus());
   ipcMain.handle(IPC.RADICLE_CHECK_BINARY, () => ({ available: checkBinary() }));
   const pushStatus = (event) => (status) => {
     if (!event?.sender?.isDestroyed?.()) {
@@ -410,7 +411,9 @@ function registerRadicleIpc() {
   };
 
   ipcMain.handle(IPC.RADICLE_SEED, async (event, rid) => {
-    if (!integrationEnabled()) return failure('RADICLE_DISABLED', disabled().error);
+    if (isDisabledForProfile()) {
+      return failure('RADICLE_DISABLED', 'Radicle is disabled for this profile');
+    }
     if (!validateNonEmptyString(rid)) return failure('INVALID_RID', 'Missing repository ID');
     return seedRepository(rid, pushStatus(event));
   });
@@ -438,5 +441,7 @@ module.exports = {
   validateAndNormalizeRid,
   getNodeAlias,
   setNodeAlias,
+  isDisabledForProfile,
+  syncProfileMode,
   STATUS,
 };

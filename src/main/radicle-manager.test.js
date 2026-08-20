@@ -6,7 +6,6 @@ function loadManager(options = {}) {
   jest.resetModules();
   const handlers = new Map();
   const ipcMain = { handle: jest.fn((channel, fn) => handlers.set(channel, fn)) };
-  const settings = { enableRadicleIntegration: options.enabled !== false };
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freedom-radicle-manager-'));
   const embedded = {
     isAvailable: jest.fn(() => options.available !== false),
@@ -52,7 +51,6 @@ function loadManager(options = {}) {
     BrowserWindow: { getAllWindows: jest.fn(() => windows) },
   }));
   jest.doMock('./logger', () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
-  jest.doMock('./settings-store', () => ({ loadSettings: jest.fn(() => settings) }));
   jest.doMock('./profile-paths', () => ({ getRadicleDataDir: jest.fn(() => dataDir) }));
   jest.doMock('./profile-resolver', () => ({
     getActiveProfile: jest.fn(() => options.profile || { metadata: { nodes: {} } }),
@@ -61,7 +59,7 @@ function loadManager(options = {}) {
   jest.doMock('./service-registry', () => registry);
 
   const mod = require('./radicle-manager');
-  return { mod, embedded, registry, ipcMain, handlers, settings, dataDir, statusSend };
+  return { mod, embedded, registry, ipcMain, handlers, dataDir, statusSend };
 }
 
 afterEach(() => {
@@ -217,8 +215,32 @@ test('disabled profiles never start the addon', async () => {
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
 
-test('IPC keeps integration gating and RID validation', async () => {
-  const ctx = loadManager({ enabled: false });
+test('profile mode changes stop and re-enable the embedded node', async () => {
+  const profile = { metadata: { nodes: { radicle: { mode: 'managed' } } } };
+  const ctx = loadManager({ profile });
+  await ctx.mod.startRadicle();
+
+  profile.metadata.nodes.radicle.mode = 'disabled';
+  await expect(ctx.mod.syncProfileMode()).resolves.toEqual({ status: 'stopped', error: null });
+  expect(ctx.embedded.shutdown).toHaveBeenCalledTimes(1);
+  expect(ctx.registry.updateService).toHaveBeenLastCalledWith('radicle', {
+    api: null, gateway: null, mode: 'disabled',
+  });
+  expect(ctx.registry.setStatusMessage).toHaveBeenLastCalledWith(
+    'radicle',
+    'Disabled for this profile'
+  );
+
+  profile.metadata.nodes.radicle.mode = 'managed';
+  await expect(ctx.mod.syncProfileMode()).resolves.toEqual({ status: 'stopped', error: null });
+  expect(ctx.registry.clearService).toHaveBeenCalledWith('radicle');
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('IPC keeps profile gating and RID validation', async () => {
+  const ctx = loadManager({
+    profile: { metadata: { nodes: { radicle: { mode: 'disabled' } } } },
+  });
   ctx.mod.registerRadicleIpc();
   const IPC = require('../shared/ipc-channels');
   await expect(ctx.handlers.get(IPC.RADICLE_START)()).resolves.toMatchObject({ status: 'stopped' });

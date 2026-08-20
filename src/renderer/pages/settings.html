@@ -193,6 +193,152 @@
         opacity: 0.55;
       }
 
+      .resolver-list {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .resolver-method {
+        display: grid;
+        grid-template-columns: 24px 28px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--border);
+        transition:
+          opacity 0.12s,
+          box-shadow 0.12s,
+          background 0.12s;
+      }
+
+      .resolver-method.disabled {
+        opacity: 0.58;
+      }
+
+      .resolver-method.dragging {
+        opacity: 0.35;
+      }
+
+      .resolver-method.drop-before {
+        box-shadow: inset 0 2px var(--accent);
+        background: var(--accent-muted);
+      }
+
+      .resolver-method.drop-after {
+        box-shadow: inset 0 -2px var(--accent);
+        background: var(--accent-muted);
+      }
+
+      .resolver-drag-handle {
+        width: 24px;
+        height: 32px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--text-subtle);
+        font: inherit;
+        font-size: 17px;
+        line-height: 1;
+        cursor: grab;
+      }
+
+      .resolver-drag-handle:hover:not(:disabled),
+      .resolver-drag-handle:focus-visible {
+        color: var(--text);
+      }
+
+      .resolver-drag-handle:active {
+        cursor: grabbing;
+      }
+
+      .resolver-drag-handle:disabled {
+        cursor: default;
+        opacity: 0.25;
+      }
+
+      .resolver-rank {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background: var(--bg-elev);
+        color: var(--text-muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .resolver-method.disabled .resolver-rank {
+        background: transparent;
+        border: 1px dashed var(--border-strong);
+      }
+
+      .resolver-title-line {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .resolver-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 20px;
+        padding: 2px 7px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.2;
+      }
+
+      .resolver-badge.ready,
+      .resolver-badge.verified {
+        border-color: rgba(63, 185, 80, 0.45);
+        color: var(--success);
+      }
+
+      .resolver-badge.warning {
+        border-color: rgba(210, 153, 34, 0.5);
+        color: var(--warn);
+      }
+
+      .resolver-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .resolver-config {
+        padding: 14px 18px 14px 94px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(22, 27, 34, 0.6);
+      }
+
+      .resolver-config-line {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .resolver-quorum-fields {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-muted);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .resolver-quorum-fields select {
+        min-width: 62px;
+      }
+
+      .resolver-status {
+        margin-top: 10px;
+        padding: 0 18px;
+      }
+
       /* Select */
       select {
         appearance: none;
@@ -1103,6 +1249,51 @@
                 </label>
               </div>
             </div>
+            <div class="row" id="radicle-launch-row">
+              <div class="row-body">
+                <p class="row-label">Start Radicle node</p>
+                <p class="row-help" id="radicle-launch-help">
+                  Starts this profile's embedded Radicle node when Freedom opens.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-radicle-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row" id="myotis-launch-row">
+              <div class="row-body">
+                <p class="row-label">Start Ethereum light client (Myotis)</p>
+                <p class="row-help" id="myotis-launch-help">
+                  Experimental: a fully peer-to-peer Ethereum node — name resolution
+                  verified against the chain itself, no RPC provider involved.
+                  Takes effect on next launch.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-myotis-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="row" id="myotis-gnosis-launch-row">
+              <div class="row-body">
+                <p class="row-label">Start Gnosis light client (Myotis)</p>
+                <p class="row-help" id="myotis-gnosis-launch-help">
+                  Starts the independent Gnosis P2P client for verified wallet,
+                  transaction, and dapp reads. Takes effect on next launch.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-myotis-gnosis-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1170,52 +1361,45 @@
             <code>.gwei</code> names. These records live on Ethereum — manage RPC endpoints under
             <a href="#chains">Chains settings</a>.
           </p>
-          <div class="card">
+          <h3 class="row-label" style="margin: 0 0 8px 0">Resolution order</h3>
+          <p class="row-help" style="margin: 0 0 12px 0">
+            Freedom tries enabled methods from top to bottom. Drag the handle to change priority;
+            with the handle focused, the arrow keys work too.
+          </p>
+          <div class="card" id="ens-method-card">
+            <div id="ens-method-list" class="resolver-list"></div>
+            <p id="ens-policy-status" class="rpc-status resolver-status"></p>
             <div class="row">
               <div class="row-body">
-                <p class="row-label">Verification method</p>
-                <p class="row-help" id="ens-lens-help">Loading…</p>
-              </div>
-              <div class="row-control">
-                <select id="ens-lens-method">
-                  <option value="colibri">Colibri (cryptographic verification)</option>
-                  <option value="quorum">Public-RPC quorum</option>
-                  <option value="direct">Direct RPC first (public-quorum fallback)</option>
-                </select>
-              </div>
-            </div>
-            <div class="row" id="ens-prover-row">
-              <div class="row-body">
-                <p class="row-label">Colibri prover</p>
+                <p class="row-label">Prefer verified answers</p>
                 <p class="row-help">
-                  Endpoint that produces the verification proofs. Leave empty for the corpus.core
-                  default.
-                </p>
-              </div>
-              <div class="row-control" style="flex: 1; max-width: 300px">
-                <input
-                  type="text"
-                  id="ens-prover-url"
-                  class="rpc-input"
-                  placeholder="https://mainnet1.colibri-proof.tech"
-                  spellcheck="false"
-                />
-              </div>
-            </div>
-            <div class="row">
-              <div class="row-body">
-                <p class="row-label">Block unverified name navigation</p>
-                <p class="row-help">
-                  Show a warning page before navigating to a name that resolved without verification
-                  (for example, when only one RPC answered). Turn off to navigate straight through
-                  with only the amber shield indicator.
+                  Keep an unverified answer as a fallback while later enabled methods try to
+                  produce a verified result.
                 </p>
               </div>
               <div class="row-control">
                 <label class="toggle">
-                  <input type="checkbox" id="block-unverified-ens" />
+                  <input type="checkbox" id="ens-prefer-verified" />
                   <span class="slider"></span>
                 </label>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="row-label" style="margin: 22px 0 8px 0">Safety</h3>
+          <div class="card">
+            <div class="row">
+              <div class="row-body">
+                <p class="row-label">When only an unverified answer is available</p>
+                <p class="row-help">
+                  Unverified answers always keep the amber shield indicator.
+                </p>
+              </div>
+              <div class="row-control">
+                <select id="unverified-ens-action">
+                  <option value="ask">Ask before opening</option>
+                  <option value="open">Open directly</option>
+                </select>
               </div>
             </div>
           </div>
@@ -1370,31 +1554,6 @@
                 <button type="button" id="swarm-mode-action-btn" class="btn" hidden></button>
               </div>
             </div>
-            <div class="row" data-radicle>
-              <div class="row-body">
-                <p class="row-label">
-                  Enable Radicle integration
-                  <span style="color: var(--text-muted); font-weight: 400">(Beta)</span>
-                </p>
-              </div>
-              <div class="row-control">
-                <label class="toggle">
-                  <input type="checkbox" id="enable-radicle-integration" />
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-            <div class="row sub" id="start-radicle-row" data-radicle>
-              <div class="row-body">
-                <p class="row-label">Start Radicle node when Freedom opens</p>
-              </div>
-              <div class="row-control">
-                <label class="toggle">
-                  <input type="checkbox" id="start-radicle-at-launch" />
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
             <div class="row" data-tor>
               <div class="row-body">
                 <p class="row-label">Enable Tor (.onion access) <span style="color: var(--text-muted); font-weight: 400">(Beta)</span></p>
@@ -1451,10 +1610,10 @@
         tabsInTitlebar: $('tabs-in-titlebar'),
         startAnt: $('start-ant-at-launch'),
         startIpfs: $('start-ipfs-at-launch'),
+        startMyotis: $('start-myotis-at-launch'),
+        startMyotisGnosis: $('start-myotis-gnosis-at-launch'),
+        unverifiedEnsAction: $('unverified-ens-action'),
         askWhereToSave: $('ask-where-to-save'),
-        blockUnverifiedEns: $('block-unverified-ens'),
-        enableRadicle: $('enable-radicle-integration'),
-        startRadicleRow: $('start-radicle-row'),
         startRadicle: $('start-radicle-at-launch'),
         enableTor: $('enable-tor-integration'),
         startTorRow: $('start-tor-row'),
@@ -1468,6 +1627,34 @@
         adblockCookies: $('adblock-cookies'),
         adblockAnnoyances: $('adblock-annoyances'),
         adblockAutoUpdate: $('adblock-autoupdate'),
+      };
+      const radicleLaunchRow = $('radicle-launch-row');
+      const radicleLaunchHelp = $('radicle-launch-help');
+      const defaultRadicleLaunchHelp = radicleLaunchHelp?.textContent || '';
+      const refreshRadicleLaunchStatus = async () => {
+        try {
+          const [profile, binary] = await Promise.all([
+            freedomAPI.getActiveProfile?.(),
+            freedomAPI.checkRadicleBinary?.(),
+          ]);
+          const disabled = profile?.nodes?.radicle?.mode === 'disabled';
+          const available = binary?.available !== false;
+          fields.startRadicle.disabled = disabled || !available;
+          if (radicleLaunchHelp) {
+            radicleLaunchHelp.textContent = disabled
+              ? 'Disabled for this profile under Settings → Nodes.'
+              : !available
+                ? 'libradicle addon not installed for this platform.'
+                : defaultRadicleLaunchHelp;
+          }
+          if (radicleLaunchRow) radicleLaunchRow.classList.toggle('disabled', disabled || !available);
+        } catch {
+          fields.startRadicle.disabled = false;
+          if (radicleLaunchHelp) {
+            radicleLaunchHelp.textContent =
+              'Radicle status could not be read. The startup preference can still be saved.';
+          }
+        }
       };
 
       // id ties together the manifest category, the #adblock-<id>-row
@@ -1842,10 +2029,15 @@
           endpointLines: () => ['Embedded freedom-ipfs native node'],
         },
         {
+          protocol: 'myotis',
+          label: 'Myotis',
+          modes: ['managed', 'disabled'],
+          endpointLines: () => ['Embedded Myotis clients for Ethereum and Gnosis'],
+        },
+        {
           protocol: 'radicle',
           label: 'Radicle',
           modes: ['managed', 'disabled'],
-          settingKey: 'enableRadicleIntegration',
           endpointLines: () => ['Embedded libradicle native node'],
         },
         {
@@ -2032,6 +2224,7 @@
       };
       setProfileRefreshActive(isProfileOrNodesSection());
       freedomAPI.onProfileUpdated?.(() => {
+        refreshRadicleLaunchStatus();
         if (isProfileOrNodesSection()) {
           refreshProfileSection(true);
         }
@@ -2121,6 +2314,7 @@
           }
           setNodesStatus('Saved. Restart the node to apply mode or endpoint changes.', 'success');
           await refreshProfileSection(true);
+          await refreshRadicleLaunchStatus();
         } catch (err) {
           setNodesStatus(err?.message || 'Profile node settings were not saved', 'error');
         } finally {
@@ -2133,15 +2327,16 @@
         tabsInTitlebar: fields.tabsInTitlebar.checked,
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
+        startMyotisAtLaunch: fields.startMyotis.checked,
+        startMyotisGnosisAtLaunch: fields.startMyotisGnosis.checked,
         askWhereToSave: fields.askWhereToSave.checked,
-        enableRadicleIntegration: fields.enableRadicle.checked,
         startRadicleAtLaunch: fields.startRadicle.checked,
         enableTorIntegration: isWindows ? false : fields.enableTor.checked,
         startTorAtLaunch: isWindows ? false : fields.startTor.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
         showIpfsProgressStatus: fields.showIpfsProgressStatus.checked,
         autoUpdate: fields.autoUpdate.checked,
-        blockUnverifiedEns: fields.blockUnverifiedEns.checked,
+        blockUnverifiedEns: fields.unverifiedEnsAction.value !== 'open',
         adblockEnabled: fields.adblockEnabled.checked,
         adblockAds: fields.adblockAds.checked,
         adblockPrivacy: fields.adblockPrivacy.checked,
@@ -2156,22 +2351,22 @@
         fields.tabsInTitlebar.checked = settings.tabsInTitlebar === true;
         fields.startAnt.checked = settings.startAntAtLaunch !== false;
         fields.startIpfs.checked = settings.startIpfsAtLaunch !== false;
+        fields.startMyotis.checked = settings.startMyotisAtLaunch === true;
+        fields.startMyotisGnosis.checked = settings.startMyotisGnosisAtLaunch === true;
         fields.askWhereToSave.checked = settings.askWhereToSave === true;
-        fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableTor.checked = settings.enableTorIntegration === true;
         fields.startTor.checked = settings.startTorAtLaunch === true;
         fields.enableIdentity.checked = settings.enableIdentityWallet === true;
         fields.showIpfsProgressStatus.checked = settings.showIpfsProgressStatus === true;
         fields.autoUpdate.checked = settings.autoUpdate !== false;
-        fields.blockUnverifiedEns.checked = settings.blockUnverifiedEns !== false;
+        fields.unverifiedEnsAction.value = settings.blockUnverifiedEns === false ? 'open' : 'ask';
         fields.adblockEnabled.checked = settings.adblockEnabled !== false;
         fields.adblockAds.checked = settings.adblockAds !== false;
         fields.adblockPrivacy.checked = settings.adblockPrivacy !== false;
         fields.adblockCookies.checked = settings.adblockCookies === true;
         fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
         fields.adblockAutoUpdate.checked = settings.adblockAutoUpdate !== false;
-        setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         setFieldEnabled(fields.enableTor, fields.startTorRow, fields.startTor);
         applyAdblockGating();
       };
@@ -2359,16 +2554,14 @@
       $('tabs-titlebar-restart').addEventListener('click', () => freedomAPI.relaunchApp());
       fields.startAnt.addEventListener('change', save);
       fields.startIpfs.addEventListener('change', save);
+      fields.startMyotis.addEventListener('change', save);
+      fields.startMyotisGnosis.addEventListener('change', save);
       fields.askWhereToSave.addEventListener('change', save);
-      fields.enableRadicle.addEventListener('change', () => {
-        setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
-        save();
-      });
       fields.startRadicle.addEventListener('change', save);
       fields.enableTor.addEventListener('change', () => {
         setFieldEnabled(fields.enableTor, fields.startTorRow, fields.startTor);
-        // Mirror Radicle: enabling the integration only reveals the controls —
-        // it does not start Tor. Starting is via the node-status menu toggle or
+        // Enabling the integration only reveals the controls — it does not
+        // start Tor. Starting is via the node-status menu toggle or
         // "Start Tor when Freedom opens". Disabling stops it (settings-ui.js).
         save();
       });
@@ -2376,7 +2569,7 @@
       fields.enableIdentity.addEventListener('change', save);
       fields.showIpfsProgressStatus.addEventListener('change', save);
       fields.autoUpdate.addEventListener('change', save);
-      fields.blockUnverifiedEns.addEventListener('change', save);
+      fields.unverifiedEnsAction.addEventListener('change', save);
       fields.adblockEnabled.addEventListener('change', () => {
         applyAdblockGating();
         save();
@@ -2446,6 +2639,7 @@
           applySearchSettings(settings);
           applyFormState(settings);
           renderSwarmModeRow(settings, registry);
+          refreshRadicleLaunchStatus();
         } catch {
           console.error('[settings] failed to load settings');
         }
@@ -2751,7 +2945,9 @@
           );
 
         let config = { networks: {}, sources: [] };
+        let myotisStatuses = {};
         let endpointForm = null; // null | { mode, id, url } — chain is the open detail; role is always rpc
+        let endpointSaveInFlight = false; // guards against a double-click adding two 'user-<Date.now()>' sources
         let addState = null; // null | { mode: 'search'|'manual', results, picked } — the add-chain flow
 
         const setStatus = (msg, kind) => {
@@ -2980,11 +3176,81 @@
             </div>`;
         };
 
-        // --- detail: one chain's RPC endpoints -----------------------
-        // Three priority tiers, each its own section: your own RPCs, then
-        // keyed commercial providers, then builtin public RPCs — the
-        // order getEndpoints resolves them in. Verification strategy is
-        // not shown — only ENS (mainnet) consumes it, via the ENS lens.
+        const accessMeta = {
+          myotis: {
+            label: 'Myotis P2P light client',
+            help: 'Verified locally against the chain; no RPC endpoint involved.',
+          },
+          colibri: {
+            label: 'Colibri cryptographic verification',
+            help: 'Verifies prover responses against the chain consensus.',
+          },
+          quorum: {
+            label: 'RPC quorum',
+            help: 'Requires matching responses from independently configured RPC endpoints.',
+          },
+          direct: {
+            label: 'Direct RPC',
+            help: 'Compatibility fallback using the first working configured endpoint.',
+          },
+        };
+
+        const sourceStatus = (source, cid) => {
+          if (source === 'myotis') {
+            if (cid !== '1' && cid !== '100') return 'Unsupported';
+            const status = myotisStatuses[cid];
+            if (!status) return 'Status unknown';
+            if (status.state === 'ready') return 'Ready';
+            if (status.state === 'syncing') return 'Syncing';
+            if (status.state === 'off') return 'Off';
+            if (status.state === 'disabled') return 'Profile disabled';
+            return 'Unavailable';
+          }
+          if (source === 'colibri') {
+            return config.sources.some(
+              (entry) => entry.role === 'prover' && entry.coverage?.[cid] && !entry.removed
+            )
+              ? 'Available'
+              : 'No prover';
+          }
+          const count = config.sources.filter(
+            (entry) =>
+              entry.role === 'rpc' &&
+              entry.coverage?.[cid] &&
+              !entry.removed &&
+              (!entry.keyed || entry.hasKey)
+          ).length;
+          if (source === 'quorum') {
+            const quorum = config.networks[cid]?.quorum || { k: 3, m: 2 };
+            return `${quorum.m || 2} of ${quorum.k || 3} · ${count} available`;
+          }
+          return count ? `${count} available` : 'No endpoint';
+        };
+
+        const accessRows = (cid, kind, order) =>
+          order
+            .map((source, index) => {
+              const meta = accessMeta[source];
+              if (!meta) return '';
+              return `<div class="resolver-method" draggable="true" tabindex="0"
+                    data-access-kind="${kind}" data-access-source="${source}">
+                  <span class="resolver-drag-handle" title="Drag to reorder" aria-hidden="true">⠿</span>
+                  <span class="resolver-rank">${index + 1}</span>
+                  <div class="row-body">
+                    <div class="resolver-title-line">
+                      <p class="row-label">${meta.label}</p>
+                      <span class="resolver-badge">${esc(sourceStatus(source, cid))}</span>
+                    </div>
+                    <p class="row-help">${meta.help}</p>
+                  </div>
+                </div>`;
+            })
+            .join('');
+
+        // --- detail: one chain's access policy + endpoints ------------
+        // Verified/local sources are ordered first; RPC inventory remains
+        // grouped into the same custom/commercial/public priority tiers that
+        // network-registry resolves for quorum and direct fallbacks.
         const renderDetail = (cid) => {
           const isCustom = config.networks[cid]?.builtin === false;
           const rpcs = config.sources.filter(
@@ -2997,6 +3263,30 @@
           // primary = the first usable endpoint walking the tier order.
           const usable = (s) => !s.removed && (s.keyed ? !!s.hasKey : true);
           const primary = [...mine, ...commercial, ...publicRpcs].find(usable);
+          const supportsVerifiedSources = cid === '1' || cid === '100';
+          const defaultReadOrder = supportsVerifiedSources
+            ? ['myotis', 'colibri', 'quorum', 'direct']
+            : ['colibri', 'quorum', 'direct'];
+          const defaultBroadcastOrder = supportsVerifiedSources
+            ? ['myotis', 'direct']
+            : ['direct'];
+          const readOrder = config.networks[cid]?.access?.readOrder || defaultReadOrder;
+          const broadcastOrder =
+            config.networks[cid]?.access?.broadcastOrder || defaultBroadcastOrder;
+          const proverSource = config.sources.find(
+            (entry) => entry.role === 'prover' && entry.coverage?.[cid] && !entry.removed
+          );
+          const proverConfig = supportsVerifiedSources
+            ? `<div class="card" style="margin-top: 12px">
+                <div class="rpc-block" style="border-top: none">
+                  <p class="row-label" style="margin-bottom: 8px">Colibri prover endpoint</p>
+                  <input class="rpc-input" data-chain-prover="${esc(cid)}"
+                    data-source-id="${esc(proverSource?.id || 'colibri-corpus')}"
+                    value="${esc(proverSource?.coverage?.[cid] || '')}"
+                    placeholder="https://…" spellcheck="false" />
+                </div>
+              </div>`
+            : '';
 
           const section = (title, help, list, emptyHint) => `
             <h2 class="section-title" style="margin-top: 20px">${title}</h2>
@@ -3013,10 +3303,19 @@
             <p class="row-help" style="margin-bottom: 16px">chain ${esc(cid)}${isCustom ? ' · custom chain' : ''}</p>
 
             <p class="row-help" style="margin-bottom: 4px">
-              Freedom reaches this chain through these endpoints — for
-              wallet balances, transactions, and dapp requests. They are
-              tried in priority order; the first working one is primary.
+              Freedom routes wallet, transaction, and compatible dapp requests
+              through the sources below. Unsupported methods automatically continue
+              to the next source.
             </p>
+
+            <h2 class="section-title" style="margin-top: 20px">Read and verification order</h2>
+            <p class="row-help" style="margin-bottom: 12px">Drag sources into priority order.</p>
+            <div class="card">${accessRows(cid, 'read', readOrder)}</div>
+            ${proverConfig}
+
+            <h2 class="section-title" style="margin-top: 20px">Transaction broadcast</h2>
+            <p class="row-help" style="margin-bottom: 12px">Signed transactions use P2P first, with RPC as the compatibility fallback.</p>
+            <div class="card">${accessRows(cid, 'broadcast', broadcastOrder)}</div>
 
             ${section('Your RPCs', 'Endpoints you added — tried first.', mine, 'No custom RPCs yet.')}
             ${cardButton('+ Add a custom RPC', 'add-endpoint')}
@@ -3059,12 +3358,17 @@
 
         const reload = async () => {
           try {
-            const res = await freedomAPI.getNetworkConfig();
+            const [res, ethereumMyotis, gnosisMyotis] = await Promise.all([
+              freedomAPI.getNetworkConfig(),
+              freedomAPI.getMyotisStatus(1).catch(() => null),
+              freedomAPI.getMyotisStatus(100).catch(() => null),
+            ]);
             if (!res || !res.success) {
               setStatus('Failed to load network configuration', 'error');
               return;
             }
             config = { networks: res.networks || {}, sources: res.sources || [] };
+            myotisStatuses = { 1: ethereumMyotis, 100: gnosisMyotis };
             render();
           } catch {
             setStatus('Failed to load network configuration', 'error');
@@ -3090,6 +3394,34 @@
         // the search input keeps focus while the user types.
         let searchTimer = null;
         let searchSeq = 0;
+        let draggedAccess = null;
+
+        const reorderAccess = async (kind, source, target, direction = 0) => {
+          const cid = openChainId();
+          if (!cid) return;
+          const network = config.networks[cid] || {};
+          const key = kind === 'broadcast' ? 'broadcastOrder' : 'readOrder';
+          const supportsVerifiedSources = cid === '1' || cid === '100';
+          const fallback = kind === 'broadcast'
+            ? (supportsVerifiedSources ? ['myotis', 'direct'] : ['direct'])
+            : (supportsVerifiedSources
+                ? ['myotis', 'colibri', 'quorum', 'direct']
+                : ['colibri', 'quorum', 'direct']);
+          const order = [...(network.access?.[key] || fallback)];
+          const from = order.indexOf(source);
+          let to = target ? order.indexOf(target) : from + direction;
+          if (from < 0 || to < 0 || to >= order.length || from === to) return;
+          order.splice(from, 1);
+          order.splice(to, 0, source);
+          // Send only the changed key: main merges `access` one level deep,
+          // and `network.access` here is the builtin+override merged view —
+          // spreading it would freeze builtin defaults (e.g. broadcastOrder)
+          // into the user config, so a future app update to a builtin order
+          // would be silently ignored for this user.
+          await mutate(() => freedomAPI.updateNetwork(cid, {
+            access: { [key]: order },
+          }));
+        };
         const runChainSearch = async (query) => {
           const seq = ++searchSeq;
           try {
@@ -3142,6 +3474,68 @@
           );
         });
 
+        section.addEventListener('focusout', async (e) => {
+          const input = e.target.closest('[data-chain-prover]');
+          if (!input) return;
+          const cid = input.dataset.chainProver;
+          const url = input.value.trim();
+          const id = input.dataset.sourceId || 'colibri-corpus';
+          const current = config.sources.find((source) => source.id === id);
+          if (current?.coverage?.[cid] === url) return;
+          if (!url) {
+            await mutate(() => freedomAPI.resetEndpointSourceCoverage(id, cid));
+            return;
+          }
+          await mutate(() => freedomAPI.upsertEndpointSource(id, {
+            role: 'prover',
+            keyed: false,
+            name: current?.name || 'Colibri (corpus.core)',
+            coverage: { ...(current?.coverage || {}), [cid]: url },
+          }));
+        });
+
+        section.addEventListener('dragstart', (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row) return;
+          draggedAccess = { kind: row.dataset.accessKind, source: row.dataset.accessSource };
+          row.classList.add('dragging');
+          e.dataTransfer?.setData('text/plain', row.dataset.accessSource);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+        });
+
+        section.addEventListener('dragover', (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || !draggedAccess || row.dataset.accessKind !== draggedAccess.kind) return;
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+        });
+
+        section.addEventListener('drop', async (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || !draggedAccess || row.dataset.accessKind !== draggedAccess.kind) return;
+          e.preventDefault();
+          const { kind, source } = draggedAccess;
+          draggedAccess = null;
+          await reorderAccess(kind, source, row.dataset.accessSource);
+        });
+
+        section.addEventListener('dragend', () => {
+          draggedAccess = null;
+          section.querySelectorAll('.dragging').forEach((row) => row.classList.remove('dragging'));
+        });
+
+        section.addEventListener('keydown', async (e) => {
+          const row = e.target.closest('[data-access-source]');
+          if (!row || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+          e.preventDefault();
+          await reorderAccess(
+            row.dataset.accessKind,
+            row.dataset.accessSource,
+            null,
+            e.key === 'ArrowUp' ? -1 : 1
+          );
+        });
+
         section.addEventListener('click', async (e) => {
           const btn = e.target.closest('button[data-action]');
           if (!btn) return;
@@ -3191,10 +3585,16 @@
               render();
               return;
             }
+            // Ignore a second Save while the first upsert is still in flight:
+            // in add mode each click mints a distinct 'user-<Date.now()>' id,
+            // so a double-click would persist two duplicate sources (which also
+            // lets one server satisfy the quorum tier twice).
+            if (endpointSaveInFlight) return;
             const sourceId =
               endpointForm?.mode === 'edit' && endpointForm.id
                 ? endpointForm.id
                 : 'user-' + Date.now();
+            endpointSaveInFlight = true;
             try {
               const res = await freedomAPI.upsertEndpointSource(sourceId, {
                 role: 'rpc',
@@ -3208,6 +3608,8 @@
             } catch (err) {
               failForm(err?.message || 'Could not save endpoint');
               return;
+            } finally {
+              endpointSaveInFlight = false;
             }
             endpointForm = null;
             setStatus('', '');
@@ -3353,94 +3755,525 @@
         reload();
       })();
 
-      // ── Name Resolution lens ────────────────────────────────────────
-      // A focused view of the Ethereum (chain 1) network for the #ens
-      // section: the verification strategy and, for Colibri, the prover.
-      // RPC endpoints live under Chains settings.
+      // ── Ordered Ethereum name-resolution policy ─────────────────────
+      // The policy belongs to Ethereum's existing network configuration.
+      // This controller only renders/mutates that policy; resolver execution
+      // remains in the main process and node lifecycle remains under Nodes.
       (() => {
-        const methodSelect = $('ens-lens-method');
-        const helpEl = $('ens-lens-help');
-        const proverRow = $('ens-prover-row');
-        const proverInput = $('ens-prover-url');
-        if (!methodSelect || !helpEl) return;
+        const list = $('ens-method-list');
+        const preferVerified = $('ens-prefer-verified');
+        const policyStatus = $('ens-policy-status');
+        if (!list || !preferVerified) return;
 
-        const HELP = {
-          colibri:
-            'Each answer is cryptographically verified against the Ethereum sync committee via the Colibri prover. If the prover fails, Freedom falls back to the public-RPC quorum.',
-          quorum:
-            'Several public RPCs are queried in parallel; only answers they agree on are trusted.',
-          direct:
-            'Uses the first trusted endpoint, then falls back to the public-RPC quorum if that endpoint fails.',
+        const METHODS = [
+          {
+            id: 'myotis',
+            label: 'Myotis light client',
+            help: 'Local P2P resolution. ENS prefers finalized state; newer ENS records and WNS/GNS use a cryptographically verified optimistic beacon head.',
+            link: '#nodes',
+            linkLabel: 'Node settings →',
+          },
+          {
+            id: 'colibri',
+            label: 'Colibri',
+            help: 'A remote prover produces the witness; Freedom verifies the cryptographic proof locally.',
+          },
+          {
+            id: 'quorum',
+            label: 'RPC quorum',
+            help: 'Multiple independent RPC endpoints must return byte-identical answers at one anchored block.',
+            link: '#chains/1',
+            linkLabel: 'Manage endpoints →',
+          },
+          {
+            id: 'direct',
+            label: 'Direct RPC',
+            help: 'Uses one configured endpoint. This is not cryptographic verification and is disabled by default.',
+            link: '#chains/1',
+            linkLabel: 'Configure →',
+          },
+        ];
+        const METHOD_IDS = new Set(METHODS.map((method) => method.id));
+
+        let config = { networks: {}, sources: [] };
+        let enabledOrder = ['myotis', 'colibri', 'quorum'];
+        let currentQuorum = { k: 3, m: 2 };
+        let currentProverUrl = '';
+        let proverId = 'colibri-corpus';
+        let myotisStatus = null;
+        let myotisGnosisStatus = null;
+        let policySave = Promise.resolve();
+        let quorumSave = Promise.resolve();
+        let draggedMethod = null;
+        let dropPlacement = null;
+        let policyLoaded = false;
+
+        preferVerified.disabled = true;
+
+        const setPolicyStatus = (message, kind = '') => {
+          policyStatus.textContent = message || '';
+          policyStatus.className = `rpc-status resolver-status${kind ? ` ${kind}` : ''}`;
         };
 
-        let proverId = 'colibri-corpus'; // prover endpoint-source id for chain 1
-        let currentProverUrl = ''; // '' means the builtin default is in use
+        const legacyOrder = (primary) => [
+          'myotis',
+          ...(primary === 'direct' ? ['direct', 'quorum'] : []),
+          ...(primary === 'quorum' ? ['quorum'] : []),
+          ...(!primary || primary === 'colibri' ? ['colibri', 'quorum'] : []),
+        ];
 
-        const showProverRow = (method) => {
-          if (proverRow) proverRow.style.display = method === 'colibri' ? '' : 'none';
+        const activeSources = (role) =>
+          (config.sources || []).filter(
+            (source) =>
+              source.role === role &&
+              source.coverage?.['1'] &&
+              !source.removed &&
+              (!source.keyed || source.hasKey)
+          );
+
+        const setBadge = (method, text, kind = '') => {
+          const badge = list.querySelector(`[data-method-status="${method}"]`);
+          if (!badge) return;
+          badge.textContent = text;
+          badge.className = `resolver-badge${kind ? ` ${kind}` : ''}`;
+        };
+
+        const updateMethodStatuses = () => {
+          const rpcSources = activeSources('rpc');
+          const customRpc = rpcSources.find(
+            (source) => source.builtin === false && source.keyed === false
+          );
+
+          if (!myotisStatus) {
+            setBadge('myotis', 'Status unknown', 'warning');
+          } else if (myotisStatus.state === 'unavailable') {
+            setBadge('myotis', 'Unavailable');
+          } else if (myotisStatus.state === 'disabled') {
+            setBadge('myotis', 'Profile disabled', 'warning');
+          } else if (myotisStatus.state === 'off') {
+            setBadge('myotis', 'Off');
+          } else if (myotisStatus.state === 'error') {
+            setBadge('myotis', 'Error', 'warning');
+          } else if (myotisStatus.state === 'ready') {
+            setBadge('myotis', 'Ready', 'ready');
+          } else {
+            setBadge('myotis', 'Syncing…', 'warning');
+          }
+
+          const hasProver = activeSources('prover').length > 0;
+          setBadge('colibri', hasProver ? 'Verified' : 'No prover', hasProver ? 'verified' : 'warning');
+          setBadge(
+            'quorum',
+            `${currentQuorum.m} of ${currentQuorum.k}`,
+            rpcSources.length >= currentQuorum.k ? 'verified' : 'warning'
+          );
+          setBadge(
+            'direct',
+            customRpc ? 'User endpoint' : rpcSources.length ? 'Public endpoint' : 'No endpoint',
+            'warning'
+          );
+        };
+
+        const numberOptions = (min, max, selected) =>
+          Array.from({ length: max - min + 1 }, (_, offset) => min + offset)
+            .map(
+              (value) =>
+                `<option value="${value}"${value === selected ? ' selected' : ''}>${value}</option>`
+            )
+            .join('');
+
+        const render = () => {
+          const visibleOrder = [
+            ...enabledOrder,
+            ...METHODS.map((method) => method.id).filter((id) => !enabledOrder.includes(id)),
+          ];
+          list.innerHTML = visibleOrder
+            .map((id) => {
+              const method = METHODS.find((entry) => entry.id === id);
+              const enabled = enabledOrder.includes(id);
+              const index = enabledOrder.indexOf(id);
+              const link = method.link
+                ? `<a class="row-help" href="${method.link}">${method.linkLabel}</a>`
+                : '';
+              let configRow = '';
+              if (id === 'colibri' && enabled) {
+                configRow = `<div class="resolver-config" data-method-config="colibri">
+                      <div class="resolver-config-line">
+                        <div class="row-body">
+                          <p class="row-label">Prover endpoint</p>
+                          <p class="row-help">Leave empty to use the corpus.core default.</p>
+                        </div>
+                        <input type="text" id="ens-prover-url" class="rpc-input"
+                          placeholder="https://mainnet1.colibri-proof.tech" spellcheck="false" />
+                      </div>
+                    </div>`;
+              } else if (id === 'quorum' && enabled) {
+                configRow = `<div class="resolver-config" data-method-config="quorum">
+                      <div class="resolver-config-line">
+                        <div class="row-body">
+                          <p class="row-label">Agreement threshold</p>
+                          <p class="row-help">Require matching responses from independently configured RPC providers. ${activeSources('rpc').length} currently available.</p>
+                        </div>
+                        <div class="resolver-quorum-fields">
+                          Require
+                          <select data-quorum-field="m" aria-label="Required matching RPC answers">
+                            ${numberOptions(2, currentQuorum.k, currentQuorum.m)}
+                          </select>
+                          out of
+                          <select data-quorum-field="k" aria-label="RPC providers queried">
+                            ${numberOptions(3, 9, currentQuorum.k)}
+                          </select>
+                        </div>
+                      </div>
+                    </div>`;
+              }
+              return `
+                <div class="resolver-method${enabled ? '' : ' disabled'}" data-method="${id}">
+                  <button class="resolver-drag-handle" type="button"
+                    data-drag-handle="${id}" draggable="${enabled}"
+                    aria-label="Reorder ${method.label}. Drag, or use the up and down arrow keys."
+                    title="Drag to reorder" ${enabled ? '' : 'disabled'}>
+                    <span aria-hidden="true">⠿</span>
+                  </button>
+                  <span class="resolver-rank">${enabled ? index + 1 : '–'}</span>
+                  <div class="row-body">
+                    <div class="resolver-title-line">
+                      <p class="row-label">${method.label}</p>
+                      <span class="resolver-badge" data-method-status="${id}">Loading…</span>
+                    </div>
+                    <p class="row-help">${method.help}</p>
+                    ${link}
+                  </div>
+                  <div class="resolver-controls">
+                    <label class="toggle" aria-label="Enable ${method.label}">
+                      <input type="checkbox" data-method-enabled="${id}" ${enabled ? 'checked' : ''} />
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                </div>
+                ${configRow}`;
+            })
+            .join('');
+
+          const proverInput = $('ens-prover-url');
+          if (proverInput) proverInput.value = currentProverUrl;
+          updateMethodStatuses();
+        };
+
+        const persistPolicy = () => {
+          if (!policyLoaded || !config.networks?.['1']) {
+            return Promise.reject(new Error('Resolution policy is not loaded yet'));
+          }
+          const primary = enabledOrder.find((method) => method !== 'myotis') || 'quorum';
+          const verification = {
+            primary,
+            order: [...enabledOrder],
+            preferVerified: preferVerified.checked,
+          };
+          // Preserve interaction order when several controls are changed in
+          // quick succession. IPC responses are not guaranteed to complete in
+          // the same order the renderer dispatched them.
+          policySave = policySave.catch(() => {}).then(async () => {
+            const result = await freedomAPI.updateNetwork('1', { verification });
+            if (result?.success === false) throw new Error(result.error || 'Policy was not saved');
+            config.networks['1'].verification = verification;
+            setPolicyStatus('Resolution policy saved.', 'success');
+          });
+          return policySave;
+        };
+
+        const persistQuorum = () => {
+          if (!policyLoaded || !config.networks?.['1']) {
+            return Promise.reject(new Error('Resolution policy is not loaded yet'));
+          }
+          const quorum = { ...currentQuorum };
+          quorumSave = quorumSave.catch(() => {}).then(async () => {
+            const result = await freedomAPI.updateNetwork('1', { quorum });
+            if (result?.success === false) throw new Error(result.error || 'Quorum was not saved');
+            config.networks['1'].quorum = {
+              ...(config.networks['1'].quorum || {}),
+              ...quorum,
+            };
+            setPolicyStatus('RPC quorum saved.', 'success');
+          });
+          return quorumSave;
+        };
+
+        const clearDragState = () => {
+          list
+            .querySelectorAll('.dragging, .drop-before, .drop-after')
+            .forEach((row) => row.classList.remove('dragging', 'drop-before', 'drop-after'));
+          draggedMethod = null;
+          dropPlacement = null;
+        };
+
+        const reorderMethod = async (id, targetIndex) => {
+          const currentIndex = enabledOrder.indexOf(id);
+          if (
+            currentIndex < 0 ||
+            targetIndex < 0 ||
+            targetIndex >= enabledOrder.length ||
+            currentIndex === targetIndex
+          ) {
+            clearDragState();
+            return;
+          }
+          enabledOrder.splice(currentIndex, 1);
+          enabledOrder.splice(targetIndex, 0, id);
+          const restoreHandleFocus = document.activeElement?.dataset?.dragHandle === id;
+          clearDragState();
+          render();
+          if (restoreHandleFocus) {
+            list.querySelector(`[data-drag-handle="${id}"]`)?.focus();
+          }
+          try {
+            await persistPolicy();
+          } catch (err) {
+            setPolicyStatus(err?.message || 'Failed to reorder methods.', 'error');
+            refresh();
+          }
         };
 
         const refresh = async () => {
           try {
             const res = await freedomAPI.getNetworkConfig();
-            if (!res || !res.success) return;
-            const primary = res.networks?.['1']?.verification?.primary || 'colibri';
-            methodSelect.value = primary;
-            helpEl.textContent = HELP[primary] || '';
-            showProverRow(primary);
+            if (!res || !res.success) throw new Error('Network configuration unavailable');
+            config = { networks: res.networks || {}, sources: res.sources || [] };
+            if (!config.networks['1']) throw new Error('Ethereum network configuration unavailable');
+            const verification = config.networks?.['1']?.verification || {};
+            const configured = Array.isArray(verification.order)
+              ? verification.order.filter(
+                  (method, index, all) =>
+                    METHOD_IDS.has(method) && all.indexOf(method) === index
+                )
+              : [];
+            enabledOrder = configured.length
+              ? configured
+              : legacyOrder(verification.primary || 'colibri');
+            preferVerified.checked = verification.preferVerified !== false;
+            const quorum = config.networks?.['1']?.quorum || {};
+            const k = Math.max(3, Math.min(Number(quorum.k) || 3, 9));
+            const m = Math.max(2, Math.min(Number(quorum.m) || 2, k));
+            currentQuorum = { k, m };
 
-            const prover = (res.sources || []).find(
-              (s) => s.role === 'prover' && s.coverage && s.coverage['1']
+            const prover = (config.sources || []).find(
+              (source) =>
+                source.role === 'prover' && source.coverage?.['1'] && !source.removed
             );
             proverId = prover?.id || 'colibri-corpus';
-            // A user override has builtin:false; the pristine builtin is
-            // left as an empty field (the placeholder shows the default).
             currentProverUrl = prover && prover.builtin === false ? prover.coverage['1'] : '';
-            if (proverInput) proverInput.value = currentProverUrl;
-          } catch {
-            helpEl.textContent = 'Could not load ENS network configuration.';
+            policyLoaded = true;
+            preferVerified.disabled = false;
+            setPolicyStatus('');
+            render();
+          } catch (err) {
+            policyLoaded = false;
+            preferVerified.disabled = true;
+            setPolicyStatus(err?.message || 'Could not load resolution policy.', 'error');
           }
         };
 
-        methodSelect.addEventListener('change', async () => {
-          const primary = methodSelect.value;
-          helpEl.textContent = HELP[primary] || '';
-          showProverRow(primary);
+        list.addEventListener('keydown', (event) => {
+          const handle = event.target.closest?.('[data-drag-handle]');
+          if (!handle || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+          event.preventDefault();
+          const id = handle.dataset.dragHandle;
+          const currentIndex = enabledOrder.indexOf(id);
+          const targetIndex = currentIndex + (event.key === 'ArrowUp' ? -1 : 1);
+          reorderMethod(id, targetIndex);
+        });
+
+        list.addEventListener('dragstart', (event) => {
+          const handle = event.target.closest?.('[data-drag-handle]');
+          const id = handle?.dataset.dragHandle;
+          if (!id || !enabledOrder.includes(id)) {
+            event.preventDefault();
+            return;
+          }
+          draggedMethod = id;
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', id);
+          handle.closest('[data-method]')?.classList.add('dragging');
+        });
+
+        list.addEventListener('dragover', (event) => {
+          if (!draggedMethod) return;
+          const row = event.target.closest?.('[data-method]');
+          const targetId = row?.dataset.method;
+          if (!row || targetId === draggedMethod || !enabledOrder.includes(targetId)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          list
+            .querySelectorAll('.drop-before, .drop-after')
+            .forEach((candidate) => candidate.classList.remove('drop-before', 'drop-after'));
+          const bounds = row.getBoundingClientRect();
+          const after = event.clientY >= bounds.top + bounds.height / 2;
+          row.classList.add(after ? 'drop-after' : 'drop-before');
+          dropPlacement = { targetId, after };
+        });
+
+        list.addEventListener('drop', (event) => {
+          if (!draggedMethod || !dropPlacement) {
+            clearDragState();
+            return;
+          }
+          event.preventDefault();
+          const id = draggedMethod;
+          const currentIndex = enabledOrder.indexOf(id);
+          const targetIndex = enabledOrder.indexOf(dropPlacement.targetId);
+          let insertionIndex = targetIndex + (dropPlacement.after ? 1 : 0);
+          if (currentIndex < insertionIndex) insertionIndex -= 1;
+          reorderMethod(id, insertionIndex);
+        });
+
+        list.addEventListener('dragend', clearDragState);
+
+        list.addEventListener('change', async (event) => {
+          const quorumField = event.target.closest?.('[data-quorum-field]');
+          if (quorumField) {
+            const kInput = list.querySelector('[data-quorum-field="k"]');
+            const mInput = list.querySelector('[data-quorum-field="m"]');
+            const k = Math.max(3, Math.min(Number(kInput?.value) || 3, 9));
+            const m = Math.max(2, Math.min(Number(mInput?.value) || 2, k));
+            currentQuorum = { k, m };
+            render();
+            try {
+              await persistQuorum();
+            } catch (err) {
+              setPolicyStatus(err?.message || 'Failed to update the RPC quorum.', 'error');
+              refresh();
+            }
+            return;
+          }
+
+          const toggle = event.target.closest?.('[data-method-enabled]');
+          if (!toggle) return;
+          const id = toggle.dataset.methodEnabled;
+          if (toggle.checked) {
+            if (!enabledOrder.includes(id)) enabledOrder.push(id);
+          } else if (enabledOrder.length === 1) {
+            toggle.checked = true;
+            setPolicyStatus('At least one resolution method must remain enabled.', 'error');
+            return;
+          } else {
+            enabledOrder = enabledOrder.filter((method) => method !== id);
+          }
+          render();
           try {
-            await freedomAPI.updateNetwork('1', { verification: { primary } });
-          } catch {
-            helpEl.textContent = 'Failed to update the ENS verification method.';
+            await persistPolicy();
+          } catch (err) {
+            setPolicyStatus(err?.message || 'Failed to update methods.', 'error');
+            refresh();
           }
         });
 
-        // Blur, not input — avoid persisting a half-typed URL. A non-empty
-        // value overrides the prover; clearing it reverts to the builtin.
-        proverInput?.addEventListener('blur', async () => {
-          const url = proverInput.value.trim();
+        list.addEventListener('focusout', async (event) => {
+          if (event.target.id !== 'ens-prover-url') return;
+          const url = event.target.value.trim();
           if (url === currentProverUrl) return;
           try {
-            if (url) {
-              await freedomAPI.upsertEndpointSource(proverId, {
-                role: 'prover',
-                keyed: false,
-                coverage: { 1: url },
-              });
-            } else {
-              await freedomAPI.removeEndpointSource(proverId);
-            }
-          } catch {
-            /* surfaced on the refresh below */
+            const proverSource = config.sources.find((source) => source.id === proverId);
+            const result = url
+              ? await freedomAPI.upsertEndpointSource(proverId, {
+                  role: 'prover',
+                  keyed: false,
+                  // Include `name` so an override built here collapses back to
+                  // the builtin (via resetEndpointSourceCoverage's structural
+                  // equality) when the URL is cleared — the builtin
+                  // colibri-corpus carries a name, so omitting it here pins the
+                  // override in the user layer forever. Matches the Chains-page
+                  // upsert.
+                  name: proverSource?.name || 'Colibri (corpus.core)',
+                  coverage: {
+                    ...(proverSource?.coverage || {}),
+                    1: url,
+                  },
+                })
+              : await freedomAPI.resetEndpointSourceCoverage(proverId, 1);
+            if (result?.success === false) throw new Error(result.error || 'Prover was not saved');
+            await refresh();
+          } catch (err) {
+            setPolicyStatus(err?.message || 'Failed to update the Colibri prover.', 'error');
           }
-          refresh();
         });
 
-        // Re-sync on navigation into this section — values may have been
-        // changed from the Chains page in the same session.
+        preferVerified.addEventListener('change', async () => {
+          try {
+            await persistPolicy();
+          } catch (err) {
+            setPolicyStatus(err?.message || 'Failed to update verification preference.', 'error');
+            refresh();
+          }
+        });
+
+        const launchRow = $('myotis-launch-row');
+        const launchToggle = $('start-myotis-at-launch');
+        const launchHelp = $('myotis-launch-help');
+        const defaultLaunchHelp = launchHelp?.textContent || '';
+        const gnosisLaunchRow = $('myotis-gnosis-launch-row');
+        const gnosisLaunchToggle = $('start-myotis-gnosis-at-launch');
+        const gnosisLaunchHelp = $('myotis-gnosis-launch-help');
+        const defaultGnosisLaunchHelp = gnosisLaunchHelp?.textContent || '';
+
+        const updateMyotis = async () => {
+          try {
+            [myotisStatus, myotisGnosisStatus] = await Promise.all([
+              freedomAPI.getMyotisStatus(1),
+              freedomAPI.getMyotisStatus(100),
+            ]);
+          } catch {
+            myotisStatus = null;
+            myotisGnosisStatus = null;
+          }
+          if (launchRow && launchToggle) {
+            const supported = myotisStatus?.supported !== false;
+            const available = myotisStatus ? Boolean(myotisStatus.available) : true;
+            const disabled = myotisStatus?.state === 'disabled';
+            launchRow.hidden = !supported;
+            launchToggle.disabled = Boolean(myotisStatus) && supported && (!available || disabled);
+            if (launchHelp) {
+              launchHelp.textContent = !myotisStatus
+                ? 'Myotis status could not be read. The startup preference can still be saved.'
+                : disabled
+                  ? 'Disabled for this profile under Settings → Nodes.'
+                  : supported && !available
+                    ? 'Addon not installed — run "npm run myotis:download" and restart.'
+                    : defaultLaunchHelp;
+            }
+          }
+          if (gnosisLaunchRow && gnosisLaunchToggle) {
+            const supported = myotisGnosisStatus?.supported !== false;
+            const available = myotisGnosisStatus
+              ? Boolean(myotisGnosisStatus.available)
+              : true;
+            const disabled = myotisGnosisStatus?.state === 'disabled';
+            gnosisLaunchRow.hidden = !supported;
+            gnosisLaunchToggle.disabled =
+              Boolean(myotisGnosisStatus) && supported && (!available || disabled);
+            if (gnosisLaunchHelp) {
+              gnosisLaunchHelp.textContent = !myotisGnosisStatus
+                ? 'Myotis status could not be read. The startup preference can still be saved.'
+                : disabled
+                  ? 'Disabled for this profile under Settings → Nodes.'
+                  : supported && !available
+                    ? 'Addon not installed — run "npm run myotis:download" and restart.'
+                    : defaultGnosisLaunchHelp;
+            }
+          }
+          updateMethodStatuses();
+        };
+
         window.addEventListener('hashchange', () => {
           if (location.hash.replace(/^#/, '').toLowerCase() === 'ens') refresh();
         });
+        freedomAPI.onSettingsUpdated?.((settings) => {
+          if (settings?.networkConfigUpdated) refresh();
+        });
 
         refresh();
+        updateMyotis();
+        const myotisTimer = setInterval(updateMyotis, 5000);
+        window.addEventListener('beforeunload', () => clearInterval(myotisTimer));
       })();
 
       // ── RPC Providers page ──────────────────────────────────────────

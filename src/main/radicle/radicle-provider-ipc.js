@@ -30,7 +30,6 @@
 const { ipcMain, BrowserWindow } = require('electron');
 const log = require('../logger');
 const IPC = require('../../shared/ipc-channels');
-const { loadSettings } = require('../settings-store');
 const embedded = require('../radicle-embedded');
 const {
   getCurrentStatus,
@@ -43,6 +42,7 @@ const {
   validateAndNormalizeRid,
   getNodeAlias,
   setNodeAlias,
+  isDisabledForProfile,
   STATUS,
 } = require('../radicle-manager');
 const cob = require('./cob-service');
@@ -96,10 +96,6 @@ const WORKS_WHILE_STOPPED = new Set([
   'radicle_disconnect',
 ]);
 
-function integrationEnabled() {
-  return loadSettings().enableRadicleIntegration === true;
-}
-
 function nodeRunning() {
   return getCurrentStatus().status === STATUS.RUNNING;
 }
@@ -129,7 +125,7 @@ function removeSeedStatusBroadcaster(origin) {
 }
 
 function unavailableReason(origin) {
-  if (!integrationEnabled()) return 'integration-disabled';
+  if (isDisabledForProfile()) return 'profile-disabled';
   if (!permissions.getPermission(origin)) return 'not-connected';
   const { status } = getCurrentStatus();
   if (status !== STATUS.RUNNING) {
@@ -276,9 +272,9 @@ async function executeRadicleMethod(method, params = {}, origin, { onSeedStatus 
   if (!origin || typeof origin !== 'string') {
     throw providerError(ERRORS.UNAUTHORIZED, 'Missing origin');
   }
-  if (!integrationEnabled()) {
-    throw providerError(ERRORS.UNAVAILABLE, 'Radicle integration is disabled', {
-      reason: 'integration-disabled',
+  if (isDisabledForProfile()) {
+    throw providerError(ERRORS.UNAVAILABLE, 'Radicle is disabled for this profile', {
+      reason: 'profile-disabled',
     });
   }
 

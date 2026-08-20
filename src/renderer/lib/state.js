@@ -24,6 +24,13 @@ export const state = {
       statusMessage: null,
       tempMessage: null,
     },
+    myotis: {
+      api: null,
+      gateway: null,
+      mode: 'none',
+      statusMessage: null,
+      tempMessage: null,
+    },
     ant: {
       api: null,
       gateway: null,
@@ -128,7 +135,6 @@ export const state = {
   suppressTorRunningStatus: false,
 
   // Feature flags
-  enableRadicleIntegration: false,
   enableTorIntegration: false,
   blockUnverifiedEns: true, // When true, unverified ENS resolutions route through an interstitial
 
@@ -173,10 +179,6 @@ export const updateRegistry = (newRegistry) => {
   state.radicleBase = normalizeBaseUrl(newRegistry.radicle?.api) || NATIVE_RADICLE_BASE;
 };
 
-export const setRadicleIntegrationEnabled = (enabled) => {
-  state.enableRadicleIntegration = enabled === true;
-};
-
 export const setTorIntegrationEnabled = (enabled) => {
   state.enableTorIntegration = enabled === true;
 };
@@ -193,7 +195,6 @@ export const setSearchProvider = (providerId, customProviders = []) => {
 // Sync renderer feature flags from a settings payload. Passing null (settings
 // unavailable) resets every flag to its default.
 export const applySettingsToState = (settings) => {
-  setRadicleIntegrationEnabled(settings?.enableRadicleIntegration === true);
   setTorIntegrationEnabled(settings?.enableTorIntegration === true);
   setBlockUnverifiedEns(settings?.blockUnverifiedEns !== false);
   setSearchProvider(settings?.searchProvider, settings?.customSearchProviders);

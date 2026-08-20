@@ -58,7 +58,6 @@ const loadProvider = async (options = {}) => {
 
   global.window = {
     electronAPI: {
-      getSettings: jest.fn(async () => ({ enableRadicleIntegration: true })),
     },
     addEventListener: jest.fn(),
     radiclePermissions: permissions,

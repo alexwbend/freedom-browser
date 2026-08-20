@@ -13,7 +13,6 @@ const loadRadicleModule = async (options = {}) => {
 
   const state = {
     antMenuOpen: options.antMenuOpen ?? false,
-    enableRadicleIntegration: options.enableRadicleIntegration ?? true,
     currentRadicleStatus: options.currentRadicleStatus || 'stopped',
     radicleVersionFetched: options.radicleVersionFetched ?? false,
     radicleVersionValue: options.radicleVersionValue || '',
@@ -148,7 +147,6 @@ describe('radicle-ui', () => {
   test('loads an initial Radicle snapshot and applies pushed info updates', async () => {
     const ctx = await loadRadicleModule({
       antMenuOpen: true,
-      enableRadicleIntegration: true,
       currentRadicleStatus: 'running',
       windowRadicle: true,
       statusResult: { status: 'running', error: null },
@@ -189,7 +187,6 @@ describe('radicle-ui', () => {
   test('updates Radicle status lines, toggle state, and running transitions', async () => {
     const ctx = await loadRadicleModule({
       antMenuOpen: true,
-      enableRadicleIntegration: true,
       currentRadicleStatus: 'stopped',
       statusMessage: 'Radicle: Connected',
       windowRadicle: false,
@@ -216,26 +213,21 @@ describe('radicle-ui', () => {
     expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith('Radicle Error: offline');
 
     ctx.mod.updateRadicleUi('stopped');
-    expect(ctx.elements.radicleStatusRow.classList.contains('visible')).toBe(false);
+    expect(ctx.elements.radicleStatusRow.classList.contains('visible')).toBe(true);
   });
 
-  test('initializes Radicle controls and reacts to settings changes and toggle actions', async () => {
+  test('keeps Radicle visible and disables controls when the addon is unavailable', async () => {
     const ctx = await loadRadicleModule({
       antMenuOpen: true,
-      enableRadicleIntegration: false,
       currentRadicleStatus: 'stopped',
       binaryAvailable: false,
       statusResult: { status: 'stopped', error: null },
     });
 
-    ctx.radicleApi.checkBinary
-      .mockResolvedValueOnce({ available: false })
-      .mockResolvedValueOnce({ available: true });
-
     ctx.mod.initRadicleUi();
     await flushMicrotasks();
 
-    expect(ctx.elements.radicleNodesSection.classList.contains('hidden')).toBe(true);
+    expect(ctx.elements.radicleNodesSection.classList.contains('hidden')).toBe(false);
     expect(ctx.elements.radicleToggleBtn.classList.contains('disabled')).toBe(true);
     expect(ctx.debugMocks.pushDebug).toHaveBeenCalledWith(
       'libradicle addon not found - toggle disabled'
@@ -246,17 +238,20 @@ describe('radicle-ui', () => {
 
     ctx.elements.radicleToggleBtn.dispatch('click');
     expect(ctx.radicleApi.start).not.toHaveBeenCalled();
+  });
 
-    ctx.windowHandlers['settings:updated']({
-      detail: {
-        enableRadicleIntegration: true,
-      },
+  test('starts and stops the first-class Radicle node from the Nodes menu', async () => {
+    const ctx = await loadRadicleModule({
+      antMenuOpen: true,
+      currentRadicleStatus: 'stopped',
+      binaryAvailable: true,
+      statusResult: { status: 'stopped', error: null },
     });
+
+    ctx.mod.initRadicleUi();
     await flushMicrotasks();
 
-    expect(ctx.state.enableRadicleIntegration).toBe(true);
     expect(ctx.elements.radicleNodesSection.classList.contains('hidden')).toBe(false);
-    expect(ctx.radicleApi.checkBinary).toHaveBeenCalledTimes(2);
     expect(ctx.elements.radicleToggleBtn.classList.contains('disabled')).toBe(false);
 
     ctx.elements.radicleToggleBtn.dispatch('click');

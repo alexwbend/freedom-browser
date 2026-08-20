@@ -72,7 +72,6 @@ const loadNavigationModule = async (options = {}) => {
     ipnsRoutePrefix: 'https://gateway.example/ipns/',
     radicleApiPrefix: 'radapi://local/api/v1/repos/',
     radicleBase: 'radapi://local',
-    enableRadicleIntegration: options.enableRadicleIntegration || false,
     currentRadicleStatus: options.currentRadicleStatus || 'running',
     currentIpfsStatus: options.currentIpfsStatus || 'running',
     registry: options.registry || { ipfs: { mode: 'bundled' } },
@@ -171,7 +170,7 @@ const loadNavigationModule = async (options = {}) => {
     resolveProtocolIconType: jest.fn(({ value, currentPageSecure }) => {
       if (currentPageSecure) return 'https';
       if (value?.startsWith('bzz://')) return 'swarm';
-      if (value?.startsWith('rad://') && state.enableRadicleIntegration) return 'radicle';
+      if (value?.startsWith('rad://')) return 'radicle';
       return value ? 'http' : 'http';
     }),
     resolveTrustBadge: jest.fn(({ value, ensTrustByName }) => {
@@ -332,6 +331,7 @@ const loadNavigationModule = async (options = {}) => {
   const trustPopoverTitle = createElement('div');
   const trustPopoverStatus = createElement('div');
   const trustPopoverTrustFields = createElement('div');
+  const trustPopoverContent = createElement('div');
   const trustPopoverContentFields = createElement('div');
   const trustPopoverTooltip = createElement('div');
   const document = createDocument({
@@ -348,6 +348,7 @@ const loadNavigationModule = async (options = {}) => {
       'trust-popover-title': trustPopoverTitle,
       'trust-popover-status': trustPopoverStatus,
       'trust-popover-trust-fields': trustPopoverTrustFields,
+      'trust-popover-content': trustPopoverContent,
       'trust-popover-content-fields': trustPopoverContentFields,
       'trust-popover-tooltip': trustPopoverTooltip,
     },
@@ -440,6 +441,7 @@ const loadNavigationModule = async (options = {}) => {
       protocolIcon,
       trustShield,
       trustPopover,
+      trustPopoverContent,
     },
   };
 };
@@ -561,12 +563,9 @@ describe('navigation', () => {
     expect(ctx.activeRef.tab.webview.reload).toHaveBeenCalled();
     expect(ctx.activeRef.tab.webview.reloadIgnoringCache).toHaveBeenCalled();
 
-    ctx.state.enableRadicleIntegration = false;
     ctx.elements.addressInput.value = 'rad://zrepo123';
     ctx.mod.onSettingsChanged();
-    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
-      'file:///app/pages/rad-browser.html?error=disabled'
-    );
+    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledTimes(1);
   });
 
   test('processes webview lifecycle events and records history', async () => {
@@ -2098,6 +2097,15 @@ describe('navigation', () => {
       expect(ctx.elements.trustPopover.hidden).toBe(false);
       expect(ctx.elements.trustShield.getAttribute('aria-expanded')).toBe('true');
     };
+
+    test('hides the destination section when the resolution has no content rows', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      openPopoverFor(ctx, 'vitalik.eth');
+
+      expect(ctx.elements.trustPopoverContent.hidden).toBe(true);
+    });
 
     test('closes when the address bar moves to a non-ENS URL', async () => {
       const ctx = await loadNavigationModule();

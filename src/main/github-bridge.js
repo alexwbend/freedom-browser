@@ -6,9 +6,13 @@ const fs = require('fs');
 const https = require('https');
 const IPC = require('../shared/ipc-channels');
 const { success, failure, validateNonEmptyString } = require('./ipc-contract');
-const { getRadicleDataPath, getCurrentStatus, STATUS } = require('./radicle-manager');
+const {
+  getRadicleDataPath,
+  getCurrentStatus,
+  isDisabledForProfile,
+  STATUS,
+} = require('./radicle-manager');
 const embedded = require('./radicle-embedded');
-const { loadSettings } = require('./settings-store');
 const { createProfileTempDir } = require('./profile-paths');
 
 const execFileAsync = promisify(execFile);
@@ -508,8 +512,8 @@ function cleanupTempDirs() {
 function registerGithubBridgeIpc() {
   console.log('[GitHubBridge] Registering IPC handlers');
   const radicleDisabledFailure = () =>
-    failure('RADICLE_DISABLED', 'Radicle integration is disabled. Enable it in Settings > Experimental');
-  const ensureRadicleEnabled = () => loadSettings().enableRadicleIntegration === true;
+    failure('RADICLE_DISABLED', 'Radicle is disabled for this profile');
+  const ensureRadicleEnabled = () => !isDisabledForProfile();
 
   ipcMain.handle(IPC.GITHUB_BRIDGE_IMPORT, async (event, url) => {
     if (!ensureRadicleEnabled()) {

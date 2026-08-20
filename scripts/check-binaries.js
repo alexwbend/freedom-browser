@@ -12,6 +12,11 @@ const FREEDOM_IPFS_NATIVE_PREBUILDS_DIR = path.join(
 const FREEDOM_IPFS_NATIVE_ADDON = 'freedom_ipfs_native.node';
 const RADICLE_BIN_DIR = path.join(__dirname, '..', 'radicle-bin');
 const RADICLE_EMBEDDED_ADDON = 'libradicle.node';
+const MYOTIS_BIN_DIR = path.join(__dirname, '..', 'myotis-bin');
+// Targets the Myotis release publishes addons for (see scripts/fetch-myotis.js).
+// Anything else (e.g. win-arm64) is skipped with a notice — the app degrades
+// gracefully to Colibri/quorum when the addon is absent.
+const MYOTIS_SUPPORTED = new Set(['mac-x64', 'mac-arm64', 'linux-x64', 'linux-arm64', 'win-x64']);
 const ARTI_BIN_DIR = path.join(__dirname, '..', 'arti-bin');
 
 function getPlatformArch() {
@@ -110,6 +115,18 @@ function checkBinaries(platforms) {
     if (!fs.existsSync(addonPath)) {
       missing.push(`libradicle embedded addon for ${platformDir}: ${addonPath}`);
     }
+
+    // Myotis: required where the release publishes an addon; electron-builder
+    // would otherwise silently skip the missing extraResources dir and ship a
+    // build with the feature permanently unavailable.
+    if (MYOTIS_SUPPORTED.has(platformDir)) {
+      const myotisAddonPath = path.join(MYOTIS_BIN_DIR, platformDir, 'myotis-node.node');
+      if (!fs.existsSync(myotisAddonPath)) {
+        missing.push(`myotis-node addon for ${platformDir}: ${myotisAddonPath}`);
+      }
+    } else {
+      console.log(`  (myotis-node: no addon published for ${platformDir} — skipping)`);
+    }
   }
 
   return missing;
@@ -153,6 +170,7 @@ function main() {
     for (const { os, arch } of platforms) {
       console.error(`  npm run radicle:download -- --${os} --${arch}`);
     }
+    console.error('  npm run myotis:download');
     console.error('  npm run adblock:download\n');
     process.exit(1);
   }

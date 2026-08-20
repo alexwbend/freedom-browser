@@ -109,7 +109,7 @@ Emits the `disconnect` provider event.
 {
   specVersion: '0.2',
   canUseNode: boolean,        // connected AND node running
-  reason: string | null,      // 'not-connected' | 'integration-disabled' |
+  reason: string | null,      // 'not-connected' | 'profile-disabled' |
                               // 'node-stopped' | 'node-not-ready'
   writes: ['issue', 'issueComment', 'issueState', 'patchComment']
 }

@@ -50,14 +50,8 @@ describe('renderer state', () => {
     expect(mod.state.radicleBase).toBe('radapi://local');
   });
 
-  test('normalizes the radicle feature flag and service display messages', async () => {
+  test('returns service display messages', async () => {
     const mod = await loadModule();
-
-    mod.setRadicleIntegrationEnabled(true);
-    expect(mod.state.enableRadicleIntegration).toBe(true);
-
-    mod.setRadicleIntegrationEnabled('yes');
-    expect(mod.state.enableRadicleIntegration).toBe(false);
 
     mod.updateRegistry({
       ...mod.state.registry,

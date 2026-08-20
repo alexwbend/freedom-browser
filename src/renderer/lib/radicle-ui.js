@@ -12,7 +12,6 @@ let radicleInfoPanel = null;
 let radicleStatusRow = null;
 let radicleStatusLabel = null;
 let radicleStatusValue = null;
-let radicleNodesSection = null;
 
 // Binary availability state
 let radicleBinaryAvailable = true;
@@ -24,14 +23,7 @@ export const stopRadicleInfoUpdates = () => {
   if (radicleVersionText) radicleVersionText.textContent = state.radicleVersionFetched ? state.radicleVersionValue : '';
 };
 
-const updateRadicleSectionVisibility = () => {
-  const enabled = state.enableRadicleIntegration === true;
-  radicleNodesSection?.classList.toggle('hidden', !enabled);
-  if (!enabled) {
-    stopRadicleInfoUpdates();
-    radicleToggleSwitch?.classList.remove('running');
-  }
-};
+const isDisabledForProfile = () => state.registry.radicle?.mode === 'disabled';
 
 const applyRadicleInfo = (info) => {
   if (!radicleInfoPanel?.classList.contains('visible')) return;
@@ -79,10 +71,6 @@ const refreshRadicleInfo = async () => {
 };
 
 export const startRadicleInfoUpdates = () => {
-  if (!state.enableRadicleIntegration) {
-    stopRadicleInfoUpdates();
-    return;
-  }
   if (!state.antMenuOpen || state.currentRadicleStatus === 'stopped') {
     stopRadicleInfoUpdates();
     return;
@@ -94,10 +82,6 @@ export const startRadicleInfoUpdates = () => {
 };
 
 export const updateRadicleUi = (status, error) => {
-  if (!state.enableRadicleIntegration) {
-    state.currentRadicleStatus = 'stopped';
-    return;
-  }
   if (state.suppressRadicleRunningStatus && status === 'running') {
     return;
   }
@@ -124,8 +108,6 @@ export const updateRadicleUi = (status, error) => {
     case 'stopping':
     case 'stopped':
     default:
-      // Clear status row when stopped
-      if (radicleStatusRow) radicleStatusRow.classList.remove('visible');
       break;
   }
 
@@ -141,13 +123,18 @@ export const updateRadicleUi = (status, error) => {
   }
 };
 
-const setToggleDisabled = (disabled) => {
+const updateToggleAvailability = () => {
   if (!radicleToggleBtn) return;
 
+  const profileDisabled = isDisabledForProfile();
+  const disabled = profileDisabled || !radicleBinaryAvailable;
   if (disabled) {
     radicleToggleBtn.classList.add('disabled');
     radicleToggleBtn.setAttribute('disabled', 'true');
-    radicleToggleBtn.setAttribute('title', 'libradicle addon not found');
+    radicleToggleBtn.setAttribute(
+      'title',
+      profileDisabled ? 'Disabled for this profile in Settings' : 'libradicle addon not found'
+    );
   } else {
     radicleToggleBtn.classList.remove('disabled');
     radicleToggleBtn.removeAttribute('disabled');
@@ -159,7 +146,7 @@ const refreshRadicleBinaryAvailability = () => {
   if (!window.radicle?.checkBinary) return;
   window.radicle.checkBinary().then(({ available }) => {
     radicleBinaryAvailable = available;
-    setToggleDisabled(!available);
+    updateToggleAvailability();
     if (!available) {
       pushDebug('libradicle addon not found - toggle disabled');
     }
@@ -168,7 +155,7 @@ const refreshRadicleBinaryAvailability = () => {
 
 // Update the status row from registry
 export const updateRadicleStatusLine = () => {
-  if (!state.enableRadicleIntegration) return;
+  updateToggleAvailability();
   if (!radicleStatusRow || !radicleStatusLabel || !radicleStatusValue) return;
 
   const message = getDisplayMessage('radicle');
@@ -203,16 +190,13 @@ export const initRadicleUi = () => {
   radicleStatusRow = document.getElementById('radicle-status-row');
   radicleStatusLabel = document.getElementById('radicle-status-label');
   radicleStatusValue = document.getElementById('radicle-status-value');
-  radicleNodesSection = document.getElementById('radicle-nodes-section');
-  updateRadicleSectionVisibility();
 
   // Check binary availability
   refreshRadicleBinaryAvailability();
 
   // Toggle button listener
   radicleToggleBtn?.addEventListener('click', () => {
-    if (!state.enableRadicleIntegration) return;
-    if (!radicleBinaryAvailable) return;
+    if (isDisabledForProfile() || !radicleBinaryAvailable) return;
 
     if (state.currentRadicleStatus === 'running' || state.currentRadicleStatus === 'starting') {
       state.suppressRadicleRunningStatus = true;
@@ -251,13 +235,4 @@ export const initRadicleUi = () => {
     window.radicle.onStatusUpdate(handleStatus);
   }
 
-  window.addEventListener('settings:updated', (event) => {
-    const wasEnabled = state.enableRadicleIntegration === true;
-    const isEnabled = event.detail?.enableRadicleIntegration === true;
-    state.enableRadicleIntegration = isEnabled;
-    updateRadicleSectionVisibility();
-    if (!wasEnabled && isEnabled) {
-      refreshRadicleBinaryAvailability();
-    }
-  });
 };

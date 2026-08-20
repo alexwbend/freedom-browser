@@ -309,6 +309,26 @@ contextBridge.exposeInMainWorld('ant', {
   },
 });
 
+contextBridge.exposeInMainWorld('myotis', {
+  start: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:start')
+    : ipcRenderer.invoke('myotis:start', chainId),
+  stop: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:stop')
+    : ipcRenderer.invoke('myotis:stop', chainId),
+  getStatus: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:getStatus')
+    : ipcRenderer.invoke('myotis:getStatus', chainId),
+  onStatusUpdate: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('myotis:statusUpdate', handler);
+    // The eager snapshot is best-effort; live status events continue to work
+    // if startup races handler registration or the window is already closing.
+    ipcRenderer.invoke('myotis:getStatus').then(callback).catch(() => {});
+    return () => ipcRenderer.removeListener('myotis:statusUpdate', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('ipfs', {
   start: () => ipcRenderer.invoke('ipfs:start'),
   stop: () => ipcRenderer.invoke('ipfs:stop'),
@@ -451,6 +471,8 @@ contextBridge.exposeInMainWorld('wallet', {
   // RPC proxy (renderer CSP blocks direct fetch to external endpoints)
   proxyRpc: (rpcUrl, method, params) =>
     ipcRenderer.invoke('wallet:proxy-rpc', { rpcUrl, method, params }),
+  requestChain: (chainId, method, params) =>
+    ipcRenderer.invoke('wallet:chain-request', { chainId, method, params }),
 });
 
 contextBridge.exposeInMainWorld('ledger', {

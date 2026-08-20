@@ -157,6 +157,7 @@ function serializeActiveProfile() {
     serialized.nodes = {
       bee: metadata.nodes.bee ? { ...metadata.nodes.bee } : null,
       ipfs: metadata.nodes.ipfs ? { ...metadata.nodes.ipfs } : null,
+      myotis: metadata.nodes.myotis ? { ...metadata.nodes.myotis } : null,
       radicle: metadata.nodes.radicle ? { ...metadata.nodes.radicle } : null,
       tor: metadata.nodes.tor ? { ...metadata.nodes.tor } : null,
     };
@@ -210,12 +211,14 @@ function serializeProfileMutationResult(result) {
 const PROFILE_NODE_MODES = {
   bee: new Set(['managed', 'external', 'disabled']),
   ipfs: new Set(['managed', 'disabled']),
+  myotis: new Set(['managed', 'disabled']),
   radicle: new Set(['managed', 'disabled']),
   tor: new Set(['managed', 'external', 'disabled']),
 };
 const PROFILE_NODE_FIELDS = {
   bee: ['mode', 'externalApi'],
   ipfs: ['mode'],
+  myotis: ['mode'],
   radicle: ['mode'],
   tor: ['mode', 'externalSocks'],
 };
@@ -324,7 +327,7 @@ function validateProfileNodeConfigUpdate(protocol, patch = {}) {
   return { ok: true, sanitized };
 }
 
-function updateProfileNodeConfigFromIpc(protocol, patch) {
+async function updateProfileNodeConfigFromIpc(protocol, patch) {
   const activeProfile = getActiveProfile();
   if (!activeProfile || activeProfile.source !== 'catalog') {
     return failure('PROFILE_NOT_EDITABLE', 'The active profile cannot be edited');
@@ -340,6 +343,20 @@ function updateProfileNodeConfigFromIpc(protocol, patch) {
     }
     const profile = serializeActiveProfile();
     broadcastProfileUpdated(profile);
+    if (protocol === 'myotis') {
+      const myotisManager = require('./myotis/myotis-manager');
+      if (validation.sanitized.mode === 'disabled') {
+        myotisManager.stopAllMyotis();
+      } else {
+        for (const chainId of myotisManager.NETWORKS.keys()) {
+          myotisManager.refreshMyotisStatus(chainId);
+        }
+      }
+    }
+    if (protocol === 'radicle') {
+      const radicleManager = require('./radicle-manager');
+      await radicleManager.syncProfileMode();
+    }
     return success({ profile });
   } catch (err) {
     log.error('[profile] Failed to update node config:', err);
