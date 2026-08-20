@@ -3,7 +3,10 @@
  * install it as radicle-bin/<platform>/libradicle.node, where
  * radicle-embedded.js looks for it.
  *
- * Usage: npm run radicle:download
+ * Usage:
+ *   npm run radicle:download
+ *   npm run radicle:download -- --win --x64
+ *   npm run radicle:download -- --win --arm64
  *
  * Source repo: solardev-xyz/libradicle (canonical Radicle home:
  * rad:z2SzCC9zYnP17QRPZUhrP2RTEwZHj). To build from source instead, use
@@ -18,11 +21,28 @@ const { RADICLE_ADDON_RELEASE_TAG } = require('../src/shared/radicle-addon-versi
 
 const RELEASE_BASE = `https://github.com/solardev-xyz/libradicle/releases/download/${RADICLE_ADDON_RELEASE_TAG}`;
 
-function platformKey() {
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  if (process.platform === 'darwin') return `mac-${arch}`;
-  if (process.platform === 'win32') return `win-${arch}`;
-  return `linux-${arch}`;
+function platformKey(
+  args = process.argv.slice(2),
+  hostPlatform = process.platform,
+  hostArch = process.arch
+) {
+  const requestedPlatforms = ['mac', 'linux', 'win'].filter((name) => args.includes(`--${name}`));
+  const requestedArchs = ['arm64', 'x64'].filter((arch) => args.includes(`--${arch}`));
+
+  if (requestedPlatforms.length > 1) {
+    throw new Error('specify at most one target platform: --mac, --linux, or --win');
+  }
+  if (requestedArchs.length > 1) {
+    throw new Error('specify at most one target architecture: --arm64 or --x64');
+  }
+
+  const hostOs = hostPlatform === 'darwin' ? 'mac' : hostPlatform === 'win32' ? 'win' : 'linux';
+  const os = requestedPlatforms[0] || hostOs;
+  const hostTargetArch = hostArch === 'arm64' ? 'arm64' : 'x64';
+  const arch =
+    requestedArchs[0] || (requestedPlatforms.length && os === 'win' ? 'x64' : hostTargetArch);
+
+  return `${os}-${arch}`;
 }
 
 function fetchBuffer(url, redirects = 0) {
@@ -74,11 +94,15 @@ async function main() {
   fs.mkdirSync(destDir, { recursive: true });
   const dest = path.join(destDir, 'libradicle.node');
   fs.writeFileSync(dest, binary);
-  if (process.platform !== 'win32') fs.chmodSync(dest, 0o755);
+  if (!key.startsWith('win-')) fs.chmodSync(dest, 0o755);
   console.log(`Installed ${dest} (${(binary.length / 1e6).toFixed(1)} MB, sha256 verified)`);
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { platformKey, fetchBuffer, main };

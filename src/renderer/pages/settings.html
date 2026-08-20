@@ -1846,7 +1846,6 @@
           label: 'Radicle',
           modes: ['managed', 'disabled'],
           settingKey: 'enableRadicleIntegration',
-          hideOnWindows: true,
           endpointLines: () => ['Embedded libradicle native node'],
         },
         {
@@ -2135,8 +2134,8 @@
         startAntAtLaunch: fields.startAnt.checked,
         startIpfsAtLaunch: fields.startIpfs.checked,
         askWhereToSave: fields.askWhereToSave.checked,
-        enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
-        startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
+        enableRadicleIntegration: fields.enableRadicle.checked,
+        startRadicleAtLaunch: fields.startRadicle.checked,
         enableTorIntegration: isWindows ? false : fields.enableTor.checked,
         startTorAtLaunch: isWindows ? false : fields.startTor.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
@@ -2420,12 +2419,10 @@
           const platform = await freedomAPI.getPlatform();
           isWindows = platform === 'win32';
           if (isWindows) {
-            // No libradicle addon artifact for Windows yet; Arti is bundled
-            // for macOS/Linux only (built host-only from crates.io).
-            document
-              .querySelectorAll('[data-radicle], [data-tor]')
-              .forEach((el) => (el.style.display = 'none'));
-            if (resolveSection(location.hash) === 'profiles') {
+            // Arti is bundled for macOS/Linux only (built host-only from
+            // crates.io). Radicle has native Windows x64 and ARM64 addons.
+            document.querySelectorAll('[data-tor]').forEach((el) => (el.style.display = 'none'));
+            if (isProfileOrNodesSection()) {
               refreshProfileSection(true);
             }
           }

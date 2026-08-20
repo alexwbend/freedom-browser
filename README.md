@@ -4,7 +4,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
 Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols.
-It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS and Linux; the Windows build ships without Radicle until official Windows binaries are published upstream.
+It ships with integrated Swarm, IPFS, and Radicle nodes, enabling direct peer-to-peer network access without relying on centralized HTTP gateways. Radicle is available on macOS, Linux, and Windows x64/ARM64.
 
 ---
 
@@ -225,7 +225,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Native Transport**: Uses the embedded `freedom-ipfs` native addon instead of a loopback Kubo process.
 - **Live Diagnostics**: View native gateway stats and request progress while IPFS/IPNS pages load.
 
-### Integrated Radicle Node (macOS & Linux)
+### Integrated Radicle Node
 
 - **Embedded Native Node**: Runs Radicle in the Electron main process through the `libradicle` addon without a loopback HTTP API.
 - **Native Provider Actions**: `window.radicle` seeding, identity, repository listing, COB writes, and GitHub imports all use the addon directly.
@@ -234,7 +234,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Node Toggle**: Once enabled, start and stop Radicle from the Nodes panel.
 - **Live Statistics**: View connected peers, seeded repos, version, and Node ID.
 - **Repository Seeding**: Seed Radicle repositories directly from the browser to help replicate them across the network.
-- **Windows**: Radicle is not available on Windows yet (no upstream binaries). The Experimental settings section is hidden on Windows builds.
+- **Windows**: The embedded node is available in Windows x64 and ARM64 builds.
 
 ### Universal Address Bar
 
@@ -477,6 +477,7 @@ Edit `src/renderer/pages/home.html` to customize the welcome view shown on start
 | `npm run dist:linux:arm64:docker`                             | Build Linux ARM64 via Docker (recommended)                  |
 | `npm run dist:linux:x64:docker`                               | Build Linux x64 via Docker                                  |
 | `npm run dist -- --win`                                       | Build Windows x64 distributable (NSIS + ZIP)                |
+| `npm run dist -- --win --arm64`                               | Build Windows ARM64 distributable (NSIS + ZIP)              |
 
 The `build` and `dist` scripts accept `--mac`, `--linux`, or `--win` with optional `--arm64`, `--x64`, `--unsigned`, `--no-notarize`, and `--verbose` flags. See `scripts/build.js` for details.
 
@@ -489,6 +490,8 @@ profile-managed dev data.
 | Script | Description |
 |--------|-------------|
 | `npm run radicle:download` | Download the embedded addon for the current platform |
+| `npm run radicle:download -- --win --x64` | Download the Windows x64 addon for a cross-build |
+| `npm run radicle:download -- --win --arm64` | Download the Windows ARM64 addon for a cross-build |
 | `npm run radicle:build-addon` | Build the embedded addon from a sibling `libradicle` checkout |
 | `npm run radicle:reset` | Remove legacy repo-root Radicle data; managed profiles are unchanged |
 
@@ -670,16 +673,20 @@ These commands run the build inside a Linux Docker container, ensuring native mo
 #### Windows
 
 ```bash
-# Build Windows x64 distributable
-npm run dist -- --win --x64
+# Stage the target-native Radicle addon when cross-building (choose one)
+npm run radicle:download -- --win --x64
+npm run radicle:download -- --win --arm64
 
-# Build Windows ARM64 distributable
+# Build the matching Windows distributable
+npm run dist -- --win --x64
 npm run dist -- --win --arm64
 ```
 
 Output goes to the `dist/` folder as NSIS installer and ZIP archive.
 
-**Note:** Windows builds do not include the libradicle addon because no Windows artifact is published yet. The Experimental settings section is hidden automatically on Windows.
+Both Windows architectures include a matching native libradicle addon. The
+architecture passed to `radicle:download` must match the architecture passed to
+`dist`.
 
 #### Apple Code Signing & Notarization
 

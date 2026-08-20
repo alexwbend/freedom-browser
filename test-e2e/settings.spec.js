@@ -31,3 +31,74 @@ test('saveSettings persists across renderer reload', async ({ window }) => {
 
   await expect(window.locator('html')).toHaveAttribute('data-theme', 'light');
 });
+
+test('Radicle controls stay visible and persist on every supported desktop', async ({
+  window,
+  electronApp,
+}) => {
+  const input = window.locator('[data-test="address-input"]');
+  await input.click();
+  await input.fill('freedom://settings/experimental');
+  await input.press('Enter');
+
+  let settingsPage;
+  await expect
+    .poll(() => {
+      settingsPage = electronApp
+        .windows()
+        .find((page) => page.url().includes('/pages/settings.html'));
+      return Boolean(settingsPage);
+    })
+    .toBe(true);
+
+  const radicleRows = settingsPage.locator('[data-radicle]');
+  await expect(radicleRows).toHaveCount(2);
+  await expect(radicleRows.first()).toBeVisible();
+
+  const enabled = settingsPage.locator('#enable-radicle-integration');
+  const startAtLaunch = settingsPage.locator('#start-radicle-at-launch');
+  // Toggle inputs are visually hidden by the custom slider CSS. Dispatch the
+  // same change events their visible labels produce.
+  const setRadicleSettings = (value) =>
+    settingsPage.evaluate((checked) => {
+      for (const id of ['enable-radicle-integration', 'start-radicle-at-launch']) {
+        const field = document.getElementById(id);
+        field.checked = checked;
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    }, value);
+  await setRadicleSettings(true);
+  await expect(enabled).toBeChecked();
+  await expect(startAtLaunch).toBeChecked();
+
+  await expect
+    .poll(() =>
+      window.evaluate(async () => {
+        const settings = await window.electronAPI.getSettings();
+        return [settings.enableRadicleIntegration, settings.startRadicleAtLaunch];
+      })
+    )
+    .toEqual([true, true]);
+
+  await settingsPage.evaluate(() => {
+    location.hash = '#nodes';
+  });
+  const radicleNodeRow = settingsPage.locator('.profile-node[data-protocol="radicle"]');
+  await expect(radicleNodeRow).toHaveCount(1);
+  await expect(radicleNodeRow).toBeVisible();
+  const platform = await settingsPage.evaluate(() => window.freedomAPI.getPlatform());
+  if (platform === 'win32') {
+    await expect(settingsPage.locator('.profile-node[data-protocol="tor"]')).toHaveCount(0);
+  }
+
+  // Leave the shared fixture in its default state for later specs.
+  await setRadicleSettings(false);
+  await expect
+    .poll(() =>
+      window.evaluate(async () => {
+        const settings = await window.electronAPI.getSettings();
+        return [settings.enableRadicleIntegration, settings.startRadicleAtLaunch];
+      })
+    )
+    .toEqual([false, false]);
+});

@@ -106,13 +106,9 @@ function checkBinaries(platforms) {
       missing.push(`freedom-ipfs native addon for ${platformDir}: ${freedomIpfsAddonPath}`);
     }
 
-    // Radicle: no addon release for Windows yet — the integration reports
-    // unavailable there instead of falling back to external executables.
-    if (os !== 'win') {
-      const addonPath = path.join(RADICLE_BIN_DIR, platformDir, RADICLE_EMBEDDED_ADDON);
-      if (!fs.existsSync(addonPath)) {
-        missing.push(`libradicle embedded addon for ${platformDir}: ${addonPath}`);
-      }
+    const addonPath = path.join(RADICLE_BIN_DIR, platformDir, RADICLE_EMBEDDED_ADDON);
+    if (!fs.existsSync(addonPath)) {
+      missing.push(`libradicle embedded addon for ${platformDir}: ${addonPath}`);
     }
   }
 
@@ -154,7 +150,9 @@ function main() {
     console.error('\nRun the following commands to download binaries:');
     console.error('  npm run ant:download');
     console.error('  npm run ipfs:download');
-    console.error('  npm run radicle:download');
+    for (const { os, arch } of platforms) {
+      console.error(`  npm run radicle:download -- --${os} --${arch}`);
+    }
     console.error('  npm run adblock:download\n');
     process.exit(1);
   }

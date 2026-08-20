@@ -150,7 +150,16 @@
         "nsis",
         "zip"
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "extraResources": [
+        {
+          "from": "radicle-bin/${os}-${arch}/",
+          "to": "radicle-bin",
+          "filter": [
+            "libradicle.node"
+          ]
+        }
+      ]
     },
     "files": [
       "src/**/*",

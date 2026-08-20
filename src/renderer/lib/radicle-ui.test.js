@@ -171,11 +171,11 @@ describe('radicle-ui', () => {
     ctx.getStatusHandler()({
       status: 'running',
       error: null,
-      info: { success: true, count: 8, reposCount: 9, version: '0.6.0' },
+      info: { success: true, count: 8, reposCount: 9, version: '0.6.1' },
     });
     expect(ctx.elements.radiclePeersCount.textContent).toBe('8');
     expect(ctx.elements.radicleReposCount.textContent).toBe('9');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.6.0');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.6.1');
 
     ctx.mod.stopRadicleInfoUpdates();
 
@@ -183,7 +183,7 @@ describe('radicle-ui', () => {
     expect(ctx.elements.radicleInfoPanel.classList.contains('visible')).toBe(false);
     expect(ctx.elements.radiclePeersCount.textContent).toBe('0');
     expect(ctx.elements.radicleReposCount.textContent).toBe('--');
-    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.6.0');
+    expect(ctx.elements.radicleVersionText.textContent).toBe('libradicle v0.6.1');
   });
 
   test('updates Radicle status lines, toggle state, and running transitions', async () => {

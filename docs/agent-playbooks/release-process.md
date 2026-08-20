@@ -179,10 +179,14 @@ Both run `electron-builder` inside a Linux container and download the matching R
 ### Windows
 
 ```
+npm run radicle:download -- --win --x64
 npm run dist -- --win --x64
+
+npm run radicle:download -- --win --arm64
+npm run dist -- --win --arm64
 ```
 
-`electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows builds intentionally ship without Radicle (see `README.md`).
+`electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows x64 and ARM64 builds include the architecture-matched embedded Radicle node.
 
 Cross-building rebuilds `better-sqlite3` in `node_modules` for the *target* platform, which would leave a Windows DLL on the mac host and silently break history/favicons/payment-history in local dev (symptom: `[History] Opening database:` repeating in the log with no `Current schema version:` line after it). `scripts/build.js` handles this automatically — it snapshots the host binary before any cross-target build and restores it afterward (falling back to `npx electron-builder install-app-deps`, our postinstall command), so expect a `→ Restored host better-sqlite3 binary` line after Windows builds. This protection only exists in `scripts/build.js`: never invoke `electron-builder --win` directly; if you do, run `npx electron-builder install-app-deps` afterward.
 

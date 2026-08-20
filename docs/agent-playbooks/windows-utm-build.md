@@ -8,7 +8,7 @@ Windows (see `release-process.md` §6).
 ## When to use this (vs. cross-building)
 
 `release-process.md` §5 cross-builds the Windows installer from the mac host
-(`npm run dist -- --win --x64`). That is correct for producing the *distributable*,
+(`npm run dist -- --win --arm64`). That is correct for producing the *distributable*,
 but a mac cross-build is **not runnable on Windows for ad-hoc testing**:
 `better-sqlite3` is a native module that is `require`d at startup
 (`src/main/payment-history.js` → `src/main/index.js`), so an app packaged on macOS
@@ -16,7 +16,7 @@ ships the darwin `.node` and crashes on launch under Windows.
 
 Build **natively inside the VM** when you need an app that actually launches on
 Windows. The VM compiles/fetches the correct native-module ABI and bundles the
-correct-arch Ant/IPFS binaries.
+correct-arch Ant/IPFS/Radicle binaries.
 
 ## Prerequisites
 
@@ -24,8 +24,8 @@ correct-arch Ant/IPFS binaries.
   `/Applications/UTM.app/Contents/MacOS/utmctl`.
 - The VM's **QEMU guest agent** must be running (it ships with UTM's Windows
   guest tools). All automation below goes through it.
-- Node.js + npm + git installed inside the guest. Verify with the probe in the
-  cheat sheet below.
+- Native ARM64 Node.js + npm + git installed inside the guest. Verify with the
+  probe in the cheat sheet below.
 
 ### Obtaining the Windows VM
 
@@ -117,6 +117,7 @@ A UTM Windows VM on Apple Silicon is **Windows on ARM (arm64)**. Two traps:
   ```
 
   Expect `win32arm64` → build `--arm64`.
+
 - `better-sqlite3` has a prebuilt **win-arm64 Electron** binary, so `npm ci`'s
   `electron-builder install-app-deps` finishes without needing Visual Studio
   Build Tools (`buildFromSource=false`). If you ever target an arch with no
@@ -134,12 +135,14 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
 
    Confirm `git -C C:\freedom-build\repo log --oneline -1` is the commit you expect.
 
-2. **Provide the Windows binaries.** `npm run check-binaries -- --win --arm64`
-   requires `ant-bin/win-arm64/antd.exe` and
-   `native/freedom-ipfs-node/prebuilds/win-arm64/freedom_ipfs_native.node`
-   (Radicle is intentionally skipped on Windows — see `scripts/check-binaries.js`).
+2. **Provide the Windows ARM64 binaries.**
+   `npm run check-binaries -- --win --arm64` requires
+   `ant-bin/win-arm64/antd.exe`,
+   `native/freedom-ipfs-node/prebuilds/win-arm64/freedom_ipfs_native.node`, and
+   `radicle-bin/win-arm64/libradicle.node`. Stage the Radicle addon with
+   `npm run radicle:download -- --win --arm64`.
    The Ant fetch needs auth, so the reliable path is to **push the local
-   binaries/addons** rather than download them in the guest:
+   Ant/IPFS binaries** rather than download them in the guest:
 
    ```
    "$UTMCTL" exec "<VM>" --cmd 'C:\Windows\System32\cmd.exe' '/c' 'mkdir C:\freedom-build\repo\ant-bin\win-arm64 2>nul & mkdir C:\freedom-build\repo\native\freedom-ipfs-node\prebuilds\win-arm64 2>nul'
@@ -185,7 +188,8 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
 
 - The build is **unsigned**, so Windows SmartScreen/Defender shows
   "Windows protected your PC" → **More info → Run anyway**.
-- It is an **arm64** build; the bundled Ant/IPFS are the arm64 binaries.
+- It is an **arm64** build; the bundled Ant/IPFS/Radicle addons are the ARM64
+  variants (Ant may use the repository's x64-emulation fallback).
 - For issue-#90-class checks: onboarding → create a new wallet → "Setting up node
   identities" should complete without a "node data still in use" error.
 
