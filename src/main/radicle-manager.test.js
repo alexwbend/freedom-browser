@@ -13,7 +13,14 @@ function loadManager(options = {}) {
     isStarted: jest.fn(() => false),
     start: jest.fn(async () => ({ did: 'did:key:z6MkNative' })),
     shutdown: jest.fn(async () => ({ ok: true })),
-    connectSeeds: jest.fn(async () => ({ connected: 1 })),
+    connectSeeds: jest.fn(async () => ({
+      connected: 4,
+      target: 4,
+      targetReached: true,
+      attempted: 6,
+      elapsedMs: 250,
+      failures: [],
+    })),
     cloneRepo: jest.fn(async () => ({ ok: true })),
     cloneRepoWithProgress: jest.fn(async (_rid, _timeout, onProgress) => {
       onProgress({ phase: 'resolving', candidates: 2 });
@@ -137,39 +144,6 @@ test('a start requested during shutdown waits for shutdown to complete', async (
   await expect(stopping).resolves.toEqual({ status: 'stopped', error: null });
   await expect(restarting).resolves.toEqual({ status: 'running', error: null });
   expect(ctx.embedded.start).toHaveBeenCalledTimes(2);
-  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
-});
-
-test('migrates legacy preferred seed hosts before native startup', async () => {
-  const ctx = loadManager();
-  const configPath = path.join(ctx.dataDir, 'config.json');
-  fs.writeFileSync(configPath, JSON.stringify({
-    preferredSeeds: [
-      'z6MkIris@iris.radicle.xyz:8776',
-      'z6MkRosa@rosa.radicle.xyz:8776',
-      'z6MkCustom@seed.example:8776',
-    ],
-    custom: true,
-  }));
-
-  await ctx.mod.startRadicle();
-  expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({
-    preferredSeeds: [
-      'z6MkIris@iris.radicle.network:8776',
-      'z6MkRosa@rosa.radicle.network:8776',
-      'z6MkCustom@seed.example:8776',
-    ],
-    custom: true,
-  });
-  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
-});
-
-test('leaves malformed Radicle config untouched during seed migration', async () => {
-  const ctx = loadManager();
-  const configPath = path.join(ctx.dataDir, 'config.json');
-  fs.writeFileSync(configPath, '{not-json');
-  await ctx.mod.startRadicle();
-  expect(fs.readFileSync(configPath, 'utf8')).toBe('{not-json');
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });
 });
 

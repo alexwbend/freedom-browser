@@ -17,10 +17,6 @@ const {
 } = require('./service-registry');
 
 const FREEDOM_BROWSER_RID = 'rad:z3QXuMvMmSeEX3ZgoUidZC1v5MkKE';
-const LEGACY_SEED_REPLACEMENTS = new Map([
-  ['iris.radicle.xyz', 'iris.radicle.network'],
-  ['rosa.radicle.xyz', 'rosa.radicle.network'],
-]);
 
 const STATUS = {
   STOPPED: 'stopped',
@@ -40,35 +36,6 @@ function enqueueLifecycle(operation) {
   const result = lifecycleTail.then(operation, operation);
   lifecycleTail = result.catch(() => {});
   return result;
-}
-
-function migrateLegacySeeds(radHome) {
-  const configPath = path.join(radHome, 'config.json');
-  if (!fs.existsSync(configPath)) return;
-
-  let config;
-  try {
-    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  } catch (err) {
-    log.warn('[Radicle] Could not migrate legacy seed hosts:', err.message);
-    return;
-  }
-  if (!Array.isArray(config.preferredSeeds)) return;
-
-  let changed = false;
-  config.preferredSeeds = config.preferredSeeds.map((seed) => {
-    if (typeof seed !== 'string') return seed;
-    let normalized = seed;
-    for (const [legacyHost, currentHost] of LEGACY_SEED_REPLACEMENTS) {
-      normalized = normalized.replace(`@${legacyHost}:`, `@${currentHost}:`);
-    }
-    changed ||= normalized !== seed;
-    return normalized;
-  });
-  if (changed) {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-    log.info('[Radicle] Migrated legacy preferred seed hosts');
-  }
 }
 
 function validateAndNormalizeRid(rid) {
@@ -116,8 +83,34 @@ function isDisabledForProfile() {
 
 async function connectAndSeedDefault() {
   try {
-    const { connected } = await embedded.connectSeeds(15000);
-    log.info(`[Radicle] Connected to ${connected} preferred seed(s)`);
+    const bootstrap = await embedded.connectSeeds(15000);
+    const connected = Number.isFinite(bootstrap.connected) ? bootstrap.connected : 0;
+    // v0.6.x returned only `{ connected }`; require at least one live peer
+    // while an older addon is still installed instead of treating 0/0 as ready.
+    const target = Number.isFinite(bootstrap.target) ? bootstrap.target : 1;
+    const attempted = Number.isFinite(bootstrap.attempted) ? bootstrap.attempted : connected;
+    const elapsedMs = Number.isFinite(bootstrap.elapsedMs) ? bootstrap.elapsedMs : 0;
+    let livePeers = connected;
+    try {
+      const status = await embedded.status();
+      if (Number.isFinite(status.connectedPeers)) {
+        livePeers = Math.max(livePeers, status.connectedPeers);
+      }
+    } catch (err) {
+      log.warn('[Radicle] Could not read peer count after seed bootstrap:', err.message);
+    }
+    const targetReached = (bootstrap.targetReached ?? connected >= target) || livePeers >= target;
+    const readiness = targetReached ? 'ready' : 'degraded';
+    log.info(
+      `[Radicle] Seed bootstrap ${readiness}: ${connected}/${target} ` +
+      `seed connections, ${livePeers} live peers, ${attempted} attempted in ${elapsedMs}ms`
+    );
+    if (!targetReached) {
+      log.warn(
+        `[Radicle] Seed bootstrap did not reach its target; continuing with ` +
+        `${connected} connected peer(s)`
+      );
+    }
     await pushInfoUpdate();
     await embedded.cloneRepo(FREEDOM_BROWSER_RID, 120000);
     log.info(`[Radicle] Default repository available: ${FREEDOM_BROWSER_RID}`);
@@ -145,7 +138,6 @@ async function startRadicleInternal() {
   updateState(STATUS.STARTING);
   try {
     const radHome = getRadicleDataDir();
-    migrateLegacySeeds(radHome);
     const result = await embedded.start(radHome, 'FreedomBrowser');
     updateService('radicle', {
       api: 'radapi://local',
