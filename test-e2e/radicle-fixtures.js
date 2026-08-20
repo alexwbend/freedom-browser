@@ -68,6 +68,22 @@ async function bakeRadicleHome(radHome, workdir) {
   git(['add', '.']);
   git(['commit', '-q', '-m', 'update fixture files']);
   const secondCommit = git(['rev-parse', 'HEAD']).trim();
+  // Profile initialization writes Heartwood's default network config. Stop
+  // immediately and replace it before importing any repository content; doing
+  // this after import leaves enough time for the fixture RID to reach public
+  // seeds and makes every test run look like a new public repository.
+  await call('start', radHome, 'radicle-e2e');
+  await call('shutdown');
+
+  const configPath = path.join(radHome, 'config.json');
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  config.preferredSeeds = [];
+  config.node.peers = { type: 'static' };
+  config.node.connect = [];
+  config.node.listen = [];
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+  // Only the isolated runtime is allowed to see the fixture repository.
   await call('start', radHome, 'radicle-e2e');
   const { rid } = await call(
     'importRepo', workdir, 'e2e-sample', 'Canopy e2e fixture repo', 'main'
@@ -76,15 +92,6 @@ async function bakeRadicleHome(radHome, workdir) {
     'createIssue', rid, 'Fixture issue', 'Opened by the e2e fixture.', JSON.stringify([])
   );
   await call('shutdown');
-
-  // Fully isolated node: no public seeds, peer discovery, or inbound listener.
-  const configPath = path.join(radHome, 'config.json');
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  config.preferredSeeds = [];
-  config.node.peers = { type: 'static' };
-  config.node.connect = [];
-  config.node.listen = [];
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
   return { rid, firstCommit, secondCommit };
 }
