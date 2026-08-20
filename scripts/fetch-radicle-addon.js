@@ -49,10 +49,6 @@ function fetchBuffer(url, redirects = 0) {
 
 async function main() {
   const key = platformKey();
-  if (key.startsWith('win-')) {
-    console.error('No Windows addon build is available for this release.');
-    process.exit(1);
-  }
   const assetName = `libradicle-${key}.node`;
 
   console.log(`Downloading ${assetName} (${RADICLE_ADDON_RELEASE_TAG})…`);
