@@ -4,7 +4,7 @@
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
 
-Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols. Integrated nodes provide direct peer-to-peer access without relying on centralized HTTP gateways.
+Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols. Integrated Ant, freedom-ipfs, Radicle, experimental Myotis, and Tor components provide direct access to decentralized and onion networks without relying on centralized HTTP gateways.
 
 ## Download
 
@@ -14,8 +14,8 @@ Radicle is available on macOS and Linux. The Windows build ships without Radicle
 
 ## What Freedom supports
 
-- Native `bzz://`, `ipfs://`, `ipns://`, and `rad://` navigation.
-- Integrated Ant (Swarm), freedom-ipfs, and Radicle nodes with per-profile configuration.
+- Native `bzz://`, `ipfs://`, `ipns://`, and `rad://` navigation, plus optional `.onion` routing through Tor.
+- Integrated Ant (Swarm), freedom-ipfs, Radicle, experimental Myotis, and Tor components with per-profile configuration.
 - ENS, WNS, GNS, and Tezos Domains resolution, including `.eth`, `.box`, `.wei`, `.gwei`, and `.tez` names.
 - Tabs, sidebar, bookmarks, history, downloads, find-in-page, shortcuts, themes, permissions, and automatic updates.
 - Ad blocking with signed list updates and per-site allowlisting.
@@ -34,16 +34,17 @@ nvm use
 npm ci
 npm run ant:download
 npm run ipfs:download
+npm run myotis:download
 npm start
 ```
 
-Swarm and IPFS start automatically. On macOS and Linux, run `npm run radicle:download` and enable **Settings → Experimental → Radicle integration** before using `rad://`. For prerequisites, platform notes, tests, debugging, and local builds, read the [development guide](docs/development.md).
+Swarm and IPFS start automatically. Myotis is opt-in under **Settings → Automatic Startup**. On macOS and Linux, run `npm run radicle:download` before enabling Radicle, or `npm run tor:download` before enabling Tor, under **Settings → Experimental**. For prerequisites, platform notes, tests, debugging, and local builds, read the [development guide](docs/development.md).
 
 ## Architecture
 
 Freedom is an Electron application. Protocol, node-lifecycle, permission, wallet, download, and persistence logic lives in the main process. The renderer is a modular UI layer that communicates with the main process through the allowlisted channels in `src/shared/ipc-channels.js`.
 
-The main process handles `bzz:`, `ipfs:`, `ipns:`, and `rad:` navigation, manages per-profile nodes and storage, and resolves supported decentralized names. Security-sensitive capabilities stay out of page and renderer contexts unless exposed through a narrow preload or IPC API.
+The main process handles `bzz:`, `ipfs:`, `ipns:`, `rad:`, and `.onion` navigation, manages per-profile nodes and storage, and resolves supported decentralized names. Security-sensitive capabilities stay out of page and renderer contexts unless exposed through a narrow preload or IPC API.
 
 | Directory       | Responsibility                                                                         |
 | --------------- | -------------------------------------------------------------------------------------- |

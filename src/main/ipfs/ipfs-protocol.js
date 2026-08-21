@@ -54,6 +54,12 @@ const {
 const { serveNativeGatewayRequest } = require('../ipfs-manager');
 const { isDwebNameHost } = require('../../shared/origin-utils');
 const {
+  runWithPrivateLogContext,
+  redactForLog,
+  redactUrlForLog,
+  redactedFailure,
+} = require('../private/private-log-context');
+const {
   cidV0ToV1Base32,
   cidV1B58btcToBase32,
   ipnsMhToCidV1Base36,
@@ -133,8 +139,10 @@ function sanitizeRequestHeaders(requestHeaders) {
  *
  * Returns one of:
  *  - `{ ok: true, url }`              — gateway-shaped URL with usable path.
- *  - `{ ok: false, status, message }` — semantic failure (404 mismatch /
- *    no contenthash, 415 unsupported codec, 502 resolver conflict/error).
+ *  - `{ ok: false, status, message, logMessage }` — semantic failure (404
+ *    mismatch / no contenthash, 415 unsupported codec, 502 resolver
+ *    conflict/error). `message` goes to the page, `logMessage` to the
+ *    persistent log — see `redactedFailure`, which builds both.
  *  - `null`                           — malformed input. Caller emits 400.
  */
 async function buildGatewayUrl(namespace, sourceUrl) {
@@ -225,30 +233,30 @@ async function buildGatewayUrl(namespace, sourceUrl) {
       if (canonical) {
         host = canonical;
       } else {
-        return {
-          ok: false,
-          status: 400,
-          message:
-            `lowercased CIDv0 host "${host}" is not a valid IPFS reference. ` +
+        return redactedFailure(
+          400,
+          (ref) =>
+            `lowercased CIDv0 host "${ref}" is not a valid IPFS reference. ` +
             `Chromium's standard-scheme URL parser lowercased the host segment ` +
             `and destroyed the case-sensitive base58btc encoding. Publish the ` +
             `resource with its CIDv1 base32 (bafy...) form for sub-resource use.`,
-        };
+          host
+        );
       }
     } else if (/^z[1-9A-HJ-NP-Za-km-z]{40,}$/i.test(host)) {
       const canonical = cidV1B58btcToBase32(host);
       if (canonical) {
         host = canonical;
       } else {
-        return {
-          ok: false,
-          status: 400,
-          message:
-            `lowercased CIDv1 base58btc host "${host}" is not a valid IPFS reference. ` +
+        return redactedFailure(
+          400,
+          (ref) =>
+            `lowercased CIDv1 base58btc host "${ref}" is not a valid IPFS reference. ` +
             `Chromium's standard-scheme URL parser lowercased the host segment ` +
             `and destroyed the case-sensitive base58btc encoding. Publish the ` +
             `resource with its CIDv1 base32 (bafy...) form for sub-resource use.`,
-        };
+          host
+        );
       }
     }
     return {
@@ -268,31 +276,31 @@ async function buildGatewayUrl(namespace, sourceUrl) {
       if (canonical) {
         host = canonical;
       } else {
-        return {
-          ok: false,
-          status: 400,
-          message:
-            `lowercased base58btc IPNS host "${host}" is not a valid IPNS reference. ` +
+        return redactedFailure(
+          400,
+          (ref) =>
+            `lowercased base58btc IPNS host "${ref}" is not a valid IPNS reference. ` +
             `Chromium's standard-scheme URL parser lowercased the host segment ` +
             `and destroyed the case-sensitive encoding. Publish the resource with ` +
             `its libp2p-key base36 (k51.../k2k4...) form for sub-resource use.`,
-        };
+          host
+        );
       }
     } else if (/^z[1-9A-HJ-NP-Za-km-z]{40,}$/i.test(host)) {
       const canonical = cidV1B58btcToBase32(host);
       if (canonical) {
         host = canonical;
       } else {
-        return {
-          ok: false,
-          status: 400,
-          message:
-            `lowercased CIDv1 base58btc IPNS host "${host}" is not a valid IPNS reference. ` +
+        return redactedFailure(
+          400,
+          (ref) =>
+            `lowercased CIDv1 base58btc IPNS host "${ref}" is not a valid IPNS reference. ` +
             `Chromium's standard-scheme URL parser lowercased the host segment ` +
             `and destroyed the case-sensitive base58btc encoding. Publish the ` +
             `resource with its libp2p-key base36 (k51.../k2k4...) or CIDv1 base32 ` +
             `(bafy...) form for sub-resource use.`,
-        };
+          host
+        );
       }
     }
     return {
@@ -395,32 +403,37 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
   try {
     result = await resolveContentName(host);
   } catch (err) {
+    // The resolver's own error text routinely names what it was asked to
+    // resolve, so it is redacted here and in the failure's log variant.
     log.warn(
-      `[${namespace}-protocol] ${fallbackSystemLabel} resolver threw for ${host}: ${err.message}`
+      `[${namespace}-protocol] ${fallbackSystemLabel} resolver threw for ${redactForLog(host)}: ` +
+        `${redactForLog(err.message)}`
     );
-    return {
-      ok: false,
-      status: 502,
-      message: `${fallbackSystemLabel} resolver error: ${err.message}`,
-    };
+    return redactedFailure(
+      502,
+      (detail) => `${fallbackSystemLabel} resolver error: ${detail}`,
+      err.message
+    );
   }
 
   if (!result) {
-    return {
-      ok: false,
-      status: 502,
-      message: `${fallbackSystemLabel} resolver returned no result for ${host}`,
-    };
+    return redactedFailure(
+      502,
+      (name) => `${fallbackSystemLabel} resolver returned no result for ${name}`,
+      host
+    );
   }
 
   if (result.type === 'ok') {
     const systemLabel = nameSystemLabelForResult(result, host);
     if (result.protocol !== namespace) {
-      return {
-        ok: false,
-        status: 404,
-        message: `${systemLabel} name ${host} resolves to ${result.protocol}, not ${namespace.toUpperCase()}`,
-      };
+      return redactedFailure(
+        404,
+        (name) =>
+          `${systemLabel} name ${name} resolves to ${result.protocol}, ` +
+          `not ${namespace.toUpperCase()}`,
+        host
+      );
     }
     return {
       ok: true,
@@ -430,32 +443,35 @@ async function resolveEnsToGatewayUrl(namespace, host, parsed, gw) {
 
   if (result.type === 'not_found') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return {
-      ok: false,
-      status: 404,
-      message: `${systemLabel} name ${host} has no contenthash (${result.reason || 'unknown'})`,
-    };
+    const reason = result.reason || 'unknown';
+    return redactedFailure(
+      404,
+      (name) => `${systemLabel} name ${name} has no contenthash (${reason})`,
+      host
+    );
   }
 
   if (result.type === 'unsupported') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return {
-      ok: false,
-      status: 415,
-      message: `${systemLabel} name ${host} contenthash format unsupported`,
-    };
+    return redactedFailure(
+      415,
+      (name) => `${systemLabel} name ${name} contenthash format unsupported`,
+      host
+    );
   }
 
   if (result.type === 'conflict') {
     const systemLabel = nameSystemLabelForResult(result, host);
-    return { ok: false, status: 502, message: `${systemLabel} providers disagree on ${host}` };
+    return redactedFailure(502, (name) => `${systemLabel} providers disagree on ${name}`, host);
   }
 
-  return {
-    ok: false,
-    status: 502,
-    message: `${nameSystemLabelForResult(result, host)} resolution failed for ${host}: ${result.error || result.reason || 'unknown'}`,
-  };
+  const systemLabel = nameSystemLabelForResult(result, host);
+  return redactedFailure(
+    502,
+    (name, detail) => `${systemLabel} resolution failed for ${name}: ${detail}`,
+    host,
+    result.error || result.reason || 'unknown'
+  );
 }
 
 function jsonErrorResponse(status, message) {
@@ -485,7 +501,14 @@ async function handleRequest(
     return jsonErrorResponse(400, `invalid ${namespace} reference`);
   }
   if (!built.ok) {
-    log.info(`[${namespace}-protocol] ${built.status} for ${request.url}: ${built.message}`);
+    // `built.message` is the page-facing text and embeds the requested
+    // name or CID; only the failure's own log variant may reach the
+    // persistent log. Fail closed: a failure that didn't declare one is
+    // assumed to name the destination.
+    log.info(
+      `[${namespace}-protocol] ${built.status} for ${redactUrlForLog(request.url)}: ` +
+        `${built.logMessage ?? redactForLog(built.message)}`
+    );
     return jsonErrorResponse(built.status, built.message);
   }
 
@@ -510,7 +533,7 @@ async function handleRequest(
       });
     } catch (err) {
       log.warn(
-        `[${namespace}-protocol] native request failed for ${gatewayPath}: ${err?.message || err}`
+        `[${namespace}-protocol] native request failed for ${redactForLog(gatewayPath)}: ${err?.message || err}`
       );
       return jsonErrorResponse(502, err?.message || 'freedom-ipfs native gateway error');
     }
@@ -546,14 +569,14 @@ async function handleRequest(
     // request and there's nothing useful to return.
     if (attemptCtl.signal.aborted && !upstream?.aborted) {
       log.warn(
-        `[${namespace}-protocol] fetch timed out after ${attemptTimeoutMs}ms for ${built.url}`
+        `[${namespace}-protocol] fetch timed out after ${attemptTimeoutMs}ms for ${redactUrlForLog(built.url)}`
       );
       return jsonErrorResponse(504, 'freedom-ipfs gateway timeout');
     }
     const code = err?.cause?.code || err?.code || '';
     const isConnRefused = code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND';
     log.warn(
-      `[${namespace}-protocol] fetch failed for ${built.url}: ${err?.message || err}` +
+      `[${namespace}-protocol] fetch failed for ${redactUrlForLog(built.url)}: ${err?.message || err}` +
         (code ? ` (${code})` : '')
     );
     return jsonErrorResponse(
@@ -585,13 +608,19 @@ function gatewayPathFromUrl(gatewayUrl) {
  * `app.ready` — see `src/main/index.js`.
  */
 function makeRegister(namespace) {
-  return function register(targetSession) {
+  return function register(targetSession, { privatePartition = null } = {}) {
     if (!targetSession?.protocol?.handle) {
       log.warn(`[${namespace}-protocol] session.protocol.handle unavailable — skipping`);
       return;
     }
+    // PRIVATE MODE GUARD (request logging): see registerBzzProtocol — one
+    // registration per session, so the private session's handler marks
+    // every request it serves as private for the duration.
+    const isPrivate = !!privatePartition;
     try {
-      targetSession.protocol.handle(namespace, (request) => handleRequest(namespace, request));
+      targetSession.protocol.handle(namespace, (request) =>
+        runWithPrivateLogContext(isPrivate, () => handleRequest(namespace, request))
+      );
       log.info(`[${namespace}-protocol] handler registered`);
     } catch (err) {
       log.error(`[${namespace}-protocol] failed to register handler:`, err);

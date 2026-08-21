@@ -5,11 +5,13 @@ import {
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
+import { initMyotisUi } from './lib/myotis-ui.js';
 import {
   initRadicleUi,
   updateRadicleStatusLine,
   updateRadicleToggleState,
 } from './lib/radicle-ui.js';
+import { initTorUi, updateTorStatusLine } from './lib/tor-ui.js';
 import {
   initMenus,
   setOnOpenHistory,
@@ -69,6 +71,7 @@ import { initRadicleConsent } from './lib/radicle-consent.js';
 import { initRadicleAlias } from './lib/radicle-alias.js';
 import { initWalletUi, openPublishSetupFlow } from './lib/wallet-ui.js';
 import { attachSubmenuHover } from './lib/submenu-hover.js';
+import { isPrivateWindow } from './lib/private-mode.js';
 import { bindHoverTooltip } from './lib/hover-tooltip.js';
 import { initShortcuts } from './lib/shortcuts.js';
 
@@ -76,6 +79,15 @@ const electronAPI = window.electronAPI;
 
 // Apply theme early to avoid flash
 initTheme();
+
+// Private windows get their distinct dark chrome + "Private" badge before
+// first paint. The flag comes from the privatePartition query parameter
+// (src/renderer/lib/private-mode.js).
+if (isPrivateWindow()) {
+  document.body.classList.add('private-window');
+  const privateBadge = document.getElementById('private-badge');
+  if (privateBadge) privateBadge.hidden = false;
+}
 
 let closeProfileMenu = () => {};
 let externalNodeCandidatesHandler = null;
@@ -99,6 +111,7 @@ window.serviceRegistry?.onUpdate?.((registry) => {
   updateIpfsToggleState();
   updateRadicleStatusLine();
   updateRadicleToggleState();
+  updateTorStatusLine();
 });
 
 // Fetch initial registry state
@@ -726,7 +739,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   initMenus();
   initAntUi();
   initIpfsUi();
+  initMyotisUi();
   initRadicleUi();
+  initTorUi();
   initGithubBridgeUi();
   document.getElementById('settings-btn')?.addEventListener('click', () => {
     closeMenus();

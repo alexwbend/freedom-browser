@@ -36,6 +36,12 @@
  */
 
 const log = require('../logger');
+const {
+  runWithPrivateLogContext,
+  redactForLog,
+  redactUrlForLog,
+  redactedFailure,
+} = require('../private/private-log-context');
 const { getRadicleApiUrl } = require('../service-registry');
 const { loadSettings } = require('../settings-store');
 
@@ -110,13 +116,15 @@ function isSafeRepoPath(path) {
  *
  * Returns one of:
  *  - `{ ok: true, url }`              — usable httpd URL.
- *  - `{ ok: false, status, message }` — semantic failure (403 disabled,
- *    503 node not ready).
+ *  - `{ ok: false, status, message, logMessage }` — semantic failure (403
+ *    disabled, 503 node not ready). Neither names the requested repo, but
+ *    both go through `redactedFailure` so the log site's fail-closed
+ *    contract (see `handleRadRequest`) holds for any failure added later.
  *  - `null`                           — malformed input. Caller emits 400.
  */
 function buildHttpdUrl(radUrl) {
   if (loadSettings().enableRadicleIntegration !== true) {
-    return { ok: false, status: 403, message: 'Radicle integration is disabled' };
+    return redactedFailure(403, () => 'Radicle integration is disabled');
   }
 
   if (typeof radUrl !== 'string' || !radUrl.startsWith('rad:')) return null;
@@ -136,7 +144,7 @@ function buildHttpdUrl(radUrl) {
 
   const radicleApiUrl = getRadicleApiUrl();
   if (!radicleApiUrl) {
-    return { ok: false, status: 503, message: 'Radicle node is not ready' };
+    return redactedFailure(503, () => 'Radicle node is not ready');
   }
 
   return { ok: true, url: `${radicleApiUrl}/api/v1/repos/rad:${rid}${path}${search}` };
@@ -169,7 +177,12 @@ async function handleRadRequest(request, { fetchImpl = fetch } = {}) {
     return jsonErrorResponse(400, 'invalid rad reference');
   }
   if (!built.ok) {
-    log.info(`[rad-protocol] ${built.status} for ${request.url}: ${built.message}`);
+    // Fail closed: only a failure's own log variant may reach the
+    // persistent log — `message` is page-facing and may name the request.
+    log.info(
+      `[rad-protocol] ${built.status} for ${redactUrlForLog(request.url)}: ` +
+        `${built.logMessage ?? redactForLog(built.message)}`
+    );
     return jsonErrorResponse(built.status, built.message);
   }
 
@@ -185,7 +198,7 @@ async function handleRadRequest(request, { fetchImpl = fetch } = {}) {
     const code = err?.cause?.code || err?.code || '';
     const isConnRefused = code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'ENOTFOUND';
     log.warn(
-      `[rad-protocol] fetch failed for ${built.url}: ${err?.message || err}` +
+      `[rad-protocol] fetch failed for ${redactUrlForLog(built.url)}: ${err?.message || err}` +
         (code ? ` (${code})` : '')
     );
     return jsonErrorResponse(
@@ -212,13 +225,19 @@ async function handleRadRequest(request, { fetchImpl = fetch } = {}) {
  * `protocol.registerSchemesAsPrivileged` before `app.ready` — see
  * `main/index.js`.
  */
-function registerRadProtocol(targetSession) {
+function registerRadProtocol(targetSession, { privatePartition = null } = {}) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[rad-protocol] session.protocol.handle unavailable — skipping');
     return;
   }
+  // PRIVATE MODE GUARD (request logging): see registerBzzProtocol — one
+  // registration per session, so the private session's handler marks every
+  // request it serves as private for the duration.
+  const isPrivate = !!privatePartition;
   try {
-    targetSession.protocol.handle('rad', (request) => handleRadRequest(request));
+    targetSession.protocol.handle('rad', (request) =>
+      runWithPrivateLogContext(isPrivate, () => handleRadRequest(request))
+    );
     log.info('[rad-protocol] handler registered');
   } catch (err) {
     log.error('[rad-protocol] failed to register handler:', err);

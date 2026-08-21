@@ -183,10 +183,12 @@ async function loadSwarmConnect() {
   }));
 
   const mod = await import('./swarm-connect.js');
+  const signatureFlight = await import('./signature-flight.js');
   mod.initSwarmConnect();
 
   return {
     mod,
+    signatureFlight,
     elements: document.elements,
     hideAllSubscreens,
     openSidebarPanel,
@@ -231,6 +233,46 @@ describe('swarm approval prompts queue concurrent requests', () => {
     global.window = originalWindow;
     global.document = originalDocument;
     jest.restoreAllMocks();
+  });
+
+  // Sibling parity with showSwarmConnect / showSwarmPublishApproval /
+  // showSwarmFeedApproval (and the manifest sheet): none of these may repaint
+  // over a sidebar a live device confirmation owns.
+  test('every swarm prompt refuses to open while a signature is in flight', async () => {
+    const ctx = await loadSwarmConnect();
+    const signer = {};
+    ctx.signatureFlight.beginSignatureFlight(signer);
+
+    try {
+      const prompts = [
+        trackedPrompt((resolve, reject) =>
+          ctx.mod.showSwarmConnect('https://a.example', 'https://a.example', resolve, reject, null)),
+        trackedPrompt((resolve, reject) =>
+          ctx.mod.showSwarmPublishApproval('https://a.example', {}, resolve, reject, 'swarm_uploadFile')),
+        trackedPrompt((resolve, reject) =>
+          ctx.mod.showSwarmMessagingApproval('https://a.example', { topic: 'alpha' }, resolve, reject, {
+            method: 'swarm_subscribe',
+            grantMode: true,
+          })),
+        trackedPrompt((resolve, reject) =>
+          ctx.mod.showSwarmFeedApproval('https://a.example', {}, resolve, reject, { method: 'swarm_setFeed' })),
+      ];
+
+      for (const prompt of prompts) {
+        await expect(prompt.promise).rejects.toMatchObject({ code: -32002 });
+      }
+      expect(ctx.hideAllSubscreens).not.toHaveBeenCalled();
+      for (const id of [
+        'sidebar-swarm-connect',
+        'sidebar-swarm-publish-approve',
+        'sidebar-swarm-messaging-approve',
+        'sidebar-swarm-feed-approve',
+      ]) {
+        expect(ctx.elements[id].classList.contains('hidden')).toBe(true);
+      }
+    } finally {
+      ctx.signatureFlight.endSignatureFlight(signer);
+    }
   });
 
   test('a second messaging request waits its turn instead of clobbering the first', async () => {

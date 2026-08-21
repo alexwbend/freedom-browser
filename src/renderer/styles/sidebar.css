@@ -3173,6 +3173,38 @@
   margin-top: 24px;
 }
 
+.swarm-manifest-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.swarm-manifest-row {
+  padding: 12px;
+  border: 1px solid var(--sidebar-border, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+}
+
+.swarm-manifest-row-title {
+  font-weight: 600;
+}
+
+.swarm-manifest-row-detail,
+.swarm-manifest-description,
+.swarm-manifest-choice-note {
+  margin-top: 4px;
+  color: var(--sidebar-text-secondary, #8b8b8b);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.swarm-manifest-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 .swarm-connect-reject-btn,
 .swarm-connect-approve-btn {
   flex: 1;

@@ -161,6 +161,24 @@
             <polyline points="9 22 9 12 15 12 15 22" />
           </svg>
         </button>
+        <!-- Shown only in private windows (index.js removes [hidden]) -->
+        <span id="private-badge" class="private-badge" data-test="private-badge" hidden>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="7" cy="15" r="3.5" />
+            <circle cx="17" cy="15" r="3.5" />
+            <path d="M10.5 15h3" />
+            <path d="M3 11l1.8-5.4A2 2 0 0 1 6.7 4h10.6a2 2 0 0 1 1.9 1.6L21 11" />
+          </svg>
+          Private
+        </span>
       </div>
       <form id="nav-form" autocomplete="off">
         <div class="address-bar-container">
@@ -240,7 +258,10 @@
               <div class="trust-popover-info">
                 <div class="trust-popover-status" id="trust-popover-status"></div>
                 <div class="trust-popover-fields" id="trust-popover-trust-fields"></div>
-                <div class="trust-popover-fields" id="trust-popover-content-fields"></div>
+                <div class="trust-popover-content" id="trust-popover-content">
+                  <div class="trust-popover-section-title">Resolves to</div>
+                  <div class="trust-popover-fields" id="trust-popover-content-fields"></div>
+                </div>
               </div>
               <div class="trust-popover-tooltip" id="trust-popover-tooltip" hidden>Copy</div>
             </div>
@@ -661,6 +682,66 @@
             </div>
           </div>
 
+          <!-- Divider -->
+          <div class="nodes-divider" id="myotis-divider"></div>
+
+          <!-- Myotis Section -->
+          <button id="myotis-toggle-btn" class="menu-item ipfs-toggle" type="button">
+            <span class="ipfs-toggle-label">
+              Ethereum
+              <span class="ipfs-toggle-switch" id="myotis-toggle-switch">
+                <span class="ipfs-toggle-knob"></span>
+              </span>
+            </span>
+          </button>
+          <div class="ipfs-info" id="myotis-info">
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">State:</span>
+              <span id="myotis-state-text">Off</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Connected Peers:</span>
+              <span id="myotis-peers-count">0</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Finalized Block:</span>
+              <span id="myotis-finalized-block">--</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Version:</span>
+              <span id="myotis-version-text">Myotis</span>
+            </div>
+          </div>
+
+          <div class="nodes-divider" id="myotis-gnosis-divider"></div>
+
+          <button id="myotis-gnosis-toggle-btn" class="menu-item ipfs-toggle" type="button">
+            <span class="ipfs-toggle-label">
+              Gnosis
+              <span class="ipfs-toggle-switch" id="myotis-gnosis-toggle-switch">
+                <span class="ipfs-toggle-knob"></span>
+              </span>
+            </span>
+          </button>
+          <div class="ipfs-info" id="myotis-gnosis-info">
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">State:</span>
+              <span id="myotis-gnosis-state-text">Off</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Connected Peers:</span>
+              <span id="myotis-gnosis-peers-count">0</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Finalized Block:</span>
+              <span id="myotis-gnosis-finalized-block">--</span>
+            </div>
+            <div class="ipfs-info-row">
+              <span class="ipfs-info-label">Version:</span>
+              <span id="myotis-gnosis-version-text">Myotis</span>
+            </div>
+          </div>
+
           <div id="radicle-nodes-section">
             <!-- Divider -->
             <div class="nodes-divider"></div>
@@ -696,6 +777,31 @@
               <div class="radicle-info-row">
                 <span class="radicle-info-label">Version:</span>
                 <span id="radicle-version-text"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="tor-nodes-section">
+            <!-- Divider -->
+            <div class="nodes-divider"></div>
+
+            <!-- Tor (.onion) Section -->
+            <button id="tor-toggle-btn" class="menu-item tor-toggle" type="button">
+              <span class="tor-toggle-label">
+                Tor (.onion)
+                <span class="tor-toggle-switch" id="tor-toggle-switch">
+                  <span class="tor-toggle-knob"></span>
+                </span>
+              </span>
+            </button>
+            <div class="tor-info">
+              <div class="tor-info-row node-status-row" id="tor-status-row">
+                <span class="tor-info-label" id="tor-status-label"></span>
+                <span id="tor-status-value"></span>
+              </div>
+              <div class="tor-info-row">
+                <span class="tor-info-label">Version:</span>
+                <span id="tor-version-text"></span>
               </div>
             </div>
           </div>
@@ -809,6 +915,10 @@
           <button id="new-window-menu-btn" class="menu-item" type="button">
             <span class="menu-item-label">New Window</span>
             <span class="menu-item-shortcut" data-shortcut="CmdOrCtrl+N"></span>
+          </button>
+          <button id="new-private-window-menu-btn" class="menu-item" type="button">
+            <span class="menu-item-label">New Private Window</span>
+            <span class="menu-item-shortcut" data-shortcut="CmdOrCtrl+Shift+N"></span>
           </button>
 
           <div class="menu-divider"></div>
@@ -2994,6 +3104,34 @@
             </div>
 
             <!-- Swarm Connect sub-screen -->
+            <div id="sidebar-swarm-manifest" class="sidebar-subscreen sidebar-modal hidden">
+              <div class="subscreen-header">
+                <button type="button" class="subscreen-back-btn" id="swarm-manifest-back">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                  </svg>
+                  <span>Back</span>
+                </button>
+                <h3 class="subscreen-title">App permissions</h3>
+              </div>
+              <div class="subscreen-content">
+                <div class="swarm-connect-origin">
+                  <div class="swarm-connect-site" id="swarm-manifest-name"></div>
+                  <div class="swarm-connect-wants" id="swarm-manifest-site"></div>
+                  <div class="swarm-manifest-description" id="swarm-manifest-description"></div>
+                </div>
+                <div id="swarm-manifest-rows" class="swarm-manifest-rows"></div>
+                <div id="swarm-manifest-identity-note" class="swarm-connect-warning hidden"></div>
+                <div class="swarm-manifest-choice-note">Allow all applies these permissions now. Asking each time keeps the normal per-action prompts.</div>
+                <div class="swarm-manifest-actions">
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-manifest-reject">Don’t allow</button>
+                  <button type="button" class="swarm-connect-reject-btn" id="swarm-manifest-individual">Connect, but ask each time</button>
+                  <button type="button" class="swarm-connect-approve-btn" id="swarm-manifest-allow">Allow all</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Swarm Connect sub-screen -->
             <div id="sidebar-swarm-connect" class="sidebar-subscreen sidebar-modal hidden">
               <div class="subscreen-header">
                 <button type="button" class="subscreen-back-btn" id="swarm-connect-back">
@@ -3508,6 +3646,17 @@
                       <span class="toggle-slider"></span>
                     </label>
                   </div>
+                  <div class="perms-toggle-row">
+                    <span class="perms-label">Messaging access</span>
+                    <label class="toggle-switch">
+                      <input type="checkbox" id="swarm-perms-messaging-toggle" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </div>
+                </div>
+                <div class="perms-section hidden" id="swarm-perms-manifest-section">
+                  <div class="perms-section-header">Declared by app</div>
+                  <div id="swarm-perms-manifest-list"></div>
                 </div>
                 <div class="perms-section" id="swarm-perms-identity-section">
                   <div class="perms-section-header">Publisher identity</div>

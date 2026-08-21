@@ -249,10 +249,15 @@ function normalizeRpcUrls(rpcUrls = []) {
   return { urls };
 }
 
+// rpc and prover coverage URLs are both fetched by the main process (the RPC
+// pool and the Colibri prover client), so both get the same https-or-loopback
+// SSRF validation. Other roles carry no network-fetched URL to guard.
+const URL_VALIDATED_ROLES = new Set(['rpc', 'prover']);
+
 function validateEndpointSourceForPersist(source) {
-  if (source?.role !== 'rpc') return null;
+  if (!URL_VALIDATED_ROLES.has(source?.role)) return null;
   if (!source.coverage || typeof source.coverage !== 'object') {
-    return 'RPC source coverage is required';
+    return `${source.role} source coverage is required`;
   }
   for (const url of Object.values(source.coverage)) {
     const error = validateRpcUrl(url);
@@ -262,6 +267,12 @@ function validateEndpointSourceForPersist(source) {
 }
 
 let cache = null;
+
+function legacyMainnetResolutionOrder(primary) {
+  if (primary === 'direct') return ['myotis', 'direct', 'quorum'];
+  if (primary === 'quorum') return ['myotis', 'quorum'];
+  return ['myotis', 'colibri', 'quorum'];
+}
 
 // The user-layer config. When network-config.json is absent but a legacy
 // settings.json exists, run the one-shot migration and persist the result.
@@ -328,10 +339,28 @@ function load() {
   const networks = {};
   for (const [cid, net] of Object.entries({ ...builtinNetworks, ...customChains })) {
     const override = userConfig.networks?.[cid] || {};
+    const verification = { primary: 'direct', ...net.verification, ...override.verification };
+    // A network-config.json written by the previous settings UI contains only
+    // `verification.primary`. Without this compatibility bridge, mainnet's new
+    // builtin order would silently override that explicit older choice.
+    if (
+      cid === '1' &&
+      Object.prototype.hasOwnProperty.call(override.verification || {}, 'primary') &&
+      !Object.prototype.hasOwnProperty.call(override.verification || {}, 'order')
+    ) {
+      verification.order = legacyMainnetResolutionOrder(override.verification.primary);
+      if (!Object.prototype.hasOwnProperty.call(override.verification, 'preferVerified')) {
+        // A primary-only config came from the old single-method UI. Preserve
+        // that method's winning behavior until the user explicitly opts into
+        // verified-answer preference in the ordered policy UI.
+        verification.preferVerified = false;
+      }
+    }
     networks[cid] = {
       ...net,
       ...override,
-      verification: { primary: 'direct', ...net.verification, ...override.verification },
+      verification,
+      access: { ...net.access, ...override.access },
       quorum: { ...net.quorum, ...override.quorum },
     };
     // rpcUrls (custom chains only) is capability data — it is surfaced as
@@ -398,11 +427,14 @@ function getAllNetworks() {
   return out;
 }
 
-// Whether the registry can resolve at least one rpc endpoint for a chain
-// — a keyless builtin RPC, a user-added RPC, or a keyed provider with a
-// configured API key. A chain with no usable endpoint can't be used.
+// Whether the registry has at least one usable chain-data source. A Colibri
+// prover is sufficient for verified reads even when every direct RPC is
+// disabled.
 function isChainAvailable(chainId) {
-  return getEndpoints(chainId, 'rpc').length > 0;
+  return (
+    getEndpoints(chainId, 'rpc').length > 0 ||
+    getEndpoints(chainId, 'prover').length > 0
+  );
 }
 
 function getAvailableChains() {
@@ -547,6 +579,9 @@ function updateNetwork(chainId, patch) {
   if (patch.quorum) {
     networks[cid].quorum = { ...current.quorum, ...patch.quorum };
   }
+  if (patch.access) {
+    networks[cid].access = { ...current.access, ...patch.access };
+  }
   writeUserConfig({ ...config, networks });
 }
 
@@ -585,6 +620,38 @@ function restoreEndpointSource(id) {
   const config = readUserConfig();
   const removedSources = (config.removedSources || []).filter((x) => x !== id);
   writeUserConfig({ ...config, removedSources });
+}
+
+// Reset one chain in a multi-chain endpoint source without discarding the
+// source's other per-chain overrides. Builtin coverage is restored when it
+// exists; a user-only chain entry is removed. If the complete override then
+// equals the builtin source, drop it so future builtin updates can flow through.
+function resetEndpointSourceCoverage(id, chainId) {
+  load();
+  const cid = String(chainId);
+  const builtinSources = readJson(builtinPath('endpoint-sources.json'), {});
+  const builtin = builtinSources[id] || null;
+  const config = readUserConfig();
+  const endpointSources = { ...(config.endpointSources || {}) };
+  const current = endpointSources[id];
+
+  if (current) {
+    const coverage = { ...(current.coverage || {}) };
+    if (builtin?.coverage?.[cid]) coverage[cid] = builtin.coverage[cid];
+    else delete coverage[cid];
+
+    if (!Object.keys(coverage).length) {
+      delete endpointSources[id];
+    } else {
+      const next = { ...current, coverage };
+      if (builtin && JSON.stringify(next) === JSON.stringify(builtin)) delete endpointSources[id];
+      else endpointSources[id] = next;
+    }
+  }
+
+  const removedSources = (config.removedSources || []).filter((sourceId) => sourceId !== id);
+  writeUserConfig({ ...config, endpointSources, removedSources });
+  return { success: true };
 }
 
 // Register a user-defined chain. rpcUrls are stored on the definition
@@ -662,6 +729,7 @@ module.exports = {
   upsertEndpointSource,
   removeEndpointSource,
   restoreEndpointSource,
+  resetEndpointSourceCoverage,
   addCustomChain,
   removeCustomChain,
   invalidate,

@@ -1,8 +1,8 @@
 # Features
 
-## Triple Node Architecture
+## Decentralized Network Architecture
 
-Freedom runs Swarm, IPFS, and Radicle nodes, giving you access to three major decentralized networks from a single interface.
+Freedom runs Swarm, IPFS, and Radicle nodes, an experimental Myotis Ethereum light client, and optional Tor routing, giving you access to decentralized and onion networks from a single interface.
 
 |                          | Swarm                                         | IPFS                                 | Radicle                           |
 | ------------------------ | --------------------------------------------- | ------------------------------------ | --------------------------------- |
@@ -20,9 +20,9 @@ Freedom runs Swarm, IPFS, and Radicle nodes, giving you access to three major de
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile starts its own Ant, native IPFS, and Radicle data directories. Ant and Radicle use profile-specific non-default ports; IPFS uses the embedded native handler without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints in profile settings. External node identity and storage are shared outside that profile. IPFS always uses the embedded `freedom-ipfs` native node.
-3. **Port Conflict Handling**: If a managed Ant or Radicle profile port is busy, Freedom picks a free profile port and persists the reassignment.
+1. **Independent Managed Nodes**: By default, each profile has separate Ant, native IPFS, Myotis, Radicle, and Tor data. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS and Myotis run as embedded native clients without loopback API or gateway ports.
+2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint in profile settings. External node identity, storage, or circuit state is shared outside that profile. IPFS and Myotis always use their embedded native clients.
+3. **Port Conflict Handling**: If a managed Ant, Radicle, or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
 This means Freedom works seamlessly whether you:
@@ -55,6 +55,20 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Native Transport**: Uses the embedded `freedom-ipfs` native addon instead of a loopback Kubo process.
 - **Live Diagnostics**: View native gateway stats and request progress while IPFS/IPNS pages load.
 
+## Integrated Myotis Light Client (Experimental)
+
+- **Per-profile clients**: Ethereum and Gnosis have independent native runtimes and state for each browser profile.
+- **Independent controls**: Each chain has separate startup, runtime, synchronization, peer, and finalized-block controls.
+- **Verified chain data**: Wallet and compatible dApp reads can prefer Myotis before falling back through the configured Colibri and RPC methods.
+- **No loopback API**: Myotis runs in-process through its native addon and does not expose a managed port.
+
+## Tor `.onion` Access (Experimental)
+
+- **Onion-only routing**: When enabled, Freedom routes only `.onion` hosts through the profile's Arti SOCKS5 proxy; clearnet and decentralized protocols remain direct.
+- **Fail-closed behavior**: If Arti stops unexpectedly, `.onion` requests fail instead of falling back to direct DNS.
+- **Profile isolation**: Managed Tor state, cache, endpoint, and private-window routing are profile-scoped.
+- **Optional binary**: Source builds require `npm run tor:download`; bundled Tor is currently available on macOS and Linux.
+
 ## Integrated Radicle Node (macOS & Linux)
 
 - **Two-Process Architecture**: Manages both `radicle-node` (P2P network) and `radicle-httpd` (HTTP API) as a coordinated pair.
@@ -79,6 +93,7 @@ Enter any of the following in the address bar:
 | IPFS URL      | `ipfs://QmHash.../path`                                                     |
 | IPNS URL      | `ipns://k51...` or `ipns://domain.eth`                                      |
 | Radicle ID    | `rad://z3gqc...`                                                            |
+| Onion URL     | `http://example.onion`                                                      |
 | Ethereum Name | `vitalik.eth`, `mysite.box`, `alice.wei`, `apoorv.gwei`, `mysite.eth/about` |
 | Tezos Domain  | `mysite.tez`, `ipfs://mysite.tez/docs`                                      |
 | HTTP(S) URL   | `https://example.com`                                                       |

@@ -44,6 +44,33 @@ test('adblock section shows iOS-matching defaults and engine status', async ({
   await expect(page.locator('#adblock-status')).toContainText('Filter lists');
 });
 
+test('ad blocking and site permissions are separate navigable sections', async ({
+  window,
+  electronApp,
+}) => {
+  const page = await openAdblockSettings(window, electronApp);
+  const adblockNav = page.locator('.nav-item[data-target="adblock"]');
+  const permissionsNav = page.locator('.nav-item[data-target="permissions"]');
+
+  await expect(adblockNav).toHaveCount(1);
+  await expect(adblockNav).toContainText('Ad Blocking');
+  await expect(permissionsNav).toHaveCount(1);
+  await expect(permissionsNav).toContainText('Site Permissions');
+  await expect(adblockNav).toHaveClass(/active/);
+  await expect(page.locator('#adblock')).not.toHaveClass(/hidden/);
+
+  await permissionsNav.click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#permissions');
+  await expect(permissionsNav).toHaveClass(/active/);
+  await expect(page.locator('#permissions')).not.toHaveClass(/hidden/);
+  await expect(page.locator('#adblock')).toHaveClass(/hidden/);
+
+  await adblockNav.click();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#adblock');
+  await expect(adblockNav).toHaveClass(/active/);
+  await expect(page.locator('#adblock')).not.toHaveClass(/hidden/);
+});
+
 test('allowlist hosts can be added and removed through the section', async ({
   window,
   electronApp,

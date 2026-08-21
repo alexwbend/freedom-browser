@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maximizeWindow: () => ipcRenderer.send('window:maximize'),
   toggleFullscreen: () => ipcRenderer.send('window:toggle-fullscreen'),
   newWindow: () => ipcRenderer.send('window:new'),
+  newPrivateWindow: () => ipcRenderer.send('window:new-private'),
   openUrlInNewWindow: (url) => ipcRenderer.send('window:new-with-url', url),
   showAbout: () => ipcRenderer.send('app:show-about'),
   getPlatform: () => ipcRenderer.invoke('window:get-platform'),
@@ -311,6 +312,26 @@ contextBridge.exposeInMainWorld('ant', {
   },
 });
 
+contextBridge.exposeInMainWorld('myotis', {
+  start: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:start')
+    : ipcRenderer.invoke('myotis:start', chainId),
+  stop: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:stop')
+    : ipcRenderer.invoke('myotis:stop', chainId),
+  getStatus: (chainId) => chainId == null
+    ? ipcRenderer.invoke('myotis:getStatus')
+    : ipcRenderer.invoke('myotis:getStatus', chainId),
+  onStatusUpdate: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('myotis:statusUpdate', handler);
+    // The eager snapshot is best-effort; live status events continue to work
+    // if startup races handler registration or the window is already closing.
+    ipcRenderer.invoke('myotis:getStatus').then(callback).catch(() => {});
+    return () => ipcRenderer.removeListener('myotis:statusUpdate', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('ipfs', {
   start: () => ipcRenderer.invoke('ipfs:start'),
   stop: () => ipcRenderer.invoke('ipfs:stop'),
@@ -337,6 +358,20 @@ contextBridge.exposeInMainWorld('radicle', {
     ipcRenderer.on('radicle:statusUpdate', handler);
     ipcRenderer.invoke('radicle:getStatus').then(callback);
     return () => ipcRenderer.removeListener('radicle:statusUpdate', handler);
+  },
+});
+
+contextBridge.exposeInMainWorld('tor', {
+  start: () => ipcRenderer.invoke('tor:start'),
+  stop: () => ipcRenderer.invoke('tor:stop'),
+  getStatus: () => ipcRenderer.invoke('tor:getStatus'),
+  checkBinary: () => ipcRenderer.invoke('tor:checkBinary'),
+  getVersion: () => ipcRenderer.invoke('tor:getVersion'),
+  onStatusUpdate: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('tor:statusUpdate', handler);
+    ipcRenderer.invoke('tor:getStatus').then(callback);
+    return () => ipcRenderer.removeListener('tor:statusUpdate', handler);
   },
 });
 
@@ -439,6 +474,8 @@ contextBridge.exposeInMainWorld('wallet', {
   // RPC proxy (renderer CSP blocks direct fetch to external endpoints)
   proxyRpc: (rpcUrl, method, params) =>
     ipcRenderer.invoke('wallet:proxy-rpc', { rpcUrl, method, params }),
+  requestChain: (chainId, method, params) =>
+    ipcRenderer.invoke('wallet:chain-request', { chainId, method, params }),
 });
 
 contextBridge.exposeInMainWorld('ledger', {
@@ -564,7 +601,16 @@ contextBridge.exposeInMainWorld('swarmPermissions', {
   setAutoApprove: (origin, type, enabled) =>
     ipcRenderer.invoke('swarm:set-auto-approve', origin, type, enabled),
   grantMessaging: (origin) => ipcRenderer.invoke('swarm:grant-messaging', origin),
+  revokeMessaging: (origin) => ipcRenderer.invoke('swarm:revoke-messaging', origin),
   hasMessagingGrant: (origin) => ipcRenderer.invoke('swarm:has-messaging-grant', origin),
+});
+
+contextBridge.exposeInMainWorld('swarmManifest', {
+  check: (request) => ipcRenderer.invoke('swarm:manifest-check', request),
+  decide: (token, outcome) => ipcRenderer.invoke('swarm:manifest-decide', { token, outcome }),
+  get: (origin) => ipcRenderer.invoke('swarm:manifest-get', origin),
+  useIndividual: (origin, capability) => ipcRenderer.invoke('swarm:manifest-use-individual', { origin, capability }),
+  disconnect: (origin) => ipcRenderer.invoke('swarm:manifest-disconnect', origin),
 });
 
 contextBridge.exposeInMainWorld('swarmProvider', {

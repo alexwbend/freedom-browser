@@ -24,10 +24,11 @@ cd freedom-browser
 npm ci
 npm run ant:download
 npm run ipfs:download
+npm run myotis:download
 npm start
 ```
 
-Swarm and IPFS start automatically by default. On macOS and Linux, install optional Radicle support with `npm run radicle:download`, then enable it under **Settings → Experimental** before using `rad://`. Radicle is unavailable on Windows.
+Swarm and IPFS start automatically by default, while Myotis is opt-in under **Settings → Automatic Startup**. On macOS and Linux, install optional Radicle support with `npm run radicle:download` or Tor support with `npm run tor:download`, then enable the integration under **Settings → Experimental**. Radicle and bundled Tor are unavailable on Windows.
 
 ## Repository layout
 
@@ -45,21 +46,24 @@ Protocol and privileged logic belongs in the main process. The renderer talks to
 
 ## Common npm scripts
 
-| Script                      | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| `npm start`                 | Launch Electron in development mode                 |
-| `npm run lint`              | Run ESLint                                          |
-| `npm test`                  | Run the Jest unit suite                             |
-| `npm run test:coverage`     | Run Jest with coverage                              |
-| `npm run test:e2e`          | Run the deterministic Playwright harness suite      |
-| `npm run test:e2e:live`     | Run live Ant, IPFS, and naming integration tests    |
-| `npm run check-binaries`    | Validate packaged native binary targets             |
-| `npm run ant:download`      | Download the pinned Ant binary                      |
-| `npm run ipfs:download`     | Download the pinned freedom-ipfs native addon       |
-| `npm run radicle:download`  | Download Radicle binaries for the current platform  |
-| `npm run adblock:download`  | Download the packaged ad-blocking lists             |
-| `npm run ipfs:native:smoke` | Smoke-test the native IPFS addon and retrieval path |
-| `npm run ant:smoke-upload`  | Exercise a Swarm buy/upload/download round trip     |
+| Script                      | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| `npm start`                 | Launch Electron in development mode                   |
+| `npm run lint`              | Run ESLint                                            |
+| `npm test`                  | Run the Jest unit suite                               |
+| `npm run test:coverage`     | Run Jest with coverage                                |
+| `npm run test:e2e`          | Run the deterministic Playwright harness suite        |
+| `npm run test:e2e:live`     | Run live node, protocol, and naming integration tests |
+| `npm run test:e2e:tor`      | Run the live Tor `.onion` integration test            |
+| `npm run check-binaries`    | Validate packaged native binary targets               |
+| `npm run ant:download`      | Download the pinned Ant binary                        |
+| `npm run ipfs:download`     | Download the pinned freedom-ipfs native addon         |
+| `npm run myotis:download`   | Download the pinned Myotis native addon               |
+| `npm run radicle:download`  | Download Radicle binaries for the current platform    |
+| `npm run tor:download`      | Build the Arti Tor binary for the current platform    |
+| `npm run adblock:download`  | Download the packaged ad-blocking lists               |
+| `npm run ipfs:native:smoke` | Smoke-test the native IPFS addon and retrieval path   |
+| `npm run ant:smoke-upload`  | Exercise a Swarm buy/upload/download round trip       |
 
 The scripts in `package.json` are the authoritative list. Destructive reset scripts remove local development data; inspect their targets before using them.
 
