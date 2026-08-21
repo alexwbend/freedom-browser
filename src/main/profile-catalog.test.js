@@ -172,14 +172,6 @@ describe('profile catalog', () => {
     );
     expect(catalog.profiles[0].nodes.bee.p2pPort).toBe(12633);
     expect(metadata.nodes.bee.p2pPort).toBe(12633);
-    expect(catalog.profiles[0].nodes.tor).toMatchObject({
-      mode: 'managed',
-      socksPort: 19150,
-    });
-    expect(metadata.nodes.tor).toMatchObject({
-      mode: 'managed',
-      socksPort: 19150,
-    });
     expect(catalog.profiles[0].nodes.myotis).toEqual({
       mode: 'managed',
       backend: 'myotis-native',
@@ -187,6 +179,14 @@ describe('profile catalog', () => {
     expect(metadata.nodes.myotis).toEqual({
       mode: 'managed',
       backend: 'myotis-native',
+    });
+    expect(catalog.profiles[0].nodes.tor).toMatchObject({
+      mode: 'managed',
+      socksPort: 19150,
+    });
+    expect(metadata.nodes.tor).toMatchObject({
+      mode: 'managed',
+      socksPort: 19150,
     });
   });
 

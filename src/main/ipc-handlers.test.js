@@ -1078,6 +1078,51 @@ describe('ipc-handlers', () => {
     });
   });
 
+  test('supports managed and disabled Myotis profile modes', async () => {
+    const activeProfile = {
+      id: 'work',
+      displayName: 'Work',
+      source: 'catalog',
+      metadata: {
+        nodes: { myotis: { mode: 'managed', backend: 'myotis-native' } },
+      },
+    };
+    const ctx = loadIpcHandlersModule({ activeProfile });
+    ctx.mod.registerBaseIpcHandlers();
+
+    await expect(
+      ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+        protocol: 'myotis',
+        config: { mode: 'disabled', externalApi: 'http://127.0.0.1:8545' },
+      })
+    ).resolves.toEqual(
+      success({
+        profile: expect.objectContaining({
+          nodes: expect.objectContaining({
+            myotis: { mode: 'disabled', backend: 'myotis-native' },
+          }),
+        }),
+      })
+    );
+    expect(ctx.updateActiveProfileNodeConfig).toHaveBeenCalledWith('myotis', {
+      mode: 'disabled',
+    });
+    expect(ctx.myotisManager.stopAllMyotis).toHaveBeenCalled();
+
+    await ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+      protocol: 'myotis',
+      config: { mode: 'managed' },
+    });
+    expect(ctx.myotisManager.refreshMyotisStatus.mock.calls).toEqual([[1], [100]]);
+
+    expect(ctx.mod.validateProfileNodeConfigUpdate('myotis', { mode: 'external' })).toEqual({
+      ok: false,
+      response: failure('INVALID_PROFILE_NODE_MODE', 'Unsupported profile node mode', {
+        mode: 'external',
+      }),
+    });
+  });
+
   test('updates Tor profile node config through SOCKS endpoint validation', async () => {
     const activeProfile = {
       id: 'work',
@@ -1092,6 +1137,7 @@ describe('ipc-handlers', () => {
       },
     };
     const ctx = loadIpcHandlersModule({ activeProfile });
+
     ctx.mod.registerBaseIpcHandlers();
 
     await expect(
@@ -1143,51 +1189,6 @@ describe('ipc-handlers', () => {
         field: 'externalSocks',
       })
     );
-  });
-
-  test('supports managed and disabled Myotis profile modes', async () => {
-    const activeProfile = {
-      id: 'work',
-      displayName: 'Work',
-      source: 'catalog',
-      metadata: {
-        nodes: { myotis: { mode: 'managed', backend: 'myotis-native' } },
-      },
-    };
-    const ctx = loadIpcHandlersModule({ activeProfile });
-    ctx.mod.registerBaseIpcHandlers();
-
-    await expect(
-      ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
-        protocol: 'myotis',
-        config: { mode: 'disabled', externalApi: 'http://127.0.0.1:8545' },
-      })
-    ).resolves.toEqual(
-      success({
-        profile: expect.objectContaining({
-          nodes: expect.objectContaining({
-            myotis: { mode: 'disabled', backend: 'myotis-native' },
-          }),
-        }),
-      })
-    );
-    expect(ctx.updateActiveProfileNodeConfig).toHaveBeenCalledWith('myotis', {
-      mode: 'disabled',
-    });
-    expect(ctx.myotisManager.stopAllMyotis).toHaveBeenCalled();
-
-    await ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
-      protocol: 'myotis',
-      config: { mode: 'managed' },
-    });
-    expect(ctx.myotisManager.refreshMyotisStatus.mock.calls).toEqual([[1], [100]]);
-
-    expect(ctx.mod.validateProfileNodeConfigUpdate('myotis', { mode: 'external' })).toEqual({
-      ok: false,
-      response: failure('INVALID_PROFILE_NODE_MODE', 'Unsupported profile node mode', {
-        mode: 'external',
-      }),
-    });
   });
 
   test('rejects invalid active profile node updates', async () => {

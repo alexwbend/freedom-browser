@@ -49,9 +49,9 @@ describe('profile paths', () => {
     expect(paths.getAntDataDir()).toBe(path.join(userDataDir, 'ant-data'));
     expect(paths.getBeeDataDir()).toBe(path.join(userDataDir, 'bee-data'));
     expect(paths.getIpfsDataDir()).toBe(path.join(userDataDir, 'ipfs-data'));
-    expect(paths.getTorDataDir()).toBe(path.join(userDataDir, 'tor-data'));
     expect(paths.getMyotisDataDir()).toBe(path.join(userDataDir, 'myotis'));
     expect(paths.getMyotisDataDir('gnosis')).toBe(path.join(userDataDir, 'myotis', 'gnosis'));
+    expect(paths.getTorDataDir()).toBe(path.join(userDataDir, 'tor-data'));
     expect(paths.getRadicleDataDir()).toBe(path.join(userDataDir, 'radicle-data'));
     expect(paths.getProfileTempDir()).toBe(path.join(userDataDir, 'tmp'));
     expect(paths.getQuickUnlockCredentialPath()).toBe(
@@ -92,15 +92,15 @@ describe('profile paths', () => {
     const antDir = track(createTempUserDataDir());
     const beeDir = track(createTempUserDataDir());
     const ipfsDir = track(createTempUserDataDir());
-    const torDir = track(createTempUserDataDir());
     const myotisDir = track(createTempUserDataDir());
+    const torDir = track(createTempUserDataDir());
     const radicleDir = track(createTempUserDataDir());
     process.env.FREEDOM_IDENTITY_DATA = identityDir;
     process.env.FREEDOM_ANT_DATA = antDir;
     process.env.FREEDOM_BEE_DATA = beeDir;
     process.env.FREEDOM_IPFS_DATA = ipfsDir;
-    process.env.FREEDOM_TOR_DATA = torDir;
     process.env.MYOTIS_DATA_DIR = myotisDir;
+    process.env.FREEDOM_TOR_DATA = torDir;
     process.env.FREEDOM_RADICLE_DATA = radicleDir;
 
     const paths = loadPaths(userDataDir);
@@ -109,9 +109,9 @@ describe('profile paths', () => {
     expect(paths.getAntDataDir()).toBe(antDir);
     expect(paths.getBeeDataDir()).toBe(beeDir);
     expect(paths.getIpfsDataDir()).toBe(ipfsDir);
-    expect(paths.getTorDataDir()).toBe(torDir);
     expect(paths.getMyotisDataDir()).toBe(myotisDir);
     expect(paths.getMyotisDataDir('gnosis')).toBe(path.join(myotisDir, 'gnosis'));
+    expect(paths.getTorDataDir()).toBe(torDir);
     expect(paths.getRadicleDataDir()).toBe(radicleDir);
   });
 

@@ -507,9 +507,6 @@ async function bootstrap() {
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
     }
-    if (settings.enableTorIntegration && settings.startTorAtLaunch) {
-      startTor({ targetSession: defaultSession });
-    }
     // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
     // (requires the addon — myotis:download or packaged resource); the
     // MYOTIS_NODE_PATH env var force-starts regardless (spike/e2e harness).
@@ -523,6 +520,9 @@ async function bootstrap() {
     }
     if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
       myotisManager.startMyotis({ chainId: 100 });
+    }
+    if (settings.enableTorIntegration && settings.startTorAtLaunch) {
+      startTor({ targetSession: defaultSession });
     }
   }
 

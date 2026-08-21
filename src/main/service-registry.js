@@ -1,5 +1,5 @@
 /**
- * Service Registry - Central tracking of managed node state
+ * Service Registry - Central tracking of node state
  *
  * This module provides a port-agnostic way for Freedom to access nodes.
  * All URL rewriting resolves through this registry.

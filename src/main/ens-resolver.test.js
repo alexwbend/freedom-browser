@@ -289,9 +289,9 @@ const {
   universalResolverCall,
   isResolverNotFoundError,
 } = require('./ens-resolver');
+const resolverLog = require('./logger');
 const { ipcMain } = require('electron');
 const IPC = require('../shared/ipc-channels');
-const resolverLog = require('./logger');
 
 // Fake block anchor — stable hash so consensus legs querying the same
 // block get deterministic agreement.
@@ -3355,6 +3355,7 @@ describe('ens-resolver', () => {
 describe('ens-resolver private-window logging', () => {
   const IPFS_V0 = 'QmW81r84Aihiqqi2Jw6nM1LnpeMfRCenRxtjwHNkXVkZYa';
   const SECRET = 'whistleblower-site.eth';
+  const RESOLVER_ADDR = '0x0000000000000000000000000000000000001234';
 
   function handlerFor(channel) {
     const entry = ipcMain.handle.mock.calls.find(([name]) => name === channel);
@@ -3440,6 +3441,61 @@ describe('ens-resolver private-window logging', () => {
     expect(result.reason).toBe('RESOLUTION_ERROR');
     expect(mockLog.error).toHaveBeenCalled();
     expect(loggedText()).not.toContain('invalid_label');
+  });
+
+  // The policy loop and the reverse dispatcher log the name/address on every
+  // method hop, not just at the final line. Those sites are newer than the
+  // redaction guard, so they get their own assertions — a regression there
+  // would leak a private lookup into main.log while every other test passed.
+  test('a private reverse lookup keeps the address out of every policy line', async () => {
+    const SECRET_ADDR = '0x00000000000000000000000000000000000019a1';
+    mockUrReverse.mockResolvedValue([SECRET, RESOLVER_ADDR, RESOLVER_ADDR]);
+
+    const result = await handlerFor(IPC.ENS_RESOLVE_REVERSE)(privateEvent, {
+      address: SECRET_ADDR,
+    });
+
+    expect(result).toMatchObject({ success: true, name: SECRET });
+    const text = loggedText();
+    expect(text).not.toContain(SECRET_ADDR);
+    expect(text).not.toContain(SECRET);
+    // The per-method reverse lines are still emitted, just redacted.
+    const reverseLines = mockLog.info.mock.calls
+      .map((call) => call.join(' '))
+      .filter((line) => line.includes('[ens] reverse '));
+    expect(reverseLines.length).toBeGreaterThan(0);
+    for (const line of reverseLines) {
+      expect(line).toContain('address=<private>');
+    }
+  });
+
+  test('a private myotis-served resolve redacts the per-method policy lines', async () => {
+    mockMyotisIsEnabled.mockImplementation(() => true);
+    mockMyotisIsReady.mockImplementation(() => true);
+    mockMyotisResolveEnsRecord.mockResolvedValue({
+      status: 'ok',
+      verified: true,
+      blockNumber: 23456789,
+      dataHex: ipfsContenthashFor(IPFS_V0),
+    });
+
+    try {
+      const result = await handlerFor(IPC.ENS_RESOLVE)(privateEvent, { name: SECRET });
+
+      expect(result).toMatchObject({
+        type: 'ok',
+        trust: { level: 'verified', method: 'myotis' },
+      });
+      const text = loggedText();
+      expect(text).not.toContain(SECRET);
+      expect(text).not.toContain(IPFS_V0);
+      // The myotis hop is still accounted for in the log, name redacted.
+      expect(text).toContain('[ens] policy name=<private>');
+      expect(text).toContain('[ens] method=myotis name=<private>');
+    } finally {
+      mockMyotisIsEnabled.mockImplementation(() => false);
+      mockMyotisIsReady.mockImplementation(() => false);
+    }
   });
 
   test('a private resolve does not redact a later normal resolve', async () => {
