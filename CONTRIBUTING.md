@@ -23,7 +23,7 @@ Do not add or upgrade dependencies without maintainer approval. Dependencies aff
 - Run `npm run lint` after code changes and fix introduced errors or warnings.
 - Run `npm test` when modifying files with corresponding `.test.js` files.
 - Run the relevant Playwright or live smoke suite when the change affects UI flows, protocols, or native nodes.
-- Run `npm run format:check` and `git diff --check` before submitting.
+- Run `npx prettier --check` on the files you touched (the repo-wide `npm run format:check` currently fails on pre-existing formatting drift) and `git diff --check` before submitting.
 - Never commit secrets, API keys, tokens, private keys, seed phrases, unredacted personal data, or signing credentials.
 
 The cross-platform CI matrix runs additional native and integration checks. If you cannot run one of those locally, state that clearly in the pull request rather than marking it as completed.

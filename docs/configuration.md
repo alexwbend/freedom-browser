@@ -12,7 +12,7 @@ Freedom automatically manages node connections per profile. The default profile'
 
 Named profiles use the next profile slot for Ant, Radicle, and Tor (`11634`, `18781`, `19151`, and so on). The ecosystem default Swarm, Radicle, and Tor ports (`1633`, `8780`, `9150`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS and Myotis are native-only and do not expose or reuse external daemon ports.
 
-If Freedom detects a compatible Swarm or Radicle daemon on an ecosystem default port for a protocol that would start at launch, it asks whether that profile should use the existing external node or keep an independent managed node.
+If Freedom detects a compatible Swarm, Radicle, or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node. This check runs both during profile startup and when a managed node is started manually from the Nodes menu.
 
 For advanced users who need to connect a profile to a remote or system Bee/Radicle node or Tor SOCKS5 proxy, use **Settings → Profiles → Node endpoints** and switch the relevant protocol to external mode. Development-only renderer gateway overrides are still available via environment variables:
 

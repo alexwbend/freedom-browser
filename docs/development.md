@@ -125,3 +125,15 @@ npm run dist:linux:arm64:docker
 ```
 
 Windows builds do not include Radicle because upstream does not publish Windows binaries. Signed releases, notarization, artifact verification, and deployment are maintainer workflows documented in the [release playbook](agent-playbooks/release-process.md).
+
+## Testing updates locally
+
+To exercise the auto-updater against a local update server:
+
+```bash
+# Terminal 1: Start local update server
+npm run serve:updates
+
+# Terminal 2: Start app with updates enabled
+npm run start:test-updater
+```

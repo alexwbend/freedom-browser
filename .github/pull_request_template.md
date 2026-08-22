@@ -13,7 +13,7 @@
 - [ ] `npm run lint`
 - [ ] Relevant unit tests
 - [ ] Relevant Playwright or live smoke tests
-- [ ] `npm run format:check`
+- [ ] `npx prettier --check` on changed files
 - [ ] `git diff --check`
 
 ## Visual changes
