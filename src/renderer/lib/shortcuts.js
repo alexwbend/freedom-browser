@@ -150,6 +150,18 @@ export const SHORTCUTS = [
     editable: true,
   },
   {
+    id: 'window.newPrivate',
+    description: 'New Private Window',
+    defaultAccelerator: 'CmdOrCtrl+Shift+N',
+    // 'both': enforced by the native menu accelerator AND by the renderer
+    // keydown fallback (tabs.js, via matchesShortcut) — the fallback exists
+    // for the Linux frameless / auto-hidden-menu-bar setups where the menu
+    // accelerator never reaches the app. Mirror of src/shared/shortcuts.js.
+    context: 'both',
+    category: 'Window',
+    editable: true,
+  },
+  {
     id: 'view.fullscreen',
     description: 'Toggle Full Screen',
     defaultAccelerator: 'F11',

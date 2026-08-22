@@ -28,6 +28,9 @@ import { initReceive, closeReceive } from './wallet/receive.js';
 import { initWalletSettings, closeWalletSettings } from './wallet/wallet-settings.js';
 import { initCreateWallet, openCreateWallet, closeCreateWallet } from './wallet/create-wallet.js';
 import { initConnectLedger, openConnectLedger, closeConnectLedger } from './wallet/connect-ledger.js';
+import { initConnectPhone, openConnectPhone, closeConnectPhone } from './wallet/connect-phone.js';
+import { initRemoteSession } from './wallet/remote-session.js';
+import { initRemoteSigningPanel } from './wallet/remote-signing-panel.js';
 import { initPublishSetup, openPublishSetup, closePublishSetup } from './wallet/publish-setup.js';
 import { initStampManager, closeStampManager } from './wallet/stamp-manager.js';
 import { initChequebookDeposit, closeChequebookDeposit } from './wallet/chequebook-deposit.js';
@@ -36,10 +39,12 @@ import { initVaultUnlock, showVaultUnlock } from './wallet/vault-unlock.js';
 import { initPermissionManage, showDappPermissions, showSwarmPermissions, showX402Permissions, closeDappPerms, closeSwarmPerms, closeX402Perms } from './wallet/permission-manage.js';
 import { initPublisherIdentities, closePublisherIdentities } from './wallet/publisher-identities.js';
 import { initPublisherIdentityCreate, closePublisherIdentityCreate } from './wallet/publisher-identity-create.js';
+import { initPermissionManifest, showPermissionManifest } from './wallet/permission-manifest.js';
 
 // Re-export public API consumed by dapp-provider.js, swarm-provider.js, and index.js
 export { showDappConnect, updateConnectionBanner, showDappTxApproval, showDappSignApproval };
 export { showSwarmConnect, updateSwarmConnectionBanner, showSwarmPublishApproval, showSwarmFeedApproval, showSwarmMessagingApproval, showVaultUnlock };
+export { showPermissionManifest };
 export { updateX402ConnectionBanner };
 export { showDappPermissions, showSwarmPermissions, showX402Permissions };
 export { getSelectedChainId, setSelectedChainId };
@@ -79,6 +84,7 @@ export function initWalletUi() {
   initRpcSettings();
   initDappConnect();
   initSwarmConnect();
+  initPermissionManifest();
   initVaultUnlock();
   initPermissionManage();
   initDappTx();
@@ -87,12 +93,15 @@ export function initWalletUi() {
   initDappSign();
   initSend();
   initExportMnemonic(switchTab);
-  initWalletSelector(openCreateWallet, openConnectLedger);
+  initWalletSelector(openCreateWallet, openConnectLedger, openConnectPhone);
   initChainSwitcher();
   initReceive();
   initWalletSettings(switchTab);
   initCreateWallet();
   initConnectLedger();
+  initConnectPhone();
+  initRemoteSession();
+  initRemoteSigningPanel(); // after initRemoteSession — subscribes to its broker
   initPublishSetup();
   initStampManager();
   initChequebookDeposit();
@@ -425,6 +434,7 @@ function closeAllSubscreens() {
   closeExportMnemonic();
   closeCreateWallet();
   closeConnectLedger();
+  closeConnectPhone();
   closeReceive();
   closeWalletSettings();
   closeSend();

@@ -8,6 +8,16 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+// PRIVATE MODE GUARD (providers): webviews in private windows never get
+// the wallet providers. `window.ethereum` / `window.swarm` are not
+// injected and the request/response bridges are not installed, so a dApp
+// probing for a wallet sees nothing and EIP-6963's requestProvider gets
+// no announcement (silent). Resolved synchronously, before any page
+// script can run, via the main process (src/main/ipc-handlers.js), which
+// checks this webContents' session/window against the private-window
+// registry (src/main/private/private-windows.js).
+const IS_PRIVATE_WINDOW = ipcRenderer.sendSync('private:is-private') === true;
+
 // The webview preload runs in a sandbox — require() is restricted to a small
 // whitelist (electron, events, timers, url), so we cannot read provider
 // injection sources from disk here. The main process reads them and serves
@@ -376,6 +386,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   restoreEndpointSource: guardInternal('restoreEndpointSource', (id) =>
     ipcRenderer.invoke('networks:restore-source', id)
   ),
+  resetEndpointSourceCoverage: guardInternal('resetEndpointSourceCoverage', (id, chainId) =>
+    ipcRenderer.invoke('networks:reset-source-coverage', id, chainId)
+  ),
   setNetworkApiKey: guardInternal('setNetworkApiKey', (providerId, apiKey) =>
     ipcRenderer.invoke('networks:set-api-key', providerId, apiKey)
   ),
@@ -401,6 +414,11 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   // Service registry snapshot (read-only).
   getServiceRegistry: guardInternal('getServiceRegistry', () =>
     ipcRenderer.invoke('service-registry:get')
+  ),
+  getMyotisStatus: guardInternal('getMyotisStatus', (chainId) =>
+    chainId == null
+      ? ipcRenderer.invoke('myotis:getStatus')
+      : ipcRenderer.invoke('myotis:getStatus', chainId)
   ),
 
   // Opens the sidebar publish-setup checklist in the host window.
@@ -637,66 +655,71 @@ ipcRenderer.on('context-menu-action', (_event, action, data) => {
 // Injected into the page realm so dapps see window.ethereum as an own-property
 // of their own window, which many wallet-detection libraries require.
 // The preload realm only bridges messages to/from the host renderer (below).
-try {
-  const script = document.createElement('script');
-  script.textContent = ETHEREUM_INJECT_SOURCE;
+//
+// PRIVATE MODE GUARD (providers): skipped entirely in private windows —
+// no injection, no bridges. Nothing announces via EIP-6963.
+if (!IS_PRIVATE_WINDOW) {
+  try {
+    const script = document.createElement('script');
+    script.textContent = ETHEREUM_INJECT_SOURCE;
 
-  // Inject before any page scripts run
-  const inject = () => {
-    const head = document.head || document.documentElement;
-    head.insertBefore(script, head.firstChild);
-    script.remove();
-  };
+    // Inject before any page scripts run
+    const inject = () => {
+      const head = document.head || document.documentElement;
+      head.insertBefore(script, head.firstChild);
+      script.remove();
+    };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', inject, { once: true });
-  } else {
-    inject();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', inject, { once: true });
+    } else {
+      inject();
+    }
+  } catch (err) {
+    console.error('[webview-preload] Failed to inject ethereum provider:', err);
   }
-} catch (err) {
-  console.error('[webview-preload] Failed to inject ethereum provider:', err);
+
+  // Bridge postMessage from page to IPC
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data.type === 'FREEDOM_ETHEREUM_REQUEST') {
+      const { id, method, params } = event.data;
+      const origin = window.location.origin;
+
+      ipcRenderer.sendToHost('dapp:provider-request', {
+        id,
+        method,
+        params,
+        origin,
+      });
+    }
+  });
+
+  // Bridge IPC responses back to page
+  ipcRenderer.on('dapp:provider-response', (_event, { id, result, error }) => {
+    console.log('[webview-preload] Received provider response:', { id, result, error });
+    window.postMessage(
+      {
+        type: 'FREEDOM_ETHEREUM_RESPONSE',
+        id,
+        result,
+        error,
+      },
+      window.location.origin
+    );
+  });
+
+  ipcRenderer.on('dapp:provider-event', (_event, { event, data }) => {
+    window.postMessage(
+      {
+        type: 'FREEDOM_ETHEREUM_EVENT',
+        event,
+        data,
+      },
+      window.location.origin
+    );
+  });
 }
-
-// Bridge postMessage from page to IPC
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.data.type === 'FREEDOM_ETHEREUM_REQUEST') {
-    const { id, method, params } = event.data;
-    const origin = window.location.origin;
-
-    ipcRenderer.sendToHost('dapp:provider-request', {
-      id,
-      method,
-      params,
-      origin,
-    });
-  }
-});
-
-// Bridge IPC responses back to page
-ipcRenderer.on('dapp:provider-response', (_event, { id, result, error }) => {
-  console.log('[webview-preload] Received provider response:', { id, result, error });
-  window.postMessage(
-    {
-      type: 'FREEDOM_ETHEREUM_RESPONSE',
-      id,
-      result,
-      error,
-    },
-    window.location.origin
-  );
-});
-
-ipcRenderer.on('dapp:provider-event', (_event, { event, data }) => {
-  window.postMessage(
-    {
-      type: 'FREEDOM_ETHEREUM_EVENT',
-      event,
-      data,
-    },
-    window.location.origin
-  );
-});
 
 // ============================================
 // Swarm Provider (window.swarm)
@@ -811,47 +834,53 @@ try {
     swarmScript.remove();
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectSwarm, { once: true });
-  } else {
-    injectSwarm();
+  // PRIVATE MODE GUARD (providers): window.swarm is not injected in
+  // private windows — same policy as window.ethereum above.
+  if (!IS_PRIVATE_WINDOW) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectSwarm, { once: true });
+    } else {
+      injectSwarm();
+    }
   }
 } catch (err) {
   console.error('[webview-preload] Failed to inject swarm provider:', err);
 }
 
-// Bridge postMessage from page to IPC (Swarm)
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.data.type === 'FREEDOM_SWARM_REQUEST') {
-    const { id, method, params } = event.data;
-    ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
-  }
-});
+if (!IS_PRIVATE_WINDOW) {
+  // Bridge postMessage from page to IPC (Swarm)
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data.type === 'FREEDOM_SWARM_REQUEST') {
+      const { id, method, params } = event.data;
+      ipcRenderer.sendToHost('swarm:provider-request', { id, method, params });
+    }
+  });
 
-// Bridge IPC responses back to page (Swarm)
-ipcRenderer.on('swarm:provider-response', (_event, { id, result, error }) => {
-  window.postMessage(
-    {
-      type: 'FREEDOM_SWARM_RESPONSE',
-      id,
-      result,
-      error,
-    },
-    window.location.origin
-  );
-});
+  // Bridge IPC responses back to page (Swarm)
+  ipcRenderer.on('swarm:provider-response', (_event, { id, result, error }) => {
+    window.postMessage(
+      {
+        type: 'FREEDOM_SWARM_RESPONSE',
+        id,
+        result,
+        error,
+      },
+      window.location.origin
+    );
+  });
 
-ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
-  window.postMessage(
-    {
-      type: 'FREEDOM_SWARM_EVENT',
-      event,
-      data,
-    },
-    window.location.origin
-  );
-});
+  ipcRenderer.on('swarm:provider-event', (_event, { event, data }) => {
+    window.postMessage(
+      {
+        type: 'FREEDOM_SWARM_EVENT',
+        event,
+        data,
+      },
+      window.location.origin
+    );
+  });
+}
 
 // ============================================
 // Radicle Provider (window.radicle)
@@ -968,47 +997,53 @@ try {
     radicleScript.remove();
   };
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectRadicle, { once: true });
-  } else {
-    injectRadicle();
+  // PRIVATE MODE GUARD (providers): window.radicle is not injected in
+  // private windows — same policy as window.ethereum / window.swarm above.
+  if (!IS_PRIVATE_WINDOW) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectRadicle, { once: true });
+    } else {
+      injectRadicle();
+    }
   }
 } catch (err) {
   console.error('[webview-preload] Failed to inject radicle provider:', err);
 }
 
-// Bridge postMessage from page to IPC (Radicle)
-window.addEventListener('message', (event) => {
-  if (event.source !== window) return;
-  if (event.data.type === 'FREEDOM_RADICLE_REQUEST') {
-    const { id, method, params } = event.data;
-    ipcRenderer.sendToHost('radicle:provider-request', { id, method, params });
-  }
-});
+if (!IS_PRIVATE_WINDOW) {
+  // Bridge postMessage from page to IPC (Radicle)
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data.type === 'FREEDOM_RADICLE_REQUEST') {
+      const { id, method, params } = event.data;
+      ipcRenderer.sendToHost('radicle:provider-request', { id, method, params });
+    }
+  });
 
-// Bridge IPC responses back to page (Radicle)
-ipcRenderer.on('radicle:provider-response', (_event, { id, result, error }) => {
-  window.postMessage(
-    {
-      type: 'FREEDOM_RADICLE_RESPONSE',
-      id,
-      result,
-      error,
-    },
-    window.location.origin
-  );
-});
+  // Bridge IPC responses back to page (Radicle)
+  ipcRenderer.on('radicle:provider-response', (_event, { id, result, error }) => {
+    window.postMessage(
+      {
+        type: 'FREEDOM_RADICLE_RESPONSE',
+        id,
+        result,
+        error,
+      },
+      window.location.origin
+    );
+  });
 
-ipcRenderer.on('radicle:provider-event', (_event, { event, data }) => {
-  window.postMessage(
-    {
-      type: 'FREEDOM_RADICLE_EVENT',
-      event,
-      data,
-    },
-    window.location.origin
-  );
-});
+  ipcRenderer.on('radicle:provider-event', (_event, { event, data }) => {
+    window.postMessage(
+      {
+        type: 'FREEDOM_RADICLE_EVENT',
+        event,
+        data,
+      },
+      window.location.origin
+    );
+  });
+}
 
 // Note: transient 404/500 recovery for bzz:// sub-resources is handled by the
 // main-process `bzz:` protocol handler in `src/main/swarm/bzz-protocol.js`,
@@ -1201,7 +1236,8 @@ ipcRenderer.on('radicle:provider-event', (_event, { event, data }) => {
   }
 })();
 
-console.log('[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)');
 console.log(
-  '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
+  IS_PRIVATE_WINDOW
+    ? '[webview-preload] Loaded (freedomAPI + context menu — private window, providers disabled)'
+    : '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
 );

@@ -22,6 +22,12 @@ module.exports = {
   IPFS_STATUS_UPDATE: 'ipfs:statusUpdate',
   IPFS_CHECK_BINARY: 'ipfs:checkBinary',
 
+  // Myotis P2P Ethereum light client (experimental)
+  MYOTIS_START: 'myotis:start',
+  MYOTIS_STOP: 'myotis:stop',
+  MYOTIS_GET_STATUS: 'myotis:getStatus',
+  MYOTIS_STATUS_UPDATE: 'myotis:statusUpdate',
+
   // Radicle node management
   RADICLE_START: 'radicle:start',
   RADICLE_STOP: 'radicle:stop',
@@ -33,6 +39,14 @@ module.exports = {
   RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
   RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
+
+  // Tor (Arti) node management — routes .onion traffic via a local SOCKS proxy
+  TOR_START: 'tor:start',
+  TOR_STOP: 'tor:stop',
+  TOR_GET_STATUS: 'tor:getStatus',
+  TOR_STATUS_UPDATE: 'tor:statusUpdate',
+  TOR_CHECK_BINARY: 'tor:checkBinary',
+  TOR_GET_VERSION: 'tor:getVersion',
 
   // ENS resolution
   ENS_RESOLVE: 'ens:resolve',
@@ -83,6 +97,11 @@ module.exports = {
   WINDOW_MAXIMIZE: 'window:maximize',
   WINDOW_TOGGLE_FULLSCREEN: 'window:toggle-fullscreen',
   WINDOW_NEW: 'window:new',
+  // Private windows (ephemeral, non-persisted partition per window)
+  WINDOW_NEW_PRIVATE: 'window:new-private',
+  // Sync (sendSync) — webview preloads ask whether they run inside a
+  // private window before injecting the wallet providers.
+  PRIVATE_IS_PRIVATE: 'private:is-private',
   WINDOW_GET_PLATFORM: 'window:get-platform',
   WINDOW_GET_BUTTON_LAYOUT: 'window:get-button-layout',
 
@@ -299,7 +318,15 @@ module.exports = {
   SWARM_GET_AUTO_APPROVE: 'swarm:get-auto-approve',
   SWARM_SET_AUTO_APPROVE: 'swarm:set-auto-approve',
   SWARM_GRANT_MESSAGING: 'swarm:grant-messaging',
+  SWARM_REVOKE_MESSAGING: 'swarm:revoke-messaging',
   SWARM_HAS_MESSAGING_GRANT: 'swarm:has-messaging-grant',
+
+  // Swarm permission manifests
+  SWARM_MANIFEST_CHECK: 'swarm:manifest-check',
+  SWARM_MANIFEST_DECIDE: 'swarm:manifest-decide',
+  SWARM_MANIFEST_GET: 'swarm:manifest-get',
+  SWARM_MANIFEST_USE_INDIVIDUAL: 'swarm:manifest-use-individual',
+  SWARM_MANIFEST_DISCONNECT: 'swarm:manifest-disconnect',
 
   // Swarm Provider (main-process authority)
   SWARM_PROVIDER_EXECUTE: 'swarm:provider-execute',

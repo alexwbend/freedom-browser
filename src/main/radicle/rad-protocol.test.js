@@ -45,7 +45,7 @@ describe('buildHttpdUrl', () => {
 
   test('rejects when Radicle integration is disabled', () => {
     loadSettings.mockReturnValue({ enableRadicleIntegration: false });
-    expect(buildHttpdUrl(`rad://${RID}`)).toEqual({
+    expect(buildHttpdUrl(`rad://${RID}`)).toMatchObject({
       ok: false,
       status: 403,
       message: 'Radicle integration is disabled',
@@ -54,7 +54,7 @@ describe('buildHttpdUrl', () => {
 
   test('returns 503 when the Radicle endpoint is not hydrated', () => {
     getRadicleApiUrl.mockReturnValue(null);
-    expect(buildHttpdUrl(`rad://${RID}`)).toEqual({
+    expect(buildHttpdUrl(`rad://${RID}`)).toMatchObject({
       ok: false,
       status: 503,
       message: 'Radicle node is not ready',
@@ -216,5 +216,59 @@ describe('handleRadRequest', () => {
     const init = fetchImpl.mock.calls[0][1];
     expect(init.headers.get('cookie')).toBeNull();
     expect(init.headers.get('accept')).toBe('application/json');
+  });
+});
+
+
+// PRIVATE MODE GUARD (request logging) — same contract as the bzz handler:
+// registration decides whether the persistent main.log records the rad URL.
+describe('registerRadProtocol private sessions', () => {
+  const log = require('../logger');
+  const { registerRadProtocol } = require('./rad-protocol');
+
+  function fakeSession() {
+    const handlers = new Map();
+    return {
+      handlers,
+      protocol: { handle: (scheme, fn) => handlers.set(scheme, fn) },
+    };
+  }
+
+  function loggedText() {
+    return [log.info, log.warn, log.error]
+      .flatMap((fn) => fn.mock.calls)
+      .map((call) => call.join(' '))
+      .join('\n');
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getRadicleApiUrl.mockReturnValue(API);
+    // Disabled integration is the semantic-failure path that logs the URL
+    // without touching the network.
+    loadSettings.mockReturnValue({ enableRadicleIntegration: false });
+  });
+
+  test('a private session redacts the rad URL', async () => {
+    const session = fakeSession();
+    registerRadProtocol(session, { privatePartition: 'private-abcd' });
+
+    await session.handlers.get('rad')({ url: `rad://${RID}/tree/main/secret.md`, headers: {} });
+
+    const text = loggedText();
+    expect(text).not.toContain(RID);
+    expect(text).not.toContain('secret.md');
+    // The reason itself names nothing browsing-identifying, so it survives
+    // redaction — a private window's log still says why the request failed.
+    expect(text).toContain('403 for rad://<private>: Radicle integration is disabled');
+  });
+
+  test('a normal session keeps the full diagnostic URL', async () => {
+    const session = fakeSession();
+    registerRadProtocol(session);
+
+    await session.handlers.get('rad')({ url: `rad://${RID}/tree/main/secret.md`, headers: {} });
+
+    expect(loggedText()).toContain(`rad://${RID}/tree/main/secret.md`);
   });
 });
