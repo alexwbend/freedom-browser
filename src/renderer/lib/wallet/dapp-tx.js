@@ -5,7 +5,15 @@
  */
 
 import { walletState, registerScreenHider, hideAllSubscreens } from './wallet-state.js';
+import {
+  assertNoSignatureInFlight,
+  isSignatureInFlight,
+  signatureInFlightError,
+  beginSignatureFlight,
+  endSignatureFlight,
+} from './signature-flight.js';
 import { open as openSidebarPanel } from '../sidebar.js';
+import { bypassUnlockGateForDevice, signingButtonLabel } from './wallet-utils.js';
 
 // DOM references
 let dappTxScreen;
@@ -30,7 +38,11 @@ let dappTxApproveBtn;
 let dappTxAutoApproveRow;
 let dappTxAutoApproveCheckbox;
 
-// Local state
+// Local state. `dappTxPending.signing` is true while the signature and
+// broadcast are in flight: a hardware signature is a device prompt we
+// cannot recall, so there is no cancellation path once it starts —
+// rejecting behind it would settle the dApp promise with 4001 while the
+// transaction still broadcasts.
 let dappTxPending = null;
 
 const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
@@ -68,6 +80,7 @@ export function initDappTx() {
 function setupDappTxScreen() {
   if (dappTxBackBtn) {
     dappTxBackBtn.addEventListener('click', () => {
+      if (dappTxPending?.signing) return;
       rejectDappTx();
       closeDappTx();
     });
@@ -75,6 +88,7 @@ function setupDappTxScreen() {
 
   if (dappTxRejectBtn) {
     dappTxRejectBtn.addEventListener('click', () => {
+      if (dappTxPending?.signing) return;
       rejectDappTx();
       closeDappTx();
     });
@@ -109,8 +123,20 @@ function setupDappTxScreen() {
 
 /**
  * Show dApp transaction approval screen
+ *
+ * The sidebar is a single shared surface, and an in-flight signature owns
+ * it: the device prompt it produced cannot be recalled, so a later request
+ * must not repaint the screen, reset `dappTxPending` and re-enable
+ * Reject/Back/Confirm underneath it — the user would then be cancelling
+ * (or confirming) request B while the device is still showing request A.
+ * The lock is global (see signature-flight.js), so this refuses the
+ * newcomer whichever surface is holding the device: a sibling transaction,
+ * a dapp-sign request, or an x402 payment. The dApp can retry once the
+ * device is done.
  */
 export async function showDappTxApproval(webview, permissionKey, txParams) {
+  assertNoSignatureInFlight();
+
   const permission = await window.dappPermissions.getPermission(permissionKey);
   if (!permission) {
     throw Object.assign(new Error('Unauthorized - not connected'), { code: 4100 });
@@ -120,7 +146,11 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
   const selector = extractSelector(txParams.data);
 
   return new Promise((resolve, reject) => {
-    dappTxPending = { permissionKey, walletIndex: permission.walletIndex, txParams, resolve, reject, webview, chainId, selector };
+    // Re-checked after the awaits above: the screen must still be free at
+    // the moment we take it over.
+    assertNoSignatureInFlight();
+    const request = { permissionKey, walletIndex: permission.walletIndex, txParams, resolve, reject, webview, chainId, selector };
+    dappTxPending = request;
 
     if (dappTxSite) {
       dappTxSite.textContent = permissionKey;
@@ -128,6 +158,7 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
 
     // Show auto-approve checkbox only for contract calls (has function selector)
     if (dappTxAutoApproveCheckbox) dappTxAutoApproveCheckbox.checked = false;
+    setDappTxCancelEnabled(true);
     if (dappTxAutoApproveRow) {
       dappTxAutoApproveRow.classList.toggle('hidden', !selector);
     }
@@ -136,6 +167,15 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
       populateDappTxDetails(txParams, chainId),
       checkDappTxUnlockStatus(),
     ]).then(() => {
+      // Another surface may have started a device signature while we were
+      // estimating fees / checking vault status (the user could still
+      // click Pay on an x402 card, say). It owns the sidebar now — refuse
+      // rather than paint over a live confirmation.
+      if (isSignatureInFlight()) {
+        if (dappTxPending === request) dappTxPending = null;
+        reject(signatureInFlightError());
+        return;
+      }
       hideAllSubscreens();
       walletState.identityView?.classList.add('hidden');
       dappTxScreen?.classList.remove('hidden');
@@ -224,6 +264,10 @@ async function populateDappTxDetails(txParams, chainId) {
 
 async function checkDappTxUnlockStatus() {
   try {
+    if (bypassUnlockGateForDevice(dappTxPending?.walletIndex, dappTxUnlock, dappTxApproveBtn)) {
+      return;
+    }
+
     const status = await window.identity.getStatus();
 
     if (status.isUnlocked) {
@@ -309,15 +353,24 @@ async function handleDappTxPasswordUnlock() {
 }
 
 async function approveDappTx() {
-  if (!dappTxPending) return;
+  if (!dappTxPending || dappTxPending.signing) return;
 
-  const { permissionKey, walletIndex, txParams, resolve, gasLimit, gasPrice, chainId, selector } = dappTxPending;
+  const request = dappTxPending;
+  const { permissionKey, walletIndex, txParams, resolve, gasLimit, gasPrice, chainId, selector } = request;
+  // Snapshot the auto-approve intent now: the checkbox is shared DOM that
+  // a later request can repopulate while this send is still in flight.
+  const autoApprove = Boolean(dappTxAutoApproveCheckbox?.checked);
 
   try {
+    request.signing = true;
+    // Claim the sidebar for the whole flight: no other approval surface
+    // may repaint over or tear down a live device confirmation.
+    beginSignatureFlight(request);
     if (dappTxApproveBtn) {
       dappTxApproveBtn.disabled = true;
-      dappTxApproveBtn.textContent = 'Signing...';
+      dappTxApproveBtn.textContent = signingButtonLabel(walletIndex);
     }
+    setDappTxCancelEnabled(false);
 
     const tx = {
       to: txParams.to,
@@ -349,14 +402,17 @@ async function approveDappTx() {
       console.warn('[WalletUI] dApp transaction broadcast but payment history did not record:', result.recordError);
     }
 
-    if (dappTxAutoApproveCheckbox?.checked && permissionKey && selector && txParams.to) {
+    if (autoApprove && permissionKey && selector && txParams.to) {
       await window.dappPermissions.addTransactionAutoApprove(permissionKey, txParams.to, selector, chainId);
       console.log('[WalletUI] Transaction auto-approve added:', txParams.to, selector, 'chain', chainId);
     }
 
     console.log('[WalletUI] dApp transaction sent:', result.hash);
     resolve(result.hash);
-    closeDappTx();
+    // Only tear down the screen if it is still showing *this* request.
+    if (dappTxPending === request) {
+      closeDappTx();
+    }
   } catch (err) {
     console.error('[WalletUI] dApp transaction failed:', err);
     showDappTxError(err.message || 'Transaction failed');
@@ -364,7 +420,20 @@ async function approveDappTx() {
       dappTxApproveBtn.disabled = false;
       dappTxApproveBtn.textContent = 'Confirm';
     }
+    setDappTxCancelEnabled(true);
+  } finally {
+    request.signing = false;
+    endSignatureFlight(request);
   }
+}
+
+/**
+ * Enable/disable the two ways out of the approval screen (Reject, Back).
+ * Both are disabled while a signature is in flight.
+ */
+function setDappTxCancelEnabled(enabled) {
+  if (dappTxRejectBtn) dappTxRejectBtn.disabled = !enabled;
+  if (dappTxBackBtn) dappTxBackBtn.disabled = !enabled;
 }
 
 function rejectDappTx() {
@@ -379,10 +448,12 @@ function closeDappTx() {
   dappTxPending = null;
   hideDappTxError();
   if (dappTxPasswordInput) dappTxPasswordInput.value = '';
+  if (dappTxAutoApproveCheckbox) dappTxAutoApproveCheckbox.checked = false;
   if (dappTxApproveBtn) {
     dappTxApproveBtn.disabled = false;
     dappTxApproveBtn.textContent = 'Confirm';
   }
+  setDappTxCancelEnabled(true);
 }
 
 function showDappTxError(message) {

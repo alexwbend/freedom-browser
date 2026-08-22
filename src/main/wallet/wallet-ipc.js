@@ -16,13 +16,12 @@ const {
   parseAmount,
   getTransactionStatus,
   waitForTransaction,
-  signPersonalMessage,
-  signTypedData,
 } = require('./transaction-service');
 const { signAndRecord, KINDS: PAYMENT_KINDS } = require('./tx-recorder');
 const { getActiveWalletIndex } = require('../identity-manager');
 const { getEffectiveRpcUrls } = require('./rpc-manager');
-const { withVaultPrivateKey } = require('./vault-access');
+const chainData = require('../networks/chain-data-router');
+const { getSigner } = require('./signers');
 
 /**
  * Validate that an RPC URL is a known, trusted endpoint.
@@ -63,12 +62,10 @@ async function handleSendTransaction(walletIndex, params, kind, context = {}) {
     if (!to || chainId === undefined || !gasLimit) {
       return { success: false, error: 'Missing required parameters: to, chainId, gasLimit' };
     }
-    const result = await withVaultPrivateKey(walletIndex, (privateKey) =>
-      signAndRecord(
-        { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId },
-        privateKey,
-        buildTxRecordContext(kind, context),
-      )
+    const result = await signAndRecord(
+      { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId },
+      getSigner(walletIndex),
+      buildTxRecordContext(kind, context),
     );
     return { success: true, ...result };
   } catch (err) {
@@ -282,9 +279,7 @@ function registerWalletIpc() {
         return { success: false, error: 'Message is required' };
       }
 
-      const signature = await withVaultPrivateKey(walletIndex, (privateKey) =>
-        signPersonalMessage(message, privateKey)
-      );
+      const signature = await getSigner(walletIndex).signMessage(message);
 
       return { success: true, signature };
     } catch (err) {
@@ -300,9 +295,7 @@ function registerWalletIpc() {
         return { success: false, error: 'Typed data is required' };
       }
 
-      const signature = await withVaultPrivateKey(walletIndex, (privateKey) =>
-        signTypedData(typedData, privateKey)
-      );
+      const signature = await getSigner(walletIndex).signTypedData(typedData);
 
       return { success: true, signature };
     } catch (err) {
@@ -311,7 +304,24 @@ function registerWalletIpc() {
     }
   });
 
-  // Proxy JSON-RPC calls to external endpoints (renderer CSP blocks direct fetch)
+  // Capability-aware chain request. Myotis and Colibri are attempted before
+  // quorum/direct RPC according to the selected chain's access policy.
+  ipcMain.handle('wallet:chain-request', async (_event, { chainId, method, params }) => {
+    try {
+      if (!chainData.isReadMethod(method)) {
+        return { success: false, error: { code: 4200, message: 'Method not supported' } };
+      }
+      const response = await chainData.request(chainId, method, params || []);
+      return { success: true, ...response };
+    } catch (err) {
+      return {
+        success: false,
+        error: { code: err.code || -32603, message: err.message, data: err.data },
+      };
+    }
+  });
+
+  // Legacy endpoint-specific proxy retained for existing internal callers.
   ipcMain.handle('wallet:proxy-rpc', async (_event, { rpcUrl, method, params }) => {
     try {
       if (!isAllowedRpcUrl(rpcUrl)) {

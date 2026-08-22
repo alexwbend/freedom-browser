@@ -23,7 +23,7 @@ const mockClient = {
 };
 const mockCreateClient = jest.fn(async () => mockClient);
 jest.mock('./client', () => ({
-  createVaultBackedX402Client: (idx) => mockCreateClient(idx),
+  createX402Client: (idx) => mockCreateClient(idx),
 }));
 
 const mockGetActiveWalletIndex = jest.fn(() => 0);

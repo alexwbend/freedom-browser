@@ -37,6 +37,7 @@ function loadWebviewPreloadModule(options = {}) {
     syncResponses: {
       [IPC.GET_INTERNAL_PAGES]: internalPages,
       [IPC.GET_ETHEREUM_INJECT_SOURCE]: '/* ethereum inject source stub */',
+      [IPC.PRIVATE_IS_PRIVATE]: options.isPrivateWindow === true,
     },
     invokeResponses: {
       [IPC.HISTORY_GET]: [{ url: 'https://example.com' }],
@@ -162,6 +163,7 @@ describe('webview-preload', () => {
       ['getActiveProfile', [], IPC.PROFILE_GET_ACTIVE, []],
       ['listProfiles', [], IPC.PROFILE_LIST, []],
       ['getServiceRegistry', [], IPC.SERVICE_REGISTRY_GET, []],
+      ['getMyotisStatus', [], IPC.MYOTIS_GET_STATUS, []],
       ['openPublishSetup', [], IPC.SIDEBAR_OPEN_PUBLISH_SETUP, []],
       ['getBookmarks', [], IPC.BOOKMARKS_GET, []],
       ['openInNewTab', ['https://example.com'], IPC.OPEN_URL_IN_NEW_TAB, ['https://example.com']],
@@ -184,7 +186,7 @@ describe('webview-preload', () => {
     }
 
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm provider)'
+      '[webview-preload] Loaded (freedomAPI + context menu + ethereum + swarm + radicle providers)'
     );
   });
 
@@ -333,7 +335,13 @@ describe('webview-preload', () => {
     await expect(exposures.freedomAPI.getHistory({ limit: 5 })).rejects.toThrow(
       'freedomAPI is only available on internal pages'
     );
-    expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+    // The blocked freedomAPI call must not reach IPC. (The preload's
+    // cosmetic-filtering client does invoke 'adblock:cosmetic' on this
+    // real web page — that's expected and unrelated to freedomAPI.)
+    const historyInvokes = ipcRenderer.invoke.mock.calls.filter(
+      ([channel]) => channel !== 'adblock:cosmetic'
+    );
+    expect(historyInvokes).toHaveLength(0);
     expect(consoleWarnSpy).toHaveBeenCalledWith(
       '[freedomAPI] blocked "getHistory" on non-internal page: https://example.com/articles/1'
     );
@@ -700,5 +708,160 @@ describe('webview-preload', () => {
     ipcRenderer.emit('context-menu-action', 'copy-text', { text: 'Failure case' });
     await flushMicrotasks();
     expect(consoleErrorSpy).toHaveBeenCalledWith(expect.any(Error));
+  });
+});
+
+// The page-side provider scripts are injected as source strings, so they are
+// exercised here by extracting and evaluating them in a sandbox rather than
+// through loadWebviewPreloadModule().
+describe('injected provider request timeouts', () => {
+  const fs = require('fs');
+  const preloadSource = fs.readFileSync(require.resolve('./webview-preload'), 'utf8');
+
+  function extractScript(varName) {
+    const start = preloadSource.indexOf(`${varName}.textContent = \``);
+    const bodyStart = preloadSource.indexOf('`', start) + 1;
+    const bodyEnd = preloadSource.indexOf('\n  `;', bodyStart);
+    expect(bodyStart).toBeGreaterThan(0);
+    expect(bodyEnd).toBeGreaterThan(bodyStart);
+    return preloadSource.slice(bodyStart, bodyEnd);
+  }
+
+  /** Evaluate an injected provider and report the timeout it arms per method. */
+  function timeoutFor(varName, globalName, method) {
+    let armed = null;
+    const sandboxWindow = {
+      postMessage: () => {},
+      addEventListener: () => {},
+      location: { origin: 'https://dapp.example' },
+    };
+    new Function('window', 'setTimeout', 'Map', extractScript(varName))(
+      sandboxWindow,
+      (_fn, ms) => {
+        armed = ms;
+      },
+      Map
+    );
+    sandboxWindow[globalName].request({ method }).catch(() => {});
+    return armed;
+  }
+
+  // A consent prompt blocks the response until the user decides. Timing that
+  // out page-side rejects the dApp's promise while main still records the
+  // grant and performs the write — the dApp retries and duplicates the COB.
+  test.each([
+    'radicle_requestAccess',
+    'radicle_seed',
+    'radicle_getIdentity',
+    'radicle_createIssue',
+    'radicle_commentIssue',
+    'radicle_editIssueState',
+    'radicle_commentPatch',
+  ])('radicle %s (can prompt) gets the 300s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(300000);
+  });
+
+  test.each([
+    'radicle_getCapabilities',
+    'radicle_getNodeStatus',
+    'radicle_listSeededRepos',
+    'radicle_unseed',
+    'radicle_sync',
+    'radicle_getSeedStatus',
+    'radicle_disconnect',
+  ])('radicle %s (never prompts) keeps the 60s budget', (method) => {
+    expect(timeoutFor('radicleScript', 'radicle', method)).toBe(60000);
+  });
+
+  // Parity with the sibling provider the radicle one was modelled on.
+  test('swarm prompt/long-running methods use the same 300s budget', () => {
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_getSigningIdentity')).toBe(300000);
+    expect(timeoutFor('swarmScript', 'swarm', 'swarm_readChunk')).toBe(60000);
+  });
+});
+
+// PRIVATE MODE GUARD coverage (providers): in private windows none of
+// window.ethereum / window.swarm / window.radicle is injected and none of the
+// provider bridges are installed — a dApp probing for a wallet sees nothing.
+describe('webview-preload private windows', () => {
+  let consoleLogSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    global.window = originalWindow;
+    global.document = originalDocument;
+    global.navigator = originalNavigator;
+    global.location = originalLocation;
+    jest.restoreAllMocks();
+  });
+
+  const providerChannels = [
+    'dapp:provider-response',
+    'dapp:provider-event',
+    'swarm:provider-response',
+    'swarm:provider-event',
+    'radicle:provider-response',
+    'radicle:provider-event',
+  ];
+
+  test('private window: no provider bridges, no page-world injection attempts', () => {
+    const { ipcRenderer, document } = loadWebviewPreloadModule({
+      isPrivateWindow: true,
+      location: {
+        href: 'https://dapp.example/',
+        protocol: 'https:',
+        pathname: '/',
+      },
+    });
+
+    expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.PRIVATE_IS_PRIVATE);
+
+    // No provider IPC bridges installed.
+    const onChannels = ipcRenderer.on.mock.calls.map(([channel]) => channel);
+    for (const channel of providerChannels) {
+      expect(onChannels).not.toContain(channel);
+    }
+
+    // No message bridges (page → host) registered on window.
+    const messageListeners = global.window.addEventListener.mock.calls.filter(
+      ([event]) => event === 'message'
+    );
+    expect(messageListeners).toHaveLength(0);
+
+    // No <script> injection is even attempted (createElement is absent on
+    // the doc mock and would have logged an injection failure).
+    expect(document.addEventListener.mock.calls.map(([e]) => e)).not.toContain(
+      'DOMContentLoaded'
+    );
+
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[webview-preload] Loaded (freedomAPI + context menu — private window, providers disabled)'
+    );
+  });
+
+  test('normal window: provider bridges are installed as before', () => {
+    const { ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'https://dapp.example/',
+        protocol: 'https:',
+        pathname: '/',
+      },
+    });
+
+    const onChannels = ipcRenderer.on.mock.calls.map(([channel]) => channel);
+    for (const channel of providerChannels) {
+      expect(onChannels).toContain(channel);
+    }
+
+    const messageListeners = global.window.addEventListener.mock.calls.filter(
+      ([event]) => event === 'message'
+    );
+    // ethereum, swarm and radicle page→host bridges.
+    expect(messageListeners).toHaveLength(3);
   });
 });

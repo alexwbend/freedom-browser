@@ -234,6 +234,367 @@ describe('identity-manager wallet deletion', () => {
     expect(readVaultMeta().derivedWallets.map((wallet) => wallet.index)).toEqual([0]);
     expect(readVaultMeta().activeWalletIndex).toBe(0);
   });
+
+  test('revokes dApp permissions bound to the deleted wallet', async () => {
+    // A permission is a standing authorisation to sign with one account
+    // (plus its auto-approve rules). Left behind, its walletIndex dangles
+    // — for a deleted hardware account, at an index with no signer at all.
+    fs.writeFileSync(
+      path.join(tmpDir, 'dapp-permissions.json'),
+      JSON.stringify({
+        'https://swap.example': {
+          origin: 'https://swap.example',
+          walletIndex: 2,
+          chainId: 1,
+          autoApprove: { signing: true, transactions: [] },
+        },
+        'https://keep.example': {
+          origin: 'https://keep.example',
+          walletIndex: 0,
+          chainId: 1,
+          autoApprove: { signing: false, transactions: [] },
+        },
+      }, null, 2),
+      'utf-8'
+    );
+
+    writeVaultMeta({
+      activeWalletIndex: 0,
+      derivedWallets: [
+        { index: 0, name: 'Main Wallet', address: '0x0' },
+        { index: 2, name: 'Trading Wallet', address: '0x2' },
+      ],
+    });
+
+    await identityManager.deleteDerivedWallet(2);
+
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, 'dapp-permissions.json'), 'utf-8')
+    );
+    expect(Object.keys(stored)).toEqual(['https://keep.example']);
+  });
+});
+
+describe('identity-manager ledger accounts', () => {
+  let tmpDir;
+  let envSnapshot;
+  let identityManager;
+
+  const LEDGER_ADDRESS = '0x209693Bc6afc0C5328bA36FaF03C514EF312287C';
+  const LEDGER_PATH = "44'/60'/0'/0/0";
+  const HARDWARE_INDEX_BASE = 1000000;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-manager-ledger-'));
+    envSnapshot = snapshotEnv();
+    process.env.FREEDOM_IDENTITY_DATA = tmpDir;
+    identityManager = loadMainModule(require.resolve('./identity-manager'), {
+      userDataDir: tmpDir,
+      extraMocks: {
+        [require.resolve('./identity')]: () => ({
+          getMnemonic: jest.fn(() => null), // vault locked — ledger ops must not need it
+          isUnlocked: jest.fn(() => false),
+        }),
+      },
+    }).mod;
+  });
+
+  afterEach(() => {
+    restoreEnv(envSnapshot);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function writeVaultMeta(meta) {
+    fs.writeFileSync(path.join(tmpDir, 'vault-meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+  }
+
+  function readVaultMeta() {
+    return JSON.parse(fs.readFileSync(path.join(tmpDir, 'vault-meta.json'), 'utf-8'));
+  }
+
+  function seedMainWallet() {
+    writeVaultMeta({
+      activeWalletIndex: 0,
+      addresses: { userWallet: '0x0000000000000000000000000000000000000001' },
+      derivedWallets: [
+        { index: 0, name: 'Main Wallet', address: '0x0000000000000000000000000000000000000001' },
+      ],
+    });
+  }
+
+  test('addLedgerWallet appends a typed record with device address and path', async () => {
+    seedMainWallet();
+
+    const wallet = await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    expect(wallet).toEqual({
+      index: HARDWARE_INDEX_BASE,
+      name: 'My Stax',
+      address: LEDGER_ADDRESS,
+      type: 'ledger',
+      path: LEDGER_PATH,
+    });
+    expect(readVaultMeta().derivedWallets).toHaveLength(2);
+    expect(readVaultMeta().derivedWallets[1]).toMatchObject({ type: 'ledger', path: LEDGER_PATH });
+  });
+
+  test('addLedgerWallet auto-names and works with the vault locked', async () => {
+    seedMainWallet();
+    const wallet = await identityManager.addLedgerWallet('', LEDGER_ADDRESS, LEDGER_PATH);
+    expect(wallet.name).toBe('Ledger 1');
+  });
+
+  test('addLedgerWallet rejects duplicates and bad input', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    await expect(identityManager.addLedgerWallet('Again', LEDGER_ADDRESS.toLowerCase(), LEDGER_PATH))
+      .rejects.toThrow(/already in your wallet list/);
+    await expect(identityManager.addLedgerWallet('Bad', '0x123', LEDGER_PATH))
+      .rejects.toThrow('Invalid Ledger account address');
+    // Mixed-case address with a broken EIP-55 checksum must be rejected too
+    await expect(identityManager.addLedgerWallet('Bad', LEDGER_ADDRESS.replace('9', 'a'), LEDGER_PATH))
+      .rejects.toThrow('Invalid Ledger account address');
+    await expect(identityManager.addLedgerWallet('Bad', '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', ''))
+      .rejects.toThrow('Missing derivation path');
+  });
+
+  test('getDerivedWallets returns the stored device address without derivation', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    const wallets = await identityManager.getDerivedWallets();
+
+    expect(wallets).toEqual([
+      expect.objectContaining({ index: 0, type: 'mnemonic' }),
+      expect.objectContaining({
+        index: HARDWARE_INDEX_BASE,
+        type: 'ledger',
+        address: LEDGER_ADDRESS,
+        path: LEDGER_PATH,
+      }),
+    ]);
+  });
+
+  test('getWalletRecord normalizes type and exposes the ledger path', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    expect(identityManager.getWalletRecord(0)).toMatchObject({ type: 'mnemonic' });
+    expect(identityManager.getWalletRecord(HARDWARE_INDEX_BASE)).toMatchObject({
+      type: 'ledger',
+      address: LEDGER_ADDRESS,
+      path: LEDGER_PATH,
+    });
+    expect(identityManager.getWalletRecord(99)).toBeNull();
+  });
+
+  test('getUserWalletKey refuses to derive for a ledger account', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    await expect(identityManager.getUserWalletKey(HARDWARE_INDEX_BASE))
+      .rejects.toThrow('This account has no derivable private key');
+  });
+
+  test('getActiveWalletAddress returns the device address for an active ledger account', async () => {
+    seedMainWallet();
+    const wallet = await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+    await identityManager.setActiveWalletIndex(wallet.index);
+
+    await expect(identityManager.getActiveWalletAddress()).resolves.toBe(LEDGER_ADDRESS);
+  });
+
+  test('addRemoteWallet appends a pathless typed record and auto-names', async () => {
+    seedMainWallet();
+
+    const wallet = await identityManager.addRemoteWallet('', LEDGER_ADDRESS);
+
+    expect(wallet).toEqual({
+      index: HARDWARE_INDEX_BASE,
+      name: 'Phone 1',
+      address: LEDGER_ADDRESS,
+      type: 'remote',
+    });
+    expect(readVaultMeta().derivedWallets[1]).toEqual(wallet);
+  });
+
+  test('addRemoteWallet rejects bad addresses and duplicates across account types', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('My Stax', LEDGER_ADDRESS, LEDGER_PATH);
+
+    await expect(identityManager.addRemoteWallet('Bad', '0x123'))
+      .rejects.toThrow('Invalid Phone account address');
+    // The same address already added as a Ledger account is still a duplicate.
+    await expect(identityManager.addRemoteWallet('Again', LEDGER_ADDRESS.toLowerCase()))
+      .rejects.toThrow(/already in your wallet list/);
+  });
+
+  test('remote accounts behave like device accounts across the record seams', async () => {
+    seedMainWallet();
+    const wallet = await identityManager.addRemoteWallet('My Phone', LEDGER_ADDRESS);
+
+    expect(identityManager.getWalletRecord(wallet.index)).toMatchObject({
+      type: 'remote',
+      address: LEDGER_ADDRESS,
+    });
+    await expect(identityManager.getUserWalletKey(wallet.index))
+      .rejects.toThrow('This account has no derivable private key');
+
+    await identityManager.setActiveWalletIndex(wallet.index);
+    await expect(identityManager.getActiveWalletAddress()).resolves.toBe(LEDGER_ADDRESS);
+
+    const wallets = await identityManager.getDerivedWallets();
+    expect(wallets[1]).toMatchObject({ type: 'remote', address: LEDGER_ADDRESS });
+  });
+});
+
+/**
+ * A wallet's `index` is both the account id every persisted reference
+ * stores (dApp permissions, Swarm publisher identities, activeWalletIndex)
+ * and — for mnemonic accounts — the BIP-44 account index the key is
+ * derived at. Hardware accounts must therefore never take an index out of
+ * the mnemonic range, and a freed hardware index must never be handed to
+ * another device account: either would silently rebind persisted
+ * references to a different address and signing backend, and squatting a
+ * derivation index strands whatever the mnemonic account there holds.
+ */
+describe('identity-manager wallet index allocation', () => {
+  let tmpDir;
+  let envSnapshot;
+  let identityManager;
+
+  const LEDGER_A = '0x209693Bc6afc0C5328bA36FaF03C514EF312287C';
+  const LEDGER_B = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+  const LEDGER_PATH = "44'/60'/0'/0/0";
+  const HARDWARE_INDEX_BASE = 1000000;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-manager-index-'));
+    envSnapshot = snapshotEnv();
+    process.env.FREEDOM_IDENTITY_DATA = tmpDir;
+    identityManager = loadMainModule(require.resolve('./identity-manager'), {
+      userDataDir: tmpDir,
+      extraMocks: {
+        [require.resolve('./identity')]: () => ({
+          getMnemonic: jest.fn(() => 'test mnemonic'),
+          isUnlocked: jest.fn(() => true),
+          deriveUserWallet: jest.fn((_mnemonic, index) => ({
+            address: `0xderived${index}`,
+          })),
+        }),
+        [require.resolve('./swarm/feed-store')]: () => ({
+          getEthereumWalletIdentityReferences: jest.fn(() => []),
+        }),
+      },
+    }).mod;
+  });
+
+  afterEach(() => {
+    restoreEnv(envSnapshot);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function readVaultMeta() {
+    return JSON.parse(fs.readFileSync(path.join(tmpDir, 'vault-meta.json'), 'utf-8'));
+  }
+
+  function seedMainWallet() {
+    fs.writeFileSync(
+      path.join(tmpDir, 'vault-meta.json'),
+      JSON.stringify({
+        activeWalletIndex: 0,
+        addresses: { userWallet: '0xderived0' },
+        derivedWallets: [{ index: 0, name: 'Main Wallet', address: '0xderived0' }],
+      }, null, 2),
+      'utf-8'
+    );
+  }
+
+  test('a ledger never takes a freed mnemonic derivation index', async () => {
+    seedMainWallet();
+    const second = await identityManager.createDerivedWallet('Wallet 2');
+    expect(second.index).toBe(1);
+
+    await identityManager.deleteDerivedWallet(1);
+    const ledger = await identityManager.addLedgerWallet('', LEDGER_A, LEDGER_PATH);
+
+    expect(ledger.index).toBe(HARDWARE_INDEX_BASE);
+
+    // Derivation index 1 is still mintable, so funds sent to it before the
+    // delete stay reachable.
+    const recreated = await identityManager.createDerivedWallet('Wallet 2 again');
+    expect(recreated.index).toBe(1);
+    expect(recreated.address).toBe(second.address);
+    expect(identityManager.getWalletRecord(1)).toMatchObject({ type: 'mnemonic' });
+  });
+
+  test('mnemonic accounts keep allocating from the low range once a ledger exists', async () => {
+    seedMainWallet();
+    await identityManager.addLedgerWallet('', LEDGER_A, LEDGER_PATH);
+
+    const next = await identityManager.createDerivedWallet('Wallet 2');
+
+    expect(next.index).toBe(1);
+    expect(readVaultMeta().derivedWallets.map((wallet) => wallet.index))
+      .toEqual([0, HARDWARE_INDEX_BASE, 1]);
+  });
+
+  test('a deleted ledger does not hand its index to the next device account', async () => {
+    seedMainWallet();
+    const first = await identityManager.addLedgerWallet('', LEDGER_A, LEDGER_PATH);
+    await identityManager.deleteDerivedWallet(first.index);
+
+    const second = await identityManager.addLedgerWallet('', LEDGER_B, LEDGER_PATH);
+
+    expect(second.index).toBe(HARDWARE_INDEX_BASE + 1);
+    expect(readVaultMeta().nextHardwareWalletIndex).toBe(HARDWARE_INDEX_BASE + 2);
+  });
+
+  test('stays above ledger indexes already on disk when the counter is missing', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'vault-meta.json'),
+      JSON.stringify({
+        activeWalletIndex: 0,
+        addresses: { userWallet: '0xderived0' },
+        derivedWallets: [
+          { index: 0, name: 'Main Wallet', address: '0xderived0' },
+          {
+            index: HARDWARE_INDEX_BASE + 4,
+            name: 'Ledger 1',
+            address: LEDGER_A,
+            type: 'ledger',
+            path: LEDGER_PATH,
+          },
+        ],
+      }, null, 2),
+      'utf-8'
+    );
+
+    const added = await identityManager.addLedgerWallet('', LEDGER_B, LEDGER_PATH);
+
+    expect(added.index).toBe(HARDWARE_INDEX_BASE + 5);
+  });
+
+  test('skips a legacy low-index ledger when minting a mnemonic wallet', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'vault-meta.json'),
+      JSON.stringify({
+        activeWalletIndex: 0,
+        addresses: { userWallet: '0xderived0' },
+        derivedWallets: [
+          { index: 0, name: 'Main Wallet', address: '0xderived0' },
+          { index: 1, name: 'Ledger 1', address: LEDGER_A, type: 'ledger', path: LEDGER_PATH },
+        ],
+      }, null, 2),
+      'utf-8'
+    );
+
+    const next = await identityManager.createDerivedWallet('Wallet 2');
+
+    expect(next.index).toBe(2);
+    expect(identityManager.getWalletRecord(1)).toMatchObject({ type: 'ledger' });
+  });
 });
 
 /**
