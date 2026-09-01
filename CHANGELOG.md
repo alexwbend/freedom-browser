@@ -34,7 +34,7 @@ All notable changes to Freedom will be documented in this file.
 
 ### Changed
 
-- Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
+- Updated bundled [Ant](https://github.com/freedom-hq/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
 - The Swarm node's API now comes up instantly on start, so the node menu shows peers counting up live instead of sitting at 0 during startup
 
 ## [0.8.0] - 2026-07-02
@@ -43,7 +43,7 @@ All notable changes to Freedom will be documented in this file.
 
 - In-house Rust implementations of the bundled Swarm and IPFS nodes, built for the upcoming mobile apps:
   - Reasoning: mobile needs small binaries and bounded memory; every platform gains speed and room for specialised node features
-- [Ant](https://github.com/solardev-xyz/ant) 0.5.33, a lean Swarm light node, replaces bundled Bee:
+- [Ant](https://github.com/freedom-hq/ant) 0.5.33, a lean Swarm light node, replaces bundled Bee:
   - Full Bee parity: retrieval, feeds, stamp purchase, publishing, and chequebook payments
   - Instant publishing setup (no more lengthy Gnosis chain-state download)
   - Node data and Swarm identity migrate in place on first launch

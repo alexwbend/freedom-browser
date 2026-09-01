@@ -91,7 +91,7 @@ Freedom Browser is distributed as:
 
 ### Ant (antd, Swarm Node)
 
-- **Source:** https://github.com/solardev-xyz/ant
+- **Source:** https://github.com/freedom-hq/ant
 - **License:** MIT OR Apache-2.0 (upstream ships `LICENSE-MIT` and `LICENSE-APACHE`)
 - **Risk:** Green
 - **Integration:** Separate process via IPC
