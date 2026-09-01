@@ -341,7 +341,7 @@
       "scope": "runtime",
       "source": {
         "ecosystem": "github",
-        "url": "https://github.com/solardev-xyz/ant"
+        "url": "https://github.com/freedom-hq/ant"
       },
       "license": {
         "spdx": ["MIT", "Apache-2.0"],

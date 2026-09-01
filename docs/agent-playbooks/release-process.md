@@ -83,7 +83,7 @@ The other fetch scripts resolve the latest from a **vendor-specific** upstream â
 
 | Binary                                                | Authoritative source the fetch script reads                                                                                |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/solardev-xyz/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
+| Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/freedom-hq/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
 | freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                  |
 | Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                |
 | Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                  |
@@ -142,7 +142,7 @@ npm test
 npm run check-binaries
 ```
 
-**License check.** `NOTICES`, `LICENSE_AUDIT.md`, and `licenses-audit.json` attribute the bundled Ant binary as MIT OR Apache-2.0, matching the `LICENSE-MIT` / `LICENSE-APACHE` that `https://github.com/solardev-xyz/ant` now publishes. Before building release artifacts, confirm the upstream license is unchanged and update those three files if it differs.
+**License check.** `NOTICES`, `LICENSE_AUDIT.md`, and `licenses-audit.json` attribute the bundled Ant binary as MIT OR Apache-2.0, matching the `LICENSE-MIT` / `LICENSE-APACHE` that `https://github.com/freedom-hq/ant` now publishes. Before building release artifacts, confirm the upstream license is unchanged and update those three files if it differs.
 
 Spot-check the app once (`npm start`) and confirm the About/version surface reflects the new number.
 
