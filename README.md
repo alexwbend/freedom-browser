@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/solardev-xyz/freedom-browser/actions/workflows/ci.yml/badge.svg)](https://github.com/solardev-xyz/freedom-browser/actions/workflows/ci.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://github.com/solardev-xyz/freedom-browser/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20|%20Linux%20|%20Windows-lightgrey)](https://freedom.baby)
 
 Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, and Tezos Domains as first-class protocols. Integrated Ant, freedom-ipfs, Radicle, experimental Myotis, and Tor components provide direct access to decentralized and onion networks without relying on centralized HTTP gateways.
 
 ## Download
 
-Download the latest build for macOS, Linux, or Windows from [GitHub Releases](https://github.com/solardev-xyz/freedom-browser/releases).
+Download the latest build for macOS, Linux, or Windows from the official download page at [freedom.baby](https://freedom.baby).
 
 Radicle is available on macOS and Linux. The Windows build ships without Radicle until upstream publishes official Windows binaries.
 
