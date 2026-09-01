@@ -130,31 +130,31 @@ The address bar also provides **autocomplete suggestions** from browsing history
 ## Navigation Controls
 
 - **Back/Forward**: Standard browser history navigation per tab.
-- **Reload**: Refresh the current page (ignores cache). On error pages, retries the original URL.
+- **Reload**: Refresh the current page (uses cache; hard reload bypasses it). On error pages, retries the original URL.
 - **Stop**: Cancel page loading mid-request.
 - **Home**: Return to the welcome page.
-- **Keyboard Shortcuts** (defaults; remap them under Settings > Shortcuts — click a binding, press the new combination, changes apply immediately; `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
+- **Keyboard Shortcuts** (the complete set of remappable defaults, mirroring `src/shared/shortcuts.js` — remap them under Settings > Shortcuts by clicking a binding and pressing the new combination; changes apply immediately. `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
   - `Cmd+N` / `Ctrl+N`: New window
   - `Cmd+Shift+N` / `Ctrl+Shift+N`: New private window
   - `Cmd+T` / `Ctrl+T`: New tab
   - `Cmd+W` / `Ctrl+W` / `Ctrl+F4`: Close tab
   - `Cmd+Shift+T` / `Ctrl+Shift+T`: Reopen last closed tab
-  - `Ctrl+PgDn` / `Ctrl+Tab`: Next tab
-  - `Ctrl+PgUp` / `Ctrl+Shift+Tab`: Previous tab
-  - `Ctrl+Shift+PgDn`: Move tab right
-  - `Ctrl+Shift+PgUp`: Move tab left
+  - `Ctrl+PageDown` / `Ctrl+Tab` / `Cmd+Shift+]`: Next tab
+  - `Ctrl+PageUp` / `Ctrl+Shift+Tab` / `Cmd+Shift+[`: Previous tab
+  - `Ctrl+Shift+PageDown`: Move tab right
+  - `Ctrl+Shift+PageUp`: Move tab left
   - `Cmd+R` / `Ctrl+R`: Reload (from cache)
   - `Cmd+Shift+R` / `Ctrl+Shift+R`: Hard reload (bypass cache)
-  - `Cmd+F` / `Ctrl+F`: Find in page (`Enter` next match, `Shift+Enter` previous, `Esc` close)
-  - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
+  - `Cmd+F` / `Ctrl+F`: Find in page
+  - `Cmd+L` / `Ctrl+L`: Focus address bar
+  - `Cmd+Y` / `Ctrl+H`: Show all history
   - `Cmd+Shift+J` / `Ctrl+Shift+J`: Downloads
+  - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
+  - `Cmd+Shift+W` / `Ctrl+Shift+W`: Toggle wallet sidebar
   - `F11`: Toggle fullscreen
-  - `F12` / `Cmd+Alt+I` / `Ctrl+Shift+I`: Developer Tools
-  - `Cmd+=` / `Ctrl+=`: Zoom in
-  - `Cmd+-` / `Ctrl+-`: Zoom out
-  - `Cmd+0` / `Ctrl+0`: Reset zoom
-  - `Cmd+P` / `Ctrl+P`: Print
-  - `Escape`: Stop loading or restore address bar
+  - `Cmd+Alt+I` / `Ctrl+Shift+I` / `F12`: Developer Tools
+- **Fixed Keys**: Not part of the registry above and not remappable — `Escape` stops loading or restores the address bar, and in the find bar `Enter` jumps to the next match, `Shift+Enter` to the previous, and `Esc` closes it.
+- **No Keyboard Binding**: Zoom and Print have no shortcuts; use the hamburger menu's zoom controls and its Print entry.
 
 ## Bookmarks
 
