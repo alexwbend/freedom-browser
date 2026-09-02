@@ -11,7 +11,11 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { MODULE_ROOT, pruneSourceBuildFallback } = require('./better-sqlite3-prebuilds');
+const {
+  MODULE_ROOT,
+  pruneSourceBuildFallback,
+  assertTargetPrebuild,
+} = require('./better-sqlite3-prebuilds');
 
 let tmpRoot;
 
@@ -75,6 +79,64 @@ describe('pruneSourceBuildFallback', () => {
   });
 });
 
+// The prune's guard is package-wide (postinstall runs before any target is
+// known), so this is the per-target safety net: once binding.gyp is gone,
+// @electron/rebuild ignores the module and a missing prebuild would otherwise
+// package silently into an app that throws at startup.
+describe('assertTargetPrebuild', () => {
+  test('passes when the target platform/arch has a prebuild', () => {
+    const moduleRoot = makeModule({ prebuilds: ['win32-x64.node', 'win32-arm64.node'] });
+
+    const result = assertTargetPrebuild({ platform: 'win', archs: ['x64'], moduleRoot });
+
+    expect(result).toEqual({ ok: true, missing: [], expected: ['win32-x64.node'] });
+  });
+
+  test('fails for a target the package has no prebuild for', () => {
+    const moduleRoot = makeModule({ prebuilds: ['win32-x64.node'] });
+
+    const result = assertTargetPrebuild({ platform: 'win', archs: ['arm64'], moduleRoot });
+
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(['win32-arm64.node']);
+  });
+
+  test('reports every missing arch of a multi-arch target', () => {
+    const moduleRoot = makeModule({ prebuilds: ['linux-x64.node'] });
+
+    // `npm run dist -- --linux` defaults to both arches.
+    const result = assertTargetPrebuild({ platform: 'linux', archs: ['arm64', 'x64'], moduleRoot });
+
+    expect(result.missing).toEqual(['linux-arm64.node']);
+  });
+
+  test('maps electron-builder platform flags to prebuild names', () => {
+    const moduleRoot = makeModule({ prebuilds: ['darwin-arm64.node'] });
+
+    expect(assertTargetPrebuild({ platform: 'mac', archs: ['arm64'], moduleRoot }).ok).toBe(true);
+  });
+
+  test('is a no-op when better-sqlite3 is not installed', () => {
+    const result = assertTargetPrebuild({
+      platform: 'win',
+      archs: ['arm64'],
+      moduleRoot: path.join(tmpRoot, 'not-installed'),
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  test('accepts every target scripts/build.js can be asked to package', () => {
+    for (const [platform, archs] of [
+      ['mac', ['arm64', 'x64']],
+      ['linux', ['arm64', 'x64']],
+      ['win', ['arm64', 'x64']],
+    ]) {
+      expect(assertTargetPrebuild({ platform, archs })).toMatchObject({ ok: true, missing: [] });
+    }
+  });
+});
+
 describe('the installed better-sqlite3', () => {
   test('carries a prebuilt addon for every platform/arch we package', () => {
     const prebuildsDir = path.join(MODULE_ROOT, 'prebuilds');
@@ -102,6 +164,14 @@ describe('the installed better-sqlite3', () => {
     const buildScript = fs.readFileSync(path.join(__dirname, 'build.js'), 'utf8');
     expect(buildScript).toContain('pruneSourceBuildFallback()');
     expect(buildScript.indexOf('pruneSourceBuildFallback()')).toBeLessThan(
+      buildScript.indexOf('execSync(cmd')
+    );
+  });
+
+  test('has its target prebuild verified by scripts/build.js before packaging', () => {
+    const buildScript = fs.readFileSync(path.join(__dirname, 'build.js'), 'utf8');
+    expect(buildScript).toContain('assertTargetPrebuild({ platform, archs })');
+    expect(buildScript.indexOf('assertTargetPrebuild({ platform, archs })')).toBeLessThan(
       buildScript.indexOf('execSync(cmd')
     );
   });

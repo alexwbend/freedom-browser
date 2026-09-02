@@ -27,7 +27,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { pruneSourceBuildFallback } = require('./better-sqlite3-prebuilds');
+const { pruneSourceBuildFallback, assertTargetPrebuild } = require('./better-sqlite3-prebuilds');
 
 const args = process.argv.slice(2);
 
@@ -124,11 +124,28 @@ const cmd = useDotenv
 // x64/arm64) and the loader picks the one matching the *running* process, so
 // no rebuild is wanted — but its leftover binding.gyp makes @electron/rebuild
 // treat it as a node-gyp module, which cannot cross-compile. `postinstall`
-// already prunes that file; repeat it here so a build still works after a
-// manual `npm rebuild`. See scripts/better-sqlite3-prebuilds.js.
+// already prunes that file, so this is normally a silent no-op; repeat it here
+// so a build still works after a manual `npm rebuild`. See
+// scripts/better-sqlite3-prebuilds.js.
 // No host-binary protection is needed either: a cross-build never overwrites a
 // host-specific build/Release/better_sqlite3.node — that file is not produced
 // at all — so local dev keeps working after `--win`/`--linux` builds.
+//
+// The prune's own guard is package-wide (it runs at install time, before any
+// target is known), so check the *target's* prebuild here: with binding.gyp
+// gone @electron/rebuild skips the module entirely, and a missing prebuild
+// would ship an app with no addon that throws at startup.
+const { missing } = assertTargetPrebuild({ platform, archs });
+if (missing.length > 0) {
+  console.error(
+    `Error: better-sqlite3 ships no prebuilt addon for this target (missing ${missing.join(', ')} ` +
+      `in node_modules/better-sqlite3/prebuilds/). Packaging would produce an app that throws at ` +
+      `startup. Add the target upstream, or restore better-sqlite3's binding.gyp (npm rebuild ` +
+      `better-sqlite3) and build from source on the target platform.`
+  );
+  process.exit(1);
+}
+
 const { removed } = pruneSourceBuildFallback();
 if (removed)
   console.log("\n→ Pruned better-sqlite3's unused binding.gyp (prebuilt addons in use)\n");

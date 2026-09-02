@@ -132,9 +132,19 @@ A UTM Windows VM on Apple Silicon is **Windows on ARM (arm64)**. Two traps:
   `node scripts/better-sqlite3-prebuilds.js` _before_ the
   `electron-builder install-app-deps` step, deleting that stale `binding.gyp` —
   which is what actually lets `npm ci` finish without Visual Studio Build Tools and
-  without a network fetch for this module. If you ever target an arch with no
-  prebuild (see the next section), the script leaves
-  `binding.gyp` in place and you must install MSVC + Python in the guest first.
+  without a network fetch for this module.
+
+  Note the prune is **unconditional in practice**: its guard is package-wide
+  (`prebuilds.length === 0`) because `postinstall` runs long before any build
+  target is known, and v13 always ships eight prebuilds — so `binding.gyp` is
+  always removed, and there is no per-target source-build fallback left. All six
+  targets we package (`{darwin,linux,win32}-{x64,arm64}`) do have a prebuild, and
+  `scripts/better-sqlite3-prebuilds.test.js` guards that; targeting an arch
+  without one would produce an app with no addon that throws at startup, so
+  `scripts/build.js` checks the target's prebuild before packaging and fails
+  loudly (`Error: better-sqlite3 ships no prebuilt addon for this target`)
+  instead. To build such a target you would have to restore `binding.gyp`
+  (`npm rebuild better-sqlite3`) and install MSVC + Python in the guest.
 
 ## End-to-end build
 
