@@ -68,6 +68,8 @@ configure() {
 // drop-in so apt-get processes started by other tools (Playwright) inherit it.
 APT::Get::Assume-Yes "true";
 APT::Keep-Downloaded-Packages "true";
+// Translated package descriptions are several MB of index nobody reads in CI.
+Acquire::Languages "none";
 Acquire::Retries "3";
 Acquire::http::Timeout "20";
 Acquire::https::Timeout "20";
@@ -190,7 +192,9 @@ usage() {
 
 main() {
   local command="${1:-}"
-  [ "$#" -gt 0 ] && shift
+  if [ "$#" -gt 0 ]; then
+    shift
+  fi
 
   case "$command" in
     configure)
