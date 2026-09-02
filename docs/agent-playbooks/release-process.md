@@ -81,12 +81,12 @@ Ant is the exception to the "resolve latest" rule: `scripts/fetch-ant.js` pins a
 
 The other fetch scripts resolve the latest from a **vendor-specific** upstream — do **not** use GitHub tags as a stand-in, they can lag the actual release pointer (Radicle in particular publishes new releases to `files.radicle.xyz` first; GitHub `/tags` showed `1.7.1` as the latest stable while `1.9.1` was already shipping).
 
-| Binary                                                | Authoritative source the fetch script reads                                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Binary                                                | Authoritative source the fetch script reads                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/freedom-hq/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
-| freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                  |
-| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                |
-| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                  |
+| freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                            |
+| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                          |
+| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                            |
 
 To check whether the bundled binary is stale, compare its self-reported version against the source above:
 
@@ -187,7 +187,9 @@ npm run dist -- --win --x64
 
 `electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows builds intentionally ship without Radicle (see `README.md`).
 
-Cross-building no longer disturbs the host's `better-sqlite3`. Since v13 the package ships prebuilt addons for every supported target in `node_modules/better-sqlite3/prebuilds/` (`darwin`/`linux`/`linuxmusl`/`win32` x `x64`/`arm64`) and the loader selects the one matching the *running* process, so a `--win` build never leaves a Windows DLL where the mac host expects a Mach-O one. `scripts/build.js` used to snapshot and restore a host-built `build/Release/better_sqlite3.node` and print a `→ Restored host better-sqlite3 binary` line; that file is no longer produced at all, so the protection — and that log line — are gone. Do not expect them, and invoking `electron-builder --win` directly is now harmless to local dev.
+Cross-building no longer disturbs the host's `better-sqlite3`. Since v13 the package ships prebuilt addons for every supported target in `node_modules/better-sqlite3/prebuilds/` (`darwin`/`linux`/`linuxmusl`/`win32` x `x64`/`arm64`) and its loader (`lib/binding.js`) prefers those over `build/Release/`, selecting the one matching the _running_ process — so a `--win` build never leaves a Windows DLL where the mac host expects a Mach-O one. `scripts/build.js` used to snapshot and restore a host-built `build/Release/better_sqlite3.node` and print a `→ Restored host better-sqlite3 binary` line; that file is no longer produced at all, so the protection — and that log line — are gone. Do not expect them, and invoking `electron-builder --win` directly is now harmless to local dev.
+
+That only holds because better-sqlite3 is kept out of the `@electron/rebuild` pass. v13 dropped `prebuild-install` and its `prebuilds/` layout is flat files rather than the `prebuilds/<platform>-<arch>/` directories `prebuildify` emits, so `@electron/rebuild` recognises neither tool and would fall through to node-gyp purely because a (never-used) `binding.gyp` sits at the package root — and node-gyp refuses to cross-compile, failing the command above with `node-gyp does not support cross-compiling native modules from source`. `scripts/better-sqlite3-prebuilds.js` deletes that stale `binding.gyp`; it runs from `postinstall` and again from `scripts/build.js`, so expect a `→ Pruned better-sqlite3's unused binding.gyp` line. If you ever see the node-gyp cross-compiling error for `moduleName=better-sqlite3`, `npm install` restored the file and the prune did not run — `node scripts/better-sqlite3-prebuilds.js` fixes it.
 
 Each packaged app carries only the prebuild for its own target: the `mac`/`linux`/`win` blocks in `package.json` each exclude `**/node_modules/better-sqlite3/prebuilds/!(<platform>-${arch}).node`, which keeps ~15 MB of foreign-platform addons out of every installer. If you add a target platform or arch, add the matching exclusion, and sanity-check the packaged `app.asar.unpacked/node_modules/better-sqlite3/prebuilds/` holds exactly one `.node` file.
 
@@ -216,11 +218,11 @@ python3 -m http.server 8000 --directory dist/
 
 Get the build host's LAN IP with `ipconfig getifaddr en0` (macOS, primary interface) or `ip -4 addr show scope global | awk '/inet / { print $2 }'` (Linux). Then download from the test machine:
 
-| Test OS | Command |
-|---|---|
-| Linux | `wget http://<build-host-ip>:8000/<filename>` |
+| Test OS              | Command                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| Linux                | `wget http://<build-host-ip>:8000/<filename>`                    |
 | Windows (PowerShell) | `iwr http://<build-host-ip>:8000/<filename> -OutFile <filename>` |
-| Any (GUI) | Browse to `http://<build-host-ip>:8000/` and click the file |
+| Any (GUI)            | Browse to `http://<build-host-ip>:8000/` and click the file      |
 
 Filenames with spaces (e.g. `Freedom Setup <version>.exe`) need URL-encoding when used in `wget` / `iwr` (`%20` for each space). The GUI browser path handles encoding automatically.
 
@@ -267,6 +269,7 @@ This step is intentionally separate from §4 — §4 verifies the source tree (`
    ```
 
    This is a plain branch push, not the `main` merge (that stays in §9). The branch is meant to live on after the release anyway (§10), so publishing it now costs nothing and unblocks the website update.
+
 2. Upload the generated artifacts from `dist/` to `https://freedom.baby/downloads`, including the `latest*.yml` manifests so existing installs pick up the update via `electron-updater` (which is configured with `publish.provider = generic` pointing at that URL).
 3. Update the Freedom website to point at the new version:
    - Download links and per-platform file-size metadata.

@@ -27,6 +27,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { pruneSourceBuildFallback } = require('./better-sqlite3-prebuilds');
 
 const args = process.argv.slice(2);
 
@@ -117,12 +118,21 @@ const cmd = useDotenv
   ? `dotenv -- electron-builder ${builderArgs.join(' ')}`
   : `electron-builder ${builderArgs.join(' ')}`;
 
-// 5. Run the build.
-// No host-binary protection is needed: since better-sqlite3 v13 every supported
-// platform/arch ships a prebuilt addon in node_modules/better-sqlite3/prebuilds/
-// (darwin/linux/linuxmusl/win32 x x64/arm64), and the loader picks the one
-// matching the *running* process. A cross-build therefore never overwrites a
+// 5. Keep better-sqlite3 out of the @electron/rebuild pass.
+// Since v13 it ships a prebuilt addon for every supported platform/arch in
+// node_modules/better-sqlite3/prebuilds/ (darwin/linux/linuxmusl/win32 x
+// x64/arm64) and the loader picks the one matching the *running* process, so
+// no rebuild is wanted — but its leftover binding.gyp makes @electron/rebuild
+// treat it as a node-gyp module, which cannot cross-compile. `postinstall`
+// already prunes that file; repeat it here so a build still works after a
+// manual `npm rebuild`. See scripts/better-sqlite3-prebuilds.js.
+// No host-binary protection is needed either: a cross-build never overwrites a
 // host-specific build/Release/better_sqlite3.node — that file is not produced
 // at all — so local dev keeps working after `--win`/`--linux` builds.
+const { removed } = pruneSourceBuildFallback();
+if (removed)
+  console.log("\n→ Pruned better-sqlite3's unused binding.gyp (prebuilt addons in use)\n");
+
+// 6. Run the build.
 console.log(`\n→ Running: ${cmd}\n`);
 execSync(cmd, { stdio: 'inherit', env });

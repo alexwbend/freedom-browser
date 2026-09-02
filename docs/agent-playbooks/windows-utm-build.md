@@ -9,7 +9,7 @@ Windows (see `release-process.md` §6).
 
 `release-process.md` §5 cross-builds the Windows installer from the mac host
 (`npm run dist -- --win --x64`), which is the supported way to produce the
-*distributable*. `better-sqlite3` is no longer a reason that artifact would fail to
+_distributable_. `better-sqlite3` is no longer a reason that artifact would fail to
 launch: it is a native module `require`d at startup (`src/main/payment-history.js`
 → `src/main/index.js`), but since v13 it ships a `win32-<arch>` prebuild that a
 `--win` build packages regardless of the build host, so the old "packaged on macOS
@@ -121,13 +121,20 @@ A UTM Windows VM on Apple Silicon is **Windows on ARM (arm64)**. Two traps:
   ```
 
   Expect `win32arm64` → build `--arm64`.
+
 - Since v13, `better-sqlite3` ships Node-API prebuilds for every supported target
-  *inside its own tarball* (`node_modules/better-sqlite3/prebuilds/win32-arm64.node`
-  and friends) rather than downloading an Electron-version-specific binary, so
-  `npm ci`'s `electron-builder install-app-deps` finishes without needing Visual
-  Studio Build Tools (`buildFromSource=false`) and without a network fetch. If you
-  ever target an arch with no prebuild, you must install MSVC + Python in the guest
-  first.
+  _inside its own tarball_ (`node_modules/better-sqlite3/prebuilds/win32-arm64.node`
+  and friends) rather than downloading an Electron-version-specific binary. On its
+  own that is not enough to keep node-gyp out of `npm ci`: `@electron/rebuild`
+  classifies the package by its leftover `binding.gyp` and would run a node-gyp
+  configure that compiles nothing but still fetches Electron headers and invokes
+  `find-visualstudio`. `postinstall` therefore runs
+  `node scripts/better-sqlite3-prebuilds.js` _before_ the
+  `electron-builder install-app-deps` step, deleting that stale `binding.gyp` —
+  which is what actually lets `npm ci` finish without Visual Studio Build Tools and
+  without a network fetch for this module. If you ever target an arch with no
+  prebuild (see the next section), the script leaves
+  `binding.gyp` in place and you must install MSVC + Python in the guest first.
 
 ## End-to-end build
 
@@ -163,9 +170,16 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
    cd /d C:\freedom-build\repo & npm ci
    ```
 
-   Success looks like `• finished moduleName=better-sqlite3 arch=arm64` and
-   `added N packages`. Under v13 that line means the prebuilt addon was selected,
-   not that anything was compiled — it appears within a second or two.
+   Success looks like `added N packages`. Under v13 `better-sqlite3` no longer
+   appears in the `install-app-deps` module list at all — `postinstall` prunes its
+   `binding.gyp` first, so `@electron/rebuild` skips it and the prebuilt
+   `win32-arm64.node` is used as shipped. A `• preparing moduleName=better-sqlite3`
+   line means the prune did not run.
+
+   Other native dependencies are still rebuilt here and are unrelated to
+   `better-sqlite3`: `keccak` (via `@ledgerhq/hw-app-eth`) publishes prebuilds only
+   for `darwin-x64`/`linux-x64`/`win32-x64`, so on Windows-on-ARM it is compiled
+   from source and does need MSVC + Python in the guest.
 
 4. **Build the distributable:**
 
