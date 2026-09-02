@@ -9,19 +9,21 @@ Freedom runs Swarm, IPFS, and Radicle nodes, an experimental Myotis Ethereum lig
 | **Protocol**             | `bzz://`                                      | `ipfs://`, `ipns://`                 | `rad://`                          |
 | **Node Software**        | Ant (antd, bee-compatible)                    | freedom-ipfs native                  | radicle-node + radicle-httpd      |
 | **Hash Format**          | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)            |
-| **Managed Gateway Port** | 11633+                                        | internal native handler              | 18780+                            |
-| **Managed API Port**     | 11633+                                        | internal native handler              | 18780+                            |
-| **Managed P2P Port**     | 12633+                                        | internal native handler              | 18776+                            |
+| **Managed Gateway Port** | 11633+ (packaged)                             | internal native handler              | 18780+ (packaged)                 |
+| **Managed API Port**     | 11633+ (packaged)                             | internal native handler              | 18780+ (packaged)                 |
+| **Managed P2P Port**     | 12633+ (packaged)                             | internal native handler              | 18776+ (packaged)                 |
 | **Route Prefix**         | `/bzz/{hash}/`                                | `/ipfs/{cid}/`, `/ipns/{name}/`      | `/api/v1/repos/{rid}/`            |
 | **Data Directory**       | `<profile>/ant-data/`                         | `<profile>/ipfs-data/freedom-ipfs/`  | profile-scoped short Radicle home |
-| **Binary Directory**     | `ant-bin/`                                    | `native/freedom-ipfs-node/`          | `radicle-bin/`                    |
+| **Binary Directory**     | `ant-bin/`                                    | `native/freedom-ipfs-node/`          | `radicle-bin/<platform>-<arch>/`  |
+
+Source builds (`npm start`) use a different, per-checkout port range; see [Configuration](configuration.md#node-endpoints).
 
 ## Smart Node Connection
 
 Freedom manages nodes per browser profile:
 
 1. **Independent Managed Nodes**: By default, each profile has separate Ant, native IPFS, Myotis, Radicle, and Tor data. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS and Myotis run as embedded native clients without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint in profile settings. External node identity, storage, or circuit state is shared outside that profile. IPFS and Myotis always use their embedded native clients.
+2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint under **Settings → Nodes**. External node identity, storage, or circuit state is shared outside that profile. IPFS and Myotis always use their embedded native clients.
 3. **Port Conflict Handling**: If a managed Ant, Radicle, or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
@@ -68,6 +70,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Fail-closed behavior**: If Arti stops unexpectedly, `.onion` requests fail instead of falling back to direct DNS.
 - **Profile isolation**: Managed Tor state, cache, endpoint, and private-window routing are profile-scoped.
 - **Optional binary**: Source builds require `npm run tor:download`; bundled Tor is currently available on macOS and Linux.
+- **Windows**: Arti is not bundled on Windows (it is built host-only from crates.io), so the Tor rows are hidden from the Experimental settings section on Windows builds and `.onion` access is unavailable.
 
 ## Integrated Radicle Node (macOS & Linux)
 
@@ -79,7 +82,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Repository Seeding**: Seed Radicle repositories directly from the browser to help replicate them across the network.
 - **Stale Socket Cleanup**: Automatically cleans up control sockets from unclean shutdowns.
 - **Port Conflict Resolution**: Uses profile-specific managed ports and persists reassignment if one is unavailable.
-- **Windows**: Radicle is not available on Windows yet (no upstream binaries). The Experimental settings section is hidden on Windows builds.
+- **Windows**: Radicle is not available on Windows yet (no upstream binaries). The Radicle rows are hidden from the Experimental settings section on Windows builds; the rest of that section (Identity & Wallet, Swarm node mode, IPFS progress) is still there.
 
 ## Universal Address Bar
 
@@ -213,18 +216,18 @@ Right-click on pages for context-sensitive actions:
 
 ## Request Rewriting
 
-- **Automatic Path Rewriting**: Absolute paths in decentralized content (e.g., `/images/logo.png`) are automatically rewritten to stay within the current hash/CID for IPFS (`/ipfs/`, `/ipns/`) and Radicle (`/api/v1/repos/`) content.
+- **Automatic Path Rewriting**: When a page is loaded through a loopback gateway URL, absolute paths in its markup (e.g., `/images/logo.png`) are rewritten to stay within the current content base — Swarm (`/bzz/{hash}/`) first, then Radicle (`/api/v1/repos/{rid}/`) when **Settings → Experimental → Enable Radicle integration (Beta)** is on.
 - **Per-Tab Tracking**: Each tab tracks its own content base for correct path resolution.
-- **Swarm (`bzz://`)**: Handled by a custom protocol handler rather than gateway rewriting — see [Swarm content retrieval](protocols/swarm.md).
+- **IPFS / IPNS (`ipfs://`, `ipns://`)**: No rewriting arm at all. These are standard schemes served by a custom protocol handler, so the page origin is already `ipfs://<cid>/` and same-origin subresources never reach the rewriter as gateway URLs.
+- **Swarm (`bzz://`)**: `bzz://` navigations are likewise served by a custom protocol handler — see [Swarm content retrieval](protocols/swarm.md). The Swarm rewriter arm only applies to the loopback gateway URLs that back a `bzz` content base.
+- **Invalid-Reference Guard**: Requests to `/bzz/` with a missing or malformed reference are cancelled rather than sent to the node.
 
-## Debug Console
+## Developer Tools
 
-- **Toggle via Menu**: Open the hamburger menu (☰) and click "Debug Console".
-- **Console Logs**: Captures JavaScript console output from loaded pages.
-- **Navigation Events**: Shows page load, navigation, and error events.
-- **Timestamps**: All messages include timestamps for debugging.
-- **Clear/Close**: Clear the log or close the panel with dedicated buttons.
-- **CLI Logging**: Debug messages also appear in the terminal.
+- **Toggle via Menu**: Open the hamburger menu (☰) and click "Developer Tools" (or use `Cmd+Alt+I` / `Ctrl+Shift+I` / `F12`) to open Chromium DevTools for the current page.
+- **Per-Tab**: DevTools attach to the active tab's webview; the page's own console output and errors appear there.
+- **Browser-Chrome Logs**: Freedom's own renderer diagnostics (navigation, resolution, and node events, each timestamped) go to the browser chrome's console — open **View → App Developer Tools** in a development build to see them.
+- **Main-Process Logs**: Main-process output goes to the terminal and the `electron-log` file; see the [development guide](development.md) for levels and locations.
 
 ## Internal Pages
 

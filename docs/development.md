@@ -100,11 +100,12 @@ The main process uses `electron-log`:
 | Packaged application      | `warn` and above    | `info` and above |
 | `DEBUG=1`                 | `verbose` and above | `info` and above |
 
-On macOS, log files are written under `~/Library/Logs/Freedom/`. Other platforms use the standard `electron-log` location.
+The log directory follows the Electron app name, which differs between a source run and a packaged app. On macOS, `npm start` runs as `Freedom Dev` and writes to `~/Library/Logs/Freedom Dev/`; the packaged app writes to `~/Library/Logs/Freedom/`. Other platforms use the standard `electron-log` location under the same app name.
 
 Useful debugging surfaces:
 
-- Open **Menu (☰) → Debug Console** for page console and navigation events.
+- Open **Menu (☰) → Developer Tools** (or `F12`) for the current page's console and errors.
+- Open **View → App Developer Tools** for Freedom's own renderer diagnostics, including navigation events.
 - Inspect main-process output in the terminal.
 - Use the webview context menu to open Chromium Developer Tools.
 - Launch with `DEBUG=1 npm start` for verbose console logging.
@@ -124,7 +125,7 @@ npm run dist:linux:x64:docker
 npm run dist:linux:arm64:docker
 ```
 
-Windows builds do not include Radicle because upstream does not publish Windows binaries. Signed releases, notarization, artifact verification, and deployment are maintainer workflows documented in the [release playbook](agent-playbooks/release-process.md).
+Windows builds include neither Radicle (upstream publishes no Windows binaries) nor the bundled Tor (Arti) client: the `win` target in `package.json` declares no `radicle-bin`/`arti-bin` `extraResources`. Signed releases, notarization, artifact verification, and deployment are maintainer workflows documented in the [release playbook](agent-playbooks/release-process.md).
 
 ## Testing updates locally
 

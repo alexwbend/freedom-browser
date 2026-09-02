@@ -10,7 +10,7 @@ Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, 
 
 Download the latest build for macOS, Linux, or Windows from the official download page at [freedom.baby](https://freedom.baby).
 
-Radicle is available on macOS and Linux. The Windows build ships without Radicle until upstream publishes official Windows binaries.
+Radicle and Tor are available on macOS and Linux only. The Windows build ships without Radicle (upstream publishes no Windows binaries) and without the bundled Tor (Arti) client, so `.onion` access is unavailable there.
 
 ## What Freedom supports
 

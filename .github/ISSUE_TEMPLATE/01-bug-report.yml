@@ -33,6 +33,7 @@ body:
     attributes:
       label: Installation source
       options:
+        - Official download (freedom.baby)
         - GitHub release
         - Built from source
         - Other or unofficial package

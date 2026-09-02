@@ -17,7 +17,7 @@
 
 - Ensure **Settings → Experimental → Enable Radicle integration (Beta)** is enabled
 - Freedom automatically detects managed-port conflicts and persists a free profile port
-- Ensure both `radicle-node` and `radicle-httpd` binaries exist in `radicle-bin/`
+- Ensure all four binaries — `rad`, `radicle-node`, `radicle-httpd`, and `git-remote-rad` — exist in `radicle-bin/<platform>-<arch>/` for source builds (packaged builds use `radicle-bin/` under the app's resources directory); rerun `npm run radicle:download` if any are missing
 - Ensure Git is installed and available on `PATH`
 - If starting for the first time, Freedom creates a Radicle identity automatically
 - Check terminal output for specific error messages
@@ -37,7 +37,7 @@
 
 ## Using an external node
 
-- If you have a system-wide Swarm or Radicle daemon or Tor SOCKS5 proxy running, configure external mode in **Settings → Profiles → Node endpoints**
+- If you have a system-wide Swarm or Radicle daemon or Tor SOCKS5 proxy running, configure external mode in **Settings → Nodes**
 - External mode is per profile and per protocol
 - The Nodes panel shows external/shared status when connected to an external node
 - Freedom does not stop external nodes on quit
@@ -53,4 +53,4 @@
 
 - Ensure the relevant Ant, IPFS, Radicle, Myotis, or Tor component is running; enable optional integrations in Settings first.
 - Verify the Swarm reference (64 or 128 hex), CID, or Radicle ID is correct
-- Check the debug console for error messages
+- Open **Menu (☰) → Developer Tools** and check the page's console for error messages
