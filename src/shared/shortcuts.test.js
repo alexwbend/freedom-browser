@@ -437,6 +437,127 @@ describe('findConflict', () => {
   });
 });
 
+describe('docs/features.md keyboard shortcut list', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  // The "Keyboard Shortcuts" bullet in docs/features.md is a hand-written
+  // mirror of the registry, so it drifts silently (it once advertised four
+  // zoom/print bindings the app has never implemented). Pin both directions:
+  // nothing documented that the registry does not bind, and nothing
+  // user-facing in the registry left undocumented.
+  const DOC_PATH = path.join(__dirname, '..', '..', 'docs', 'features.md');
+  const DOC_PLATFORMS = ['darwin', 'win32'];
+
+  // Bullet lines of the shortcut list: `- ` + backticked accelerators joined
+  // by ` / `, then `: Description`. Only the part before the colon is read,
+  // so prose in the description never looks like a binding.
+  const docAccelerators = () => {
+    const source = fs.readFileSync(DOC_PATH, 'utf-8');
+    const lines = source.split('\n');
+    const start = lines.findIndex((line) => line.startsWith('- **Keyboard Shortcuts**'));
+    expect(start).toBeGreaterThan(-1);
+
+    const found = [];
+    for (const line of lines.slice(start + 1)) {
+      if (!line.startsWith('  - ')) break; // end of the nested list
+      const bindings = line.slice(4).split(':')[0];
+      const tokens = bindings.match(/`([^`]+)`/g) || [];
+      found.push(...tokens.map((token) => token.slice(1, -1)));
+    }
+    expect(found.length).toBeGreaterThan(0);
+    return found;
+  };
+
+  const registryAccelerators = (platform) => {
+    const set = new Set();
+    for (const entry of SHORTCUTS) {
+      if (entry.devOnly) continue;
+      const def = getDefaultAccelerator(entry, platform);
+      if (def) set.add(normalizeAccelerator(def, platform));
+      for (const alias of getAliasAccelerators(entry, platform)) {
+        set.add(normalizeAccelerator(alias, platform));
+      }
+    }
+    return set;
+  };
+
+  test('every documented binding exists in the registry', () => {
+    const registry = Object.fromEntries(
+      DOC_PLATFORMS.map((platform) => [platform, registryAccelerators(platform)])
+    );
+
+    for (const accelerator of docAccelerators()) {
+      const matched = DOC_PLATFORMS.some((platform) =>
+        registry[platform].has(normalizeAccelerator(accelerator, platform))
+      );
+      // A failure here means the docs promise a binding nothing implements.
+      expect({ accelerator, matched }).toEqual({ accelerator, matched: true });
+    }
+  });
+
+  test('every user-facing registry default is documented', () => {
+    const documented = Object.fromEntries(
+      DOC_PLATFORMS.map((platform) => [
+        platform,
+        new Set(docAccelerators().map((acc) => normalizeAccelerator(acc, platform))),
+      ])
+    );
+
+    for (const entry of SHORTCUTS) {
+      if (entry.devOnly) continue;
+      const documentedSomewhere = DOC_PLATFORMS.some((platform) =>
+        documented[platform].has(
+          normalizeAccelerator(getDefaultAccelerator(entry, platform), platform)
+        )
+      );
+      expect({ id: entry.id, documented: documentedSomewhere }).toEqual({
+        id: entry.id,
+        documented: true,
+      });
+    }
+  });
+});
+
+describe('hamburger menu shortcut hints', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  // src/renderer/index.html hard-codes the hint text next to each hamburger
+  // menu item. A hint for a binding the app never registers is a lie the
+  // user can see (Print advertised Cmd/Ctrl+P for a shortcut that does not
+  // exist, which is where docs/features.md got it from). Pin every hint to
+  // the registry.
+  test('every data-shortcut hint is a real registry binding', () => {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf-8');
+    const hints = [...html.matchAll(/data-shortcut(?:-other)?="([^"]+)"/g)].map((m) => m[1]);
+    expect(hints.length).toBeGreaterThan(0);
+
+    for (const platform of ['darwin', 'win32']) {
+      const registry = new Set();
+      for (const entry of SHORTCUTS) {
+        const def = getDefaultAccelerator(entry, platform);
+        if (def) registry.add(normalizeAccelerator(def, platform));
+        for (const alias of getAliasAccelerators(entry, platform)) {
+          registry.add(normalizeAccelerator(alias, platform));
+        }
+      }
+      for (const hint of hints) {
+        const normalized = normalizeAccelerator(hint, platform);
+        // A hint may be platform-specific (Cmd+Y is macOS-only), so it only
+        // has to resolve on the platform whose modifier it names.
+        const appliesHere = platform === 'darwin' ? !/^Ctrl\+/.test(hint) : !/^Cmd\+/.test(hint);
+        if (!appliesHere) continue;
+        expect({ hint, platform, known: registry.has(normalized) }).toEqual({
+          hint,
+          platform,
+          known: true,
+        });
+      }
+    }
+  });
+});
+
 describe('formatAccelerator', () => {
   test('renders mac-style glyphs on darwin', () => {
     expect(formatAccelerator('CmdOrCtrl+Shift+K', 'darwin')).toBe('⇧⌘K');
