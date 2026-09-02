@@ -133,18 +133,24 @@ const formatShortcut = (shortcut, isMac) => {
 
   return shortcut
     .replace('CmdOrCtrl', isMac ? '⌘' : 'Ctrl')
+    .replace('Cmd', isMac ? '⌘' : 'Ctrl')
     .replace('Alt', isMac ? '⌥' : 'Alt')
     .replace('Shift', isMac ? '⇧' : 'Shift')
     .replace(/\+/g, '');
 };
 
-// Initialize keyboard shortcuts based on platform
+// Initialize keyboard shortcuts based on platform.
+//
+// A hint here must name a binding the app actually implements — an item
+// with no shortcut (Print, Zoom) carries no hint at all. Where the two
+// platforms differ (History is Cmd+Y on macOS, Ctrl+H elsewhere, per
+// src/shared/shortcuts.js), `data-shortcut-other` carries the non-mac form.
 const initKeyboardShortcuts = async () => {
   const platform = await electronAPI?.getPlatform?.();
   const isMac = platform === 'darwin';
 
   document.querySelectorAll('.menu-item-shortcut[data-shortcut]').forEach((el) => {
-    const shortcut = el.dataset.shortcut;
+    const shortcut = (!isMac && el.dataset.shortcutOther) || el.dataset.shortcut;
     el.textContent = formatShortcut(shortcut, isMac);
   });
 };
