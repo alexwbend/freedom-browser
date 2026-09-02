@@ -235,7 +235,7 @@ jobs:
 
       - name: Install Playwright system dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Download Myotis release addons
         run: npm run myotis:download
@@ -319,7 +319,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright system dependencies
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Download adblock filter lists
         run: npm run adblock:download
@@ -372,7 +372,7 @@ jobs:
 
       - name: Install Playwright system dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Download Ant (antd) binary
         # Version pinned in scripts/fetch-ant.js so CI tests exactly what releases ship.
@@ -441,7 +441,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright system dependencies
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Download Ant (antd) binary
         # Version pinned in scripts/fetch-ant.js so CI tests exactly what releases ship.
@@ -496,7 +496,7 @@ jobs:
 
       - name: Install Playwright system dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Run address-bar clipboard E2E
         shell: bash
@@ -548,7 +548,7 @@ jobs:
 
       - name: Install Playwright system dependencies
         if: runner.os == 'Linux'
-        run: npx playwright install-deps
+        uses: ./.github/actions/install-playwright-deps
 
       - name: Run profile lifecycle E2E
         shell: bash
