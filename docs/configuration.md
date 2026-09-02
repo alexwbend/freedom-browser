@@ -37,7 +37,7 @@ Under **Settings → Name Resolution**, enable and order the available methods:
 
 - **Myotis**: Reads finalized Ethereum or Gnosis state through the embedded P2P light client.
 - **Colibri**: Cryptographically verifies answers against the chain's sync committee through a configured prover.
-- **Public-RPC quorum**: Queries several providers and accepts matching answers.
+- **RPC quorum**: Queries several independently configured providers and accepts matching answers.
 - **Direct RPC**: Trusts the first configured endpoint; disabled by default.
 
 Freedom continues through the ordered methods when an earlier source is unavailable or cannot verify a request. An unverified answer can be held provisionally while later methods try to produce a verified result.

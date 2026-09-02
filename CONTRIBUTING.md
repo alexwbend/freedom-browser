@@ -36,7 +36,7 @@ Use Conventional Commit subjects:
 <type>(<scope>): <imperative summary>
 ```
 
-Common types are `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, and `perf`. Explain why a non-trivial change is needed in the commit body.
+The allowed types are `feat`, `fix`, `docs`, `test`, `refactor`, `chore`, `build`, `ci`, `perf`, and `revert`. Explain why a non-trivial change is needed in the commit body.
 
 Pull requests should:
 

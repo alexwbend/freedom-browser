@@ -39,6 +39,8 @@ body:
         - Swarm
         - IPFS or IPNS
         - Radicle
+        - Tor (.onion access)
+        - Myotis Ethereum or Gnosis light client
         - Naming and resolution
         - Wallet or dApp integration
         - Privacy, permissions, or security

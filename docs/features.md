@@ -14,7 +14,9 @@ Freedom runs Swarm, IPFS, and Radicle nodes, an experimental Myotis Ethereum lig
 | **Managed P2P Port**     | 12633+ (packaged)                             | internal native handler              | 18776+ (packaged)                 |
 | **Route Prefix**         | `/bzz/{hash}/`                                | `/ipfs/{cid}/`, `/ipns/{name}/`      | `/api/v1/repos/{rid}/`            |
 | **Data Directory**       | `<profile>/ant-data/`                         | `<profile>/ipfs-data/freedom-ipfs/`  | profile-scoped short Radicle home |
-| **Binary Directory**     | `ant-bin/`                                    | `native/freedom-ipfs-node/`          | `radicle-bin/<platform>-<arch>/`  |
+| **Binary Directory**     | `ant-bin/<platform>-<arch>/`                  | `native/freedom-ipfs-node/`          | `radicle-bin/<platform>-<arch>/`  |
+
+The Ant and Radicle binary paths above are the source-build layout that `npm run ant:download` and `npm run radicle:download` write; packaged builds flatten both to `<resources>/ant-bin/` and `<resources>/radicle-bin/`.
 
 Source builds (`npm start`) use a different, per-checkout port range; see [Configuration](configuration.md#node-endpoints).
 
@@ -48,7 +50,7 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 
 - **Toolbar Toggle**: Click the network icon to access the Nodes panel with independent on/off switches.
 - **Live Statistics**: View connected peers, visible network peers, and the Ant node version in real-time.
-- **DHT Client Mode**: Runs in ultra-light mode for minimal bandwidth and resource usage.
+- **DHT Client Mode**: Defaults to ultra-light (read-only) mode for minimal bandwidth and resource usage. It is a default, not a fixed mode — **Settings → Experimental → Swarm node mode** switches to light mode once publishing is set up, and back again.
 - **Automatic Configuration**: First-run setup generates keys and config automatically.
 
 ## Integrated IPFS Native Node
@@ -101,13 +103,16 @@ Enter any of the following in the address bar:
 | Tezos Domain  | `mysite.tez`, `ipfs://mysite.tez/docs`                                      |
 | HTTP(S) URL   | `https://example.com`                                                       |
 | Domain        | `example.com` (auto-prefixes `https://`)                                    |
+| Search Query  | `how to publish to swarm` (anything that is not a URL, hash, or name)       |
 
 The address bar also provides **autocomplete suggestions** from browsing history as you type.
+
+Input that is not a URL, hash, or name is sent to your search engine — DuckDuckGo by default. Pick another under **Settings → Search** (Google, DuckDuckGo, Bing, Brave Search, Ecosia, Startpage), or add your own with an HTTPS URL template containing `{searchTerms}`.
 
 ## Ethereum Name Resolution
 
 - **Automatic Resolution**: `.eth`, `.box`, `.wei`, and `.gwei` domains resolve to their Swarm, IPFS, or IPNS content. `.eth` and `.box` use ENS; `.wei` uses Wei Name Service (WNS); `.gwei` uses Gwei Name Service (GNS).
-- **CCIP-Read Support**: `.box` domains resolve via offchain CCIP-Read (EIP-3668) through 3dns.xyz.
+- **CCIP-Read Support**: `.box` domains resolve via offchain CCIP-Read (EIP-3668). Freedom pins no gateway host of its own: the gateway URLs come from the resolver's on-chain `OffchainLookup` revert (currently operated by 3DNS).
 - **Protocol Detection**: Automatically detects and routes to Swarm (`bzz://`), IPFS (`ipfs://`), or IPNS (`ipns://`) content.
 - **Transport-Aware Address Bar**: After resolution, the address bar shows the resolved transport with the name as the host — e.g. `vitalik.eth` resolves and displays as `ipfs://vitalik.eth`, a Swarm-backed `mysite.eth` displays as `bzz://mysite.eth`, a WNS-backed `alice.wei` displays as `ipfs://alice.wei`, and a GNS-backed `apoorv.gwei` displays as `ipfs://apoorv.gwei`. The legacy `ens://` form is still accepted as input (and stored bookmarks keep working) but is no longer the canonical display.
 - **Typed Scheme Is an Assertion**: Typing `bzz://name.eth`, `ipfs://name.eth`, `ipns://name.eth`, or the equivalent `.wei`/`.gwei` forms only resolves if the contenthash matches the typed transport. Mismatches surface as a "resolves to X, not Y" message rather than silently switching transports — same rule the `bzz://` protocol handler enforces for subresource fetches. Bare names and the legacy `ens://` form make no assertion and accept any supported transport.
@@ -116,7 +121,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 ## Tezos Domains Website Resolution
 
-- **Native on-chain resolution**: Bare `.tez` names are resolved directly from the Tezos Domains mainnet registry through three public Tezos RPC endpoints. Freedom follows the upgradeable proxy, discovers the annotated records and expiry big maps, pins all providers to one block, and requires a 2-of-3 matching result before marking it verified. Set `TEZOS_RPC` to prepend an additional endpoint; it must serve Tezos **mainnet**, since the chain ID is verified on every lookup.
+- **Native on-chain resolution**: Bare `.tez` names are resolved directly from the Tezos Domains mainnet registry through three public Tezos RPC endpoints. Freedom follows the upgradeable proxy, discovers the annotated records and expiry big maps, pins all providers to one block, and requires a 2-of-3 matching result before marking it verified. Set `TEZOS_RPC` to prepend an endpoint; the quorum still reads only the first three of the list, so a prepended endpoint displaces the last default rather than adding a fourth. It must serve Tezos **mainnet**, since the chain ID is verified on every lookup.
 - **Published website records**: `web:redirect_url` takes precedence over `web:content_url`, matching Tezos Domains publishing semantics. HTTP(S) records navigate directly; IPFS and IPNS records stay on Freedom's native transports and keep the `.tez` name as the page origin.
 - **Paths and assertions**: A base path embedded in the published URI is preserved when an address-bar path is appended. Typed `ipfs://name.tez` and `ipns://name.tez` forms assert that transport; `ens://name.tez` is intentionally rejected because `.tez` is not ENS.
 - **Expiry and caching**: Expired domains do not resolve. Positive cache entries honor `td:ttl` within a bounded lifetime and never outlive the on-chain expiry; negative results use a short cache.
@@ -136,7 +141,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 - **Reload**: Refresh the current page (uses cache; hard reload bypasses it). On error pages, retries the original URL.
 - **Stop**: Cancel page loading mid-request.
 - **Home**: Return to the welcome page.
-- **Keyboard Shortcuts** (the complete set of remappable defaults, mirroring `src/shared/shortcuts.js` — remap them under Settings > Shortcuts by clicking a binding and pressing the new combination; changes apply immediately. `Cmd+Q`, the standard Cut/Copy/Paste/Select-All/Undo set, and `F12` stay reserved):
+- **Keyboard Shortcuts** (the complete set of remappable defaults, mirroring `src/shared/shortcuts.js` — remap them under Settings > Shortcuts by clicking a binding and pressing the new combination; changes apply immediately. `Cmd+Q` and the standard Cut/Copy/Paste/Select-All/Undo set stay reserved, and the Developer Tools bindings are shown but locked):
   - `Cmd+N` / `Ctrl+N`: New window
   - `Cmd+Shift+N` / `Ctrl+Shift+N`: New private window
   - `Cmd+T` / `Ctrl+T`: New tab
@@ -155,14 +160,14 @@ The address bar also provides **autocomplete suggestions** from browsing history
   - `Cmd+Shift+B` / `Ctrl+Shift+B`: Toggle bookmark bar
   - `Cmd+Shift+W` / `Ctrl+Shift+W`: Toggle wallet sidebar
   - `F11`: Toggle fullscreen
-  - `Cmd+Alt+I` / `Ctrl+Shift+I` / `F12`: Developer Tools
+  - `Cmd+Alt+I` / `Ctrl+Shift+I` / `F12`: Developer Tools (listed for reference; all three are locked, not remappable)
 - **Fixed Keys**: Not part of the registry above and not remappable — `Escape` stops loading or restores the address bar, and in the find bar `Enter` jumps to the next match, `Shift+Enter` to the previous, and `Esc` closes it.
 - **No Keyboard Binding**: Zoom and Print have no shortcuts; use the hamburger menu's zoom controls and its Print entry.
 
 ## Bookmarks
 
 - **Address Bar Star**: Click the star icon to bookmark or unbookmark the current page.
-- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `rad://`, `http://`, or `https://` URL.
+- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `rad://`, `freedom://`, `http://`, or `https://` URL. The legacy `ens://` form is bookmarkable too, so older bookmarks and the seeded `ens://` defaults keep working.
 - **Named Bookmarks**: Name and edit bookmarks via modal or right-click.
 - **Bookmarks Bar**: Quick access below the toolbar, with an overflow menu when bookmarks don't fit. Always visible on the new tab page; toggle visibility on other pages with `Cmd+Shift+B` / `Ctrl+Shift+B` (persisted across sessions).
 
@@ -208,7 +213,7 @@ The address bar also provides **autocomplete suggestions** from browsing history
 
 Right-click on pages for context-sensitive actions:
 
-- **Page Context**: Back, Forward, Reload, View Page Source, Inspect
+- **Page Context**: Back, Forward, Reload (a hard reload — it bypasses the cache, unlike the toolbar Reload button), View Page Source, Inspect
 - **Link Context**: Open Link in New Tab, Open Link in New Window, Copy Link Address
 - **Selection Context**: Copy selected text
 - **Image Context**: Open Image in New Tab, Save Image As, Copy Image, Copy Image Address
@@ -250,15 +255,17 @@ Access built-in browser pages using the `freedom://` protocol:
 ## Settings & UI
 
 - **Theme**: Light, Dark, or System (follows OS preference).
+- **Tabs in Title Bar** (Linux only): Use the tab strip as the window title bar. Takes effect after restart.
+- **Search**: Choose the address-bar search engine, or add a custom one from an HTTPS URL template containing `{searchTerms}`.
 - **Node Auto-start**: Toggle whether Swarm, IPFS, and (experimental) Myotis Ethereum/Gnosis nodes start automatically at launch (Swarm and IPFS enabled by default).
 - **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
 - **Ad Blocking**: Choose filter categories, automatic list updates, and per-host exemptions.
 - **Shortcuts**: Search and remap browser commands with conflict detection and per-command reset.
 - **Chains and RPC Providers**: Configure chain endpoints, keyed providers, and ENS verification behavior.
-- **Experimental**: Enable Radicle integration (Beta) and set `Start Radicle node when Freedom opens`.
+- **Experimental**: Enable Identity & Wallet (Beta), Show IPFS load progress in the status bar, Swarm node mode, Enable Radicle integration (Beta), Start Radicle node when Freedom opens, Enable Tor (.onion access) (Beta), and Start Tor when Freedom opens. The Radicle and Tor rows are hidden on Windows builds.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
-- **Hamburger Menu**: Access browser features (New Tab, New Window, History, Zoom, Print, Developer Tools, Settings, About).
+- **Hamburger Menu**: Access browser features (Profile submenu, New Tab, New Window, New Private Window, History, Zoom, Print, Developer Tools, Settings, About Freedom, Check for Updates…).
 
 ## Error Handling
 
