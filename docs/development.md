@@ -118,7 +118,7 @@ Build an unpacked, unsigned application for the host platform with:
 npm run build -- --mac --unsigned
 ```
 
-Replace `--mac` with `--linux` or `--win` as appropriate. Linux cross-builds should use the Docker scripts because `better-sqlite3` must be compiled for the target architecture:
+Replace `--mac` with `--linux` or `--win` as appropriate. Native modules no longer need compiling for the target: `better-sqlite3` v13 ships prebuilt addons for every target we package (`darwin`/`linux`/`linuxmusl` x `x64`/`arm64`, plus `win32`), and each installer is built carrying only its own. Linux _distributables_ still use the Docker scripts, because the `.deb` target needs a system `fpm` (`USE_SYSTEM_FPM=true`) and its Ruby toolchain running in a container of the target architecture, which also fetches the arch-matched Radicle/IPFS/Myotis binaries:
 
 ```bash
 npm run dist:linux:x64:docker

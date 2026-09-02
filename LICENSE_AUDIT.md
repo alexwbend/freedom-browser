@@ -58,10 +58,12 @@ Freedom Browser is distributed as:
 | Package | Version | License | Risk |
 |---------|---------|---------|------|
 | ethers | 6.16.0 | MIT | Green |
-| better-sqlite3 | 12.10.0 | MIT | Green |
+| better-sqlite3 | 13.0.3 | MIT | Green |
 | electron-log | 5.4.4 | MIT | Green |
 | electron-updater | 6.8.3 | MIT | Green |
 | @ensdomains/content-hash | 3.0.0 | MIT | Green |
+
+> `better-sqlite3` re-checked 2026-09-02 for the 12.11.1 to 13.0.3 bump: still MIT, still Green. `micro-key-producer` (0.9.0 to 0.10.2, MIT) was checked at the same time; it is not listed above because the table covers only the packages reviewed in the 2026-06-14 audit. Other rows still carry their original audit-date versions and have not been re-verified.
 
 ### Notable Transitive Dependencies
 

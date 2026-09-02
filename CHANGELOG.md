@@ -36,6 +36,13 @@ All notable changes to Freedom will be documented in this file.
 
 - Updated bundled [Ant](https://github.com/freedom-hq/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
 - The Swarm node's API now comes up instantly on start, so the node menu shows peers counting up live instead of sitting at 0 during startup
+- Installers are about 15 MB smaller: each build now ships only the `better-sqlite3` native addon for its own platform and architecture instead of all eight upstream prebuilds
+
+### Security
+
+- Updated runtime dependencies:
+  - `better-sqlite3` 12.11.1 to 13.0.3
+  - `micro-key-producer` 0.9.0 to 0.10.2
 
 ## [0.8.0] - 2026-07-02
 

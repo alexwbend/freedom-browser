@@ -99,6 +99,9 @@
       "entitlements": "config/entitlements.mac.plist",
       "entitlementsInherit": "config/entitlements.mac.plist",
       "notarize": true,
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(darwin-${arch}).node"
+      ],
       "extraResources": [
         {
           "from": "radicle-bin/${os}-${arch}/",
@@ -134,6 +137,9 @@
         "x-scheme-handler/ipns",
         "x-scheme-handler/bzz"
       ],
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(linux-${arch}).node"
+      ],
       "extraResources": [
         {
           "from": "radicle-bin/${os}-${arch}/",
@@ -156,7 +162,10 @@
         "nsis",
         "zip"
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(win32-${arch}).node"
+      ]
     },
     "files": [
       "src/**/*",

@@ -8,15 +8,19 @@ Windows (see `release-process.md` §6).
 ## When to use this (vs. cross-building)
 
 `release-process.md` §5 cross-builds the Windows installer from the mac host
-(`npm run dist -- --win --x64`). That is correct for producing the *distributable*,
-but a mac cross-build is **not runnable on Windows for ad-hoc testing**:
-`better-sqlite3` is a native module that is `require`d at startup
-(`src/main/payment-history.js` → `src/main/index.js`), so an app packaged on macOS
-ships the darwin `.node` and crashes on launch under Windows.
+(`npm run dist -- --win --x64`), which is the supported way to produce the
+*distributable*. `better-sqlite3` is no longer a reason that artifact would fail to
+launch: it is a native module `require`d at startup (`src/main/payment-history.js`
+→ `src/main/index.js`), but since v13 it ships a `win32-<arch>` prebuild that a
+`--win` build packages regardless of the build host, so the old "packaged on macOS
+ships the darwin `.node` and crashes under Windows" failure no longer applies.
 
-Build **natively inside the VM** when you need an app that actually launches on
-Windows. The VM compiles/fetches the correct native-module ABI and bundles the
-correct-arch Ant/IPFS binaries.
+Build **natively inside the VM** when you want to validate on real Windows rather
+than trust the cross-build — it exercises the other native dependencies and the
+correct-arch Ant/IPFS binaries on their actual target. Running the cross-built
+installer on a Windows VM (`release-process.md` §6) covers the same ground and is
+cheaper; reach for a native in-VM build when that smoke test fails and you need to
+tell a packaging bug from a cross-build one.
 
 ## Prerequisites
 
@@ -117,10 +121,13 @@ A UTM Windows VM on Apple Silicon is **Windows on ARM (arm64)**. Two traps:
   ```
 
   Expect `win32arm64` → build `--arm64`.
-- `better-sqlite3` has a prebuilt **win-arm64 Electron** binary, so `npm ci`'s
-  `electron-builder install-app-deps` finishes without needing Visual Studio
-  Build Tools (`buildFromSource=false`). If you ever target an arch with no
-  prebuild, you must install MSVC + Python in the guest first.
+- Since v13, `better-sqlite3` ships Node-API prebuilds for every supported target
+  *inside its own tarball* (`node_modules/better-sqlite3/prebuilds/win32-arm64.node`
+  and friends) rather than downloading an Electron-version-specific binary, so
+  `npm ci`'s `electron-builder install-app-deps` finishes without needing Visual
+  Studio Build Tools (`buildFromSource=false`) and without a network fetch. If you
+  ever target an arch with no prebuild, you must install MSVC + Python in the guest
+  first.
 
 ## End-to-end build
 
@@ -157,7 +164,8 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
    ```
 
    Success looks like `• finished moduleName=better-sqlite3 arch=arm64` and
-   `added N packages`.
+   `added N packages`. Under v13 that line means the prebuilt addon was selected,
+   not that anything was compiled — it appears within a second or two.
 
 4. **Build the distributable:**
 
