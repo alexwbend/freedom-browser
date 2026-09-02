@@ -186,6 +186,7 @@ const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const myotisManager = require('./myotis/myotis-manager');
 const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
@@ -206,10 +207,18 @@ const {
   startRadicle,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
+const {
+  registerTorIpc,
+  stopTor,
+  startTor,
+  registerOnionRoutingSession,
+  unregisterOnionRoutingSession,
+} = require('./tor-manager');
 const { registerIdentityIpc, hasVault, setBeeLifecycle } = require('./identity-manager');
 const { registerQuickUnlockIpc } = require('./quick-unlock');
 const { registerWalletIpc } = require('./wallet/wallet-ipc');
 const { registerLedgerIpc } = require('./wallet/ledger/ipc');
+const { registerRemoteSignerIpc } = require('./wallet/remote/bridge');
 const { registerTokenRegistryIpc } = require('./token-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerNetworkConfigIpc } = require('./networks/network-ipc');
@@ -294,13 +303,16 @@ async function bootstrap() {
   registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
+  myotisManager.registerMyotisIpc();
   registerRadicleIpc();
+  registerTorIpc();
   registerGithubBridgeIpc();
   registerServiceRegistryIpc();
   registerIdentityIpc();
   registerQuickUnlockIpc();
   registerWalletIpc();
   registerLedgerIpc();
+  registerRemoteSignerIpc();
 
   // Let identity (re)injection stop the Bee node before wiping its statestore
   // (which it holds a LevelDB lock on) and restart it with the new key. Without
@@ -386,6 +398,11 @@ async function bootstrap() {
     });
     attachDownloadsManager(privateSession, { privatePartition: partition });
     installPermissionHandlers(privateSession, { privatePartition: partition });
+    // `.onion` routing is per-session: the PAC on the default session does
+    // not cover this partition, so without this registration a private window
+    // resolves *.onion DIRECT and hands the onion hostname to the system
+    // resolver. Applies the live policy immediately when Tor is already up.
+    registerOnionRoutingSession(partition, privateSession);
   });
   // On private-window close: cancel the window's still-running downloads
   // FIRST (once its rows are gone nothing can see or stop them, and a
@@ -396,6 +413,7 @@ async function bootstrap() {
   registerPrivateCleanup((partition) => cancelPrivateDownloads(partition));
   registerPrivateCleanup((partition) => dropPrivateDownloads(partition));
   registerPrivateCleanup((partition) => clearPrivatePermissionDecisions(partition));
+  registerPrivateCleanup((partition) => unregisterOnionRoutingSession(partition));
 
   registerWebContentsHandlers();
   setupApplicationMenu();
@@ -446,6 +464,7 @@ async function bootstrap() {
         bee: settings.startBeeAtLaunch !== false,
         radicle:
           settings.enableRadicleIntegration === true && settings.startRadicleAtLaunch !== false,
+        tor: settings.enableTorIntegration === true && settings.startTorAtLaunch === true,
       },
       logger: log,
     });
@@ -464,6 +483,23 @@ async function bootstrap() {
     }
     if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
       startRadicle();
+    }
+    // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
+    // (requires the addon — myotis:download or packaged resource); the
+    // MYOTIS_NODE_PATH env var force-starts regardless (spike/e2e harness).
+    // Syncs invisibly in the background; the ENS resolver starts preferring
+    // it once the node reports ready.
+    if (
+      myotisManager.isEnabled() &&
+      (settings.startMyotisAtLaunch || process.env.MYOTIS_NODE_PATH)
+    ) {
+      myotisManager.startMyotis();
+    }
+    if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
+      myotisManager.startMyotis({ chainId: 100 });
+    }
+    if (settings.enableTorIntegration && settings.startTorAtLaunch) {
+      startTor({ targetSession: defaultSession });
     }
   }
 
@@ -545,8 +581,9 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, and Radicle to stop...');
-  await Promise.all([stopAnt(), stopIpfs(), stopRadicle()]);
+  log.info('[App] Waiting for Ant, IPFS, Myotis, Radicle, and Tor to stop...');
+  myotisManager.stopAllMyotis();
+  await Promise.all([stopAnt(), stopIpfs(), stopRadicle(), stopTor()]);
   log.info('[App] All processes stopped, quitting...');
 
   app.quit();

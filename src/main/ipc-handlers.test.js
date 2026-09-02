@@ -158,6 +158,11 @@ function loadIpcHandlersModule(options = {}) {
     options.validateProfileDeletionForActiveApp || jest.fn(() => true);
   const requestProfileQuitAsync = options.requestProfileQuitAsync || jest.fn(() => ({ ok: true }));
   const isProfileLocked = options.isProfileLocked || jest.fn(() => false);
+  const myotisManager = options.myotisManager || {
+    stopAllMyotis: jest.fn(),
+    refreshMyotisStatus: jest.fn(),
+    NETWORKS: new Map([[1, {}], [100, {}]]),
+  };
 
   const { mod, app, webContents } = loadMainModule(require.resolve('./ipc-handlers'), {
     ipcMain,
@@ -193,6 +198,7 @@ function loadIpcHandlersModule(options = {}) {
       [require.resolve('./profile-lock')]: () => ({
         isProfileLocked,
       }),
+      [require.resolve('./myotis/myotis-manager')]: () => myotisManager,
       ...(options.swarmProbeMock
         ? { [require.resolve('./swarm/swarm-probe')]: () => options.swarmProbeMock }
         : {}),
@@ -229,6 +235,7 @@ function loadIpcHandlersModule(options = {}) {
     validateProfileDeletionForActiveApp,
     requestProfileQuitAsync,
     isProfileLocked,
+    myotisManager,
     importProfileForActiveApp,
     listProfilesForActiveApp,
     openOrFocusProfile,
@@ -432,6 +439,7 @@ describe('ipc-handlers', () => {
             bee: { mode: 'managed', apiPort: 11635 },
             ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
             radicle: { mode: 'disabled' },
+            tor: { mode: 'managed', socksPort: 19152 },
           },
         },
       },
@@ -448,7 +456,9 @@ describe('ipc-handlers', () => {
       nodes: {
         bee: { mode: 'managed', apiPort: 11635 },
         ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
+        myotis: null,
         radicle: { mode: 'disabled' },
+        tor: { mode: 'managed', socksPort: 19152 },
       },
     });
   });
@@ -1007,7 +1017,9 @@ describe('ipc-handlers', () => {
         nodes: {
           bee: { mode: 'managed', apiPort: 11634 },
           ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
+          myotis: { mode: 'managed', backend: 'myotis-native' },
           radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+          tor: { mode: 'managed', socksPort: 19151 },
         },
       },
     };
@@ -1038,7 +1050,9 @@ describe('ipc-handlers', () => {
           nodes: {
             bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
             ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
+            myotis: { mode: 'managed', backend: 'myotis-native' },
             radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+            tor: { mode: 'managed', socksPort: 19151 },
           },
         },
       })
@@ -1057,9 +1071,124 @@ describe('ipc-handlers', () => {
       nodes: {
         bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
         ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
+        myotis: { mode: 'managed', backend: 'myotis-native' },
         radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+        tor: { mode: 'managed', socksPort: 19151 },
       },
     });
+  });
+
+  test('supports managed and disabled Myotis profile modes', async () => {
+    const activeProfile = {
+      id: 'work',
+      displayName: 'Work',
+      source: 'catalog',
+      metadata: {
+        nodes: { myotis: { mode: 'managed', backend: 'myotis-native' } },
+      },
+    };
+    const ctx = loadIpcHandlersModule({ activeProfile });
+    ctx.mod.registerBaseIpcHandlers();
+
+    await expect(
+      ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+        protocol: 'myotis',
+        config: { mode: 'disabled', externalApi: 'http://127.0.0.1:8545' },
+      })
+    ).resolves.toEqual(
+      success({
+        profile: expect.objectContaining({
+          nodes: expect.objectContaining({
+            myotis: { mode: 'disabled', backend: 'myotis-native' },
+          }),
+        }),
+      })
+    );
+    expect(ctx.updateActiveProfileNodeConfig).toHaveBeenCalledWith('myotis', {
+      mode: 'disabled',
+    });
+    expect(ctx.myotisManager.stopAllMyotis).toHaveBeenCalled();
+
+    await ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+      protocol: 'myotis',
+      config: { mode: 'managed' },
+    });
+    expect(ctx.myotisManager.refreshMyotisStatus.mock.calls).toEqual([[1], [100]]);
+
+    expect(ctx.mod.validateProfileNodeConfigUpdate('myotis', { mode: 'external' })).toEqual({
+      ok: false,
+      response: failure('INVALID_PROFILE_NODE_MODE', 'Unsupported profile node mode', {
+        mode: 'external',
+      }),
+    });
+  });
+
+  test('updates Tor profile node config through SOCKS endpoint validation', async () => {
+    const activeProfile = {
+      id: 'work',
+      displayName: 'Work',
+      source: 'catalog',
+      isDev: false,
+      metadata: {
+        slot: 1,
+        nodes: {
+          tor: { mode: 'managed', socksPort: 19151, externalSocks: null },
+        },
+      },
+    };
+    const ctx = loadIpcHandlersModule({ activeProfile });
+
+    ctx.mod.registerBaseIpcHandlers();
+
+    await expect(
+      ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+        protocol: 'tor',
+        config: {
+          mode: 'external',
+          externalSocks: 'socks5://127.0.0.1:9150/',
+        },
+      })
+    ).resolves.toEqual(
+      success({
+        profile: {
+          id: 'work',
+          displayName: 'Work',
+          source: 'catalog',
+          isDev: false,
+          slot: 1,
+          nodes: {
+            bee: null,
+            ipfs: null,
+            myotis: null,
+            radicle: null,
+            tor: {
+              mode: 'external',
+              socksPort: 19151,
+              externalSocks: '127.0.0.1:9150',
+            },
+          },
+        },
+      })
+    );
+
+    expect(ctx.updateActiveProfileNodeConfig).toHaveBeenCalledWith('tor', {
+      mode: 'external',
+      externalSocks: '127.0.0.1:9150',
+    });
+
+    await expect(
+      ctx.invokeProfileMutation(IPC.PROFILE_UPDATE_NODE_CONFIG, {
+        protocol: 'tor',
+        config: {
+          mode: 'external',
+          externalSocks: 'http://127.0.0.1:9150',
+        },
+      })
+    ).resolves.toEqual(
+      failure('INVALID_PROFILE_NODE_ENDPOINT', 'Invalid profile node endpoint', {
+        field: 'externalSocks',
+      })
+    );
   });
 
   test('rejects invalid active profile node updates', async () => {

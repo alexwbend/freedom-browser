@@ -15,6 +15,7 @@ tmp/
 *.swp
 .env
 ant-bin/
+myotis-bin/
 ant-data/
 assets/adblock/
 ipfs-bin/
@@ -23,6 +24,8 @@ dev-scripts/
 helios-bin/
 radicle-bin/
 radicle-data/
+arti-bin/
+tor-data/
 dev-app-update.yml
 CLAUDE.md
 .codex

@@ -5,11 +5,13 @@ import {
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
+import { initMyotisUi } from './lib/myotis-ui.js';
 import {
   initRadicleUi,
   updateRadicleStatusLine,
   updateRadicleToggleState,
 } from './lib/radicle-ui.js';
+import { initTorUi, updateTorStatusLine } from './lib/tor-ui.js';
 import {
   initMenus,
   setOnOpenHistory,
@@ -109,6 +111,7 @@ window.serviceRegistry?.onUpdate?.((registry) => {
   updateIpfsToggleState();
   updateRadicleStatusLine();
   updateRadicleToggleState();
+  updateTorStatusLine();
 });
 
 // Fetch initial registry state
@@ -736,7 +739,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   initMenus();
   initAntUi();
   initIpfsUi();
+  initMyotisUi();
   initRadicleUi();
+  initTorUi();
   initGithubBridgeUi();
   document.getElementById('settings-btn')?.addEventListener('click', () => {
     closeMenus();

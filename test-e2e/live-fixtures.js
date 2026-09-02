@@ -26,6 +26,16 @@ function resolveAntBinaryPath() {
   return path.join(repoRoot, 'ant-bin', `${platform}-${arch}`, binName);
 }
 
+// Mirror tor-manager.js's getArtiBinaryPath() (dev layout) for the same
+// reason: `npm run tor:download` is an opt-in per-platform build step, so the
+// live Tor spec skips gracefully when the binary isn't there.
+function resolveArtiBinaryPath() {
+  const platformMap = { darwin: 'mac', linux: 'linux', win32: 'win' };
+  const platform = platformMap[process.platform] || process.platform;
+  const binName = process.platform === 'win32' ? 'arti.exe' : 'arti';
+  return path.join(repoRoot, 'arti-bin', `${platform}-${process.arch}`, binName);
+}
+
 function resolveIpfsNativeAddonPath() {
   return path.join(
     repoRoot,
@@ -42,6 +52,26 @@ const HAS_ANT_BINARY = fs.existsSync(ANT_BINARY_PATH);
 
 const IPFS_NATIVE_ADDON_PATH = resolveIpfsNativeAddonPath();
 const HAS_IPFS_NATIVE_ADDON = fs.existsSync(IPFS_NATIVE_ADDON_PATH);
+
+const ARTI_BINARY_PATH = resolveArtiBinaryPath();
+const HAS_ARTI_BINARY = fs.existsSync(ARTI_BINARY_PATH);
+
+function envFlagEnabled(name) {
+  const raw = process.env[name];
+  return typeof raw === 'string' && raw !== '' && raw !== '0' && raw.toLowerCase() !== 'false';
+}
+
+// `FREEDOM_LIVE_E2E_DISABLE_DEFAULT_NODES=1` (set by `npm run test:e2e:tor`)
+// seeds settings that keep Ant / IPFS / Radicle / Tor from autostarting: a
+// spec exercising one live subsystem shouldn't pay the boot cost — or inherit
+// the flakiness — of the others. A spec's own `seedSettings` still wins.
+const DEFAULT_NODES_OFF_SETTINGS = {
+  startAntAtLaunch: false,
+  startIpfsAtLaunch: false,
+  enableRadicleIntegration: false,
+  startRadicleAtLaunch: false,
+  startTorAtLaunch: false,
+};
 
 const test = base.extend({
   // Seed settings.json before launch (same semantics as fixtures.js) —
@@ -75,10 +105,13 @@ const test = base.extend({
     for (const dir of [userDataDir, beeDataDir, ipfsDataDir, identityDataDir]) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    if (settingsOverride) {
+    const seededSettings = envFlagEnabled('FREEDOM_LIVE_E2E_DISABLE_DEFAULT_NODES')
+      ? { ...DEFAULT_NODES_OFF_SETTINGS, ...(settingsOverride || {}) }
+      : settingsOverride;
+    if (seededSettings) {
       fs.writeFileSync(
         path.join(userDataDir, 'settings.json'),
-        JSON.stringify(settingsOverride, null, 2),
+        JSON.stringify(seededSettings, null, 2),
         'utf-8'
       );
     }
@@ -131,4 +164,6 @@ module.exports = {
   ANT_BINARY_PATH,
   HAS_IPFS_NATIVE_ADDON,
   IPFS_NATIVE_ADDON_PATH,
+  HAS_ARTI_BINARY,
+  ARTI_BINARY_PATH,
 };

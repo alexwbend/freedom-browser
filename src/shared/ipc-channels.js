@@ -22,6 +22,12 @@ module.exports = {
   IPFS_STATUS_UPDATE: 'ipfs:statusUpdate',
   IPFS_CHECK_BINARY: 'ipfs:checkBinary',
 
+  // Myotis P2P Ethereum light client (experimental)
+  MYOTIS_START: 'myotis:start',
+  MYOTIS_STOP: 'myotis:stop',
+  MYOTIS_GET_STATUS: 'myotis:getStatus',
+  MYOTIS_STATUS_UPDATE: 'myotis:statusUpdate',
+
   // Radicle node management
   RADICLE_START: 'radicle:start',
   RADICLE_STOP: 'radicle:stop',
@@ -33,6 +39,14 @@ module.exports = {
   RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
   RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
+
+  // Tor (Arti) node management — routes .onion traffic via a local SOCKS proxy
+  TOR_START: 'tor:start',
+  TOR_STOP: 'tor:stop',
+  TOR_GET_STATUS: 'tor:getStatus',
+  TOR_STATUS_UPDATE: 'tor:statusUpdate',
+  TOR_CHECK_BINARY: 'tor:checkBinary',
+  TOR_GET_VERSION: 'tor:getVersion',
 
   // ENS resolution
   ENS_RESOLVE: 'ens:resolve',
