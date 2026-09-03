@@ -1,5 +1,5 @@
 // Navigation, webview, and address bar handling
-import { state } from './state.js';
+import { state, isRadicleDisabledForProfile } from './state.js';
 import { pushDebug } from './debug.js';
 import { updateBookmarkButtonVisibility } from './bookmarks-ui.js';
 import { updateGithubBridgeIcon } from './github-bridge-ui.js';
@@ -24,10 +24,12 @@ import {
   looksLikeBzzInput,
   deriveDisplayValue,
   deriveBzzBaseFromUrl,
-  deriveRadBaseFromUrl,
   buildEnsDisplayUri,
   isEnsBackedDisplay,
   isSupportedEnsTransport,
+  formatOnchainAppUrl,
+  formatOnchainAppDisplayUrl,
+  looksLikeOnchainAppInput,
 } from './url-utils.js';
 import { buildSearchUrl } from './search-utils.js';
 import {
@@ -35,6 +37,7 @@ import {
   getActiveTab,
   getActiveTabState,
   openInNewTabWithTarget,
+  setOnchainProvenanceChangeHandler,
   setWebviewEventHandler,
   updateActiveTabTitle,
   updateTabFavicon,
@@ -77,6 +80,11 @@ const getNavState = () => getActiveTabState() || {};
 // second is slack for a legitimate redirect. Anything beyond that is a
 // resolve→navigate loop, not a real site.
 const MAX_NAME_RESOLUTION_DEPTH = 3;
+
+// Shown (in the debug trail) when a rad: navigation is refused because the
+// active profile has Radicle disabled — the page itself explains the setting.
+const RADICLE_DISABLED_MESSAGE =
+  'Radicle is disabled for this profile. Enable it in Settings > Nodes';
 
 const isIpfsProgressUrl = (value) => {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -250,9 +258,6 @@ const cancelPendingSwarmProbe = (navState) => {
 };
 
 const electronAPI = window.electronAPI;
-const RADICLE_DISABLED_MESSAGE =
-  'Radicle integration is disabled. Enable it in Settings > Experimental';
-
 // DOM elements (initialized in initNavigation)
 let addressInput = null;
 let navForm = null;
@@ -492,6 +497,7 @@ const toggleTrustPopover = () => {
   const badge = resolveTrustBadge({
     value: addressInput?.value || '',
     ensTrustByName: state.ensTrustByName,
+    onchainProvenance: getActiveTab()?.onchainProvenance,
   });
   if (!badge) return;
 
@@ -501,6 +507,8 @@ const toggleTrustPopover = () => {
   const title = document.getElementById('trust-popover-title');
   const statusEl = document.getElementById('trust-popover-status');
   const trustFieldsEl = document.getElementById('trust-popover-trust-fields');
+  const contentEl = document.getElementById('trust-popover-content');
+  const contentTitleEl = document.getElementById('trust-popover-content-title');
   const contentFieldsEl = document.getElementById('trust-popover-content-fields');
 
   if (title) title.textContent = name;
@@ -513,7 +521,11 @@ const toggleTrustPopover = () => {
     level,
     uri: state.ensUriByName.get(name) || '',
     proto: state.ensProtocols.get(name),
+    onchainProvenance: badge.provenance,
   });
+  if (contentTitleEl) {
+    contentTitleEl.textContent = badge.kind === 'onchain' ? 'Loads from' : 'Resolves to';
+  }
 
   if (statusEl) {
     if (status === null) {
@@ -640,6 +652,7 @@ const toggleTrustPopover = () => {
   if (contentFieldsEl) {
     contentFieldsEl.replaceChildren(...contentRows.map(buildRow));
   }
+  if (contentEl) contentEl.hidden = contentRows.length === 0;
 
   // Record the identity of what's now rendered before we flip the
   // popover open — `setTrustPopoverOpen(true)` doesn't clear it, only
@@ -668,7 +681,6 @@ const updateProtocolIcon = () => {
     const protocol = resolveProtocolIconType({
       value: addressInput?.value || '',
       ensProtocols: state.ensProtocols,
-      enableRadicleIntegration: state.enableRadicleIntegration,
       currentPageSecure,
     });
     if (protocol) {
@@ -684,17 +696,20 @@ const updateProtocolIcon = () => {
     const badge = resolveTrustBadge({
       value: addressInput?.value || '',
       ensTrustByName: state.ensTrustByName,
+      onchainProvenance: getActiveTab()?.onchainProvenance,
     });
     if (badge) {
       trustShield.setAttribute('data-trust', badge.level);
       trustShield.setAttribute(
         'aria-label',
-        TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
+        badge.kind === 'onchain'
+          ? `Onchain application provenance: ${badge.level}`
+          : TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
       );
       trustShield.hidden = false;
     } else {
       trustShield.removeAttribute('data-trust');
-      trustShield.setAttribute('aria-label', 'Ethereum name resolution trust status');
+      trustShield.setAttribute('aria-label', 'Site provenance status');
       trustShield.hidden = true;
     }
 
@@ -784,29 +799,6 @@ const syncBzzBase = (nextBase) => {
     })
     .catch((err) => {
       console.error('Failed to sync bzz base', err);
-    });
-};
-
-const syncRadBase = (nextBase) => {
-  const navState = getNavState();
-  if (!electronAPI || (!electronAPI.setRadBase && !electronAPI.clearRadBase)) {
-    return;
-  }
-  if (navState.currentRadBase === nextBase) {
-    return;
-  }
-  navState.currentRadBase = nextBase || null;
-  ensureWebContentsId()
-    .then((id) => {
-      if (!id) return;
-      if (navState.currentRadBase) {
-        electronAPI.setRadBase?.(id, navState.currentRadBase);
-      } else {
-        electronAPI.clearRadBase?.(id);
-      }
-    })
-    .catch((err) => {
-      console.error('Failed to sync rad base', err);
     });
 };
 
@@ -1182,6 +1174,32 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     return;
   }
 
+  // ERC-8244 contract-hosted applications. The standard `web3:` origin is
+  // scoped by both contract and chain (`web3://<address>.eip155-<chainId>/`), while
+  // the main-process handler reads the document through Freedom's verified
+  // chain-data router. No gateway URL or page-owned RPC endpoint is involved.
+  const onchainAppUrl = formatOnchainAppUrl(value);
+  if (onchainAppUrl) {
+    const displayValue =
+      displayOverride || formatOnchainAppDisplayUrl(value) || onchainAppUrl;
+    setAddressDisplayForTab(displayValue, targetTabId);
+    navState.pendingTitleForUrl = onchainAppUrl;
+    navState.pendingNavigationUrl = onchainAppUrl;
+    navState.hasNavigatedDuringCurrentLoad = false;
+    webview.loadURL(onchainAppUrl);
+    pushDebug(`[Onchain App] Loading ${onchainAppUrl}`);
+    syncBzzBase(null);
+    return;
+  }
+  if (looksLikeOnchainAppInput(value)) {
+    pushDebug(`[Onchain App] Invalid web3 URL: ${value}`);
+    alert(
+      'Invalid onchain application URL. Expected web3://<contract>:<chainId>/ ' +
+        '(Ethereum mainnet is used when the chain is omitted).'
+    );
+    return;
+  }
+
   // Try Ethereum names first (legacy ens:// plus supported name suffixes)
   const ens = parseEnsInput(value);
   const resolveName = resolverForNameInput(ens);
@@ -1400,14 +1418,17 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try Radicle (rad:RID or rad://RID)
   if (value.trim().toLowerCase().startsWith('rad:') || value.trim().toLowerCase().startsWith('rad://')) {
-    if (!state.enableRadicleIntegration) {
+    if (isRadicleDisabledForProfile()) {
+      // Radicle is off for this profile: the node can never start, so the
+      // generic connection-error panel ("enable Radicle in the Nodes menu")
+      // would point at a control this profile doesn't have. Send the user to
+      // the panel that explains the profile setting instead.
       pushDebug(RADICLE_DISABLED_MESSAGE);
       const disabledUrl = buildRadicleDisabledUrl(window.location.href, value.trim());
       addressInput.value = value.trim();
       navState.pendingNavigationUrl = disabledUrl;
       navState.hasNavigatedDuringCurrentLoad = false;
       webview.loadURL(disabledUrl);
-      syncRadBase(null);
       syncBzzBase(null);
       return;
     }
@@ -1429,7 +1450,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       }
       pushDebug(`Loading ${radicleTarget.displayValue} via ${radicleTarget.targetUrl}`);
       // rad-browser.html handles its own API calls, no base sync needed
-      syncRadBase(null);
       syncBzzBase(null);
       return;
     }
@@ -1443,7 +1463,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     navState.pendingNavigationUrl = errorUrl.toString();
     navState.hasNavigatedDuringCurrentLoad = false;
     webview.loadURL(errorUrl.toString());
-    syncRadBase(null);
     syncBzzBase(null);
     return;
   }
@@ -1501,7 +1520,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
       navState.hasNavigatedDuringCurrentLoad = false;
       webview.loadURL(errorUrl);
       syncBzzBase(null);
-      syncRadBase(null);
       return;
     }
     const cidMatch = ipfsTarget.displayValue.match(/^ipfs:\/\/([A-Za-z0-9]+)/);
@@ -1523,7 +1541,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     webview.loadURL(ipfsLoadUrl);
     pushDebug(`Loading ${ipfsTarget.displayValue} via ${ipfsLoadUrl}`);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1557,7 +1574,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     navState.hasNavigatedDuringCurrentLoad = false;
     webview.loadURL(errorUrl);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1576,7 +1592,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     });
     pushDebug(`[AddressBar] Loading target, set to: ${displayValue}`);
     syncBzzBase(target.baseUrl || null);
-    syncRadBase(null);
 
     // Augment with optional ENS-transport overrides. `swarmHash` lets the
     // probe target the resolved Swarm reference; `bzzLoadUrl` is what
@@ -1603,7 +1618,6 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
     webview.loadURL(value);
     pushDebug(`Loading ${value}`);
     syncBzzBase(null);
-    syncRadBase(null);
     return;
   }
 
@@ -1659,7 +1673,6 @@ export const loadHomePage = () => {
     return;
   }
   syncBzzBase(null);
-  syncRadBase(null);
   addressInput.value = '';
   updateProtocolIcon();
   navState.pendingNavigationUrl = homeUrlNormalized;
@@ -1908,13 +1921,11 @@ const handleNavigationEvent = (event) => {
         pushDebug(`[AddressBar] Skipped update (already ${derived})`);
       }
 
-      // Sync bases for protocols still using the rewriter (bzz, rad).
+      // Sync the only protocol still using the HTTP request rewriter (bzz).
       // `ipfs:`/`ipns:` are standard schemes with main-process protocol
       // handlers, so the renderer doesn't track an IPFS base anymore.
       const bzzBase = deriveBzzBaseFromUrl(event.url);
-      const radBase = deriveRadBaseFromUrl(event.url);
       syncBzzBase(bzzBase);
-      syncRadBase(radBase);
     }
 
     navState.pendingTitleForUrl = event.url;
@@ -1988,10 +1999,6 @@ export const onSettingsChanged = (settings = null) => {
   }
 
   updateProtocolIcon();
-  if (!state.enableRadicleIntegration && addressInput?.value?.trim().toLowerCase().startsWith('rad:')) {
-    loadTarget(addressInput.value);
-    return;
-  }
   if (navState.currentPageUrl && navState.currentPageUrl.startsWith('bzz://')) {
     loadTarget(addressInput.value);
   }
@@ -2009,6 +2016,10 @@ export const initNavigation = () => {
   protocolIcon = document.getElementById('protocol-icon');
   trustShield = document.getElementById('trust-shield');
   trustPopover = document.getElementById('trust-popover');
+
+  setOnchainProvenanceChangeHandler((tabId) => {
+    if (isActiveTab(tabId)) updateProtocolIcon();
+  });
 
   if (trustShield) {
     // Don't stopPropagation: we want the click to bubble to the
@@ -2414,9 +2425,6 @@ export const initNavigation = () => {
           // renderer doesn't track an IPFS base anymore.
           if (tabNavState.currentBzzBase) {
             syncBzzBase(tabNavState.currentBzzBase);
-          }
-          if (tabNavState.currentRadBase) {
-            syncRadBase(tabNavState.currentRadBase);
           }
           // Sync navigationState.currentPageUrl if tab.url is more recent
           if (data.tab.url && data.tab.url !== tabNavState.currentPageUrl) {

@@ -27,6 +27,7 @@ function loadPreloadModule(options = {}) {
       invokeResponses: {
         [IPC.ANT_GET_STATUS]: { status: 'running', error: null },
         [IPC.IPFS_GET_STATUS]: { status: 'stopped', error: null },
+        [IPC.MYOTIS_GET_STATUS]: { state: 'off', running: false, available: true },
         [IPC.RADICLE_GET_STATUS]: { status: 'error', error: 'offline' },
         ...(options.invokeResponses || {}),
       },
@@ -83,12 +84,13 @@ describe('preload', () => {
       beeApiEnv: 'http://127.0.0.1:1700',
     });
 
-    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(26);
+    expect(contextBridge.exposeInMainWorld).toHaveBeenCalledTimes(28);
     expect(Object.keys(exposures)).toEqual([
       'nodeConfig',
       'internalPages',
       'electronAPI',
       'ant',
+      'myotis',
       'ipfs',
       'radicle',
       'tor',
@@ -98,6 +100,7 @@ describe('preload', () => {
       'quickUnlock',
       'wallet',
       'ledger',
+      'remoteSigner',
       'swarmNode',
       'networks',
       'payments',
@@ -115,6 +118,7 @@ describe('preload', () => {
     expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.GET_INTERNAL_PAGES);
     expect(exposures.nodeConfig).toEqual({
       antApi: 'http://127.0.0.1:1700',
+      openlvSignaling: null,
     });
     expect(exposures.internalPages).toBe(internalPages);
 
@@ -124,8 +128,6 @@ describe('preload', () => {
       [exposures.electronAPI, 'startSwarmProbe', ['a'.repeat(64), '/index.html'], IPC.BZZ_START_PROBE, [{ hash: 'a'.repeat(64), path: '/index.html' }]],
       [exposures.electronAPI, 'awaitSwarmProbe', ['probe-1'], IPC.BZZ_AWAIT_PROBE, [{ id: 'probe-1' }]],
       [exposures.electronAPI, 'cancelSwarmProbe', ['probe-1'], IPC.BZZ_CANCEL_PROBE, [{ id: 'probe-1' }]],
-      [exposures.electronAPI, 'setRadBase', [31, 'http://127.0.0.1:8780/api/v1/repos/rid/'], IPC.RAD_SET_BASE, [{ webContentsId: 31, baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/' }]],
-      [exposures.electronAPI, 'clearRadBase', [31], IPC.RAD_CLEAR_BASE, [{ webContentsId: 31 }]],
       [exposures.electronAPI, 'getPlatform', [], IPC.WINDOW_GET_PLATFORM, []],
       [exposures.electronAPI, 'getActiveProfile', [], IPC.PROFILE_GET_ACTIVE, []],
       [exposures.electronAPI, 'listProfiles', [], IPC.PROFILE_LIST, []],
@@ -157,6 +159,9 @@ describe('preload', () => {
       [exposures.ant, 'stop', [], IPC.ANT_STOP, []],
       [exposures.ant, 'getStatus', [], IPC.ANT_GET_STATUS, []],
       [exposures.ant, 'checkBinary', [], IPC.ANT_CHECK_BINARY, []],
+      [exposures.myotis, 'start', [], IPC.MYOTIS_START, []],
+      [exposures.myotis, 'stop', [], IPC.MYOTIS_STOP, []],
+      [exposures.myotis, 'getStatus', [], IPC.MYOTIS_GET_STATUS, []],
       [exposures.ipfs, 'start', [], IPC.IPFS_START, []],
       [exposures.ipfs, 'stop', [], IPC.IPFS_STOP, []],
       [exposures.ipfs, 'getStatus', [], IPC.IPFS_GET_STATUS, []],
@@ -257,6 +262,7 @@ describe('preload', () => {
       [exposures.sitePermissions, 'onChanged', IPC.PERMISSIONS_CHANGED, [{}], [{}]],
       [exposures.githubBridge, 'onProgress', IPC.GITHUB_BRIDGE_PROGRESS, [{ step: 'cloning' }], [{ step: 'cloning' }]],
       [exposures.serviceRegistry, 'onUpdate', IPC.SERVICE_REGISTRY_UPDATE, [{ ant: { mode: 'bundled' } }], [{ ant: { mode: 'bundled' } }]],
+      [exposures.radicleProvider, 'onEvent', IPC.RADICLE_PROVIDER_EVENT, [{ event: 'seedStatus', origin: 'rad://repo', data: { state: 'fetching' } }], [{ event: 'seedStatus', origin: 'rad://repo', data: { state: 'fetching' } }]],
     ];
 
     for (const [target, method, channel, emittedArgs, expectedArgs] of listenerCases) {
@@ -275,12 +281,14 @@ describe('preload', () => {
   test('status update wrappers subscribe, fetch current state immediately, and clean up', async () => {
     const beeStatus = { status: 'running', error: null };
     const ipfsStatus = { status: 'stopped', error: null };
+    const myotisStatus = { state: 'off', running: false, available: true };
     const radicleStatus = { status: 'error', error: 'offline' };
     const torStatus = { status: 'stopped', error: null };
     const { exposures, ipcRenderer } = loadPreloadModule({
       invokeResponses: {
         [IPC.ANT_GET_STATUS]: beeStatus,
         [IPC.IPFS_GET_STATUS]: ipfsStatus,
+        [IPC.MYOTIS_GET_STATUS]: myotisStatus,
         [IPC.RADICLE_GET_STATUS]: radicleStatus,
         [IPC.TOR_GET_STATUS]: torStatus,
       },
@@ -289,6 +297,7 @@ describe('preload', () => {
     const statusCases = [
       [exposures.ant, IPC.ANT_STATUS_UPDATE, IPC.ANT_GET_STATUS, beeStatus, { status: 'starting', error: null }],
       [exposures.ipfs, IPC.IPFS_STATUS_UPDATE, IPC.IPFS_GET_STATUS, ipfsStatus, { status: 'running', error: null }],
+      [exposures.myotis, IPC.MYOTIS_STATUS_UPDATE, IPC.MYOTIS_GET_STATUS, myotisStatus, { state: 'ready', running: true }],
       [exposures.radicle, IPC.RADICLE_STATUS_UPDATE, IPC.RADICLE_GET_STATUS, radicleStatus, { status: 'running', error: null }],
       [exposures.tor, IPC.TOR_STATUS_UPDATE, IPC.TOR_GET_STATUS, torStatus, { status: 'running', error: null }],
     ];
@@ -321,6 +330,19 @@ describe('preload', () => {
 
     expect(exposures.nodeConfig).toEqual({
       antApi: null,
+      openlvSignaling: null,
     });
+  });
+
+  test('contains an eager Myotis status failure inside the preload bridge', async () => {
+    const { exposures, ipcRenderer } = loadPreloadModule();
+    const callback = jest.fn();
+    ipcRenderer.invoke.mockRejectedValueOnce(new Error('window closed'));
+
+    const cleanup = exposures.myotis.onStatusUpdate(callback);
+    await flushMicrotasks();
+
+    expect(callback).not.toHaveBeenCalled();
+    cleanup();
   });
 });

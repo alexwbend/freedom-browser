@@ -141,8 +141,14 @@ const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
 const { registerRadProtocol } = require('./radicle/rad-protocol');
+const {
+  installOnchainProvenanceCapture,
+  registerOnchainAppProtocol,
+  registerOnchainProvenanceIpc,
+} = require('./onchain/onchain-app-protocol');
+const { registerRadicleApiProtocol } = require('./radicle-api-protocol');
 
-// Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
+// Register `bzz:`, `ipfs:`, `ipns:`, and `web3:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
 // see https://www.electronjs.org/docs/latest/api/protocol.
 // See README "Swarm Content Retrieval" and "IPFS / IPNS Content Retrieval"
@@ -159,6 +165,23 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // ERC-8244 documents are single onchain HTML responses. They need a
+  // standard, secure origin and Fetch-compatible Response handling, but
+  // deliberately do not get service-worker privileges: their response CSP
+  // denies ambient network access and mutable offchain dependencies.
+  {
+    scheme: 'web3',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+  // Embedded Radicle API (radicle-api-protocol.js). Standard host casing
+  // is fine here — RIDs travel in the path, not the host.
+  { scheme: 'radapi', privileges: DWEB_PROTOCOL_PRIVILEGES },
   // `rad` is deliberately NOT `standard`: standard schemes get their host
   // lowercased by URL canonicalization, which would destroy case-sensitive
   // base58 RIDs (`rad://z3gqcJUoA1n9…`). Non-standard keeps the URL opaque
@@ -186,6 +209,7 @@ const { closeDb: closeDownloadsDb } = require('./downloads/downloads-store');
 const { dropPartition: dropPrivateDownloads } = require('./downloads/private-downloads-store');
 const { registerFaviconsIpc } = require('./favicons');
 const { registerEnsIpc } = require('./ens-resolver');
+const myotisManager = require('./myotis/myotis-manager');
 const { registerTezosDomainsIpc } = require('./tezos-domains-resolver');
 const {
   registerAntIpc,
@@ -204,6 +228,7 @@ const {
   registerRadicleIpc,
   stopRadicle,
   startRadicle,
+  syncProfileMode: syncRadicleProfileMode,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
 const {
@@ -217,6 +242,7 @@ const { registerIdentityIpc, hasVault, setBeeLifecycle } = require('./identity-m
 const { registerQuickUnlockIpc } = require('./quick-unlock');
 const { registerWalletIpc } = require('./wallet/wallet-ipc');
 const { registerLedgerIpc } = require('./wallet/ledger/ipc');
+const { registerRemoteSignerIpc } = require('./wallet/remote/bridge');
 const { registerTokenRegistryIpc } = require('./token-registry');
 const { registerRpcManagerIpc } = require('./wallet/rpc-manager');
 const { registerNetworkConfigIpc } = require('./networks/network-ipc');
@@ -301,6 +327,7 @@ async function bootstrap() {
   registerTezosDomainsIpc();
   registerAntIpc();
   registerIpfsIpc();
+  myotisManager.registerMyotisIpc();
   registerRadicleIpc();
   registerTorIpc();
   registerGithubBridgeIpc();
@@ -309,6 +336,7 @@ async function bootstrap() {
   registerQuickUnlockIpc();
   registerWalletIpc();
   registerLedgerIpc();
+  registerRemoteSignerIpc();
 
   // Let identity (re)injection stop the Bee node before wiping its statestore
   // (which it holds a LevelDB lock on) and restart it with the new key. Without
@@ -320,6 +348,7 @@ async function bootstrap() {
   registerDappPermissionsIpc();
   registerPermissionsIpc();
   registerX402Ipc();
+  registerOnchainProvenanceIpc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
   registerPublishIpc();
@@ -340,7 +369,7 @@ async function bootstrap() {
   });
 
   if (!TEST_MODE) {
-    // Skip registering the real bzz/ipfs/ipns handlers in test mode —
+    // Skip registering the real bzz/ipfs/ipns/web3 handlers in test mode —
     // installTestHarness() registers fixture-driven stubs on the same
     // schemes below. Electron only allows one handler per scheme per
     // session, so the harness must own them outright in test mode.
@@ -348,6 +377,10 @@ async function bootstrap() {
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
     registerRadProtocol(defaultSession);
+    // Before attachWebRequestDispatcher() below: this also installs the
+    // process-wide `radapi-guard` onBeforeRequest handler.
+    registerRadicleApiProtocol(defaultSession);
+    registerOnchainAppProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
@@ -355,6 +388,7 @@ async function bootstrap() {
   // After the rewriter (which owns scheme/gateway rewriting) and before
   // x402, so blocked requests never reach the payment flow.
   installAdblockInterception();
+  installOnchainProvenanceCapture();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
   // Per-site permission prompts (camera, mic, notifications, …) with
@@ -388,6 +422,8 @@ async function bootstrap() {
       registerIpfsProtocol(privateSession, { privatePartition: partition });
       registerIpnsProtocol(privateSession, { privatePartition: partition });
       registerRadProtocol(privateSession, { privatePartition: partition });
+      registerRadicleApiProtocol(privateSession, { privatePartition: partition });
+      registerOnchainAppProtocol(privateSession, { privatePartition: partition });
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),
@@ -458,8 +494,6 @@ async function bootstrap() {
       window: mainWindow,
       enabledProtocols: {
         bee: settings.startBeeAtLaunch !== false,
-        radicle:
-          settings.enableRadicleIntegration === true && settings.startRadicleAtLaunch !== false,
         tor: settings.enableTorIntegration === true && settings.startTorAtLaunch === true,
       },
       logger: log,
@@ -467,7 +501,7 @@ async function bootstrap() {
   }
 
   // In test mode the harness has already seeded service-registry with
-  // fake endpoints. Spawning real Bee / IPFS / Radicle binaries against
+  // fake endpoints. Starting real Ant / IPFS / Radicle runtimes against
   // a temp userData would fail port checks, take seconds, and defeat
   // the purpose of fixture-driven tests.
   if (!TEST_MODE) {
@@ -477,8 +511,28 @@ async function bootstrap() {
     if (settings.startIpfsAtLaunch) {
       startIpfs();
     }
-    if (settings.enableRadicleIntegration && settings.startRadicleAtLaunch) {
+    if (settings.startRadicleAtLaunch) {
       startRadicle();
+    } else {
+      // Publish the profile's Radicle mode even when the node is not started
+      // at launch: the renderer routes a rad: navigation to the "disabled for
+      // this profile" panel off the registry entry, and without this the
+      // registry would still say 'none' for a disabled profile.
+      void syncRadicleProfileMode();
+    }
+    // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
+    // (requires the addon — myotis:download or packaged resource); the
+    // MYOTIS_NODE_PATH env var force-starts regardless (spike/e2e harness).
+    // Syncs invisibly in the background; the ENS resolver starts preferring
+    // it once the node reports ready.
+    if (
+      myotisManager.isEnabled() &&
+      (settings.startMyotisAtLaunch || process.env.MYOTIS_NODE_PATH)
+    ) {
+      myotisManager.startMyotis();
+    }
+    if (myotisManager.isEnabled() && settings.startMyotisGnosisAtLaunch) {
+      myotisManager.startMyotis({ chainId: 100 });
     }
     if (settings.enableTorIntegration && settings.startTorAtLaunch) {
       startTor({ targetSession: defaultSession });
@@ -563,7 +617,8 @@ app.on('before-quit', async (event) => {
   // Clean up any GitHub bridge temp directories
   cleanupTempDirs();
 
-  log.info('[App] Waiting for Ant, IPFS, Radicle, and Tor to stop...');
+  log.info('[App] Waiting for Ant, IPFS, Myotis, Radicle, and Tor to stop...');
+  myotisManager.stopAllMyotis();
   await Promise.all([stopAnt(), stopIpfs(), stopRadicle(), stopTor()]);
   log.info('[App] All processes stopped, quitting...');
 

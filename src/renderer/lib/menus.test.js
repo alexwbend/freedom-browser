@@ -50,6 +50,8 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
   const shortcutEls = [
     { dataset: { shortcut: 'CmdOrCtrl+Shift+T' }, textContent: '' },
     { dataset: { shortcut: 'Alt+CmdOrCtrl+I' }, textContent: '' },
+    // History differs per platform (Cmd+Y on macOS, Ctrl+H elsewhere).
+    { dataset: { shortcut: 'Cmd+Y', shortcutOther: 'Ctrl+H' }, textContent: '' },
   ];
 
   const documentHandlers = {};
@@ -93,9 +95,13 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
     startIpfsInfoPolling: jest.fn(),
     stopIpfsInfoPolling: jest.fn(),
   };
+  const myotisUiMocks = {
+    startMyotisInfoPolling: jest.fn(),
+    stopMyotisInfoPolling: jest.fn(),
+  };
   const radicleUiMocks = {
-    startRadicleInfoPolling: jest.fn(),
-    stopRadicleInfoPolling: jest.fn(),
+    startRadicleInfoUpdates: jest.fn(),
+    stopRadicleInfoUpdates: jest.fn(),
   };
 
   global.window = {
@@ -144,6 +150,7 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
   jest.doMock('./menu-backdrop.js', () => backdropMocks);
   jest.doMock('./ant-ui.js', () => beeUiMocks);
   jest.doMock('./ipfs-ui.js', () => ipfsUiMocks);
+  jest.doMock('./myotis-ui.js', () => myotisUiMocks);
   jest.doMock('./radicle-ui.js', () => radicleUiMocks);
 
   const menus = await import('./menus.js');
@@ -192,6 +199,7 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
       backdropMocks,
       beeUiMocks,
       ipfsUiMocks,
+      myotisUiMocks,
       radicleUiMocks,
     },
   };
@@ -216,6 +224,7 @@ describe('menus', () => {
 
     expect(elements.shortcutEls[0].textContent).toBe('⌘⇧T');
     expect(elements.shortcutEls[1].textContent).toBe('⌥⌘I');
+    expect(elements.shortcutEls[2].textContent).toBe('⌘Y');
 
     elements.menuButton.handlers.click();
 
@@ -258,6 +267,11 @@ describe('menus', () => {
     menus.setOnOpenHistory(onOpenHistory);
     menus.initMenus();
     await Promise.resolve();
+
+    // Off macOS the hint must show the binding this platform actually has
+    // (Ctrl+H), not the mac-only Cmd+Y.
+    expect(elements.shortcutEls[0].textContent).toBe('CtrlShiftT');
+    expect(elements.shortcutEls[2].textContent).toBe('CtrlH');
 
     elements.newTabMenuBtn.handlers.click();
     elements.newWindowMenuBtn.handlers.click();
@@ -399,7 +413,8 @@ describe('menus', () => {
     expect(elements.beeMenuDropdown.classList.toggle).toHaveBeenCalledWith('open', true);
     expect(mocks.beeUiMocks.startAntInfoPolling).toHaveBeenCalled();
     expect(mocks.ipfsUiMocks.startIpfsInfoPolling).toHaveBeenCalled();
-    expect(mocks.radicleUiMocks.startRadicleInfoPolling).toHaveBeenCalled();
+    expect(mocks.myotisUiMocks.startMyotisInfoPolling).toHaveBeenCalled();
+    expect(mocks.radicleUiMocks.startRadicleInfoUpdates).toHaveBeenCalled();
     expect(mocks.backdropMocks.showMenuBackdrop).toHaveBeenCalled();
 
     menus.setAntMenuOpen(false);
@@ -407,7 +422,8 @@ describe('menus', () => {
     expect(state.antMenuOpen).toBe(false);
     expect(mocks.beeUiMocks.stopAntInfoPolling).toHaveBeenCalled();
     expect(mocks.ipfsUiMocks.stopIpfsInfoPolling).toHaveBeenCalled();
-    expect(mocks.radicleUiMocks.stopRadicleInfoPolling).toHaveBeenCalled();
+    expect(mocks.myotisUiMocks.stopMyotisInfoPolling).toHaveBeenCalled();
+    expect(mocks.radicleUiMocks.stopRadicleInfoUpdates).toHaveBeenCalled();
     expect(elements.beePeersCount.textContent).toBe('0');
     expect(elements.beeNetworkPeers.textContent).toBe('0');
     expect(elements.beeVersionText.textContent).toBe('1.2.3');

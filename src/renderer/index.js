@@ -5,10 +5,10 @@ import {
 } from './lib/state.js';
 import { initAntUi, updateAntStatusLine, updateAntToggleState } from './lib/ant-ui.js';
 import { initIpfsUi, updateIpfsStatusLine, updateIpfsToggleState } from './lib/ipfs-ui.js';
+import { initMyotisUi } from './lib/myotis-ui.js';
 import {
   initRadicleUi,
   updateRadicleStatusLine,
-  updateRadicleToggleState,
 } from './lib/radicle-ui.js';
 import { initTorUi, updateTorStatusLine } from './lib/tor-ui.js';
 import {
@@ -109,7 +109,6 @@ window.serviceRegistry?.onUpdate?.((registry) => {
   updateIpfsStatusLine();
   updateIpfsToggleState();
   updateRadicleStatusLine();
-  updateRadicleToggleState();
   updateTorStatusLine();
 });
 
@@ -738,6 +737,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   initMenus();
   initAntUi();
   initIpfsUi();
+  initMyotisUi();
   initRadicleUi();
   initTorUi();
   initGithubBridgeUi();

@@ -42,7 +42,6 @@ const createTab = (id, url, overrides = {}) => {
     hasNavigatedDuringCurrentLoad: false,
     isWebviewLoading: false,
     currentBzzBase: null,
-    currentRadBase: null,
     addressBarSnapshot: '',
     committedDisplayUrl: '',
     cachedWebContentsId: null,
@@ -58,6 +57,7 @@ const createTab = (id, url, overrides = {}) => {
     favicon: overrides.favicon || null,
     webview,
     navigationState,
+    onchainProvenance: overrides.onchainProvenance || null,
   };
 };
 
@@ -71,9 +71,8 @@ const loadNavigationModule = async (options = {}) => {
     bzzRoutePrefix: 'https://gateway.example/bzz/',
     ipfsRoutePrefix: 'https://gateway.example/ipfs/',
     ipnsRoutePrefix: 'https://gateway.example/ipns/',
-    radicleApiPrefix: 'http://127.0.0.1:8780/api/v1/repos/',
-    radicleBase: 'http://127.0.0.1:8780',
-    enableRadicleIntegration: options.enableRadicleIntegration || false,
+    radicleApiPrefix: 'radapi://local/api/v1/repos/',
+    radicleBase: 'radapi://local',
     currentRadicleStatus: options.currentRadicleStatus || 'running',
     currentIpfsStatus: options.currentIpfsStatus || 'running',
     registry: options.registry || { ipfs: { mode: 'bundled' } },
@@ -110,6 +109,9 @@ const loadNavigationModule = async (options = {}) => {
     getActiveTabState: jest.fn(() => activeRef.tab?.navigationState || null),
     setWebviewEventHandler: jest.fn((handler) => {
       tabsMocks.webviewEventHandler = handler;
+    }),
+    setOnchainProvenanceChangeHandler: jest.fn((handler) => {
+      tabsMocks.onchainProvenanceChangeHandler = handler;
     }),
     updateActiveTabTitle: jest.fn(),
     updateTabFavicon: jest.fn(),
@@ -172,7 +174,7 @@ const loadNavigationModule = async (options = {}) => {
     resolveProtocolIconType: jest.fn(({ value, currentPageSecure }) => {
       if (currentPageSecure) return 'https';
       if (value?.startsWith('bzz://')) return 'swarm';
-      if (value?.startsWith('rad://') && state.enableRadicleIntegration) return 'radicle';
+      if (value?.startsWith('rad://')) return 'radicle';
       return value ? 'http' : 'http';
     }),
     resolveTrustBadge: jest.fn(({ value, ensTrustByName }) => {
@@ -221,10 +223,44 @@ const loadNavigationModule = async (options = {}) => {
         displayValue: input,
       };
     }),
+    formatOnchainAppUrl: jest.fn((input) => {
+      const raw = (input || '').trim();
+      const canonical = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)([/?#].*)?$/i
+      );
+      const friendly = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})(?::([1-9][0-9]*))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i
+      );
+      const match = canonical || friendly;
+      if (!match) return null;
+      const chainId = Number(match[2] || 1);
+      const rawSuffix = canonical
+        ? match[3] || '/'
+        : `${match[3] || '/'}${match[4] || ''}${match[5] || ''}`;
+      const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
+      return `web3://${match[1].toLowerCase()}.eip155-${chainId}${suffix}`;
+    }),
+    formatOnchainAppDisplayUrl: jest.fn((input) => {
+      const raw = (input || '').trim();
+      const canonical = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})\.eip155-([0-9]+)([/?#].*)?$/i
+      );
+      const friendly = raw.match(
+        /^web3:\/\/(0x[0-9a-f]{40})(?::([1-9][0-9]*))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i
+      );
+      const match = canonical || friendly;
+      if (!match) return null;
+      const chainId = Number(match[2] || 1);
+      const rawSuffix = canonical
+        ? match[3] || '/'
+        : `${match[3] || '/'}${match[4] || ''}${match[5] || ''}`;
+      const suffix = rawSuffix.startsWith('/') ? rawSuffix : `/${rawSuffix}`;
+      return `web3://${match[1].toLowerCase()}${chainId === 1 ? '' : `:${chainId}`}${suffix}`;
+    }),
+    looksLikeOnchainAppInput: jest.fn((input) => /^web3:/i.test((input || '').trim())),
     deriveDisplayValue: jest.fn((url) => `display:${url}`),
     deriveBzzBaseFromUrl: jest.fn((url) => (url.includes('/bzz/') ? 'https://gateway.example/bzz/hash/' : null)),
     deriveIpfsBaseFromUrl: jest.fn(() => null),
-    deriveRadBaseFromUrl: jest.fn(() => null),
     applyEnsNamePreservation: jest.fn((url) => url),
     buildEnsDisplayUri: jest.fn((protocol, name, suffix = '') => {
       if (!name) return null;
@@ -296,8 +332,6 @@ const loadNavigationModule = async (options = {}) => {
     addHistory: jest.fn().mockResolvedValue(undefined),
     setBzzBase: jest.fn(),
     clearBzzBase: jest.fn(),
-    setRadBase: jest.fn(),
-    clearRadBase: jest.fn(),
     startSwarmProbe: jest.fn((hash, path) => {
       const id = swarmProbeState.nextProbeId;
       swarmProbeState.startCalls.push({ id, hash, path });
@@ -336,6 +370,8 @@ const loadNavigationModule = async (options = {}) => {
   const trustPopoverTitle = createElement('div');
   const trustPopoverStatus = createElement('div');
   const trustPopoverTrustFields = createElement('div');
+  const trustPopoverContent = createElement('div');
+  const trustPopoverContentTitle = createElement('div');
   const trustPopoverContentFields = createElement('div');
   const trustPopoverTooltip = createElement('div');
   const document = createDocument({
@@ -352,6 +388,8 @@ const loadNavigationModule = async (options = {}) => {
       'trust-popover-title': trustPopoverTitle,
       'trust-popover-status': trustPopoverStatus,
       'trust-popover-trust-fields': trustPopoverTrustFields,
+      'trust-popover-content': trustPopoverContent,
+      'trust-popover-content-title': trustPopoverContentTitle,
       'trust-popover-content-fields': trustPopoverContentFields,
       'trust-popover-tooltip': trustPopoverTooltip,
     },
@@ -399,7 +437,12 @@ const loadNavigationModule = async (options = {}) => {
   tabsRef.list = options.tabs || [firstTab];
   activeRef.tab = options.activeTab || firstTab;
 
-  jest.doMock('./state.js', () => ({ state }));
+  jest.doMock('./state.js', () => ({
+    state,
+    // Mirrors the real helper: the profile's Radicle mode is published into
+    // the service registry by the main process.
+    isRadicleDisabledForProfile: () => state.registry?.radicle?.mode === 'disabled',
+  }));
   jest.doMock('./debug.js', () => debugMocks);
   jest.doMock('./bookmarks-ui.js', () => bookmarksUiMocks);
   jest.doMock('./github-bridge-ui.js', () => githubBridgeUiMocks);
@@ -444,6 +487,7 @@ const loadNavigationModule = async (options = {}) => {
       protocolIcon,
       trustShield,
       trustPopover,
+      trustPopoverContent,
     },
   };
 };
@@ -565,12 +609,9 @@ describe('navigation', () => {
     expect(ctx.activeRef.tab.webview.reload).toHaveBeenCalled();
     expect(ctx.activeRef.tab.webview.reloadIgnoringCache).toHaveBeenCalled();
 
-    ctx.state.enableRadicleIntegration = false;
     ctx.elements.addressInput.value = 'rad://zrepo123';
     ctx.mod.onSettingsChanged();
-    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
-      'file:///app/pages/rad-browser.html?error=disabled'
-    );
+    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledTimes(1);
   });
 
   test('processes webview lifecycle events and records history', async () => {
@@ -729,6 +770,47 @@ describe('navigation', () => {
       ctx.mod.loadTarget('ipfs://bafybeigdyrzt');
 
       expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith('ipfs://bafybeigdyrzt');
+    });
+  });
+
+  describe('onchain application navigation', () => {
+    const ADDRESS = '0x00000095643CFfA7D9fae407a84dfCB6406456c6';
+    const CANONICAL = `web3://${ADDRESS.toLowerCase()}.eip155-1/`;
+
+    test('loads an ERC-8244 app through its canonical contract-and-chain origin', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget(`web3://${ADDRESS}`);
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(CANONICAL);
+      expect(ctx.elements.addressInput.value).toBe(`web3://${ADDRESS.toLowerCase()}/`);
+      expect(ctx.activeRef.tab.navigationState.pendingNavigationUrl).toBe(CANONICAL);
+    });
+
+    test('preserves app routes while canonicalizing the origin', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+      const target = `web3://${ADDRESS}:100/swap?token=eth#route`;
+
+      ctx.mod.loadTarget(target);
+
+      expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
+        `web3://${ADDRESS.toLowerCase()}.eip155-100/swap?token=eth#route`
+      );
+      expect(ctx.elements.addressInput.value).toBe(
+        `web3://${ADDRESS.toLowerCase()}:100/swap?token=eth#route`
+      );
+    });
+
+    test('surfaces malformed web3 intent instead of searching for it', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('web3://not-a-contract:1/');
+
+      expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('Invalid onchain application URL'));
+      expect(ctx.activeRef.tab.webview.loadURL).not.toHaveBeenCalled();
     });
   });
 
@@ -1019,6 +1101,41 @@ describe('navigation', () => {
       expect(loadedUrl).toContain('error=ERR_CONNECTION_REFUSED');
       expect(loadedUrl).toContain('protocol=ipfs');
       expect(loadedUrl).toContain(encodeURIComponent('ipfs://QmTest'));
+    });
+
+    // A profile with Radicle disabled can never start the node, so the
+    // generic connection-error panel would point at a toggle this profile
+    // does not have. The purpose-built panel explains the profile setting.
+    test('Radicle: a disabled profile lands on the explanatory disabled panel', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'disabled' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).toHaveBeenCalledWith(
+        expect.any(String),
+        'rad://zrepo123'
+      );
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toBe('file:///app/pages/rad-browser.html?error=disabled');
+      expect(ctx.urlUtilsMocks.formatRadicleUrl).not.toHaveBeenCalled();
+    });
+
+    test('Radicle: an enabled profile still routes to the repository viewer', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'embedded' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).not.toHaveBeenCalled();
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('rad-browser.html?rid=zrepo123');
     });
 
     test('IPNS: error page carries protocol=ipns', async () => {
@@ -2102,6 +2219,15 @@ describe('navigation', () => {
       expect(ctx.elements.trustPopover.hidden).toBe(false);
       expect(ctx.elements.trustShield.getAttribute('aria-expanded')).toBe('true');
     };
+
+    test('hides the destination section when the resolution has no content rows', async () => {
+      const ctx = await loadNavigationModule();
+      await ctx.mod.initNavigation();
+
+      openPopoverFor(ctx, 'vitalik.eth');
+
+      expect(ctx.elements.trustPopoverContent.hidden).toBe(true);
+    });
 
     test('closes when the address bar moves to a non-ENS URL', async () => {
       const ctx = await loadNavigationModule();

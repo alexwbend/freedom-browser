@@ -1,4 +1,8 @@
-import { applyEnsNamePreservation, deriveDisplayValue } from './url-utils.js';
+import {
+  applyEnsNamePreservation,
+  deriveDisplayValue,
+  parseOnchainAppUrl,
+} from './url-utils.js';
 import { getInternalPageName, parseEnsInput } from './page-urls.js';
 import { isDwebNameHost } from './origin-utils.js';
 
@@ -12,8 +16,34 @@ const extractEnsName = (normalizedValue) => parseEnsInput(normalizedValue)?.name
 // (non-name URLs, or names we haven't resolved this session). Otherwise
 // returns `{ level, name, trust }` so the shield can render and the popover
 // can fill in details.
-export const resolveTrustBadge = ({ value = '', ensTrustByName = new Map() } = {}) => {
+const onchainIdentity = (value) => {
+  const parsed = parseOnchainAppUrl(value);
+  if (!parsed) return null;
+  return { contract: parsed.address, chainId: parsed.chainId };
+};
+
+export const resolveTrustBadge = ({
+  value = '',
+  ensTrustByName = new Map(),
+  onchainProvenance = null,
+} = {}) => {
   const normalizedValue = value.toLowerCase();
+  const identity = onchainIdentity(normalizedValue);
+  if (
+    identity &&
+    onchainProvenance?.trust?.level &&
+    Number(onchainProvenance.chainId) === identity.chainId &&
+    onchainProvenance.contract?.toLowerCase() === identity.contract
+  ) {
+    const shortContract = `${identity.contract.slice(0, 12)}…${identity.contract.slice(-10)}`;
+    return {
+      kind: 'onchain',
+      level: onchainProvenance.trust.level,
+      name: `web3://${shortContract}`,
+      trust: onchainProvenance.trust,
+      provenance: onchainProvenance,
+    };
+  }
   const ensName = extractEnsName(normalizedValue);
   if (!ensName) return null;
   const trust = ensTrustByName.get(ensName);
@@ -49,6 +79,14 @@ export const getTrustStatusSentence = (statusKey, trust = {}) => {
     return `${nameSystemLabel(trust)} resolution not verified`;
   }
   return TRUST_STATUS_SENTENCE[statusKey] || null;
+};
+
+const getOnchainTrustStatusSentence = (level) => {
+  if (level === 'verified') return 'Onchain application retrieval verified';
+  if (level === 'user-configured') return 'Loaded with your configured RPC';
+  if (level === 'unverified') return 'Onchain application retrieval not verified';
+  if (level === 'conflict') return 'Verification failed: RPCs disagree';
+  return null;
 };
 
 // Long-form warning for a recipient name whose forward lookup completed
@@ -122,6 +160,26 @@ const buildContentRows = ({ uri = '', proto = '' } = {}) => {
   return contentRows;
 };
 
+const buildOnchainContentRows = (provenance) => [
+  {
+    label: 'Network',
+    display: provenance.network || `Chain ${provenance.chainId}`,
+    copy: '',
+  },
+  {
+    label: 'Contract',
+    display: provenance.contract,
+    copy: provenance.contract,
+    autoFit: provenance.contract,
+  },
+  {
+    label: 'HTML hash',
+    display: provenance.htmlHash,
+    copy: provenance.htmlHash,
+    autoFit: provenance.htmlHash,
+  },
+];
+
 // Pure helper that turns a `(trust, level, uri, proto)` tuple into the
 // data the popover renders: a status sentence and two ordered arrays of
 // row descriptors for the trust and content sections. Each row is
@@ -134,28 +192,62 @@ export const buildTrustRows = ({
   level = '',
   uri = '',
   proto = '',
+  onchainProvenance = null,
 } = {}) => {
   const method = trust.method;
   const isColibri = level === 'verified' && method === 'colibri';
+  const isMyotis = method === 'myotis';
   const statusKey = isColibri ? 'verified-colibri' : level;
-  const status = getTrustStatusSentence(statusKey, trust);
+  const status = onchainProvenance
+    ? getOnchainTrustStatusSentence(level)
+    : getTrustStatusSentence(statusKey, trust);
+  const contentRows = () => onchainProvenance
+    ? buildOnchainContentRows(onchainProvenance)
+    : buildContentRows({ uri, proto });
 
   const agreed = Array.isArray(trust.agreed) ? trust.agreed : [];
   const queried = Array.isArray(trust.queried) ? trust.queried : [];
   const dissented = Array.isArray(trust.dissented) ? trust.dissented : [];
-  const blockNumber = trust.block?.number;
+  const blockNumber =
+    trust.block && typeof trust.block === 'object' ? trust.block.number : trust.block;
 
   const trustRows = [];
+  const pushBlockRow = () => {
+    if (blockNumber === undefined || blockNumber === null || blockNumber === '') return;
+    const num = String(blockNumber);
+    trustRows.push({ label: 'Block', display: num, copy: num });
+  };
 
-  // Colibri results carry single-source agreed/queried (the prover host) by
-  // design — the cryptographic verification *replaces* the M-of-K heuristic,
-  // it doesn't run alongside it. Surface method/proof/server details instead
-  // of the degenerate quorum row.
+  // Every cryptographically verified method starts with the same summary
+  // shape: who verified the answer, what evidence backs it, and the pinned
+  // block when available. Method-specific source details follow afterward.
+  // Myotis verifies locally against beacon-anchored state, so there is no
+  // server row to show.
+  if (isMyotis) {
+    trustRows.push({
+      label: 'Verified by',
+      display: 'Myotis light client',
+      copy: '',
+    });
+    trustRows.push({
+      label: 'Evidence',
+      display: trust.finality === 'optimistic'
+        ? 'Optimistic beacon proof (not finalized)'
+        : 'Beacon-finalized proof',
+      copy: '',
+    });
+    pushBlockRow();
+    return { status, trustRows, contentRows: contentRows() };
+  }
+
   if (isColibri) {
-    trustRows.push({ label: 'Method', display: 'Colibri', copy: '' });
-    if (trust.proof) {
-      trustRows.push({ label: 'Proof', display: trust.proof, copy: '' });
-    }
+    trustRows.push({ label: 'Verified by', display: 'Colibri', copy: '' });
+    trustRows.push({
+      label: 'Evidence',
+      display: trust.proof || 'Cryptographic proof',
+      copy: '',
+    });
+    pushBlockRow();
     if (trust.prover) {
       trustRows.push({
         label: 'Server',
@@ -164,26 +256,48 @@ export const buildTrustRows = ({
         autoFit: trust.prover,
       });
     }
-    return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+    return { status, trustRows, contentRows: contentRows() };
   }
 
-  // Quorum summary is meaningful only when more than one RPC was queried;
-  // otherwise "1 of 1" is degenerate and just adds noise on the
-  // user-configured / unverified rows.
-  if (queried.length > 1) {
+  // RPC-backed methods use the same summary fields while keeping the status
+  // honest: configured and single-source answers were resolved, not
+  // independently verified. Individual endpoints remain visible below the
+  // summary for auditability and copy-to-clipboard.
+  if (level === 'verified') {
+    const rpcNoun = queried.length === 1 ? 'public RPC' : 'public RPCs';
     trustRows.push({
-      label: 'RPC Quorum',
-      display: `${agreed.length}/${queried.length}`,
+      label: 'Verified by',
+      display: queried.length
+        ? `${agreed.length} of ${queried.length} ${rpcNoun}`
+        : 'Public RPC quorum',
       copy: '',
     });
+    trustRows.push({ label: 'Evidence', display: 'Matching RPC responses', copy: '' });
+  } else if (level === 'user-configured') {
+    trustRows.push({ label: 'Resolved by', display: 'Your configured RPC', copy: '' });
+    trustRows.push({ label: 'Evidence', display: 'Trusted endpoint response', copy: '' });
+  } else if (level === 'unverified') {
+    trustRows.push({ label: 'Resolved by', display: 'A single public RPC', copy: '' });
+    trustRows.push({
+      label: 'Evidence',
+      display: 'Single response (not independently verified)',
+      copy: '',
+    });
+  } else if (level === 'conflict') {
+    const rpcNoun = queried.length === 1 ? 'public RPC' : 'public RPCs';
+    trustRows.push({
+      label: 'Checked by',
+      display: `${queried.length} ${rpcNoun}`,
+      copy: '',
+    });
+    trustRows.push({ label: 'Evidence', display: 'Conflicting RPC responses', copy: '' });
   }
 
+  pushBlockRow();
+
   if (level === 'user-configured' && agreed.length > 0) {
-    // For user-configured the single RPC is the user's own choice, so
-    // we label it "Your RPC:" rather than "RPC 1:" — it conveys why
-    // there's only one and that no quorum check ran.
     trustRows.push({
-      label: 'Your RPC',
+      label: 'Server',
       display: agreed[0],
       copy: agreed[0],
       autoFit: agreed[0],
@@ -219,18 +333,12 @@ export const buildTrustRows = ({
     });
   }
 
-  if (blockNumber !== undefined && blockNumber !== null && blockNumber !== '') {
-    const num = String(blockNumber);
-    trustRows.push({ label: 'Block', display: num, copy: num });
-  }
-
-  return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+  return { status, trustRows, contentRows: contentRows() };
 };
 
 export const resolveProtocolIconType = ({
   value = '',
   ensProtocols = new Map(),
-  enableRadicleIntegration = false,
   currentPageSecure = false,
 } = {}) => {
   const normalizedValue = value.toLowerCase();
@@ -243,9 +351,8 @@ export const resolveProtocolIconType = ({
   if (normalizedValue.startsWith('bzz://')) return 'swarm';
   if (normalizedValue.startsWith('ipfs://')) return 'ipfs';
   if (normalizedValue.startsWith('ipns://')) return 'ipns';
-  if (normalizedValue.startsWith('rad://')) {
-    return enableRadicleIntegration ? 'radicle' : 'http';
-  }
+  if (normalizedValue.startsWith('web3://')) return 'onchain';
+  if (normalizedValue.startsWith('rad://')) return 'radicle';
   // Internal pages aren't network-served, but we still surface the
   // neutral globe (same icon `rad://` falls back to when its integration
   // is disabled) so the address bar always carries some leading mark

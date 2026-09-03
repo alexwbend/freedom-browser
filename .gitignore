@@ -15,6 +15,7 @@ tmp/
 *.swp
 .env
 ant-bin/
+myotis-bin/
 ant-data/
 assets/adblock/
 ipfs-bin/

@@ -32,7 +32,7 @@ const flushTimers = () => new Promise((resolve) => setTimeout(resolve, 0));
 function loadWebviewPreloadModule(options = {}) {
   jest.resetModules();
 
-  const contextBridge = createContextBridgeMock();
+  const contextBridge = options.contextBridge || createContextBridgeMock();
   const ipcRenderer = createIpcRendererMock({
     syncResponses: {
       [IPC.GET_INTERNAL_PAGES]: internalPages,
@@ -62,6 +62,7 @@ function loadWebviewPreloadModule(options = {}) {
       }
     }),
     execCommand: jest.fn(),
+    ...(options.documentOverrides || {}),
   };
   const location = options.location || {
     href: 'file:///app/pages/history.html',
@@ -163,6 +164,7 @@ describe('webview-preload', () => {
       ['getActiveProfile', [], IPC.PROFILE_GET_ACTIVE, []],
       ['listProfiles', [], IPC.PROFILE_LIST, []],
       ['getServiceRegistry', [], IPC.SERVICE_REGISTRY_GET, []],
+      ['getMyotisStatus', [], IPC.MYOTIS_GET_STATUS, []],
       ['openPublishSetup', [], IPC.SIDEBAR_OPEN_PUBLISH_SETUP, []],
       ['getBookmarks', [], IPC.BOOKMARKS_GET, []],
       ['openInNewTab', ['https://example.com'], IPC.OPEN_URL_IN_NEW_TAB, ['https://example.com']],
@@ -174,7 +176,6 @@ describe('webview-preload', () => {
       ],
       ['seedRadicle', ['z3abc'], IPC.RADICLE_SEED, ['z3abc']],
       ['getRadicleStatus', [], IPC.RADICLE_GET_STATUS, []],
-      ['getRadicleRepoPayload', ['z3abc'], IPC.RADICLE_GET_REPO_PAYLOAD, ['z3abc']],
       ['syncRadicleRepo', ['z3abc'], IPC.RADICLE_SYNC_REPO, ['z3abc']],
     ];
 
@@ -221,6 +222,7 @@ describe('webview-preload', () => {
         IPC.PROFILE_UPDATE_NODE_CONFIG,
         [{ protocol: 'bee', config: { mode: 'disabled' } }],
       ],
+      ['checkRadicleBinary', [], IPC.RADICLE_CHECK_BINARY, []],
     ];
 
     for (const [method, args, channel, expectedArgs] of mutationCases) {
@@ -279,6 +281,25 @@ describe('webview-preload', () => {
     pagehideHandler();
     callback.mockClear();
     ipcRenderer.emit('settings:updated', { theme: 'light' });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test('onRadicleSeedStatus forwards pushed clone progress', () => {
+    const { exposures, ipcRenderer } = loadWebviewPreloadModule();
+    const callback = jest.fn();
+    const status = {
+      rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+      state: 'fetching',
+      progress: { phase: 'fetching', index: 1, total: 2 },
+    };
+
+    const unsubscribe = exposures.freedomAPI.onRadicleSeedStatus(callback);
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
+    expect(callback).toHaveBeenCalledWith(status);
+
+    unsubscribe();
+    callback.mockClear();
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
     expect(callback).not.toHaveBeenCalled();
   });
 
@@ -597,6 +618,74 @@ describe('webview-preload', () => {
     expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
   });
 
+  test('routes trusted links out of an onchain app through browser chrome', () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/swap',
+        protocol: 'web3:',
+        pathname: '/swap',
+      },
+    });
+    const anchor = {
+      tagName: 'A',
+      hasAttribute: jest.fn(() => false),
+      getAttribute: jest.fn((name) => {
+        if (name === 'href') return '/about?from=swap';
+        if (name === 'target') return '';
+        return null;
+      }),
+      parentElement: global.document.body,
+    };
+    const event = {
+      target: anchor,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      defaultPrevented: false,
+      isTrusted: true,
+      preventDefault: jest.fn(),
+    };
+
+    documentCaptureHandlers.click(event);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(ipcRenderer.sendToHost).toHaveBeenCalledWith('link:navigate', {
+      url: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/about?from=swap',
+      disposition: 'currentTab',
+      target: null,
+    });
+  });
+
+  test('does not elevate synthetic onchain clicks into browser navigation', () => {
+    const { documentCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
+      location: {
+        href: 'web3://0x00000095643cffA7d9faE407A84Dfcb6406456C6.eip155-1/',
+        protocol: 'web3:',
+        pathname: '/',
+      },
+    });
+    const event = {
+      target: {
+        tagName: 'A',
+        hasAttribute: jest.fn(() => false),
+        getAttribute: jest.fn((name) => (name === 'href' ? 'https://evil.example/' : '')),
+        parentElement: global.document.body,
+      },
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      defaultPrevented: false,
+      isTrusted: false,
+      preventDefault: jest.fn(),
+    };
+
+    documentCaptureHandlers.click(event);
+
+    expect(ipcRenderer.sendToHost).not.toHaveBeenCalledWith('link:navigate', expect.anything());
+  });
+
   test('context menu preserves raw dweb href before anchor.href normalisation', async () => {
     const { windowCaptureHandlers, ipcRenderer } = loadWebviewPreloadModule({
       location: {
@@ -809,7 +898,7 @@ describe('webview-preload private windows', () => {
   ];
 
   test('private window: no provider bridges, no page-world injection attempts', () => {
-    const { ipcRenderer, document } = loadWebviewPreloadModule({
+    const { contextBridge, ipcRenderer, document } = loadWebviewPreloadModule({
       isPrivateWindow: true,
       location: {
         href: 'https://dapp.example/',
@@ -819,6 +908,7 @@ describe('webview-preload private windows', () => {
     });
 
     expect(ipcRenderer.sendSync).toHaveBeenCalledWith(IPC.PRIVATE_IS_PRIVATE);
+    expect(contextBridge.executeInMainWorld).not.toHaveBeenCalled();
 
     // No provider IPC bridges installed.
     const onChannels = ipcRenderer.on.mock.calls.map(([channel]) => channel);
@@ -844,7 +934,7 @@ describe('webview-preload private windows', () => {
   });
 
   test('normal window: provider bridges are installed as before', () => {
-    const { ipcRenderer } = loadWebviewPreloadModule({
+    const { contextBridge, ipcRenderer, document } = loadWebviewPreloadModule({
       location: {
         href: 'https://dapp.example/',
         protocol: 'https:',
@@ -862,5 +952,45 @@ describe('webview-preload private windows', () => {
     );
     // ethereum, swarm and radicle page→host bridges.
     expect(messageListeners).toHaveLength(3);
+
+    expect(contextBridge.executeInMainWorld).toHaveBeenCalledTimes(1);
+    expect(contextBridge.executeInMainWorld).toHaveBeenCalledWith({
+      func: expect.any(Function),
+    });
+    expect(document.addEventListener.mock.calls.map(([event]) => event)).not.toContain(
+      'DOMContentLoaded'
+    );
+  });
+
+  test('normal window: falls back to DOM injection if early main-world execution fails', () => {
+    const contextBridge = createContextBridgeMock();
+    contextBridge.executeInMainWorld.mockImplementation(() => {
+      throw new Error('early injection unavailable');
+    });
+    const scripts = [];
+    const head = { firstChild: null, insertBefore: jest.fn() };
+
+    const { documentHandlers } = loadWebviewPreloadModule({
+      contextBridge,
+      location: {
+        href: 'https://dapp.example/',
+        protocol: 'https:',
+        pathname: '/',
+      },
+      documentOverrides: {
+        createElement: jest.fn(() => {
+          const script = { remove: jest.fn(), textContent: '' };
+          scripts.push(script);
+          return script;
+        }),
+        head,
+        readyState: 'complete',
+      },
+    });
+
+    expect(documentHandlers.DOMContentLoaded).toBeUndefined();
+    expect(scripts[0].textContent).toBe('/* ethereum inject source stub */');
+    expect(head.insertBefore).toHaveBeenNthCalledWith(1, scripts[0], null);
+    expect(scripts[0].remove).toHaveBeenCalled();
   });
 });

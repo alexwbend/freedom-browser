@@ -4,6 +4,9 @@
 
 import { walletState } from './wallet-state.js';
 
+/** v1 Safes (and the funding flows) live on Gnosis. */
+export const GNOSIS_CHAIN_ID = 100;
+
 export function truncateAddress(address, startChars = 6, endChars = 4) {
   if (!address || address.length <= startChars + endChars + 3) {
     return address;
@@ -11,25 +14,117 @@ export function truncateAddress(address, startChars = 6, endChars = 4) {
   return `${address.slice(0, startChars)}...${address.slice(-endChars)}`;
 }
 
+/** The wallet record for an index (defaults to the active account). */
+export function walletRecord(walletIndex = walletState.activeWalletIndex) {
+  return walletState.derivedWallets?.find((wallet) => wallet.index === walletIndex);
+}
+
+/** Account type ('mnemonic' | 'ledger' | 'remote' | 'safe') for a wallet index. */
+export function accountType(walletIndex) {
+  return walletRecord(walletIndex)?.type;
+}
+
+export function isLedgerAccount(walletIndex) {
+  return accountType(walletIndex) === 'ledger';
+}
+
 /**
- * Whether a wallet index belongs to a Ledger hardware account. Hardware
- * accounts sign on the device: no vault unlock, and approval UIs show a
- * "confirm on your Ledger" state instead of instant signing.
+ * Safe (multi-owner) accounts have no signer of their own — they
+ * transact and sign (EIP-1271) through the Safe flows instead.
+ */
+export function isSafeAccount(walletIndex) {
+  return accountType(walletIndex) === 'safe';
+}
+
+/**
+ * Whether a Safe record's contract exists on Gnosis (v1's only chain).
+ * Undeployed safes are receive-only: no sends, no EIP-1271.
+ */
+export function isSafeDeployed(wallet) {
+  return Boolean(wallet?.deployed?.[GNOSIS_CHAIN_ID]);
+}
+
+/**
+ * Whether a wallet index belongs to a device account (Ledger hardware,
+ * remote phone). Device accounts sign on the device: no vault unlock,
+ * and approval UIs show a "confirm on your device" state instead of
+ * instant signing.
  *
  * @param {number} walletIndex
  * @returns {boolean}
  */
-export function isLedgerAccount(walletIndex) {
-  return walletState.derivedWallets?.find((wallet) => wallet.index === walletIndex)?.type === 'ledger';
+export function isDeviceAccount(walletIndex) {
+  const type = accountType(walletIndex);
+  return type === 'ledger' || type === 'remote';
+}
+
+/**
+ * Where a device account confirms ('your Ledger' / 'your phone'), or
+ * null for vault accounts — the one type→noun mapping the approval UIs
+ * build their copy from.
+ */
+export function deviceLabel(walletIndex) {
+  return { ledger: 'your Ledger', remote: 'your phone' }[accountType(walletIndex)] || null;
+}
+
+// The executor CHOICE is static per safe record (first mnemonic owner),
+// so one getSafeStatus round trip per safe is enough; the display name
+// stays a live walletRecord lookup (renames should show).
+const safeExecutorIndexCache = new Map();
+
+/**
+ * Display name of the owner account that pays a Safe's gas — from
+ * main's getSafeStatus (the one home of executor policy), not a local
+ * re-derivation. Cheap for deployed safes (record short-circuit).
+ */
+export async function safeExecutorName(safeIndex) {
+  if (!safeExecutorIndexCache.has(safeIndex)) {
+    try {
+      const result = await window.wallet.getSafeStatus(safeIndex);
+      if (result?.success && result.status?.executorIndex != null) {
+        safeExecutorIndexCache.set(safeIndex, result.status.executorIndex);
+      }
+    } catch {
+      // fall through to the generic label
+    }
+  }
+  const executorIndex = safeExecutorIndexCache.get(safeIndex);
+  if (executorIndex == null) return 'an owner account';
+  return walletRecord(executorIndex)?.name || 'an owner account';
+}
+
+/**
+ * The "Paid by <executor>" fee line for Safe review screens: placeholder
+ * first, resolved name when it arrives.
+ */
+export function renderSafeFeePayer(el, safeIndex) {
+  if (!el) return;
+  el.textContent = 'Paid by an owner account';
+  safeExecutorName(safeIndex).then((name) => {
+    el.textContent = `Paid by ${name}`;
+  });
 }
 
 /** Pending label for approve buttons while a signature is in flight. */
 export function signingButtonLabel(walletIndex) {
-  return isLedgerAccount(walletIndex) ? 'Confirm on your Ledger…' : 'Signing…';
+  if (isSafeAccount(walletIndex)) return 'Collecting signatures…';
+  const label = deviceLabel(walletIndex);
+  return label ? `Confirm on ${label}…` : 'Signing…';
+}
+
+/** QR options for phone-scanned codes: fixed black-on-white regardless of theme. */
+export function generateScannableQr(text) {
+  return window.wallet.generateQR(text, {
+    width: 200,
+    margin: 2,
+    dark: '#000000',
+    light: '#ffffff',
+    errorCorrectionLevel: 'M',
+  });
 }
 
 /**
- * Hardware accounts sign on the device — no vault key, no unlock gate.
+ * Device accounts sign on the device — no vault key, no unlock gate.
  * Hides the unlock section and enables the confirm button; returns true
  * when the gate was bypassed so callers can skip the vault-status flow.
  *
@@ -38,8 +133,20 @@ export function signingButtonLabel(walletIndex) {
  * @param {HTMLButtonElement|null} confirmBtn - the approve/confirm button
  * @returns {boolean}
  */
-export function bypassUnlockGateForHardware(walletIndex, unlockEl, confirmBtn) {
-  if (!isLedgerAccount(walletIndex)) return false;
+export function bypassUnlockGateForDevice(walletIndex, unlockEl, confirmBtn) {
+  if (!isDeviceAccount(walletIndex)) return false;
+  unlockEl?.classList.add('hidden');
+  if (confirmBtn) confirmBtn.disabled = false;
+  return true;
+}
+
+/**
+ * Safe accounts have no unlock gate of their own: the signing board
+ * walks through vault unlock exactly when an owner signature needs it.
+ * Same contract as bypassUnlockGateForDevice.
+ */
+export function bypassUnlockGateForSafe(walletIndex, unlockEl, confirmBtn) {
+  if (!isSafeAccount(walletIndex)) return false;
   unlockEl?.classList.add('hidden');
   if (confirmBtn) confirmBtn.disabled = false;
   return true;
@@ -49,6 +156,21 @@ export function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+/** Show a message in an inline error box (the `.hidden`-toggled pattern). */
+export function showInlineError(el, message) {
+  if (el) {
+    el.textContent = message;
+    el.classList.remove('hidden');
+  }
+}
+
+export function hideInlineError(el) {
+  if (el) {
+    el.classList.add('hidden');
+    el.textContent = '';
+  }
 }
 
 export function timeAgo(date) {

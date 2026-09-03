@@ -26,15 +26,20 @@ const RENAMED_KEYS = {
   beeNodeMode: 'antNodeMode',
   startBeeAtLaunch: 'startAntAtLaunch',
 };
+const REMOVED_KEYS = new Set(['enableRadicleIntegration']);
 
 const DEFAULT_SETTINGS = {
   theme: 'system',
-  enableRadicleIntegration: false,
   enableIdentityWallet: true,
   antNodeMode: 'ultraLight',
   startAntAtLaunch: true,
   startIpfsAtLaunch: true,
   startRadicleAtLaunch: false,
+  // Experimental: start the Myotis P2P Ethereum light client at launch.
+  // Off by default — opt-in while the tier is experimental; requires the
+  // addon (npm run myotis:download, or the packaged resource).
+  startMyotisAtLaunch: false,
+  startMyotisGnosisAtLaunch: false,
   // Tor (.onion) access via the bundled Arti SOCKS proxy. Off by default;
   // when enabled, only *.onion traffic is routed through Tor (clearnet and
   // the decentralized protocols keep connecting directly).
@@ -167,6 +172,16 @@ function migrateRenamedKeys(parsed) {
   return migrated;
 }
 
+function migrateRemovedKeys(parsed) {
+  let migrated = false;
+  for (const key of REMOVED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(parsed, key)) continue;
+    delete parsed[key];
+    migrated = true;
+  }
+  return migrated;
+}
+
 function loadSettings() {
   if (cachedSettings) {
     return cachedSettings;
@@ -178,8 +193,9 @@ function loadSettings() {
       const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data);
       const keysMigrated = migrateRenamedKeys(parsed);
+      const removedKeysMigrated = migrateRemovedKeys(parsed);
       const structuredSettingsChanged = normalizeStructuredSettings(parsed);
-      const settingsChanged = keysMigrated || structuredSettingsChanged;
+      const settingsChanged = keysMigrated || removedKeysMigrated || structuredSettingsChanged;
       if (settingsChanged) {
         try {
           fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2), 'utf-8');

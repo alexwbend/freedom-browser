@@ -22,6 +22,12 @@ module.exports = {
   IPFS_STATUS_UPDATE: 'ipfs:statusUpdate',
   IPFS_CHECK_BINARY: 'ipfs:checkBinary',
 
+  // Myotis P2P Ethereum light client (experimental)
+  MYOTIS_START: 'myotis:start',
+  MYOTIS_STOP: 'myotis:stop',
+  MYOTIS_GET_STATUS: 'myotis:getStatus',
+  MYOTIS_STATUS_UPDATE: 'myotis:statusUpdate',
+
   // Radicle node management
   RADICLE_START: 'radicle:start',
   RADICLE_STOP: 'radicle:stop',
@@ -30,9 +36,10 @@ module.exports = {
   RADICLE_CHECK_BINARY: 'radicle:checkBinary',
   RADICLE_SEED: 'radicle:seed',
   RADICLE_GET_CONNECTIONS: 'radicle:getConnections',
-  RADICLE_GET_REPO_PAYLOAD: 'radicle:getRepoPayload',
   RADICLE_SYNC_REPO: 'radicle:syncRepo',
   RADICLE_GET_SEED_STATUS: 'radicle:getSeedStatus',
+  RADICLE_SEED_STATUS_UPDATE: 'radicle:seedStatusUpdate',
+  RADICLE_PROVIDER_EVENT: 'radicle:providerEvent',
 
   // Tor (Arti) node management — routes .onion traffic via a local SOCKS proxy
   TOR_START: 'tor:start',
@@ -47,6 +54,9 @@ module.exports = {
   ENS_RESOLVE_ADDRESS: 'ens:resolve-address',
   ENS_RESOLVE_REVERSE: 'ens:resolve-reverse',
   ENS_INVALIDATE_CONTENT: 'ens:invalidate-content',
+
+  // Contract-hosted application provenance (host chrome only)
+  ONCHAIN_APP_GET_PROVENANCE: 'onchain-app:get-provenance',
 
   // Tezos Domains website resolution
   TEZOS_DOMAINS_RESOLVE: 'tezos-domains:resolve',
@@ -78,11 +88,6 @@ module.exports = {
   BZZ_START_PROBE: 'bzz:start-probe',
   BZZ_AWAIT_PROBE: 'bzz:await-probe',
   BZZ_CANCEL_PROBE: 'bzz:cancel-probe',
-
-  // IPFS routing
-  // Radicle routing
-  RAD_SET_BASE: 'rad:set-base',
-  RAD_CLEAR_BASE: 'rad:clear-base',
 
   // Window
   WINDOW_SET_TITLE: 'window:set-title',

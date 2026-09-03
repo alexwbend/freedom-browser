@@ -6,7 +6,7 @@
  * mode is off, and nothing in this file runs at require time.
  *
  * Responsibilities:
- *   1. Register stub `bzz:` / `ipfs:` / `ipns:` protocol handlers backed by
+ *   1. Register stub `bzz:` / `ipfs:` / `ipns:` / `web3:` protocol handlers backed by
  *      an in-memory fixture map, so tests can assert against deterministic
  *      content without spinning up Bee or Kubo.
  *   2. Override the ENS resolver IPC handlers with a fixture-driven stub
@@ -106,6 +106,7 @@ function buildResponse(fixture) {
   const status = fixture.status ?? 200;
   const headers = {
     'Content-Type': fixture.contentType ?? 'text/html; charset=utf-8',
+    ...(fixture.headers || {}),
   };
   return new Response(fixture.body ?? '', { status, headers });
 }
@@ -153,15 +154,15 @@ function registerStubProtocols(targetSession, { privatePartition = null } = {}) 
     return;
   }
   // PRIVATE MODE GUARD (request logging): the stubs stand in for the real
-  // bzz/ipfs/ipns (and http/https) handlers on private sessions too, so they
+  // bzz/ipfs/ipns/web3 (and http/https) handlers on private sessions too, so they
   // redact request URLs exactly as those do — otherwise the e2e assertion
   // that a private navigation leaves no trace in main.log would be testing
   // the harness instead of the app.
   const isPrivate = !!privatePartition;
-  // bzz/ipfs/ipns: harness owns these outright (custom standard schemes
+  // bzz/ipfs/ipns/web3: harness owns these outright (custom standard schemes
   // we register in production too — see src/main/swarm/bzz-protocol.js
   // etc.). Specs drive content via setContentFixture().
-  for (const scheme of ['bzz', 'ipfs', 'ipns']) {
+  for (const scheme of ['bzz', 'ipfs', 'ipns', 'web3']) {
     try {
       const handler = makeProtocolHandler(scheme);
       targetSession.protocol.handle(scheme, (request) =>
@@ -279,7 +280,7 @@ function overrideProbeIpc() {
   });
 }
 
-// Bee / IPFS / Radicle managers are still loaded so their `getStatus`
+// Bee / IPFS / Myotis / Radicle managers are still loaded so their `getStatus`
 // handlers respond, but we replace start/stop with no-ops so a stray
 // click in a spec can't spawn the real binaries against the test
 // `userData` directory. The fake status is also tracked in-memory so
@@ -291,6 +292,18 @@ function overrideProbeIpc() {
 // — the renderer destructures these fields directly
 // (`src/renderer/lib/bee-ui.js`, `src/renderer/lib/ipfs-ui.js`).
 const stubNodeStatus = { ant: 'running', ipfs: 'running', radicle: 'running' };
+const stubMyotisStatuses = new Map([
+  [1, {
+    supported: true, available: true, version: '0.1.7', chainId: 1,
+    network: 'mainnet', displayName: 'Ethereum', running: true, state: 'ready',
+    beaconState: 'SYNCED', peerCount: 2, snapPeers: 1, finalizedBlockNumber: 25684159,
+  }],
+  [100, {
+    supported: true, available: true, version: '0.1.7', chainId: 100,
+    network: 'gnosis', displayName: 'Gnosis', running: false, state: 'off',
+    beaconState: 'STARTING', peerCount: 0, snapPeers: 0, finalizedBlockNumber: 0,
+  }],
+]);
 
 function overrideNodeIpc() {
   const setStatus = (service, status) => {
@@ -322,6 +335,28 @@ function overrideNodeIpc() {
   replaceHandler(IPC.IPFS_GET_STATUS, async () => ({
     status: stubNodeStatus.ipfs,
     error: null,
+  }));
+
+  const stubMyotisStatus = (chainId) => {
+    const status = stubMyotisStatuses.get(Number(chainId));
+    if (!status) throw new Error(`Unsupported Myotis chain ID: ${chainId}`);
+    return status;
+  };
+
+  replaceHandler(IPC.MYOTIS_START, async (_event, chainId = 1) => {
+    log.info('[test-harness] ignored myotis:start (test mode)');
+    const status = stubMyotisStatus(chainId);
+    Object.assign(status, { running: true, state: 'ready' });
+    return { ...status };
+  });
+  replaceHandler(IPC.MYOTIS_STOP, async (_event, chainId = 1) => {
+    log.info('[test-harness] ignored myotis:stop (test mode)');
+    const status = stubMyotisStatus(chainId);
+    Object.assign(status, { running: false, state: 'off' });
+    return { ...status };
+  });
+  replaceHandler(IPC.MYOTIS_GET_STATUS, async (_event, chainId = 1) => ({
+    ...stubMyotisStatus(chainId),
   }));
 
   replaceHandler(IPC.RADICLE_START, async () => {

@@ -1,7 +1,17 @@
 /** @type {import('jest').Config} */
 module.exports = {
   testMatch: ['**/*.test.js'],
-  testPathIgnorePatterns: ['/node_modules/', '/dist/', '/ant-bin/', '/ipfs-bin/', '/test-e2e/'],
+  // Playwright specs (`test-e2e/**/*.spec.js`) must never be loaded by jest,
+  // but plain `*.test.js` unit coverage for e2e helper modules is welcome —
+  // e.g. test-e2e/live/myotis-sync-guard.test.js. Playwright itself only
+  // matches `*.spec.js`, so the two harnesses stay disjoint.
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/dist/',
+    '/ant-bin/',
+    '/ipfs-bin/',
+    '/test-e2e/.*\\.spec\\.js$',
+  ],
   collectCoverageFrom: ['src/**/*.js', '!src/**/*.test.js', '!src/renderer/vendor/**'],
   // Coverage thresholds are intentionally below typical "healthy" targets.
   // The Swarm publishing feature landed with heavily-tested services
@@ -28,6 +38,6 @@ module.exports = {
     '^.+\\.js$': 'babel-jest',
   },
   transformIgnorePatterns: [
-    '/node_modules/(?!(@scure|@noble|micro-key-producer|micro-packed)/)',
+    '/node_modules/(?!(@scure|@noble|micro-key-producer|micro-packed|@openlv|websocket-mqtt|ts-pattern)/)',
   ],
 };

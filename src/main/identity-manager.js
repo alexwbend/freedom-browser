@@ -286,7 +286,7 @@ async function getUserWalletKey(walletIndex) {
     throw new Error(`Wallet with index ${walletIndex} does not exist`);
   }
   if (record.type !== WALLET_TYPES.MNEMONIC) {
-    throw new Error('Hardware wallet accounts have no derivable private key');
+    throw new Error('This account has no derivable private key — the key never leaves its device');
   }
 
   const identity = await loadIdentityModule();
@@ -793,7 +793,31 @@ async function exportMnemonic() {
 const WALLET_TYPES = {
   MNEMONIC: 'mnemonic',
   LEDGER: 'ledger',
+  REMOTE: 'remote', // phone / other device signing over openlv
+  SAFE: 'safe', // Safe smart account owned by other wallet records
 };
+
+/** User-facing labels for non-mnemonic account types (auto-names, error text). */
+const DEVICE_LABELS = {
+  [WALLET_TYPES.LEDGER]: 'Ledger',
+  [WALLET_TYPES.REMOTE]: 'Phone',
+  [WALLET_TYPES.SAFE]: 'Safe',
+};
+
+/** Type-specific record fields to expose through the record seams. */
+function extraRecordFields(record) {
+  const fields = {};
+  if (record.path) {
+    fields.path = record.path;
+  }
+  if (record.type === WALLET_TYPES.SAFE) {
+    fields.owners = record.owners;
+    fields.threshold = record.threshold;
+    fields.saltNonce = record.saltNonce;
+    fields.deployed = record.deployed || {};
+  }
+  return fields;
+}
 
 /**
  * Hardware accounts are allocated from a disjoint, never-reused slice of
@@ -886,7 +910,7 @@ function getWalletRecord(walletIndex, meta = getVaultMeta()) {
     name: record.name,
     address,
     type: record.type || WALLET_TYPES.MNEMONIC,
-    ...(record.path ? { path: record.path } : {}),
+    ...extraRecordFields(record),
   };
 }
 
@@ -931,9 +955,9 @@ async function getDerivedWallets() {
     const type = wallet.type || WALLET_TYPES.MNEMONIC;
     let address = null;
 
-    if (type === WALLET_TYPES.LEDGER) {
-      // Hardware accounts: the address was read from the device when the
-      // account was added; there is nothing to derive locally.
+    if (type !== WALLET_TYPES.MNEMONIC) {
+      // Device accounts (Ledger, phone): the address was read from the
+      // device when the account was added; nothing to derive locally.
       address = wallet.address || null;
     } else if (mnemonic) {
       // Derive address from mnemonic
@@ -953,7 +977,7 @@ async function getDerivedWallets() {
       name: wallet.name,
       address,
       type,
-      ...(wallet.path ? { path: wallet.path } : {}),
+      ...extraRecordFields(wallet),
     });
   }
 
@@ -961,25 +985,23 @@ async function getDerivedWallets() {
 }
 
 /**
- * Add a Ledger hardware-wallet account to the wallet list.
+ * Add a device account (Ledger, phone) to the wallet list.
  *
- * The address comes from the device during account discovery and is
+ * The address comes from the device when the account is added and is
  * persisted — it can never be re-derived locally. Does not require the
  * vault to be unlocked (no mnemonic involved), only that a vault exists
  * so there is a wallet list to add to.
  *
- * @param {string} name - Display name ('' → auto "Ledger N")
- * @param {string} address - Checksummed address read from the device
- * @param {string} path - Derivation path in device format (e.g. "44'/60'/0'/0/0")
- * @returns {Promise<{index: number, name: string, address: string, type: string, path: string}>}
+ * @param {string} type - WALLET_TYPES.LEDGER or WALLET_TYPES.REMOTE
+ * @param {string} name - Display name ('' → auto "<label> N")
+ * @param {string} address - Checksummed address reported by the device
+ * @param {object} [extra] - Extra record fields (e.g. Ledger's path)
  */
-async function addLedgerWallet(name, address, path) {
+async function addDeviceWallet(type, name, address, extra = {}) {
+  const label = DEVICE_LABELS[type];
   const { isAddress } = require('ethers');
   if (typeof address !== 'string' || !isAddress(address)) {
-    throw new Error('Invalid Ledger account address');
-  }
-  if (typeof path !== 'string' || !path) {
-    throw new Error('Missing derivation path for Ledger account');
+    throw new Error(`Invalid ${label} account address`);
   }
 
   const meta = getVaultMeta();
@@ -997,13 +1019,13 @@ async function addLedgerWallet(name, address, path) {
   }
 
   const newIndex = nextHardwareWalletIndex(meta, wallets);
-  const ledgerCount = wallets.filter((w) => w.type === WALLET_TYPES.LEDGER).length;
+  const sameTypeCount = wallets.filter((w) => w.type === type).length;
   const newWallet = {
     index: newIndex,
-    name: (name || '').trim() || `Ledger ${ledgerCount + 1}`,
+    name: (name || '').trim() || `${label} ${sameTypeCount + 1}`,
     address,
-    type: WALLET_TYPES.LEDGER,
-    path,
+    type,
+    ...extra,
   };
   wallets.push(newWallet);
 
@@ -1014,6 +1036,105 @@ async function addLedgerWallet(name, address, path) {
   });
 
   return { ...newWallet };
+}
+
+/**
+ * Add a Ledger hardware-wallet account.
+ *
+ * @param {string} name - Display name ('' → auto "Ledger N")
+ * @param {string} address - Checksummed address read from the device
+ * @param {string} path - Derivation path in device format (e.g. "44'/60'/0'/0/0")
+ * @returns {Promise<{index: number, name: string, address: string, type: string, path: string}>}
+ */
+async function addLedgerWallet(name, address, path) {
+  if (typeof path !== 'string' || !path) {
+    throw new Error('Missing derivation path for Ledger account');
+  }
+  return addDeviceWallet(WALLET_TYPES.LEDGER, name, address, { path });
+}
+
+/**
+ * Add a remote (phone / other device) account, signing over openlv.
+ *
+ * @param {string} name - Display name ('' → auto "Phone N")
+ * @param {string} address - Address the phone reported via eth_requestAccounts
+ * @returns {Promise<{index: number, name: string, address: string, type: string}>}
+ */
+async function addRemoteWallet(name, address) {
+  return addDeviceWallet(WALLET_TYPES.REMOTE, name, address);
+}
+
+/**
+ * Add a Safe smart-account record.
+ *
+ * The init params (owners, threshold, saltNonce) are FROZEN once stored —
+ * they are what makes the CREATE2 address reproducible on other chains
+ * (retroactive deployment recovers funds sent there), so nothing may ever
+ * rewrite them. `owners` are wallet indexes of existing records; the
+ * caller (safe-service) resolves their addresses and predicts `address`
+ * before storing.
+ *
+ * Only the shipped presets are accepted: 1-of-2 and 2-of-3. 2-of-2 is
+ * deliberately not offered — losing either device bricks the funds.
+ *
+ * @param {string} name - Display name ('' → auto "Safe N")
+ * @param {Object} params
+ * @param {string} params.address - Predicted counterfactual address
+ * @param {number[]} params.owners - Wallet indexes of the owner records
+ * @param {number} params.threshold
+ * @param {string} params.saltNonce
+ * @returns {Promise<Object>} The stored record
+ */
+async function addSafeWallet(name, { address, owners, threshold, saltNonce }) {
+  const validPreset =
+    Array.isArray(owners) &&
+    ((owners.length === 2 && threshold === 1) || (owners.length === 3 && threshold === 2));
+  if (!validPreset) {
+    throw new Error('A Safe needs 1 of 2 or 2 of 3 owners');
+  }
+  if (new Set(owners).size !== owners.length) {
+    throw new Error('Duplicate owner accounts');
+  }
+  for (const ownerIndex of owners) {
+    const record = getWalletRecord(ownerIndex);
+    if (!record) {
+      throw new Error(`Owner wallet index ${ownerIndex} does not exist`);
+    }
+    if (record.type === WALLET_TYPES.SAFE) {
+      throw new Error('A Safe cannot own another Safe');
+    }
+  }
+  if (typeof saltNonce !== 'string' || !/^\d+$/.test(saltNonce)) {
+    throw new Error('Invalid Safe salt nonce');
+  }
+
+  return addDeviceWallet(WALLET_TYPES.SAFE, name, address, {
+    owners: [...owners],
+    threshold,
+    saltNonce,
+    deployed: {},
+  });
+}
+
+/**
+ * Record that a Safe's contract is now live on a chain. Deployment state
+ * is the ONLY mutable part of a safe record — init params stay frozen.
+ *
+ * @param {number} index - Wallet index of the safe record
+ * @param {number} chainId
+ */
+async function markSafeDeployed(index, chainId) {
+  const meta = getVaultMeta();
+  if (!meta) {
+    throw new Error('No vault found');
+  }
+  const wallets = getWalletList(meta);
+  const record = wallets.find((w) => w.index === index);
+  if (!record || record.type !== WALLET_TYPES.SAFE) {
+    throw new Error(`Wallet ${index} is not a Safe account`);
+  }
+  record.deployed = { ...(record.deployed || {}), [chainId]: true };
+  saveVaultMeta({ ...meta, derivedWallets: wallets });
 }
 
 /**
@@ -1176,6 +1297,29 @@ async function deleteDerivedWallet(index) {
     err.code = 'SWARM_PUBLISHER_IDENTITY_WALLET_IN_USE';
     err.references = publisherIdentityReferences;
     throw err;
+  }
+
+  // Safe owners are referenced by index; deleting one would leave the
+  // Safe unable to collect that signature (and break executor selection).
+  const owningSafe = wallets.find(
+    (w) => w.type === WALLET_TYPES.SAFE && (w.owners || []).includes(index)
+  );
+  if (owningSafe) {
+    throw new Error(
+      `This account is an owner of "${owningSafe.name}" — delete that Safe account first`
+    );
+  }
+
+  // A Safe's half-signed state is keyed by wallet index (safe-pending.json
+  // entry, in-memory SafeMessage session). Discard both WITH the record:
+  // a later account that reuses the index must neither inherit nor be
+  // blocked by the deleted Safe's leftovers. Cleanup precedes the meta
+  // write so a failure never leaves a deleted record with live state.
+  // (Lazy requires — both modules are dependency-light — keep the Safe
+  // stack out of ordinary wallet operations.)
+  if (wallets[walletIndex].type === WALLET_TYPES.SAFE) {
+    require('./wallet/safe/message-sessions').discardSession(index);
+    require('./wallet/safe/pending-store').clearPending(index);
   }
 
   // Remove from list
@@ -1392,7 +1536,7 @@ function registerIdentityIpc() {
       if (isHardwareWalletIndex(accountIndex) || (record && record.type !== WALLET_TYPES.MNEMONIC)) {
         return {
           success: false,
-          error: 'Hardware wallet accounts have no exportable private key — the key never leaves the device',
+          error: 'This account has no exportable private key — the key never leaves its device',
         };
       }
       const identity = await loadIdentityModule();
@@ -1489,6 +1633,16 @@ function registerIdentityIpc() {
     }
   });
 
+  // Add a remote (phone) account (address reported over openlv)
+  ipcMain.handle('wallet:add-remote-wallet', async (_event, name, address) => {
+    try {
+      const wallet = await addRemoteWallet(name, address);
+      return { success: true, wallet };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Rename wallet
   ipcMain.handle('wallet:rename-wallet', async (_event, index, newName) => {
     try {
@@ -1553,6 +1707,9 @@ module.exports = {
   setActiveWalletIndex,
   createDerivedWallet,
   addLedgerWallet,
+  addRemoteWallet,
+  addSafeWallet,
+  markSafeDeployed,
   renameDerivedWallet,
   deleteDerivedWallet,
   getActiveWalletAddress,

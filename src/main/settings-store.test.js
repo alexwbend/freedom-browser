@@ -37,7 +37,6 @@ describe('settings-store', () => {
     expect(mod.loadSettings()).toEqual(
       expect.objectContaining({
         theme: 'system',
-        enableRadicleIntegration: false,
         enableIdentityWallet: true,
         antNodeMode: 'ultraLight',
         startAntAtLaunch: true,
@@ -113,6 +112,24 @@ describe('settings-store', () => {
     const { mod } = loadSettingsStore({ userDataDir });
 
     expect(mod.loadSettings().antNodeMode).toBe('ultraLight');
+  });
+
+  test('removes the obsolete Radicle feature gate without changing startup intent', () => {
+    const settingsPath = path.join(userDataDir, 'settings.json');
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({ enableRadicleIntegration: false, startRadicleAtLaunch: true }),
+      'utf-8'
+    );
+
+    const { mod } = loadSettingsStore({ userDataDir });
+
+    const loaded = mod.loadSettings();
+    expect(loaded).not.toHaveProperty('enableRadicleIntegration');
+    expect(loaded.startRadicleAtLaunch).toBe(true);
+    const persisted = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    expect(persisted).not.toHaveProperty('enableRadicleIntegration');
+    expect(persisted.startRadicleAtLaunch).toBe(true);
   });
 
   test('falls back to defaults when the settings file is invalid', () => {
