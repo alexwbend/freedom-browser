@@ -169,9 +169,15 @@ const formatShortcut = (shortcut, isMac) => {
 // Initialize keyboard shortcuts based on platform.
 //
 // A hint here must name a binding the app actually implements — an item
-// with no shortcut (Print, Zoom) carries no hint at all. Where the two
-// platforms differ (History is Cmd+Y on macOS, Ctrl+H elsewhere, per
+// with no shortcut (Print) carries no hint at all. Where the two platforms
+// differ (History is Cmd+Y on macOS, Ctrl+H elsewhere, per
 // src/shared/shortcuts.js), `data-shortcut-other` carries the non-mac form.
+//
+// The zoom row is the one bound item deliberately left hintless: it is a
+// − / readout / + stepper, not a labelled menu item, so it has no
+// `.menu-item-shortcut` slot to fill and three bindings to name rather than
+// one. Its accelerators are surfaced in the View menu and remain remappable
+// under Settings > Shortcuts.
 const initKeyboardShortcuts = async () => {
   const platform = await electronAPI?.getPlatform?.();
   const isMac = platform === 'darwin';
