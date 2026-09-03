@@ -696,13 +696,25 @@ function sanitizeOverrides(raw, platform, { onDrop } = {}) {
   // each other (hand-edited file; the UI cannot produce it) lose exactly
   // one side, not both. A legitimate swap pair, where each override sits on
   // the other entry's freed default, matches nothing and is left alone.
-  for (const entry of SHORTCUTS) {
-    const accelerator = clean[entry.id];
-    if (!accelerator) continue;
-    const conflict = findConflict(entry, accelerator, clean, platform);
-    if (!conflict) continue;
-    delete clean[entry.id];
-    if (typeof onDrop === 'function') onDrop({ id: entry.id, accelerator, conflict });
+  //
+  // Repeated to a fixpoint: a drop reverts that entry to its default, which
+  // can collide with an override on an entry *earlier* in registry order
+  // that was already checked against the pre-drop state (remap A onto B's
+  // chord, then B onto a chord a later release claims — dropping B hands
+  // its default back and A now doubles it). Each pass only removes
+  // overrides, so at most one pass per override runs before it settles.
+  for (let pass = Object.keys(clean).length; pass > 0; pass -= 1) {
+    let dropped = false;
+    for (const entry of SHORTCUTS) {
+      const accelerator = clean[entry.id];
+      if (!accelerator) continue;
+      const conflict = findConflict(entry, accelerator, clean, platform);
+      if (!conflict) continue;
+      delete clean[entry.id];
+      dropped = true;
+      if (typeof onDrop === 'function') onDrop({ id: entry.id, accelerator, conflict });
+    }
+    if (!dropped) break;
   }
 
   return clean;

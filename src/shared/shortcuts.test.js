@@ -405,6 +405,16 @@ describe('override resolution', () => {
   // on one press. sanitizeOverrides applies the same rule the interactive
   // remap path does: a taken chord is refused, so the override reverts.
   describe('conflict pruning of stored overrides', () => {
+    // Every registry entry a single keypress would fire, primaries and fixed
+    // aliases alike — more than one means the double-fire bug is back.
+    const matchingIds = (event, overrides, platform = 'linux') =>
+      SHORTCUTS.filter((entry) =>
+        [
+          getEffectiveAccelerator(entry, overrides, platform),
+          ...getAliasAccelerators(entry, platform),
+        ].some((accelerator) => eventMatchesAccelerator(event, accelerator, platform))
+      ).map((entry) => entry.id);
+
     test('drops an override that a newer default has since claimed', () => {
       const drops = [];
       const cleaned = sanitizeOverrides({ 'view.focusAddressBar': 'Ctrl+0' }, 'linux', {
@@ -484,23 +494,116 @@ describe('override resolution', () => {
       // *and* resetting zoom, because two window keydown fallbacks matched.
       const platform = 'linux';
       const event = keyEvent({ key: '0', code: 'Digit0', ctrlKey: true });
-      const matchCount = (overrides) =>
-        SHORTCUTS.filter((entry) =>
-          [
-            getEffectiveAccelerator(entry, overrides, platform),
-            ...getAliasAccelerators(entry, platform),
-          ].some((accelerator) => eventMatchesAccelerator(event, accelerator, platform))
-        ).map((entry) => entry.id);
 
       // Stored as-is (what the app did before this fix): two actions fire.
-      expect(matchCount({ 'view.focusAddressBar': 'Ctrl+0' })).toEqual([
+      expect(matchingIds(event, { 'view.focusAddressBar': 'Ctrl+0' })).toEqual([
         'page.zoomReset',
         'view.focusAddressBar',
       ]);
       // Loaded through sanitizeOverrides: exactly one.
-      expect(matchCount(sanitizeOverrides({ 'view.focusAddressBar': 'Ctrl+0' }, platform))).toEqual(
-        ['page.zoomReset']
+      expect(
+        matchingIds(event, sanitizeOverrides({ 'view.focusAddressBar': 'Ctrl+0' }, platform))
+      ).toEqual(['page.zoomReset']);
+    });
+
+    test('a revert cascading onto an earlier-registry override drops that one too', () => {
+      // Interactively legal before the zoom defaults existed: remap
+      // view.focusAddressBar (registry 13) onto the then-free Ctrl+0, then
+      // tab.new (registry 0) onto the Ctrl+L it freed. Dropping the first
+      // hands Ctrl+L back, so a single pass — which checked tab.new before
+      // the drop — would leave two handlers on one Ctrl+L press.
+      const drops = [];
+      const cleaned = sanitizeOverrides(
+        { 'tab.new': 'Ctrl+L', 'view.focusAddressBar': 'Ctrl+0' },
+        'linux',
+        { onDrop: (drop) => drops.push(drop) }
       );
+      expect(cleaned).toEqual({});
+      expect(drops).toEqual([
+        {
+          id: 'view.focusAddressBar',
+          accelerator: 'Ctrl+0',
+          conflict: { id: 'page.zoomReset', description: 'Actual Size', fixed: false },
+        },
+        {
+          id: 'tab.new',
+          accelerator: 'Ctrl+L',
+          conflict: {
+            id: 'view.focusAddressBar',
+            description: 'Focus Address Bar',
+            fixed: false,
+          },
+        },
+      ]);
+      // Exactly one action left on the freed chord.
+      expect(matchingIds(keyEvent({ key: 'l', code: 'KeyL', ctrlKey: true }), cleaned)).toEqual([
+        'view.focusAddressBar',
+      ]);
+      // Registry order, not JSON key order, decides — the other key order
+      // gives the identical result.
+      expect(
+        sanitizeOverrides({ 'view.focusAddressBar': 'Ctrl+0', 'tab.new': 'Ctrl+L' }, 'linux')
+      ).toEqual(cleaned);
+    });
+
+    test('the mirror direction (collider later in the registry) also settles', () => {
+      // page.reload (7) drops and reverts to Ctrl+R, which view.focusAddressBar
+      // (13) was remapped onto — the ordering the single pass already handled.
+      const drops = [];
+      const cleaned = sanitizeOverrides(
+        { 'page.reload': 'Ctrl+0', 'view.focusAddressBar': 'Ctrl+R' },
+        'linux',
+        { onDrop: (drop) => drops.push(drop) }
+      );
+      expect(cleaned).toEqual({});
+      expect(drops.map((drop) => drop.id)).toEqual(['page.reload', 'view.focusAddressBar']);
+      expect(matchingIds(keyEvent({ key: 'r', code: 'KeyR', ctrlKey: true }), cleaned)).toEqual([
+        'page.reload',
+      ]);
+      expect(
+        sanitizeOverrides({ 'view.focusAddressBar': 'Ctrl+R', 'page.reload': 'Ctrl+0' }, 'linux')
+      ).toEqual(cleaned);
+    });
+
+    test('a three-entry cascade runs to a fixpoint', () => {
+      // Each drop frees a default the next-earlier entry sits on:
+      // view.focusAddressBar (13) → Ctrl+L → page.reload (7) → Ctrl+R →
+      // tab.new (0). Three registry walks are needed, one per link.
+      const drops = [];
+      const cleaned = sanitizeOverrides(
+        {
+          'tab.new': 'Ctrl+R',
+          'page.reload': 'Ctrl+L',
+          'view.focusAddressBar': 'Ctrl+0',
+        },
+        'linux',
+        { onDrop: (drop) => drops.push(drop) }
+      );
+      expect(cleaned).toEqual({});
+      expect(drops.map((drop) => drop.id)).toEqual([
+        'view.focusAddressBar',
+        'page.reload',
+        'tab.new',
+      ]);
+      for (const [event, id] of [
+        [keyEvent({ key: '0', code: 'Digit0', ctrlKey: true }), 'page.zoomReset'],
+        [keyEvent({ key: 'l', code: 'KeyL', ctrlKey: true }), 'view.focusAddressBar'],
+        [keyEvent({ key: 'r', code: 'KeyR', ctrlKey: true }), 'page.reload'],
+        [keyEvent({ key: 't', code: 'KeyT', ctrlKey: true }), 'tab.new'],
+      ]) {
+        expect(matchingIds(event, cleaned)).toEqual([id]);
+      }
+      // Same result from the reversed JSON key order.
+      expect(
+        sanitizeOverrides(
+          {
+            'view.focusAddressBar': 'Ctrl+0',
+            'page.reload': 'Ctrl+L',
+            'tab.new': 'Ctrl+R',
+          },
+          'linux'
+        )
+      ).toEqual(cleaned);
     });
   });
 });

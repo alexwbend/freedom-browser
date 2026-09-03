@@ -1,4 +1,8 @@
-const { loadMainModule } = require('../../test/helpers/main-process-test-utils');
+const {
+  createTempUserDataDir,
+  loadMainModule,
+  removeTempUserDataDir,
+} = require('../../test/helpers/main-process-test-utils');
 const IPC = require('../shared/ipc-channels');
 
 // In-memory settings store standing in for src/main/settings-store.js —
@@ -101,6 +105,55 @@ describe('shortcuts IPC', () => {
     });
     expect(byId['view.focusAddressBar'].accelerator).toBe('CmdOrCtrl+L');
     expect(byId['page.zoomReset'].reverted).toBeNull();
+  });
+
+  test('a Reset that claims a sibling’s chord back shows the notice on its row', async () => {
+    // Against the *real* settings store, since this is about what its save
+    // path does: the two-click sequence the settings page produces, then
+    // Reset. Restoring Reload's default takes Ctrl+R back from New Tab —
+    // the row has to say so instead of the remap just vanishing.
+    const userDataDir = createTempUserDataDir();
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'linux' });
+    try {
+      const { mod, ipcMain } = loadMainModule(require.resolve('./shortcuts-ipc'), {
+        userDataDir,
+        extraMocks: {
+          // Undo the in-memory stand-in the other tests register, so this one
+          // runs against the store's own sanitize/notice plumbing.
+          [require.resolve('./settings-store')]: () => jest.requireActual('./settings-store'),
+          [require.resolve('./logger')]: () => ({ error: jest.fn(), warn: jest.fn() }),
+        },
+      });
+      mod.registerShortcutsIpc();
+
+      await expect(
+        ipcMain.invoke(IPC.SHORTCUTS_SET_OVERRIDE, {
+          id: 'page.reload',
+          accelerator: 'Ctrl+Shift+U',
+        })
+      ).resolves.toEqual({ ok: true });
+      await expect(
+        ipcMain.invoke(IPC.SHORTCUTS_SET_OVERRIDE, { id: 'tab.new', accelerator: 'Ctrl+R' })
+      ).resolves.toEqual({ ok: true });
+      await expect(ipcMain.invoke(IPC.SHORTCUTS_RESET, { id: 'page.reload' })).resolves.toEqual({
+        ok: true,
+      });
+
+      const state = await ipcMain.invoke(IPC.SHORTCUTS_GET_STATE);
+      const byId = Object.fromEntries(state.entries.map((entry) => [entry.id, entry]));
+
+      expect(byId['page.reload'].accelerator).toBe('CmdOrCtrl+R');
+      expect(byId['tab.new'].accelerator).toBe('CmdOrCtrl+T');
+      expect(byId['tab.new'].reverted).toEqual({
+        formatted: 'Ctrl+R',
+        conflict: 'Reload This Page',
+      });
+      expect(byId['page.reload'].reverted).toBeNull();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+      removeTempUserDataDir(userDataDir);
+    }
   });
 
   test('preview validates recorded keydowns and reports conflicts', async () => {

@@ -429,6 +429,47 @@ describe('settings-store', () => {
     expect(mod.getRevertedShortcutOverrides()).toEqual({});
   });
 
+  test('a Reset that hands a default back never drops a sibling remap silently', () => {
+    const { mod, logger } = loadSettingsStore({ userDataDir });
+
+    // Two remaps the interactive path allows: Reload moves off Ctrl+R and
+    // New Tab takes the freed chord.
+    expect(
+      mod.saveSettings({
+        shortcutOverrides: { 'page.reload': 'Ctrl+Shift+U', 'tab.new': 'Ctrl+R' },
+      })
+    ).toBe(true);
+    expect(mod.loadSettings().shortcutOverrides).toEqual({
+      'page.reload': 'Ctrl+Shift+U',
+      'tab.new': 'Ctrl+R',
+    });
+    expect(mod.getRevertedShortcutOverrides()).toEqual({});
+    logger.warn.mockClear();
+
+    // Reset on Reload's row — resetOverride saves the map minus that entry.
+    // Ctrl+R goes back to Reload, so New Tab's remap cannot stay.
+    expect(mod.saveSettings({ shortcutOverrides: { 'tab.new': 'Ctrl+R' } })).toBe(true);
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(userDataDir, 'settings.json'), 'utf-8'));
+    expect(persisted.shortcutOverrides).toEqual({});
+    // Not silent: same record and same log line as the load path, so
+    // getShortcutState puts the notice on the New Tab row.
+    expect(mod.getRevertedShortcutOverrides()).toEqual({
+      'tab.new': {
+        accelerator: 'Ctrl+R',
+        conflictId: 'page.reload',
+        conflict: 'Reload This Page',
+      },
+    });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain('tab.new');
+    expect(logger.warn.mock.calls[0][0]).toContain('Reload This Page');
+
+    // The next conflict-free save clears the notice again.
+    expect(mod.saveSettings({ shortcutOverrides: { 'tab.new': 'Ctrl+Shift+U' } })).toBe(true);
+    expect(mod.getRevertedShortcutOverrides()).toEqual({});
+  });
+
   test('registers IPC handlers for loading and saving settings', async () => {
     const ipcMain = createIpcMainMock();
     const { mod, nativeTheme } = loadSettingsStore({ userDataDir, ipcMain });

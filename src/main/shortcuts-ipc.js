@@ -31,9 +31,10 @@ const getOverrides = () => loadSettings()?.shortcutOverrides || {};
 // Full render model for the settings page.
 function getShortcutState(platform = process.platform) {
   const overrides = getOverrides();
-  // Remaps the store had to revert on load because a newer default or fixed
-  // alias claimed the chord — shown on the row so the change is visible
-  // rather than silent.
+  // Remaps the store had to revert because another entry's default or fixed
+  // alias claimed the chord — at load (a newer release's default) or on a
+  // save (Reset handing a default back). Shown on the row so the change is
+  // visible rather than silent.
   const reverted = getRevertedShortcutOverrides() || {};
   const entries = SHORTCUTS.map((entry) => {
     const defaultAccelerator = getDefaultAccelerator(entry, platform);
