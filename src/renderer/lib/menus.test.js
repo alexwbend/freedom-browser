@@ -365,6 +365,53 @@ describe('menus', () => {
     expect(webview.setZoomFactor).not.toHaveBeenCalled();
   });
 
+  test('a Nordic Ctrl++ zooms in, not out (the fallback chain order is load-bearing)', async () => {
+    // Swedish/Norwegian/Danish/Finnish layouts have `+` unshifted at the US
+    // `Minus` position, so Ctrl+`+` arrives as { key: '+', code: 'Minus' }
+    // and matches page.zoomIn (via the CmdOrCtrl+Plus alias) *and*
+    // page.zoomOut (via the `-` its code implies). The if/else-if order in
+    // menus.js decides which wins; reordering it, or splitting the chain
+    // into independent ifs, turns Nordic zoom-in into zoom-out. Fail here
+    // if that happens.
+    let zoomFactor = 1;
+    const webview = {
+      getZoomFactor: jest.fn(() => zoomFactor),
+      setZoomFactor: jest.fn((next) => {
+        zoomFactor = next;
+      }),
+    };
+    const { menus, elements, handlers } = await loadMenusModule({ platform: 'linux', webview });
+
+    menus.initMenus();
+    await Promise.resolve();
+
+    const preventDefault = jest.fn();
+    handlers.windowHandlers.keydown({
+      key: '+',
+      code: 'Minus',
+      ctrlKey: true,
+      preventDefault,
+    });
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(webview.setZoomFactor).toHaveBeenCalledTimes(1);
+    expect(webview.setZoomFactor).toHaveBeenLastCalledWith(1.1);
+    expect(elements.zoomLevelDisplay.textContent).toBe('110%');
+    // Belt and braces: zoom out would have produced 0.9.
+    expect(webview.setZoomFactor).not.toHaveBeenCalledWith(0.9);
+
+    // The unambiguous Nordic zoom-out chord (Shift+`+` types `?` there, so
+    // users reach it via the keypad or a plain `-` on other layouts) still
+    // zooms out — the ordering fix must not swallow zoom out entirely.
+    handlers.windowHandlers.keydown({
+      key: '-',
+      code: 'NumpadSubtract',
+      ctrlKey: true,
+      preventDefault: jest.fn(),
+    });
+    expect(webview.setZoomFactor).toHaveBeenLastCalledWith(1);
+  });
+
   test('zoom clamps at both ends and tolerates a webview that is not dom-ready', async () => {
     let zoomFactor = 5;
     const webview = {

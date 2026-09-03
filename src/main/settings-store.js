@@ -93,6 +93,15 @@ const DEFAULT_SETTINGS = {
 
 let cachedSettings = null;
 
+// Shortcut remaps the load path had to revert because their chord is now
+// taken by another shortcut's default or fixed alias. Kept in memory (id →
+// { accelerator, conflictId, conflict }) so Settings > Shortcuts can tell
+// the user which remap went away instead of it just vanishing; the log line
+// above it is written once per load.
+let revertedShortcutOverrides = {};
+
+const getRevertedShortcutOverrides = () => revertedShortcutOverrides;
+
 const SEARCH_TERMS_PLACEHOLDER = '{searchTerms}';
 const CUSTOM_SEARCH_PROVIDER_LIMIT = 50;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -213,11 +222,26 @@ function loadSettings() {
   }
 
   // Defense against hand-edited or stale files: only registry-known,
-  // editable, valid shortcut remaps survive into the live settings.
+  // editable, valid, conflict-free shortcut remaps survive into the live
+  // settings. A remap recorded while its chord was free but since claimed
+  // by a new default or fixed alias is reverted here (it would otherwise
+  // fire alongside the new binding on a single press); the file itself is
+  // rewritten without it by the next settings save, which persists this
+  // sanitized map.
+  const reverted = {};
   cachedSettings.shortcutOverrides = sanitizeOverrides(
     cachedSettings.shortcutOverrides,
-    process.platform
+    process.platform,
+    {
+      onDrop: ({ id, accelerator, conflict }) => {
+        reverted[id] = { accelerator, conflictId: conflict.id, conflict: conflict.description };
+        log.warn(
+          `[shortcuts] Reverted remap ${id} → ${accelerator}: that combination is now used by "${conflict.description}".`
+        );
+      },
+    }
   );
+  revertedShortcutOverrides = reverted;
 
   // Apply theme to nativeTheme
   applyNativeTheme(cachedSettings.theme);
@@ -271,6 +295,10 @@ function saveSettings(newSettings) {
           if (JSON.stringify(sanitized) !== JSON.stringify(previous[key] || {})) {
             merged[key] = sanitized;
             changed = true;
+            // The user has been in Settings > Shortcuts and rebound
+            // something — the "we reverted your old remap" notices have
+            // been seen and acted on, so stop showing them.
+            revertedShortcutOverrides = {};
           }
           continue;
         }
@@ -340,4 +368,5 @@ module.exports = {
   // Exported for the parity test against the renderer copy in search-utils.js.
   normalizeSearchUrlTemplate,
   onSettingsChanged,
+  getRevertedShortcutOverrides,
 };

@@ -126,7 +126,10 @@ export const SHORTCUTS = [
     id: 'page.zoomIn',
     description: 'Zoom In',
     defaultAccelerator: 'CmdOrCtrl+=',
-    // `=` is a shifted key on many layouts (German Shift+0, French, …), and
+    // `=` is a shifted key on many layouts (German, Spanish, Italian, Swiss
+    // and the Nordic ones all put it on Shift+0 — French does not: there `=`
+    // is unshifted and the *digits* are shifted, which `Digit0` already
+    // covers), and
     // eventMatchesAccelerator demands an exact modifier match, so the bare
     // `CmdOrCtrl+=` binding can never fire there. `CmdOrCtrl+Shift+=` is
     // also the chord a US-layout user presses for a literal `+`. `Plus`

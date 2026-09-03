@@ -261,3 +261,40 @@ test('search filters the shortcut list', async ({ window }) => {
     )
   ).toBe('page.findInPage');
 });
+
+// The other half of the stale-override story covered in zoom.spec.js: when
+// the store reverts a remap on load because a newer default or fixed alias
+// took its chord, Settings > Shortcuts has to say so — a binding that just
+// silently snaps back to its default looks like the app lost the setting.
+test.describe('a remap the store reverted on load', () => {
+  test.use({
+    seedSettings: {
+      shortcutOverrides: {
+        'view.focusAddressBar': process.platform === 'darwin' ? 'Cmd+0' : 'Ctrl+0',
+      },
+    },
+  });
+
+  test('is shown as reset on its row, naming the shortcut that took the combo', async ({
+    window,
+  }) => {
+    await openShortcutsSettings(window);
+
+    const rowNote = () =>
+      inSettingsPage(
+        window,
+        `(() => {
+           const row = document.querySelector('.row[data-shortcut-id="view.focusAddressBar"]');
+           const note = row && row.querySelector('.shortcut-note');
+           return note ? note.textContent.replace(/\\s+/g, ' ').trim() : null;
+         })()`
+      );
+
+    await expect
+      .poll(rowNote, { message: 'Waiting for the reverted notice' })
+      .toContain('Actual Size');
+    expect(await rowNote()).toContain('was reset');
+    // The binding itself is back on its default, not the stale chord.
+    expect(await effectiveAccelerator(window, 'view.focusAddressBar')).toBe('CmdOrCtrl+L');
+  });
+});

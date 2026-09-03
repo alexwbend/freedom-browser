@@ -160,3 +160,51 @@ test('the hamburger menu readout follows a zoom driven from the View menu', asyn
   await clickMenuItem(electronApp, 'zoom-reset');
   await expect(window.locator('#zoom-level')).toHaveText('100%');
 });
+
+// A remap recorded before the zoom entries existed — Cmd/Ctrl+0 was a free
+// chord then — used to survive the upgrade and fire alongside the new
+// page.zoomReset default: one press, two actions (the address bar took
+// focus *and* the zoom reset). The settings store now applies the same
+// conflict rule the interactive remap path does and reverts it on load.
+test.describe('a stored remap that a newer zoom default has claimed', () => {
+  test.use({
+    seedSettings: {
+      shortcutOverrides: {
+        'view.focusAddressBar': process.platform === 'darwin' ? 'Cmd+0' : 'Ctrl+0',
+      },
+    },
+  });
+
+  test('is reverted on load, so one Cmd/Ctrl+0 press does exactly one thing', async ({
+    window,
+    electronApp,
+  }) => {
+    await waitForZoomReady(window, electronApp);
+
+    // Detune, and confirm it stuck, so the reset below proves something.
+    await expect
+      .poll(
+        async () => {
+          await setZoomFactor(window, 1.5);
+          return zoomFactor(window);
+        },
+        { message: 'Waiting for the webview to accept the detuned zoom', timeout: 15_000 }
+      )
+      .toBeCloseTo(1.5, 2);
+
+    // Press with the address bar deliberately unfocused: were the stale
+    // override still live, this same press would also focus it.
+    await window.evaluate(() => document.activeElement?.blur?.());
+    await window.keyboard.press('ControlOrMeta+Digit0');
+
+    await expect.poll(() => zoomFactor(window)).toBeCloseTo(1, 2);
+    expect(await window.evaluate(() => document.activeElement?.id || null)).not.toBe(
+      'address-input'
+    );
+
+    // …and the reverted remap is really gone from the live settings.
+    expect(
+      await window.evaluate(() => window.electronAPI.getSettings().then((s) => s.shortcutOverrides))
+    ).toEqual({});
+  });
+});

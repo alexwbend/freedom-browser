@@ -275,6 +275,14 @@ export const initMenus = () => {
   // shortcut registry so user remaps apply live. Needed on the Linux
   // frameless setups where menu accelerators never reach the app — the same
   // reason tabs.js and navigation.js carry keydown fallbacks.
+  //
+  // The order of this chain is load-bearing, and it must stay one if/else-if
+  // chain rather than independent ifs: on the Nordic layouts (Swedish,
+  // Norwegian, Danish, Finnish) `+` is the unshifted key at the US `Minus`
+  // position, so Ctrl+`+` arrives as { key: '+', code: 'Minus' } and matches
+  // *both* page.zoomIn (via the `CmdOrCtrl+Plus` alias) and page.zoomOut (via
+  // the `-` its physical code implies). Zoom In is tested first so those
+  // users zoom in, which is what they pressed. menus.test.js pins it.
   window.addEventListener('keydown', (event) => {
     if (matchesShortcut(event, 'page.zoomIn')) {
       event.preventDefault();

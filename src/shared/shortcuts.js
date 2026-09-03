@@ -137,7 +137,10 @@ const SHORTCUTS = [
     id: 'page.zoomIn',
     description: 'Zoom In',
     defaultAccelerator: 'CmdOrCtrl+=',
-    // `=` is a shifted key on many layouts (German Shift+0, French, …), and
+    // `=` is a shifted key on many layouts (German, Spanish, Italian, Swiss
+    // and the Nordic ones all put it on Shift+0 — French does not: there `=`
+    // is unshifted and the *digits* are shifted, which `Digit0` already
+    // covers), and
     // eventMatchesAccelerator demands an exact modifier match, so the bare
     // `CmdOrCtrl+=` binding can never fire there. `CmdOrCtrl+Shift+=` is
     // also the chord a US-layout user presses for a literal `+`. `Plus`
@@ -658,8 +661,18 @@ function findConflict(entryOrId, accelerator, overrides, platform) {
  * modifier-less typing/editing keys, and no-op overrides equal to the
  * default. Values are normalized. Never throws — malformed input
  * yields {}.
+ *
+ * A second pass then applies the same conflict rule Settings > Shortcuts
+ * enforces interactively (see setOverride in src/main/shortcuts-ipc.js): a
+ * binding already taken by another entry's effective accelerator or fixed
+ * alias is refused, and a fixed-alias collision can never be swapped away.
+ * Without it, an override recorded while a chord was free — legal then —
+ * survives a release that gives that chord to a new default and both fire
+ * on one press (e.g. a `Ctrl+0` remap made before `page.zoomReset` existed).
+ * Pass `onDrop({ id, accelerator, conflict })` to observe those drops; the
+ * settings store logs them and surfaces them as reverted.
  */
-function sanitizeOverrides(raw, platform) {
+function sanitizeOverrides(raw, platform, { onDrop } = {}) {
   const clean = {};
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return clean;
   for (const [id, value] of Object.entries(raw)) {
@@ -675,6 +688,23 @@ function sanitizeOverrides(raw, platform) {
     }
     clean[id] = normalized;
   }
+
+  // Conflict pass, walked in registry order so the result never depends on
+  // the key order of the stored JSON. Each override is checked against the
+  // bindings still standing at that point, and a dropped one falls back to
+  // its default straight away — so two overrides that collide only with
+  // each other (hand-edited file; the UI cannot produce it) lose exactly
+  // one side, not both. A legitimate swap pair, where each override sits on
+  // the other entry's freed default, matches nothing and is left alone.
+  for (const entry of SHORTCUTS) {
+    const accelerator = clean[entry.id];
+    if (!accelerator) continue;
+    const conflict = findConflict(entry, accelerator, clean, platform);
+    if (!conflict) continue;
+    delete clean[entry.id];
+    if (typeof onDrop === 'function') onDrop({ id: entry.id, accelerator, conflict });
+  }
+
   return clean;
 }
 
