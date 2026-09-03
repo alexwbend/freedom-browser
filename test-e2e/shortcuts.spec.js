@@ -327,9 +327,7 @@ test.describe('a revert that cascades onto a second stored remap', () => {
     await expect
       .poll(
         () =>
-          window.evaluate(() =>
-            window.electronAPI.getSettings().then((s) => s.shortcutOverrides)
-          ),
+          window.evaluate(() => window.electronAPI.getSettings().then((s) => s.shortcutOverrides)),
         { message: 'Waiting for the sanitized overrides' }
       )
       .toEqual({});
