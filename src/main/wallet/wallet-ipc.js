@@ -356,9 +356,9 @@ function registerWalletIpc() {
 
   ipcMain.handle(
     'wallet:safe-send',
-    safeStateHandler((safeIndex, tx, display) => {
+    safeStateHandler((safeIndex, tx, display, chainId) => {
       const { startSafeSend } = require('./safe/safe-transactions');
-      return startSafeSend({ safeIndex, tx, display });
+      return startSafeSend({ safeIndex, tx, display, chainId });
     })
   );
 

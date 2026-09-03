@@ -176,6 +176,26 @@ function recordAdaptiveFailure(routeKey, error, now = Date.now()) {
   });
 }
 
+function configuredSourceTimeoutMs(chainId) {
+  const network = registry.getNetwork(chainId) || {};
+  return Math.max(500, Number(network.quorum?.timeoutMs) || 5000);
+}
+
+// The two-second budget is a *fall-through* allowance, not a global ceiling.
+// Spending it only pays off when a later source can still answer and a page
+// the user is watching is waiting on the result. Applied unconditionally it
+// silently downgrades a verified answer to an unverified single-endpoint one
+// (any wallet read on a network slower than 2s), and where the source is the
+// last one configured it turns a read that would have succeeded into a
+// failure. So: cap only an app-driven read that still has somewhere to fall
+// through to; everyone else keeps the chain's configured timeout.
+function sourceDeadlineMs(chainId, { interactive, hasFallbackSource }) {
+  const configured = configuredSourceTimeoutMs(chainId);
+  return interactive && hasFallbackSource
+    ? Math.min(configured, INTERACTIVE_SOURCE_DEADLINE_MS)
+    : configured;
+}
+
 function withSourceDeadline(promise, source, timeoutMs = INTERACTIVE_SOURCE_DEADLINE_MS) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new SourceDeadlineError(source, timeoutMs)), timeoutMs);
@@ -442,7 +462,7 @@ async function requestMyotis(chainId, method, params) {
   throw new SourceUnavailableError(`Myotis does not support ${method}`);
 }
 
-async function requestColibri(chainId, method, params, routeKey = null) {
+async function requestColibri(chainId, method, params, routeKey = null, deadlineMs = null) {
   if (COLIBRI_UNSUPPORTED.has(method)) {
     throw new SourceUnavailableError(`Colibri does not support ${method}`);
   }
@@ -475,7 +495,13 @@ async function requestColibri(chainId, method, params, routeKey = null) {
   // tracked until it really settles so repeated page calls cannot accumulate
   // unbounded background work.
   requestPromise.then(release, release);
-  return withSourceDeadline(requestPromise, 'Colibri');
+  // A prover call is never left unbounded: without a fall-through budget it
+  // still has to settle inside the chain's configured timeout.
+  return withSourceDeadline(
+    requestPromise,
+    'Colibri',
+    deadlineMs || configuredSourceTimeoutMs(chainId)
+  );
 }
 
 async function requestRpcUrl(url, method, params, timeoutMs, { signal } = {}) {
@@ -574,14 +600,16 @@ async function requestQuorum(
   chainId,
   method,
   params,
-  { includeTrust = false, allowDirectFallback = false } = {}
+  { includeTrust = false, allowDirectFallback = false, deadlineMs = null } = {}
 ) {
   const network = registry.getNetwork(chainId) || {};
   const quorum = network.quorum || {};
   const k = Math.max(1, Number(quorum.k) || 3);
   const m = Math.max(1, Math.min(k, Number(quorum.m) || 2));
   const configuredTimeoutMs = Math.max(500, Number(quorum.timeoutMs) || 5000);
-  const timeoutMs = Math.min(configuredTimeoutMs, INTERACTIVE_SOURCE_DEADLINE_MS);
+  const timeoutMs = deadlineMs
+    ? Math.min(configuredTimeoutMs, deadlineMs)
+    : configuredTimeoutMs;
   const endpointTimeoutMs = allowDirectFallback ? configuredTimeoutMs : timeoutMs;
   const urls = registry.getEndpoints(chainId, 'rpc').slice(0, k);
   if (urls.length < m) throw new SourceUnavailableError(`RPC quorum needs ${m} endpoints`);
@@ -795,6 +823,7 @@ async function requestSource(
     directFallback = null,
     directAttemptedUrls = [],
     allowDirectFallback = false,
+    deadlineMs = null,
   } = {}
 ) {
   if (source === 'myotis') {
@@ -805,11 +834,15 @@ async function requestSource(
     return { result, trust: myotisTrust(beforeStatus, afterStatus) };
   }
   if (source === 'colibri') {
-    const result = await requestColibri(chainId, method, params, routeKey);
+    const result = await requestColibri(chainId, method, params, routeKey, deadlineMs);
     return includeTrust ? { result, trust: colibriTrust(chainId) } : result;
   }
   if (source === 'quorum') {
-    return requestQuorum(chainId, method, params, { includeTrust, allowDirectFallback });
+    return requestQuorum(chainId, method, params, {
+      includeTrust,
+      allowDirectFallback,
+      deadlineMs,
+    });
   }
   if (source === 'direct') {
     return requestDirect(chainId, method, params, {
@@ -834,6 +867,10 @@ async function request(
   const supportsMyotis = myotis.NETWORKS?.has(Number(chainId)) === true;
   const order = network.access?.readOrder ||
     (supportsMyotis ? DEFAULT_READ_ORDER : DEFAULT_NON_MYOTIS_READ_ORDER);
+  // Only a page-driven read (an app supplies its routing context) trades
+  // verification for interactive latency. Wallet-internal reads have no user
+  // watching a frame and keep the chain's configured timeout.
+  const interactive = normalizeRoutingOrigin(routingContext) !== null;
   const failures = [];
   let lastRpcError = null;
   let directFallback = null;
@@ -855,6 +892,10 @@ async function request(
         directFallback: source === 'direct' ? directFallback : null,
         directAttemptedUrls: source === 'direct' ? directAttemptedUrls : [],
         allowDirectFallback: source === 'quorum' && order[sourceIndex + 1] === 'direct',
+        deadlineMs: sourceDeadlineMs(Number(chainId), {
+          interactive,
+          hasFallbackSource: sourceIndex + 1 < order.length,
+        }),
       });
       recordAdaptiveSuccess(routeKey);
       const result = includeTrust ? sourceResult.result : sourceResult;

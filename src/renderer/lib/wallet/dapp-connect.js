@@ -10,6 +10,7 @@ import { escapeHtml, isSafeAccount, isSafeDeployed } from './wallet-utils.js';
 import { open as openSidebarPanel, isVisible as isSidebarVisible } from '../sidebar.js';
 import { getActiveWebview, emitAccountsChanged, getPermissionKey } from '../dapp-provider.js';
 import { showDappPermissions } from './permission-manage.js';
+import { parseOnchainAppUrl } from '../url-utils.js';
 
 // DOM references
 let dappConnectScreen;
@@ -228,7 +229,12 @@ export function showDappConnect(displayUrl, permissionKey, resolve, reject, webv
     return;
   }
 
-  dappConnectPending = { permissionKey, resolve, reject, webview };
+  // Pin the chain at prompt time from the app's own origin. The global chain
+  // can still move while the prompt is up (another tab's
+  // wallet_switchEthereumChain, or the user flipping the switcher), and a
+  // contract-hosted app's chain is not the user's to change anyway.
+  const pinnedChainId = parseOnchainAppUrl(displayUrl)?.chainId || null;
+  dappConnectPending = { permissionKey, resolve, reject, webview, pinnedChainId };
 
   if (dappConnectSite) {
     dappConnectSite.textContent = permissionKey || displayUrl || 'Unknown';
@@ -285,7 +291,7 @@ function closeDappConnect() {
 async function approveDappConnect() {
   if (!dappConnectPending) return;
 
-  const { permissionKey, resolve, webview } = dappConnectPending;
+  const { permissionKey, resolve, webview, pinnedChainId } = dappConnectPending;
   const wallet = walletState.derivedWallets.find(w => w.index === dappConnectSelectedWalletIndex);
 
   if (!wallet) {
@@ -293,11 +299,13 @@ async function approveDappConnect() {
     return;
   }
 
+  const grantedChainId = pinnedChainId || walletState.selectedChainId;
+
   try {
     await window.dappPermissions.grantPermission(
       permissionKey,
       dappConnectSelectedWalletIndex,
-      walletState.selectedChainId
+      grantedChainId
     );
 
     const accounts = [wallet.address];
@@ -310,7 +318,7 @@ async function approveDappConnect() {
       });
       webview.send('dapp:provider-event', {
         event: 'connect',
-        data: { chainId: '0x' + walletState.selectedChainId.toString(16) },
+        data: { chainId: '0x' + grantedChainId.toString(16) },
       });
     }
 

@@ -105,16 +105,29 @@ function getSafeSendState(safeIndex) {
  * touches a device and never executes: the caller (the signing board)
  * drives both, per user action.
  *
+ * The chain is the caller's, not this module's assumption: the composing
+ * screen decides which chain the user is sending on, and the calldata it
+ * built is only meaningful there. Silently rebasing it onto the deployment
+ * chain would spend the wrong native token, or call a token address that
+ * holds no code on this chain — a CALL that succeeds, burns the Safe nonce
+ * and records a transfer that moved nothing. Safes exist on exactly one
+ * chain here, so a mismatch is refused rather than translated.
+ *
  * @param {Object} params
  * @param {number} params.safeIndex
+ * @param {number} params.chainId - the chain the send was composed on
  * @param {Object} params.tx - {to, value, data?} the Safe should execute
  * @param {Object} params.display - Presentation-ready payment facts,
  *   persisted verbatim for the board/card: {toAddress, recipientName?,
  *   asset, amount (atomic), symbol, decimals, formattedAmount}
  * @returns {Promise<Object>} SafeSendState
  */
-async function startSafeSend({ safeIndex, tx, display }) {
+async function startSafeSend({ safeIndex, tx, display, chainId }) {
   const record = getSafeRecord(safeIndex);
+  const sendChainId = Number(chainId);
+  if (!Number.isInteger(sendChainId) || sendChainId !== DEPLOY_CHAIN_ID) {
+    throw new Error('Multi-signature accounts can only send on Gnosis');
+  }
   if (!record.deployed?.[DEPLOY_CHAIN_ID]) {
     throw new Error('Activate this account on Gnosis before sending');
   }
@@ -128,12 +141,12 @@ async function startSafeSend({ safeIndex, tx, display }) {
   acquire(safeIndex);
   try {
     const built = await buildSafeTransaction({
-      chainId: DEPLOY_CHAIN_ID,
+      chainId: sendChainId,
       safe: { ...record, owners: resolveOwnerAddresses(record.owners) },
       tx,
     });
     setPending(safeIndex, {
-      chainId: DEPLOY_CHAIN_ID,
+      chainId: sendChainId,
       safeAddress: built.safeAddress,
       safeTxData: built.safeTxData,
       safeTxHash: built.safeTxHash,

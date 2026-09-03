@@ -22,6 +22,7 @@ import {
   truncateAddress,
 } from './wallet-utils.js';
 import { openSafeSigningBoard, isSafeSigningBoardOpen } from './safe-signing.js';
+import { parseOnchainAppUrl } from '../url-utils.js';
 
 // DOM references
 let dappTxScreen;
@@ -54,6 +55,20 @@ let dappTxAutoApproveCheckbox;
 let dappTxPending = null;
 
 const ERC20_TRANSFER_SELECTOR = '0xa9059cbb';
+
+/**
+ * The chain a contract-hosted app's origin is pinned to, or null for any
+ * other page. A second line of defence behind the provider's resolved chain:
+ * it is derived from the document actually making the request, so it cannot
+ * go stale the way a stored grant can.
+ */
+function pinnedOnchainAppChainId(webview) {
+  try {
+    return parseOnchainAppUrl(webview?.getURL?.())?.chainId || null;
+  } catch {
+    return null;
+  }
+}
 
 export function initDappTx() {
   dappTxScreen = document.getElementById('sidebar-dapp-tx');
@@ -141,8 +156,16 @@ function setupDappTxScreen() {
  * newcomer whichever surface is holding the device: a sibling transaction,
  * a dapp-sign request, or an x402 payment. The dApp can retry once the
  * device is done.
+ *
+ * `requestChainId` is the chain the provider already resolved for this
+ * request — for a contract-hosted app that is the chain its origin is pinned
+ * to, which outranks both the stored grant and the wallet's current
+ * selection. Re-deriving it here would let a chain switch between the connect
+ * prompt and this approval quote, sign, broadcast and record the transaction
+ * on a chain the app never asked for (and file its auto-approve rule under a
+ * chain the next request never checks).
  */
-export async function showDappTxApproval(webview, permissionKey, txParams) {
+export async function showDappTxApproval(webview, permissionKey, txParams, requestChainId = null) {
   assertNoSignatureInFlight();
 
   const permission = await window.dappPermissions.getPermission(permissionKey);
@@ -150,7 +173,10 @@ export async function showDappTxApproval(webview, permissionKey, txParams) {
     throw Object.assign(new Error('Unauthorized - not connected'), { code: 4100 });
   }
 
-  const chainId = permission.chainId || walletState.selectedChainId;
+  const chainId = requestChainId
+    || pinnedOnchainAppChainId(webview)
+    || permission.chainId
+    || walletState.selectedChainId;
   const selector = extractSelector(txParams.data);
 
   return new Promise((resolve, reject) => {
@@ -391,7 +417,7 @@ async function approveDappTx() {
     setDappTxCancelEnabled(false);
 
     if (safeAccount) {
-      const hash = await sendViaSafeAccount(walletIndex, txParams, permissionKey);
+      const hash = await sendViaSafeAccount(walletIndex, txParams, permissionKey, chainId);
       console.log('[WalletUI] dApp Safe transaction executed:', hash);
       resolve(hash);
       closeDappTx();
@@ -482,12 +508,15 @@ function setDappTxCancelEnabled(enabled) {
  * the board keeps the dApp waiting (its transaction is still pending);
  * discarding rejects with EIP-1193 code 4001.
  */
-async function sendViaSafeAccount(walletIndex, txParams, site) {
+async function sendViaSafeAccount(walletIndex, txParams, site, chainId) {
   const value = txParams.value ? BigInt(txParams.value).toString() : '0';
   const started = await window.wallet.safeSend(
     walletIndex,
     { to: txParams.to, value, data: txParams.data || '0x' },
-    buildSafeDappDisplay(txParams, value, site)
+    buildSafeDappDisplay(txParams, value, site),
+    // The app's chain, resolved by the provider — main refuses a chain the
+    // Safe does not live on rather than executing the calldata elsewhere.
+    chainId
   );
   if (!started.success) {
     throw new Error(started.error || 'Transaction failed');

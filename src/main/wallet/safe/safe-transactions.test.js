@@ -98,7 +98,8 @@ const DISPLAY = {
 };
 const TX = { to: OWNERS[2], value: '1000', data: '0x' };
 
-const start = (safeIndex = 5) => startSafeSend({ safeIndex, tx: TX, display: DISPLAY });
+const start = (safeIndex = 5, chainId = 100) =>
+  startSafeSend({ safeIndex, tx: TX, display: DISPLAY, chainId });
 
 beforeEach(() => {
   mockTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'safe-pending-'));
@@ -167,6 +168,19 @@ describe('startSafeSend', () => {
   test('refuses safes not yet deployed and non-safe accounts', async () => {
     await expect(start(6)).rejects.toThrow(/activate/i);
     await expect(start(0)).rejects.toThrow(/not a Safe/i);
+  });
+
+  test('refuses a send composed on a chain the Safe does not live on', async () => {
+    // Executing mainnet calldata on Gnosis would spend the wrong native
+    // token (or CALL a codeless address, burning the Safe nonce for nothing)
+    // while the review screen said "Ethereum".
+    await expect(start(5, 1)).rejects.toThrow(/only send on Gnosis/i);
+    // A caller that forgets the chain entirely is refused too, rather than
+    // silently defaulting back to the deployment chain.
+    await expect(startSafeSend({ safeIndex: 5, tx: TX, display: DISPLAY }))
+      .rejects.toThrow(/only send on Gnosis/i);
+    expect(mockBuildSafeTransaction).not.toHaveBeenCalled();
+    expect(getPending(5)).toBeNull();
   });
 });
 

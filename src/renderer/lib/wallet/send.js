@@ -10,7 +10,7 @@ import {
   beginSignatureFlight,
   endSignatureFlight,
 } from './signature-flight.js';
-import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice, renderSafeFeePayer, isSafeDeployed } from './wallet-utils.js';
+import { escapeHtml, accountType, walletRecord, bypassUnlockGateForDevice, renderSafeFeePayer, isSafeDeployed, GNOSIS_CHAIN_ID } from './wallet-utils.js';
 import { openSafeSigningBoard } from './safe-signing.js';
 import { refreshBalances, getTokensWithBalance, getChainsWithBalance, sortTokens } from './balance-display.js';
 import {
@@ -480,7 +480,24 @@ function closeSendChainDropdown() {
   if (sendChainDropdown) sendChainDropdown.classList.add('hidden');
 }
 
+/**
+ * The chains this account can compose a send on. A Safe lives on exactly one
+ * chain, and the calldata composed for it is only meaningful there — offering
+ * the rest lets the user review a send labelled "Ethereum" that the executor
+ * can only ever run on Gnosis.
+ */
+function sendChainCandidates() {
+  const chains = getChainsWithBalance();
+  if (!activeSafeWallet()) return chains;
+  return chains.filter((chain) => chain.chainId === GNOSIS_CHAIN_ID);
+}
+
 function populateSendChainSelector() {
+  if (activeSafeWallet()) {
+    selectSendChain(GNOSIS_CHAIN_ID);
+    return;
+  }
+
   // Carry over the chain the user has active on the main wallet view, even
   // if it has no balance yet — their intent beats "pick the top chain with
   // funds". selectedChainId is null only in the "All chains" view.
@@ -501,7 +518,9 @@ function populateSendChainSelector() {
 }
 
 function applySendOpenOptions(options = {}) {
-  if (options.chainId) {
+  // A programmatic opener (an `ethereum:` tip link, an x402 top-up) may not
+  // know the account is a Safe; its chain hint never outranks the Safe's own.
+  if (options.chainId && !activeSafeWallet()) {
     selectSendChain(options.chainId);
   } else {
     populateSendChainSelector();
@@ -545,7 +564,7 @@ function renderSendChainList() {
 
   sendChainList.innerHTML = '';
 
-  const chainsWithBalance = getChainsWithBalance();
+  const chainsWithBalance = sendChainCandidates();
 
   if (chainsWithBalance.length === 0) {
     const emptyEl = document.createElement('div');
@@ -1349,7 +1368,10 @@ async function handleSendConfirm() {
           symbol: token.symbol,
           decimals: token.decimals,
           formattedAmount: sendTxState.amount,
-        }
+        },
+        // The chain the user actually composed on — main refuses anything
+        // the Safe does not live on rather than rebasing the calldata.
+        sendTxState.chainId
       );
       if (!created.success) {
         throw new Error(created.error || 'Failed to create the transaction');

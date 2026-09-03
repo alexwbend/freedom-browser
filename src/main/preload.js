@@ -489,7 +489,8 @@ contextBridge.exposeInMainWorld('wallet', {
   activateSafe: (index) => ipcRenderer.invoke('wallet:activate-safe', index),
   // Safe sends (the signing board): every call returns {success, state}
   // where state is the board's render model (null when nothing pending).
-  safeSend: (safeIndex, tx, display) => ipcRenderer.invoke('wallet:safe-send', safeIndex, tx, display),
+  safeSend: (safeIndex, tx, display, chainId) =>
+    ipcRenderer.invoke('wallet:safe-send', safeIndex, tx, display, chainId),
   safeSign: (safeIndex, ownerIndex) => ipcRenderer.invoke('wallet:safe-sign', safeIndex, ownerIndex),
   safeExecute: (safeIndex) => ipcRenderer.invoke('wallet:safe-execute', safeIndex),
   safeState: (safeIndex) => ipcRenderer.invoke('wallet:safe-state', safeIndex),

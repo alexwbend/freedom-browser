@@ -620,10 +620,12 @@ describe('chain-data-router', () => {
       json: async () => ({ result: '0xrpc' }),
     });
     const params = [{ to: '0xabc', data: '0x1234' }, 'latest'];
+    const options = { routingContext: { origin: 'https://swap.example' } };
 
-    const first = request(1, 'eth_call', params);
-    const second = request(1, 'eth_call', params);
-    await expect(request(1, 'eth_call', params)).resolves.toMatchObject({ source: 'direct' });
+    const first = request(1, 'eth_call', params, options);
+    const second = request(1, 'eth_call', params, options);
+    await expect(request(1, 'eth_call', params, options))
+      .resolves.toMatchObject({ source: 'direct' });
     expect(mockRequestViaColibri).toHaveBeenCalledTimes(2);
 
     await jest.advanceTimersByTimeAsync(2000);
@@ -731,7 +733,9 @@ describe('chain-data-router', () => {
       }));
     mockRequestViaColibri.mockResolvedValue('0xverified');
 
-    const response = request(1, 'eth_call', [{ to: '0xabc' }, 'latest']);
+    const response = request(1, 'eth_call', [{ to: '0xabc' }, 'latest'], {
+      routingContext: { origin: 'https://swap.example' },
+    });
     await jest.advanceTimersByTimeAsync(2000);
 
     await expect(response).resolves.toMatchObject({
@@ -739,6 +743,98 @@ describe('chain-data-router', () => {
       source: 'colibri',
     });
     expect(mockRequestViaColibri).toHaveBeenCalledTimes(1);
+  });
+
+  test('keeps a wallet read verified when quorum agrees after the interactive budget', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['quorum', 'direct'] },
+      quorum: { k: 3, m: 2, timeoutMs: 5000 },
+    });
+    mockRegistry.getEndpoints.mockReturnValue([
+      'https://a.example',
+      'https://b.example',
+      'https://c.example',
+    ]);
+    global.fetch = jest.fn().mockImplementation((_url, options) =>
+      new Promise((resolve, reject) => {
+        // Slow-but-healthy endpoints: they agree at 3s, inside the chain's
+        // configured 5s quorum timeout but past the interactive budget.
+        setTimeout(() => resolve({ ok: true, json: async () => ({ result: '0x42' }) }), 3000);
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        });
+      }));
+
+    // No routingContext: this is a wallet-internal read, not a page a user is
+    // watching, so it must not be downgraded to an unverified Direct answer.
+    const response = request(1, 'eth_call', [{ to: '0xabc' }, 'latest']);
+    await jest.advanceTimersByTimeAsync(3000);
+
+    await expect(response).resolves.toEqual({
+      result: '0x42',
+      source: 'quorum',
+      verified: true,
+    });
+  });
+
+  test('gives quorum the configured timeout when it is the last configured source', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['quorum'] },
+      quorum: { k: 3, m: 2, timeoutMs: 5000 },
+    });
+    mockRegistry.getEndpoints.mockReturnValue([
+      'https://a.example',
+      'https://b.example',
+      'https://c.example',
+    ]);
+    global.fetch = jest.fn().mockImplementation((_url, options) =>
+      new Promise((resolve, reject) => {
+        setTimeout(() => resolve({ ok: true, json: async () => ({ result: '0x42' }) }), 3000);
+        options.signal.addEventListener('abort', () => {
+          const error = new Error('aborted');
+          error.name = 'AbortError';
+          reject(error);
+        });
+      }));
+
+    // Even an app-driven read: with nothing to fall through to, cutting the
+    // per-endpoint timeout to 2s only turns a working read into a failure.
+    const response = request(1, 'eth_call', [{ to: '0xabc' }, 'latest'], {
+      routingContext: { origin: 'https://swap.example' },
+    });
+    await jest.advanceTimersByTimeAsync(3000);
+
+    await expect(response).resolves.toEqual({
+      result: '0x42',
+      source: 'quorum',
+      verified: true,
+    });
+  });
+
+  test('gives Colibri the configured timeout when it is the last configured source', async () => {
+    jest.useFakeTimers({ now: 1_000_000 });
+    mockRegistry.getNetwork.mockReturnValue({
+      access: { readOrder: ['colibri'] },
+      quorum: { timeoutMs: 5000 },
+    });
+    const slowProver = deferred();
+    mockRequestViaColibri.mockReturnValue(slowProver.promise);
+
+    const response = request(1, 'eth_call', [{ to: '0xabc' }, 'latest'], {
+      routingContext: { origin: 'https://swap.example' },
+    });
+    await jest.advanceTimersByTimeAsync(3000);
+    slowProver.resolve('0xverified');
+
+    await expect(response).resolves.toEqual({
+      result: '0xverified',
+      source: 'colibri',
+      verified: true,
+    });
   });
 
   test('reuses a successful quorum member as Direct when verification becomes impossible', async () => {

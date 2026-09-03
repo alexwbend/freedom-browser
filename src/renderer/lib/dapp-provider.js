@@ -249,7 +249,7 @@ async function handleProviderRequest(webview, request) {
         }
         result = await autoApproveTx(permission, txParams, chainId, permissionKey);
       } else {
-        result = await showDappTxApproval(webview, permissionKey, txParams);
+        result = await showDappTxApproval(webview, permissionKey, txParams, chainId);
       }
     } else if (method === 'personal_sign' || method === 'eth_signTypedData_v4') {
       const permission = await window.dappPermissions.getPermission(permissionKey);
