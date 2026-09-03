@@ -8,19 +8,20 @@ Windows (see `release-process.md` §6).
 ## When to use this (vs. cross-building)
 
 `release-process.md` §5 cross-builds the Windows installer from the mac host
-(`npm run dist -- --win --x64`), which is the supported way to produce the
-_distributable_. `better-sqlite3` is no longer a reason that artifact would fail to
-launch: it is a native module `require`d at startup (`src/main/payment-history.js`
-→ `src/main/index.js`), but since v13 it ships a `win32-<arch>` prebuild that a
-`--win` build packages regardless of the build host, so the old "packaged on macOS
-ships the darwin `.node` and crashes under Windows" failure no longer applies.
+(`npm run dist -- --win --arm64` for this playbook's target), which is the supported
+way to produce the _distributable_. `better-sqlite3` is no longer a reason that
+artifact would fail to launch: it is a native module `require`d at startup
+(`src/main/payment-history.js` → `src/main/index.js`), but since v13 it ships a
+`win32-<arch>` prebuild that a `--win` build packages regardless of the build host,
+so the old "packaged on macOS ships the darwin `.node` and crashes under Windows"
+failure no longer applies.
 
 Build **natively inside the VM** when you want to validate on real Windows rather
 than trust the cross-build — it exercises the other native dependencies and the
-correct-arch Ant/IPFS binaries on their actual target. Running the cross-built
-installer on a Windows VM (`release-process.md` §6) covers the same ground and is
-cheaper; reach for a native in-VM build when that smoke test fails and you need to
-tell a packaging bug from a cross-build one.
+correct-arch Ant/IPFS binaries and Radicle addon on their actual target. Running the
+cross-built installer on a Windows VM (`release-process.md` §6) covers the same
+ground and is cheaper; reach for a native in-VM build when that smoke test fails and
+you need to tell a packaging bug from a cross-build one.
 
 ## Prerequisites
 
@@ -28,8 +29,8 @@ tell a packaging bug from a cross-build one.
   `/Applications/UTM.app/Contents/MacOS/utmctl`.
 - The VM's **QEMU guest agent** must be running (it ships with UTM's Windows
   guest tools). All automation below goes through it.
-- Node.js + npm + git installed inside the guest. Verify with the probe in the
-  cheat sheet below.
+- Native ARM64 Node.js + npm + git installed inside the guest. Verify with the
+  probe in the cheat sheet below.
 
 ### Obtaining the Windows VM
 
@@ -170,12 +171,14 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
 
    Confirm `git -C C:\freedom-build\repo log --oneline -1` is the commit you expect.
 
-2. **Provide the Windows binaries.** `npm run check-binaries -- --win --arm64`
-   requires `ant-bin/win-arm64/antd.exe` and
-   `native/freedom-ipfs-node/prebuilds/win-arm64/freedom_ipfs_native.node`
-   (Radicle is intentionally skipped on Windows — see `scripts/check-binaries.js`).
+2. **Provide the Windows ARM64 binaries.**
+   `npm run check-binaries -- --win --arm64` requires
+   `ant-bin/win-arm64/antd.exe`,
+   `native/freedom-ipfs-node/prebuilds/win-arm64/freedom_ipfs_native.node`, and
+   `radicle-bin/win-arm64/libradicle.node`. Stage the Radicle addon with
+   `npm run radicle:download -- --win --arm64`.
    The Ant fetch needs auth, so the reliable path is to **push the local
-   binaries/addons** rather than download them in the guest:
+   Ant/IPFS binaries** rather than download them in the guest:
 
    ```
    "$UTMCTL" exec "<VM>" --cmd 'C:\Windows\System32\cmd.exe' '/c' 'mkdir C:\freedom-build\repo\ant-bin\win-arm64 2>nul & mkdir C:\freedom-build\repo\native\freedom-ipfs-node\prebuilds\win-arm64 2>nul'
@@ -229,7 +232,8 @@ All commands run via the `cmd.exe /c '… > log 2>&1'` + poll pattern from above
 
 - The build is **unsigned**, so Windows SmartScreen/Defender shows
   "Windows protected your PC" → **More info → Run anyway**.
-- It is an **arm64** build; the bundled Ant/IPFS are the arm64 binaries.
+- It is an **arm64** build; the bundled Ant/IPFS/Radicle addons are the ARM64
+  variants (Ant may use the repository's x64-emulation fallback).
 - For issue-#90-class checks: onboarding → create a new wallet → "Setting up node
   identities" should complete without a "node data still in use" error.
 

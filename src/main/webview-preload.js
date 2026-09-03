@@ -338,6 +338,9 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   getActiveProfile: guardInternal('getActiveProfile', () =>
     ipcRenderer.invoke('profile:get-active')
   ),
+  checkRadicleBinary: guardSettingsPage('checkRadicleBinary', () =>
+    ipcRenderer.invoke('radicle:checkBinary')
+  ),
   onProfileUpdated: guardInternalSubscription('onProfileUpdated', 'profile:updated'),
   listProfiles: guardInternal('listProfiles', () => ipcRenderer.invoke('profile:list')),
   createProfile: guardProfileManagerPage('createProfile', (profile) =>
@@ -485,15 +488,13 @@ contextBridge.exposeInMainWorld('freedomAPI', {
   getRadicleStatus: guardInternal('getRadicleStatus', () =>
     ipcRenderer.invoke('radicle:getStatus')
   ),
-  getRadicleRepoPayload: guardInternal('getRadicleRepoPayload', (rid) =>
-    ipcRenderer.invoke('radicle:getRepoPayload', rid)
-  ),
   syncRadicleRepo: guardInternal('syncRadicleRepo', (rid) =>
     ipcRenderer.invoke('radicle:syncRepo', rid)
   ),
   getRadicleSeedStatus: guardInternal('getRadicleSeedStatus', (rid) =>
     ipcRenderer.invoke('radicle:getSeedStatus', rid)
   ),
+  onRadicleSeedStatus: guardInternalSubscription('onRadicleSeedStatus', 'radicle:seedStatusUpdate'),
 
   // Clipboard
   copyText: guardInternal('copyText', (text) => ipcRenderer.invoke('clipboard:copy-text', text)),
@@ -895,7 +896,7 @@ try {
     (function() {
       const pendingRequests = new Map();
       let requestId = 0;
-      const eventListeners = { connect: [], disconnect: [] };
+      const eventListeners = { connect: [], disconnect: [], seedStatus: [] };
 
       function emitEvent(event, data) {
         if (eventListeners[event]) {
@@ -913,7 +914,8 @@ try {
             pendingRequests.set(id, { resolve, reject });
             window.postMessage({ type: 'FREEDOM_RADICLE_REQUEST', id, method, params: params || {} }, '*');
             // Execution itself is prompt — seed/sync hand the network fetch
-            // to a background tracker (poll radicle_getSeedStatus). But the
+            // to a background tracker (seedStatus events report progress;
+            // radicle_getSeedStatus restores a snapshot after reload). But the
             // methods below can first block on a consent prompt while the
             // user deliberates; timing those out at 60s rejects the page
             // promise while the grant and the write still land in main, so

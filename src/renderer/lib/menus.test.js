@@ -88,8 +88,8 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
     stopMyotisInfoPolling: jest.fn(),
   };
   const radicleUiMocks = {
-    startRadicleInfoPolling: jest.fn(),
-    stopRadicleInfoPolling: jest.fn(),
+    startRadicleInfoUpdates: jest.fn(),
+    stopRadicleInfoUpdates: jest.fn(),
   };
 
   global.window = {
@@ -296,7 +296,7 @@ describe('menus', () => {
     expect(mocks.beeUiMocks.startAntInfoPolling).toHaveBeenCalled();
     expect(mocks.ipfsUiMocks.startIpfsInfoPolling).toHaveBeenCalled();
     expect(mocks.myotisUiMocks.startMyotisInfoPolling).toHaveBeenCalled();
-    expect(mocks.radicleUiMocks.startRadicleInfoPolling).toHaveBeenCalled();
+    expect(mocks.radicleUiMocks.startRadicleInfoUpdates).toHaveBeenCalled();
     expect(mocks.backdropMocks.showMenuBackdrop).toHaveBeenCalled();
 
     menus.setAntMenuOpen(false);
@@ -305,7 +305,7 @@ describe('menus', () => {
     expect(mocks.beeUiMocks.stopAntInfoPolling).toHaveBeenCalled();
     expect(mocks.ipfsUiMocks.stopIpfsInfoPolling).toHaveBeenCalled();
     expect(mocks.myotisUiMocks.stopMyotisInfoPolling).toHaveBeenCalled();
-    expect(mocks.radicleUiMocks.stopRadicleInfoPolling).toHaveBeenCalled();
+    expect(mocks.radicleUiMocks.stopRadicleInfoUpdates).toHaveBeenCalled();
     expect(elements.beePeersCount.textContent).toBe('0');
     expect(elements.beeNetworkPeers.textContent).toBe('0');
     expect(elements.beeVersionText.textContent).toBe('1.2.3');

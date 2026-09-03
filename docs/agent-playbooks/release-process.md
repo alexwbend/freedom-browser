@@ -82,26 +82,23 @@ Ant is the exception to the "resolve latest" rule: `scripts/fetch-ant.js` pins a
 
 `freedom-ipfs` is pinned the same way: desktop intentionally consumes a pinned GitHub release asset with a checked checksum, so updating it means changing the pinned release metadata in `scripts/fetch-freedom-ipfs-native.js`.
 
-The other fetch scripts resolve the latest from a **vendor-specific** upstream — do **not** use GitHub tags as a stand-in, they can lag the actual release pointer (Radicle in particular publishes new releases to `files.radicle.xyz` first; GitHub `/tags` showed `1.7.1` as the latest stable while `1.9.1` was already shipping).
+The remaining fetch scripts use their pinned upstream release metadata.
 
 | Binary                                                | Authoritative source the fetch script reads                                                                                          |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/freedom-hq/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
 | freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                            |
-| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                          |
-| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                            |
+| libradicle (`scripts/fetch-radicle-addon.js`)         | pinned GitHub release in the fetch script                                                                                            |
 
 To check whether the bundled binary is stale, compare its self-reported version against the source above:
 
 ```
 ./ant-bin/<arch>/antd --version
-./radicle-bin/<arch>/rad --version
-./radicle-bin/<arch>/radicle-httpd --version
 ```
 
-For `freedom-ipfs`, compare the pinned release in `scripts/fetch-freedom-ipfs-native.js` against the release you intend to ship, then update the asset name/checksum together.
+For native addons, compare the pinned release in its fetch script against the release you intend to ship, then update the asset name/checksum together.
 
-For each binary that's behind, re-run its fetch script (`npm run ant:download` / `ipfs:download` / `radicle:download` — each fetches every supported arch) and verify the result still passes `npm run check-binaries`. Note: downloaded binary directories are gitignored, so the binary refresh usually produces no file-tree change. The build pipeline (§5) re-fetches at artifact-build time — Ant and freedom-ipfs install their pinned versions, while Radicle ships whatever upstream `latest` resolves to then — document the versions in the changelog and in the `chore(build): update bundled <name> to <version>` commit body.
+For each binary/addon that's behind, re-run its fetch script (`npm run ant:download` / `ipfs:download` / `radicle:download`) and verify the result still passes `npm run check-binaries`. Downloaded binary directories are gitignored, so the refresh usually produces no file-tree change. Document versions in the changelog and the matching build commit.
 
 ### Commit style
 
@@ -180,15 +177,19 @@ npm run dist:linux:x64:docker
 npm run dist:linux:arm64:docker
 ```
 
-Both run `electron-builder` inside a Linux container and download the matching Radicle binaries for the target arch.
+Both run `electron-builder` inside a Linux container and download the matching Radicle addon for the target arch.
 
 ### Windows
 
 ```
+npm run radicle:download -- --win --x64
 npm run dist -- --win --x64
+
+npm run radicle:download -- --win --arm64
+npm run dist -- --win --arm64
 ```
 
-`electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows builds intentionally ship without Radicle (see `README.md`).
+`electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows x64 and ARM64 builds include the architecture-matched embedded Radicle node.
 
 > **Known breakage (pre-existing):** from the mac **arm64** release host this command currently dies before packaging, at `keccak` — `⨯ node-gyp does not support cross-compiling native modules from source`. `@electron/rebuild` never looks at keccak's existing `win32-x64` prebuild, and its `.forge-meta` cache key is arch-only, so an arm64 host targeting x64 always misses it. Tracked in [#204](https://github.com/solardev-xyz/freedom-browser/issues/204); until it is fixed, produce the Windows artifacts from an x64 host. This is unrelated to `better-sqlite3` (see below), which is out of the rebuild pass entirely.
 
@@ -220,7 +221,7 @@ Each packaged app carries only the prebuild for its own target: the `mac`/`linux
 Cross-built artifacts have **never been run** by the time §5 finishes. The Linux container can package the AppImage and `.deb`, and the mac host can cross-build the Windows NSIS installer, but neither can execute the result on its actual target platform. Smoke testing each artifact on a real instance of its target OS catches packaging-class bugs that `npm test` and the on-host `npm start` smoke (§4) cannot:
 
 - Wrong native-module ABI for the target arch (e.g. `better-sqlite3.node` linked for the wrong NODE_MODULE_VERSION, or a x64 binary in an arm64 package)
-- Missing or wrong-arch bundled binary in `extraResources` (`antd.exe`, `ipfs`, `rad`, `radicle-httpd`)
+- Missing or wrong-arch bundled binary/addon in `extraResources` (`antd.exe`, freedom-ipfs, `libradicle.node`)
 - `electron-builder` configuration mistakes (asar unpack rules, `extraResources` paths, NSIS installer flags, Gatekeeper / SmartScreen interaction)
 - Platform-specific code paths (file system paths, native menus, IPC permissions, system trust store, default-browser hooks)
 
@@ -270,7 +271,7 @@ For each platform, run through:
 2. **Version**: About / `freedom://settings` shows `<version>` from `package.json`
 3. **Navigation**: type `https://example.com`, confirm a basic HTTPS page renders and the address-bar shield is in its default state
 4. **Headline feature**: spot-check whatever the release leads with. For releases that touch ENS / Swarm / IPFS / Radicle, that means opening an `ens://`, `bzz://`, `ipfs://`, or `rad://` URI and confirming the documented behaviour (e.g. for `0.7.2`: Colibri verification surfaces in the address-bar shield popover)
-5. **Bundled nodes**: confirm Ant, native IPFS, and (Linux only) Radicle start cleanly. The nodes manager or the relevant `freedom://` settings page surfaces this — a "node failed to start" red badge or a missing native addon/API port is the failure mode
+5. **Bundled nodes**: confirm Ant, native IPFS, and Radicle start cleanly (Radicle ships on macOS, Linux, and Windows). The nodes manager or the relevant `freedom://` settings page surfaces this — a "node failed to start" red badge or a missing native addon/API port is the failure mode
 6. **Persistence**: change one trivial setting (e.g. theme), close the app fully, reopen, confirm the change stuck
 
 If any platform fails:

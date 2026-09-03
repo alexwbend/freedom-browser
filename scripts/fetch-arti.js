@@ -1,7 +1,7 @@
 /**
  * Fetch (build) the Arti Tor client binary.
  *
- * Unlike Bee / Radicle, the Tor Project does not publish a clean, scriptable
+ * Unlike Ant / libradicle, the Tor Project does not publish a clean, scriptable
  * set of prebuilt `arti` binaries. The reliable, official, pinnable source is
  * crates.io, so we build from source with `cargo install`. This requires a
  * Rust toolchain (`cargo`) on the build machine.
@@ -12,7 +12,7 @@
  *
  * Cross-compilation is out of scope here (it needs per-target toolchains), so
  * this builds for the host platform/arch only — mirroring how the Docker dist
- * jobs fetch host-only Radicle binaries.
+ * jobs fetch the host-only libradicle addon.
  *
  * Env:
  *   ARTI_VERSION   crates.io version to install (default: pinned below)

@@ -28,7 +28,7 @@ npm run myotis:download
 npm start
 ```
 
-Swarm and IPFS start automatically by default, while Myotis is opt-in under **Settings → Automatic Startup**. On macOS and Linux, install optional Radicle support with `npm run radicle:download` or Tor support with `npm run tor:download`, then enable the integration under **Settings → Experimental**. Radicle and bundled Tor are unavailable on Windows.
+Swarm and IPFS start automatically by default, while Radicle and Myotis are opt-in under **Settings → Automatic Startup**. Install the embedded Radicle addon with `npm run radicle:download` (macOS, Linux, and Windows x64/ARM64), then enable Radicle for the profile under **Settings → Nodes**. On macOS and Linux, install optional Tor support with `npm run tor:download`, then enable it under **Settings → Experimental**. Bundled Tor is unavailable on Windows.
 
 ## Repository layout
 
@@ -46,24 +46,25 @@ Protocol and privileged logic belongs in the main process. The renderer talks to
 
 ## Common npm scripts
 
-| Script                      | Description                                           |
-| --------------------------- | ----------------------------------------------------- |
-| `npm start`                 | Launch Electron in development mode                   |
-| `npm run lint`              | Run ESLint                                            |
-| `npm test`                  | Run the Jest unit suite                               |
-| `npm run test:coverage`     | Run Jest with coverage                                |
-| `npm run test:e2e`          | Run the deterministic Playwright harness suite        |
-| `npm run test:e2e:live`     | Run live node, protocol, and naming integration tests |
-| `npm run test:e2e:tor`      | Run the live Tor `.onion` integration test            |
-| `npm run check-binaries`    | Validate packaged native binary targets               |
-| `npm run ant:download`      | Download the pinned Ant binary                        |
-| `npm run ipfs:download`     | Download the pinned freedom-ipfs native addon         |
-| `npm run myotis:download`   | Download the pinned Myotis native addon               |
-| `npm run radicle:download`  | Download Radicle binaries for the current platform    |
-| `npm run tor:download`      | Build the Arti Tor binary for the current platform    |
-| `npm run adblock:download`  | Download the packaged ad-blocking lists               |
-| `npm run ipfs:native:smoke` | Smoke-test the native IPFS addon and retrieval path   |
-| `npm run ant:smoke-upload`  | Exercise a Swarm buy/upload/download round trip       |
+| Script                        | Description                                                     |
+| ----------------------------- | --------------------------------------------------------------- |
+| `npm start`                   | Launch Electron in development mode                             |
+| `npm run lint`                | Run ESLint                                                      |
+| `npm test`                    | Run the Jest unit suite                                         |
+| `npm run test:coverage`       | Run Jest with coverage                                          |
+| `npm run test:e2e`            | Run the deterministic Playwright harness suite                  |
+| `npm run test:e2e:live`       | Run live node, protocol, and naming integration tests           |
+| `npm run test:e2e:tor`        | Run the live Tor `.onion` integration test                      |
+| `npm run check-binaries`      | Validate packaged native binary targets                         |
+| `npm run ant:download`        | Download the pinned Ant binary                                  |
+| `npm run ipfs:download`       | Download the pinned freedom-ipfs native addon                   |
+| `npm run myotis:download`     | Download the pinned Myotis native addon                         |
+| `npm run radicle:download`    | Download the embedded libradicle addon for the current platform |
+| `npm run radicle:build-addon` | Build the libradicle addon from a sibling checkout              |
+| `npm run tor:download`        | Build the Arti Tor binary for the current platform              |
+| `npm run adblock:download`    | Download the packaged ad-blocking lists                         |
+| `npm run ipfs:native:smoke`   | Smoke-test the native IPFS addon and retrieval path             |
+| `npm run ant:smoke-upload`    | Exercise a Swarm buy/upload/download round trip                 |
 
 The scripts in `package.json` are the authoritative list. Destructive reset scripts remove local development data; inspect their targets before using them.
 
@@ -118,14 +119,14 @@ Build an unpacked, unsigned application for the host platform with:
 npm run build -- --mac --unsigned
 ```
 
-Replace `--mac` with `--linux` or `--win` as appropriate. Native modules no longer need compiling for the target: `better-sqlite3` v13 ships prebuilt addons for every target we package (`darwin`/`linux`/`linuxmusl` x `x64`/`arm64`, plus `win32`), and each installer is built carrying only its own. Linux _distributables_ still use the Docker scripts, because the `.deb` target needs a system `fpm` (`USE_SYSTEM_FPM=true`) and its Ruby toolchain running in a container of the target architecture, which also fetches the arch-matched Radicle/IPFS/Myotis binaries:
+Replace `--mac` with `--linux` or `--win` as appropriate. Native modules no longer need compiling for the target: `better-sqlite3` v13 ships prebuilt addons for every target we package (`darwin`/`linux`/`linuxmusl` x `x64`/`arm64`, plus `win32`), and each installer is built carrying only its own. Linux _distributables_ still use the Docker scripts, because the `.deb` target needs a system `fpm` (`USE_SYSTEM_FPM=true`) and its Ruby toolchain running in a container of the target architecture, which also fetches the arch-matched Radicle/IPFS/Myotis addons:
 
 ```bash
 npm run dist:linux:x64:docker
 npm run dist:linux:arm64:docker
 ```
 
-Windows builds include neither Radicle (upstream publishes no Windows binaries) nor the bundled Tor (Arti) client: the `win` target in `package.json` declares no `radicle-bin`/`arti-bin` `extraResources`. Signed releases, notarization, artifact verification, and deployment are maintainer workflows documented in the [release playbook](agent-playbooks/release-process.md).
+Windows builds ship the embedded Radicle addon for x64 and ARM64 (the `win` target in `package.json` declares a `radicle-bin` `extraResources` entry), but not the bundled Tor (Arti) client, which declares no `arti-bin` entry. When cross-building for Windows, stage the target-native addon first with `npm run radicle:download -- --win --x64` or `-- --win --arm64`; the architecture must match the one passed to `npm run dist`. Signed releases, notarization, artifact verification, and deployment are maintainer workflows documented in the [release playbook](agent-playbooks/release-process.md).
 
 ## Testing updates locally
 

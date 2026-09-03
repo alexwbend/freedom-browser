@@ -10,7 +10,7 @@ Freedom is a browser for the decentralized web, with Swarm, IPFS, Radicle, ENS, 
 
 Download the latest build for macOS, Linux, or Windows from the official download page at [freedom.baby](https://freedom.baby).
 
-Radicle and Tor are available on macOS and Linux only. The Windows build ships without Radicle (upstream publishes no Windows binaries) and without the bundled Tor (Arti) client, so `.onion` access is unavailable there.
+Radicle is available on macOS, Linux, and Windows (x64 and ARM64). Tor is available on macOS and Linux only: the Windows build ships without the bundled Tor (Arti) client, so `.onion` access is unavailable there.
 
 ## What Freedom supports
 
@@ -38,7 +38,7 @@ npm run myotis:download
 npm start
 ```
 
-Swarm and IPFS start automatically. Myotis is opt-in under **Settings → Automatic Startup**. On macOS and Linux, run `npm run radicle:download` before enabling Radicle, or `npm run tor:download` before enabling Tor, under **Settings → Experimental**. For prerequisites, platform notes, tests, debugging, and local builds, read the [development guide](docs/development.md).
+Swarm and IPFS start automatically. Radicle and Myotis are opt-in under **Settings → Automatic Startup**. Run `npm run radicle:download` before enabling Radicle under **Settings → Nodes**; on macOS and Linux, run `npm run tor:download` before enabling Tor under **Settings → Experimental**. For prerequisites, platform notes, tests, debugging, and local builds, read the [development guide](docs/development.md).
 
 ## Architecture
 

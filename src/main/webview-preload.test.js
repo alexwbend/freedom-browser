@@ -175,7 +175,6 @@ describe('webview-preload', () => {
       ],
       ['seedRadicle', ['z3abc'], IPC.RADICLE_SEED, ['z3abc']],
       ['getRadicleStatus', [], IPC.RADICLE_GET_STATUS, []],
-      ['getRadicleRepoPayload', ['z3abc'], IPC.RADICLE_GET_REPO_PAYLOAD, ['z3abc']],
       ['syncRadicleRepo', ['z3abc'], IPC.RADICLE_SYNC_REPO, ['z3abc']],
     ];
 
@@ -222,6 +221,7 @@ describe('webview-preload', () => {
         IPC.PROFILE_UPDATE_NODE_CONFIG,
         [{ protocol: 'bee', config: { mode: 'disabled' } }],
       ],
+      ['checkRadicleBinary', [], IPC.RADICLE_CHECK_BINARY, []],
     ];
 
     for (const [method, args, channel, expectedArgs] of mutationCases) {
@@ -280,6 +280,25 @@ describe('webview-preload', () => {
     pagehideHandler();
     callback.mockClear();
     ipcRenderer.emit('settings:updated', { theme: 'light' });
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  test('onRadicleSeedStatus forwards pushed clone progress', () => {
+    const { exposures, ipcRenderer } = loadWebviewPreloadModule();
+    const callback = jest.fn();
+    const status = {
+      rid: 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5',
+      state: 'fetching',
+      progress: { phase: 'fetching', index: 1, total: 2 },
+    };
+
+    const unsubscribe = exposures.freedomAPI.onRadicleSeedStatus(callback);
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
+    expect(callback).toHaveBeenCalledWith(status);
+
+    unsubscribe();
+    callback.mockClear();
+    ipcRenderer.emit(IPC.RADICLE_SEED_STATUS_UPDATE, status);
     expect(callback).not.toHaveBeenCalled();
   });
 

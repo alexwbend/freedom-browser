@@ -38,7 +38,7 @@ function loadIpcHandlersModule(options = {}) {
     warn: jest.fn(),
     error: jest.fn(),
   };
-  const loadSettings = jest.fn(() => options.settings || { enableRadicleIntegration: false });
+  const loadSettings = jest.fn(() => options.settings || {});
   const fetchBuffer =
     options.fetchBuffer || jest.fn().mockResolvedValue(Buffer.from('image-bytes'));
   const fetchToFile = options.fetchToFile || jest.fn().mockResolvedValue(undefined);
@@ -214,7 +214,6 @@ function loadIpcHandlersModule(options = {}) {
   const state = require('./state');
 
   state.activeBzzBases.clear();
-  state.activeRadBases.clear();
 
   return {
     app,
@@ -252,9 +251,7 @@ describe('ipc-handlers', () => {
   });
 
   test('registers and validates base-url handlers for bzz and radicle', async () => {
-    const ctx = loadIpcHandlersModule({
-      settings: { enableRadicleIntegration: false },
-    });
+    const ctx = loadIpcHandlersModule();
 
     ctx.mod.registerBaseIpcHandlers();
 
@@ -300,39 +297,6 @@ describe('ipc-handlers', () => {
     ).resolves.toEqual(success());
     expect(ctx.state.activeBzzBases.has(5)).toBe(false);
 
-    await expect(
-      ctx.ipcMain.invoke(IPC.RAD_SET_BASE, {
-        webContentsId: 12,
-        baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/',
-      })
-    ).resolves.toEqual(
-      failure(
-        'RADICLE_DISABLED',
-        'Radicle integration is disabled. Enable it in Settings > Experimental'
-      )
-    );
-
-    const enabledCtx = loadIpcHandlersModule({
-      settings: { enableRadicleIntegration: true },
-    });
-    enabledCtx.mod.registerBaseIpcHandlers();
-
-    await expect(
-      enabledCtx.ipcMain.invoke(IPC.RAD_SET_BASE, {
-        webContentsId: 12,
-        baseUrl: 'http://127.0.0.1:8780/api/v1/repos/rid/',
-      })
-    ).resolves.toEqual(success());
-    expect(enabledCtx.state.activeRadBases.get(12)?.toString()).toBe(
-      'http://127.0.0.1:8780/api/v1/repos/rid/'
-    );
-
-    await expect(
-      enabledCtx.ipcMain.invoke(IPC.RAD_CLEAR_BASE, {
-        webContentsId: 12,
-      })
-    ).resolves.toEqual(success());
-    expect(enabledCtx.state.activeRadBases.has(12)).toBe(false);
   });
 
   test('registers window, app, and internal routing handlers', async () => {
@@ -1018,7 +982,7 @@ describe('ipc-handlers', () => {
           bee: { mode: 'managed', apiPort: 11634 },
           ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
           myotis: { mode: 'managed', backend: 'myotis-native' },
-          radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+          radicle: { mode: 'managed' },
           tor: { mode: 'managed', socksPort: 19151 },
         },
       },
@@ -1051,7 +1015,7 @@ describe('ipc-handlers', () => {
             bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
             ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
             myotis: { mode: 'managed', backend: 'myotis-native' },
-            radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+            radicle: { mode: 'managed' },
             tor: { mode: 'managed', socksPort: 19151 },
           },
         },
@@ -1072,7 +1036,7 @@ describe('ipc-handlers', () => {
         bee: { mode: 'external', apiPort: 11634, externalApi: 'http://127.0.0.1:1633' },
         ipfs: { mode: 'managed', backend: 'freedom-ipfs' },
         myotis: { mode: 'managed', backend: 'myotis-native' },
-        radicle: { mode: 'managed', httpPort: 18781, p2pPort: 18777 },
+        radicle: { mode: 'managed' },
         tor: { mode: 'managed', socksPort: 19151 },
       },
     });

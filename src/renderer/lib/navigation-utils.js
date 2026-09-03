@@ -275,7 +275,6 @@ export const buildTrustRows = ({
 export const resolveProtocolIconType = ({
   value = '',
   ensProtocols = new Map(),
-  enableRadicleIntegration = false,
   currentPageSecure = false,
 } = {}) => {
   const normalizedValue = value.toLowerCase();
@@ -288,9 +287,7 @@ export const resolveProtocolIconType = ({
   if (normalizedValue.startsWith('bzz://')) return 'swarm';
   if (normalizedValue.startsWith('ipfs://')) return 'ipfs';
   if (normalizedValue.startsWith('ipns://')) return 'ipns';
-  if (normalizedValue.startsWith('rad://')) {
-    return enableRadicleIntegration ? 'radicle' : 'http';
-  }
+  if (normalizedValue.startsWith('rad://')) return 'radicle';
   // Internal pages aren't network-served, but we still surface the
   // neutral globe (same icon `rad://` falls back to when its integration
   // is disabled) so the address bar always carries some leading mark

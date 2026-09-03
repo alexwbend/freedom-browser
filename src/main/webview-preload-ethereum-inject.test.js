@@ -486,7 +486,7 @@ describe('webview-preload-ethereum-inject', () => {
             error: jest.fn(),
           }),
           [require.resolve('./settings-store')]: () => ({
-            loadSettings: () => ({ enableRadicleIntegration: false }),
+            loadSettings: () => ({}),
           }),
           [require.resolve('./http-fetch')]: () => ({
             fetchBuffer: jest.fn(),

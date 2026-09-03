@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { startAntInfoPolling, stopAntInfoPolling } from './ant-ui.js';
 import { startIpfsInfoPolling, stopIpfsInfoPolling } from './ipfs-ui.js';
 import { startMyotisInfoPolling, stopMyotisInfoPolling } from './myotis-ui.js';
-import { startRadicleInfoPolling, stopRadicleInfoPolling } from './radicle-ui.js';
+import { startRadicleInfoUpdates, stopRadicleInfoUpdates } from './radicle-ui.js';
 import { hideTabContextMenu, getActiveWebview } from './tabs.js';
 import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
@@ -92,7 +92,7 @@ export const setAntMenuOpen = (open) => {
     startAntInfoPolling();
     startIpfsInfoPolling();
     startMyotisInfoPolling();
-    startRadicleInfoPolling();
+    startRadicleInfoUpdates();
   } else {
     if (!state.menuOpen) {
       hideMenuBackdrop();
@@ -100,7 +100,7 @@ export const setAntMenuOpen = (open) => {
     stopAntInfoPolling();
     stopIpfsInfoPolling();
     stopMyotisInfoPolling();
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     if (beePeersCount) beePeersCount.textContent = '0';
     if (beeNetworkPeers) beeNetworkPeers.textContent = '0';
     if (beeVersionText)
