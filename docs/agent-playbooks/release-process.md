@@ -59,6 +59,9 @@ Run `npm outdated --json` and triage:
 - **Out-of-range bumps** (`wanted < latest`): a new major (or a constrained range still pointing at an older line). Default to deferring to a dedicated release cycle. Before deciding whether to defer or bundle, run these three checks:
   1. **Own-API check**: read the release's breaking-changes notes and `grep` the codebase for each removed/deprecated API. Zero hits is necessary but **not sufficient** on its own — see #2.
   2. **Native-module compatibility check** (mandatory for Electron majors and anything else that brings a new V8 / Node major): run `npm install --save-dev <pkg>@<target>` followed by `npm ci` and watch `electron-builder install-app-deps` rebuild every native module against the new headers. If **any** rebuild fails, the bump is **blocked by upstream**, regardless of how clean #1 came out. Check the failing module's GitHub issues for a `<bump>` compatibility tracker — there is usually a public one. **The 0.7.2 cycle hit this**: `better-sqlite3@12.10.0` could not compile against Electron 42's V8 14.8 because V8 removed `PropertyCallbackInfo::Holder()`; upstream had explicitly rolled back Electron 42 prebuilds ([WiseLibs/better-sqlite3#1470](https://github.com/WiseLibs/better-sqlite3/pull/1470)). The Electron 41 `grep` audit showed zero affected APIs in our own code — the breakage surface was entirely in the native-module ecosystem.
+
+     **This check no longer covers `better-sqlite3`.** Since the v13 bump it is deliberately excluded from the `install-app-deps` pass: it ships Node-API prebuilds for every target we package and `scripts/better-sqlite3-prebuilds.js` deletes its unused `binding.gyp` from `postinstall`, so `@electron/rebuild` never classifies it as native and never touches it. A clean `install-app-deps` therefore says **nothing** about better-sqlite3 — do not read it as a pass. That is safe by construction (Node-API is ABI-stable across Node/V8 majors, which is exactly why upstream ships one addon per platform instead of one per Electron version, and why the 0.7.2-era `PropertyCallbackInfo::Holder()` breakage cannot recur), but the bump still has to be validated at _runtime_ rather than at rebuild time: on the new Electron, run the harness e2e specs that exercise the SQLite-backed stores — `npx playwright test --project=harness private-windows.spec.js --reporter=list` (prefix with `xvfb-run -a` on Linux; the mac release host of §5 has no `xvfb-run`), which writes and reads back real history and downloads-history rows — plus `npm test` (the `src/main/history.test.js`, `payment-history.test.js` and `downloads/*` suites open real databases). Same rule for any other dependency that ships Node-API prebuilds and gets pruned out of the rebuild pass.
+
   3. **Build-pipeline check**: for changes that alter install behavior (e.g. Electron 42 removed its own `postinstall` in favor of lazy download), verify the docker linux build pipeline still produces working artifacts. `npm ci` inside a container can behave differently from a local install.
 
   Only bundle the bump if all three checks pass **and** the verification budget for manual cross-platform smoke testing (mandatory for Chromium-level changes, since `npm test` will not catch web-platform behavior shifts) is available. Otherwise defer to a dedicated release cycle — Electron majors in particular are usually large enough to lead their own release ("`Upgraded Electron 41 to 42 (Chromium 148, Node 24.15)`" as a top-line `Changed` entry, matching `0.7.0`'s "Upgraded Electron to 41").
@@ -81,12 +84,12 @@ Ant is the exception to the "resolve latest" rule: `scripts/fetch-ant.js` pins a
 
 The other fetch scripts resolve the latest from a **vendor-specific** upstream — do **not** use GitHub tags as a stand-in, they can lag the actual release pointer (Radicle in particular publishes new releases to `files.radicle.xyz` first; GitHub `/tags` showed `1.7.1` as the latest stable while `1.9.1` was already shipping).
 
-| Binary                                                | Authoritative source the fetch script reads                                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Binary                                                | Authoritative source the fetch script reads                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | Ant (`scripts/fetch-ant.js`)                          | `https://api.github.com/repos/freedom-hq/ant/releases/tags/<PINNED_RELEASE_TAG>` (pinned in the script; `ANT_RELEASE_TAG` overrides) |
-| freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                  |
-| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                |
-| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                  |
+| freedom-ipfs (`scripts/fetch-freedom-ipfs-native.js`) | pinned GitHub release in the fetch script                                                                                            |
+| Radicle main (`scripts/fetch-radicle.js`)             | `https://files.radicle.xyz/releases/latest`                                                                                          |
+| Radicle httpd (same script)                           | `https://files.radicle.xyz/releases/radicle-httpd/latest`                                                                            |
 
 To check whether the bundled binary is stale, compare its self-reported version against the source above:
 
@@ -187,7 +190,30 @@ npm run dist -- --win --x64
 
 `electron-builder` cross-builds the Windows NSIS installer and zip from the mac host — no Windows machine required. Windows builds intentionally ship without Radicle (see `README.md`).
 
-Cross-building rebuilds `better-sqlite3` in `node_modules` for the *target* platform, which would leave a Windows DLL on the mac host and silently break history/favicons/payment-history in local dev (symptom: `[History] Opening database:` repeating in the log with no `Current schema version:` line after it). `scripts/build.js` handles this automatically — it snapshots the host binary before any cross-target build and restores it afterward (falling back to `npx electron-builder install-app-deps`, our postinstall command), so expect a `→ Restored host better-sqlite3 binary` line after Windows builds. This protection only exists in `scripts/build.js`: never invoke `electron-builder --win` directly; if you do, run `npx electron-builder install-app-deps` afterward.
+> **Known breakage (pre-existing):** from the mac **arm64** release host this command currently dies before packaging, at `keccak` — `⨯ node-gyp does not support cross-compiling native modules from source`. `@electron/rebuild` never looks at keccak's existing `win32-x64` prebuild, and its `.forge-meta` cache key is arch-only, so an arm64 host targeting x64 always misses it. Tracked in [#204](https://github.com/solardev-xyz/freedom-browser/issues/204); until it is fixed, produce the Windows artifacts from an x64 host. This is unrelated to `better-sqlite3` (see below), which is out of the rebuild pass entirely.
+
+Cross-building no longer disturbs the host's `better-sqlite3`. Since v13 the package ships prebuilt addons for every supported target in `node_modules/better-sqlite3/prebuilds/` (`darwin`/`linux`/`linuxmusl`/`win32` x `x64`/`arm64`) and its loader (`lib/binding.js`) prefers those over `build/Release/`, selecting the one matching the _running_ process — so a `--win` build never leaves a Windows DLL where the mac host expects a Mach-O one. `scripts/build.js` used to snapshot and restore a host-built `build/Release/better_sqlite3.node` and print a `→ Restored host better-sqlite3 binary` line; that file is no longer produced at all, so the protection — and that log line — are gone. Do not expect them, and invoking `electron-builder --win` directly is now harmless to local dev.
+
+That only holds because better-sqlite3 is kept out of the `@electron/rebuild` pass. v13 dropped `prebuild-install` and its `prebuilds/` layout is flat files rather than the `prebuilds/<platform>-<arch>/` directories `prebuildify` emits, so `@electron/rebuild` recognises neither tool and would fall through to node-gyp purely because a (never-used) `binding.gyp` sits at the package root — and node-gyp refuses to cross-compile, failing the command above with `node-gyp does not support cross-compiling native modules from source`. `scripts/better-sqlite3-prebuilds.js` deletes that stale `binding.gyp`. The prune normally happens at **`npm ci` time**, from `postinstall`, which prints:
+
+```
+→ better-sqlite3: removed the unused binding.gyp (8 prebuilt addons available); @electron/rebuild will leave it alone
+```
+
+`scripts/build.js` re-checks before every build purely as a safety net (for an install that skipped `postinstall` — `npm ci --ignore-scripts` — or a hand-restored file; note `npm rebuild better-sqlite3` does **not** restore `binding.gyp`, it only re-runs lifecycle scripts), and only logs — `→ Pruned better-sqlite3's unused binding.gyp (prebuilt addons in use)` — if it actually had to remove something. In the normal flow above it is a **silent no-op, so expect no better-sqlite3 line at `npm run dist` time**; its absence is not a problem. (Running the script by hand on an already-pruned tree prints `→ better-sqlite3: nothing to do (binding.gyp already removed)`.) If you ever see the node-gyp cross-compiling error for `moduleName=better-sqlite3`, `npm install` restored the file and the prune did not run — `node scripts/better-sqlite3-prebuilds.js` fixes it.
+
+`scripts/build.js` also verifies the _target's_ prebuild exists before invoking `electron-builder`, and aborts with `Error: better-sqlite3 ships no prebuilt addon for this target` if it does not — with `binding.gyp` gone there is no source-build fallback, so an unprebuilt target would otherwise package silently and throw at startup.
+
+If you ever need to package a target upstream ships no prebuild for, use the source-build escape hatch. `npm rebuild better-sqlite3` does **not** restore the pruned `binding.gyp` (it re-runs lifecycle scripts and never re-extracts the package), so the supported path is `FREEDOM_BS3_SOURCE_BUILD=1`, set for **both** the install (which re-extracts the package with the prune skipped) and the build (which skips the per-target guard):
+
+```
+FREEDOM_BS3_SOURCE_BUILD=1 npm ci
+FREEDOM_BS3_SOURCE_BUILD=1 npm run build -- --linux --x64   # or the target you need
+```
+
+Both legs log that the override is active. It requires the node-gyp toolchain (Python + a C++ compiler; MSVC on Windows) and only works for a **same-platform** build — node-gyp still refuses to cross-compile.
+
+Each packaged app carries only the prebuild for its own target: the `mac`/`linux`/`win` blocks in `package.json` each exclude `**/node_modules/better-sqlite3/prebuilds/!(<platform>-${arch}).node`, which keeps ~15 MB of foreign-platform addons out of every installer. If you add a target platform or arch, add the matching exclusion, and sanity-check the packaged `app.asar.unpacked/node_modules/better-sqlite3/prebuilds/` holds exactly one `.node` file.
 
 ## 6. Manual cross-platform smoke testing
 
@@ -214,11 +240,11 @@ python3 -m http.server 8000 --directory dist/
 
 Get the build host's LAN IP with `ipconfig getifaddr en0` (macOS, primary interface) or `ip -4 addr show scope global | awk '/inet / { print $2 }'` (Linux). Then download from the test machine:
 
-| Test OS | Command |
-|---|---|
-| Linux | `wget http://<build-host-ip>:8000/<filename>` |
+| Test OS              | Command                                                          |
+| -------------------- | ---------------------------------------------------------------- |
+| Linux                | `wget http://<build-host-ip>:8000/<filename>`                    |
 | Windows (PowerShell) | `iwr http://<build-host-ip>:8000/<filename> -OutFile <filename>` |
-| Any (GUI) | Browse to `http://<build-host-ip>:8000/` and click the file |
+| Any (GUI)            | Browse to `http://<build-host-ip>:8000/` and click the file      |
 
 Filenames with spaces (e.g. `Freedom Setup <version>.exe`) need URL-encoding when used in `wget` / `iwr` (`%20` for each space). The GUI browser path handles encoding automatically.
 
@@ -265,6 +291,7 @@ This step is intentionally separate from §4 — §4 verifies the source tree (`
    ```
 
    This is a plain branch push, not the `main` merge (that stays in §9). The branch is meant to live on after the release anyway (§10), so publishing it now costs nothing and unblocks the website update.
+
 2. Upload the generated artifacts from `dist/` to `https://freedom.baby/downloads`, including the `latest*.yml` manifests so existing installs pick up the update via `electron-updater` (which is configured with `publish.provider = generic` pointing at that URL).
 3. Update the Freedom website to point at the new version:
    - Download links and per-platform file-size metadata.
