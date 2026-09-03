@@ -7,16 +7,16 @@ Freedom automatically manages node connections per profile. In a **packaged buil
 - **Swarm Ant**: `http://127.0.0.1:11633`
 - **IPFS**: embedded native `freedom-ipfs` handler; no desktop loopback gateway/API port is started
 - **Myotis**: embedded native Ethereum and Gnosis clients; no desktop loopback API port is started
-- **Radicle httpd**: `http://127.0.0.1:18780`
+- **Radicle**: embedded native `libradicle` addon; no desktop loopback API or P2P port is started
 - **Tor**: profile-scoped Arti SOCKS5 proxy starting at `127.0.0.1:19150`
 
-Named profiles use the next profile slot for Ant, Radicle, and Tor (`11634`, `18781`, `19151`, and so on). The ecosystem default Swarm, Radicle, and Tor ports (`1633`, `8780`, `9150`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS and Myotis are native-only and do not expose or reuse external daemon ports.
+Named profiles use the next profile slot for Ant and Tor (`11634`, `19151`, and so on). The ecosystem default Swarm and Tor ports (`1633`, `9150`) are treated as external/system-node endpoints, not Freedom-managed defaults. IPFS, Myotis, and Radicle are native-only and do not expose or reuse external daemon ports.
 
-**Source builds (`npm start`) never use these ports.** Development runs off a separate base (`21633`, `28780`, `29150`) plus a per-checkout offset derived from the checkout path, so several clones can run side by side without colliding — see `getManagedPorts()` in `src/main/profile-catalog.js`. Read the effective endpoint for the running profile from **Settings → Nodes** (or the Nodes panel) rather than assuming a port number.
+**Source builds (`npm start`) never use these ports.** Development runs off a separate base (`21633`, `22633`, `29150`) plus a per-checkout offset derived from the checkout path, so several clones can run side by side without colliding — see `getManagedPorts()` in `src/main/profile-catalog.js`. Read the effective endpoint for the running profile from **Settings → Nodes** (or the Nodes panel) rather than assuming a port number.
 
-If Freedom detects a compatible Swarm, Radicle, or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node. This check runs both during profile startup and when a managed node is started manually from the Nodes menu.
+If Freedom detects a compatible Swarm or Tor daemon on an ecosystem default port while that protocol is starting, it asks whether that profile should use the existing external node or keep an independent managed node. This check runs both during profile startup and when a managed node is started manually from the Nodes menu.
 
-For advanced users who need to connect a profile to a remote or system Bee/Radicle node or Tor SOCKS5 proxy, open **Settings → Nodes** and switch the relevant protocol to external mode. Development-only renderer gateway overrides are still available via environment variables:
+For advanced users who need to connect a profile to a remote or system Bee node or Tor SOCKS5 proxy, open **Settings → Nodes** and switch the relevant protocol to external mode. Radicle has no external mode — it always runs as the profile's embedded node, and **Settings → Nodes** only enables or disables it. Development-only renderer gateway overrides are still available via environment variables:
 
 ```bash
 # Connect to a remote Swarm node

@@ -1,6 +1,6 @@
 const log = require('./logger');
 const { BrowserWindow, app } = require('electron');
-const { activeBzzBases, activeRadBases } = require('./state');
+const { activeBzzBases } = require('./state');
 const { cleanupWebContents: cleanupX402WebContents } = require('./x402/intercept');
 const { cleanupAdblockWebContents } = require('./adblock/service');
 const { isPrivateWebContents } = require('./private/private-windows');
@@ -114,7 +114,6 @@ function registerWebContentsHandlers() {
   app.on('web-contents-created', (_event, contents) => {
     contents.once('destroyed', () => {
       activeBzzBases.delete(contents.id);
-      activeRadBases.delete(contents.id);
       cleanupX402WebContents(contents.id);
       cleanupAdblockWebContents(contents.id);
     });

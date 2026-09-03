@@ -1249,6 +1249,20 @@
                 </label>
               </div>
             </div>
+            <div class="row" id="radicle-launch-row">
+              <div class="row-body">
+                <p class="row-label">Start Radicle node</p>
+                <p class="row-help" id="radicle-launch-help">
+                  Starts this profile's embedded Radicle node when Freedom opens.
+                </p>
+              </div>
+              <div class="row-control">
+                <label class="toggle">
+                  <input type="checkbox" id="start-radicle-at-launch" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+            </div>
             <div class="row" id="myotis-launch-row">
               <div class="row-body">
                 <p class="row-label">Start Ethereum light client (Myotis)</p>
@@ -1540,31 +1554,6 @@
                 <button type="button" id="swarm-mode-action-btn" class="btn" hidden></button>
               </div>
             </div>
-            <div class="row" data-radicle>
-              <div class="row-body">
-                <p class="row-label">
-                  Enable Radicle integration
-                  <span style="color: var(--text-muted); font-weight: 400">(Beta)</span>
-                </p>
-              </div>
-              <div class="row-control">
-                <label class="toggle">
-                  <input type="checkbox" id="enable-radicle-integration" />
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
-            <div class="row sub" id="start-radicle-row" data-radicle>
-              <div class="row-body">
-                <p class="row-label">Start Radicle node when Freedom opens</p>
-              </div>
-              <div class="row-control">
-                <label class="toggle">
-                  <input type="checkbox" id="start-radicle-at-launch" />
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
             <div class="row" data-tor>
               <div class="row-body">
                 <p class="row-label">Enable Tor (.onion access) <span style="color: var(--text-muted); font-weight: 400">(Beta)</span></p>
@@ -1625,8 +1614,6 @@
         startMyotisGnosis: $('start-myotis-gnosis-at-launch'),
         unverifiedEnsAction: $('unverified-ens-action'),
         askWhereToSave: $('ask-where-to-save'),
-        enableRadicle: $('enable-radicle-integration'),
-        startRadicleRow: $('start-radicle-row'),
         startRadicle: $('start-radicle-at-launch'),
         enableTor: $('enable-tor-integration'),
         startTorRow: $('start-tor-row'),
@@ -1640,6 +1627,38 @@
         adblockCookies: $('adblock-cookies'),
         adblockAnnoyances: $('adblock-annoyances'),
         adblockAutoUpdate: $('adblock-autoupdate'),
+      };
+      const radicleLaunchRow = $('radicle-launch-row');
+      const radicleLaunchHelp = $('radicle-launch-help');
+      const defaultRadicleLaunchHelp = radicleLaunchHelp?.textContent || '';
+      const refreshRadicleLaunchStatus = async () => {
+        try {
+          const [profile, binary] = await Promise.all([
+            freedomAPI.getActiveProfile?.(),
+            freedomAPI.checkRadicleBinary?.(),
+          ]);
+          const disabled = profile?.nodes?.radicle?.mode === 'disabled';
+          const available = binary?.available !== false;
+          fields.startRadicle.disabled = disabled || !available;
+          if (radicleLaunchHelp) {
+            radicleLaunchHelp.textContent = disabled
+              ? 'Disabled for this profile under Settings → Nodes.'
+              : !available
+                ? 'libradicle addon not installed for this platform.'
+                : defaultRadicleLaunchHelp;
+          }
+          if (radicleLaunchRow) radicleLaunchRow.classList.toggle('disabled', disabled || !available);
+        } catch {
+          // Every piece of row state a previous successful run may have set
+          // has to come back with the checkbox — otherwise a transient status
+          // failure leaves the row greyed out around a live control.
+          fields.startRadicle.disabled = false;
+          if (radicleLaunchHelp) {
+            radicleLaunchHelp.textContent =
+              'Radicle status could not be read. The startup preference can still be saved.';
+          }
+          if (radicleLaunchRow) radicleLaunchRow.classList.remove('disabled');
+        }
       };
 
       // id ties together the manifest category, the #adblock-<id>-row
@@ -2022,15 +2041,8 @@
         {
           protocol: 'radicle',
           label: 'Radicle',
-          modes: ['managed', 'external', 'disabled'],
-          settingKey: 'enableRadicleIntegration',
-          hideOnWindows: true,
-          externalFields: [
-            { key: 'externalHttp', label: 'HTTP', placeholder: 'http://127.0.0.1:8780' },
-          ],
-          endpointLines: (config, service) => [
-            config?.externalHttp || service?.api || (config?.httpPort ? `http://127.0.0.1:${config.httpPort}` : null),
-          ].filter(Boolean),
+          modes: ['managed', 'disabled'],
+          endpointLines: () => ['Embedded libradicle native node'],
         },
         {
           protocol: 'tor',
@@ -2216,6 +2228,7 @@
       };
       setProfileRefreshActive(isProfileOrNodesSection());
       freedomAPI.onProfileUpdated?.(() => {
+        refreshRadicleLaunchStatus();
         if (isProfileOrNodesSection()) {
           refreshProfileSection(true);
         }
@@ -2305,6 +2318,7 @@
           }
           setNodesStatus('Saved. Restart the node to apply mode or endpoint changes.', 'success');
           await refreshProfileSection(true);
+          await refreshRadicleLaunchStatus();
         } catch (err) {
           setNodesStatus(err?.message || 'Profile node settings were not saved', 'error');
         } finally {
@@ -2320,8 +2334,7 @@
         startMyotisAtLaunch: fields.startMyotis.checked,
         startMyotisGnosisAtLaunch: fields.startMyotisGnosis.checked,
         askWhereToSave: fields.askWhereToSave.checked,
-        enableRadicleIntegration: isWindows ? false : fields.enableRadicle.checked,
-        startRadicleAtLaunch: isWindows ? false : fields.startRadicle.checked,
+        startRadicleAtLaunch: fields.startRadicle.checked,
         enableTorIntegration: isWindows ? false : fields.enableTor.checked,
         startTorAtLaunch: isWindows ? false : fields.startTor.checked,
         enableIdentityWallet: fields.enableIdentity.checked,
@@ -2345,7 +2358,6 @@
         fields.startMyotis.checked = settings.startMyotisAtLaunch === true;
         fields.startMyotisGnosis.checked = settings.startMyotisGnosisAtLaunch === true;
         fields.askWhereToSave.checked = settings.askWhereToSave === true;
-        fields.enableRadicle.checked = settings.enableRadicleIntegration === true;
         fields.startRadicle.checked = settings.startRadicleAtLaunch === true;
         fields.enableTor.checked = settings.enableTorIntegration === true;
         fields.startTor.checked = settings.startTorAtLaunch === true;
@@ -2359,7 +2371,6 @@
         fields.adblockCookies.checked = settings.adblockCookies === true;
         fields.adblockAnnoyances.checked = settings.adblockAnnoyances === true;
         fields.adblockAutoUpdate.checked = settings.adblockAutoUpdate !== false;
-        setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
         setFieldEnabled(fields.enableTor, fields.startTorRow, fields.startTor);
         applyAdblockGating();
       };
@@ -2550,15 +2561,11 @@
       fields.startMyotis.addEventListener('change', save);
       fields.startMyotisGnosis.addEventListener('change', save);
       fields.askWhereToSave.addEventListener('change', save);
-      fields.enableRadicle.addEventListener('change', () => {
-        setFieldEnabled(fields.enableRadicle, fields.startRadicleRow, fields.startRadicle);
-        save();
-      });
       fields.startRadicle.addEventListener('change', save);
       fields.enableTor.addEventListener('change', () => {
         setFieldEnabled(fields.enableTor, fields.startTorRow, fields.startTor);
-        // Mirror Radicle: enabling the integration only reveals the controls —
-        // it does not start Tor. Starting is via the node-status menu toggle or
+        // Enabling the integration only reveals the controls — it does not
+        // start Tor. Starting is via the node-status menu toggle or
         // "Start Tor when Freedom opens". Disabling stops it (settings-ui.js).
         save();
       });
@@ -2609,12 +2616,10 @@
           const platform = await freedomAPI.getPlatform();
           isWindows = platform === 'win32';
           if (isWindows) {
-            // No official Radicle binaries for Windows yet; Arti is bundled
-            // for macOS/Linux only (built host-only from crates.io).
-            document
-              .querySelectorAll('[data-radicle], [data-tor]')
-              .forEach((el) => (el.style.display = 'none'));
-            if (resolveSection(location.hash) === 'profiles') {
+            // Arti is bundled for macOS/Linux only (built host-only from
+            // crates.io). Radicle has native Windows x64 and ARM64 addons.
+            document.querySelectorAll('[data-tor]').forEach((el) => (el.style.display = 'none'));
+            if (isProfileOrNodesSection()) {
               refreshProfileSection(true);
             }
           }
@@ -2638,6 +2643,7 @@
           applySearchSettings(settings);
           applyFormState(settings);
           renderSwarmModeRow(settings, registry);
+          refreshRadicleLaunchStatus();
         } catch {
           console.error('[settings] failed to load settings');
         }

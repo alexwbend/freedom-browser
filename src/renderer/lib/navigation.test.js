@@ -42,7 +42,6 @@ const createTab = (id, url, overrides = {}) => {
     hasNavigatedDuringCurrentLoad: false,
     isWebviewLoading: false,
     currentBzzBase: null,
-    currentRadBase: null,
     addressBarSnapshot: '',
     committedDisplayUrl: '',
     cachedWebContentsId: null,
@@ -72,9 +71,8 @@ const loadNavigationModule = async (options = {}) => {
     bzzRoutePrefix: 'https://gateway.example/bzz/',
     ipfsRoutePrefix: 'https://gateway.example/ipfs/',
     ipnsRoutePrefix: 'https://gateway.example/ipns/',
-    radicleApiPrefix: 'http://127.0.0.1:8780/api/v1/repos/',
-    radicleBase: 'http://127.0.0.1:8780',
-    enableRadicleIntegration: options.enableRadicleIntegration || false,
+    radicleApiPrefix: 'radapi://local/api/v1/repos/',
+    radicleBase: 'radapi://local',
     currentRadicleStatus: options.currentRadicleStatus || 'running',
     currentIpfsStatus: options.currentIpfsStatus || 'running',
     registry: options.registry || { ipfs: { mode: 'bundled' } },
@@ -176,7 +174,7 @@ const loadNavigationModule = async (options = {}) => {
     resolveProtocolIconType: jest.fn(({ value, currentPageSecure }) => {
       if (currentPageSecure) return 'https';
       if (value?.startsWith('bzz://')) return 'swarm';
-      if (value?.startsWith('rad://') && state.enableRadicleIntegration) return 'radicle';
+      if (value?.startsWith('rad://')) return 'radicle';
       return value ? 'http' : 'http';
     }),
     resolveTrustBadge: jest.fn(({ value, ensTrustByName }) => {
@@ -263,7 +261,6 @@ const loadNavigationModule = async (options = {}) => {
     deriveDisplayValue: jest.fn((url) => `display:${url}`),
     deriveBzzBaseFromUrl: jest.fn((url) => (url.includes('/bzz/') ? 'https://gateway.example/bzz/hash/' : null)),
     deriveIpfsBaseFromUrl: jest.fn(() => null),
-    deriveRadBaseFromUrl: jest.fn(() => null),
     applyEnsNamePreservation: jest.fn((url) => url),
     buildEnsDisplayUri: jest.fn((protocol, name, suffix = '') => {
       if (!name) return null;
@@ -335,8 +332,6 @@ const loadNavigationModule = async (options = {}) => {
     addHistory: jest.fn().mockResolvedValue(undefined),
     setBzzBase: jest.fn(),
     clearBzzBase: jest.fn(),
-    setRadBase: jest.fn(),
-    clearRadBase: jest.fn(),
     startSwarmProbe: jest.fn((hash, path) => {
       const id = swarmProbeState.nextProbeId;
       swarmProbeState.startCalls.push({ id, hash, path });
@@ -442,7 +437,12 @@ const loadNavigationModule = async (options = {}) => {
   tabsRef.list = options.tabs || [firstTab];
   activeRef.tab = options.activeTab || firstTab;
 
-  jest.doMock('./state.js', () => ({ state }));
+  jest.doMock('./state.js', () => ({
+    state,
+    // Mirrors the real helper: the profile's Radicle mode is published into
+    // the service registry by the main process.
+    isRadicleDisabledForProfile: () => state.registry?.radicle?.mode === 'disabled',
+  }));
   jest.doMock('./debug.js', () => debugMocks);
   jest.doMock('./bookmarks-ui.js', () => bookmarksUiMocks);
   jest.doMock('./github-bridge-ui.js', () => githubBridgeUiMocks);
@@ -609,12 +609,9 @@ describe('navigation', () => {
     expect(ctx.activeRef.tab.webview.reload).toHaveBeenCalled();
     expect(ctx.activeRef.tab.webview.reloadIgnoringCache).toHaveBeenCalled();
 
-    ctx.state.enableRadicleIntegration = false;
     ctx.elements.addressInput.value = 'rad://zrepo123';
     ctx.mod.onSettingsChanged();
-    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledWith(
-      'file:///app/pages/rad-browser.html?error=disabled'
-    );
+    expect(ctx.activeRef.tab.webview.loadURL).toHaveBeenCalledTimes(1);
   });
 
   test('processes webview lifecycle events and records history', async () => {
@@ -1104,6 +1101,41 @@ describe('navigation', () => {
       expect(loadedUrl).toContain('error=ERR_CONNECTION_REFUSED');
       expect(loadedUrl).toContain('protocol=ipfs');
       expect(loadedUrl).toContain(encodeURIComponent('ipfs://QmTest'));
+    });
+
+    // A profile with Radicle disabled can never start the node, so the
+    // generic connection-error panel would point at a toggle this profile
+    // does not have. The purpose-built panel explains the profile setting.
+    test('Radicle: a disabled profile lands on the explanatory disabled panel', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'disabled' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).toHaveBeenCalledWith(
+        expect.any(String),
+        'rad://zrepo123'
+      );
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toBe('file:///app/pages/rad-browser.html?error=disabled');
+      expect(ctx.urlUtilsMocks.formatRadicleUrl).not.toHaveBeenCalled();
+    });
+
+    test('Radicle: an enabled profile still routes to the repository viewer', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'embedded' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).not.toHaveBeenCalled();
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('rad-browser.html?rid=zrepo123');
     });
 
     test('IPNS: error page carries protocol=ipns', async () => {

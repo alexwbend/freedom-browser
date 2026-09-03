@@ -26,10 +26,10 @@ const RENAMED_KEYS = {
   beeNodeMode: 'antNodeMode',
   startBeeAtLaunch: 'startAntAtLaunch',
 };
+const REMOVED_KEYS = new Set(['enableRadicleIntegration']);
 
 const DEFAULT_SETTINGS = {
   theme: 'system',
-  enableRadicleIntegration: false,
   enableIdentityWallet: true,
   antNodeMode: 'ultraLight',
   startAntAtLaunch: true,
@@ -172,6 +172,16 @@ function migrateRenamedKeys(parsed) {
   return migrated;
 }
 
+function migrateRemovedKeys(parsed) {
+  let migrated = false;
+  for (const key of REMOVED_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(parsed, key)) continue;
+    delete parsed[key];
+    migrated = true;
+  }
+  return migrated;
+}
+
 function loadSettings() {
   if (cachedSettings) {
     return cachedSettings;
@@ -183,8 +193,9 @@ function loadSettings() {
       const data = fs.readFileSync(filePath, 'utf-8');
       const parsed = JSON.parse(data);
       const keysMigrated = migrateRenamedKeys(parsed);
+      const removedKeysMigrated = migrateRemovedKeys(parsed);
       const structuredSettingsChanged = normalizeStructuredSettings(parsed);
-      const settingsChanged = keysMigrated || structuredSettingsChanged;
+      const settingsChanged = keysMigrated || removedKeysMigrated || structuredSettingsChanged;
       if (settingsChanged) {
         try {
           fs.writeFileSync(filePath, JSON.stringify(parsed, null, 2), 'utf-8');

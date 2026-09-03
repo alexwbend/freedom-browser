@@ -832,7 +832,7 @@ export const formatIpfsUrl = (input, ipfsRoutePrefix) => {
  * Parse a Radicle input (RID with optional path)
  * Accepts both rad:RID and rad://RID formats
  * @param {string} rawInput - Input like "zRID", "rad:zRID/tree/main/path", or "rad://zRID"
- * @param {string} radicleApiPrefix - API prefix like "http://127.0.0.1:8080/api/v1/repos/"
+ * @param {string} radicleApiPrefix - Internal API prefix like "radapi://local/api/v1/repos/"
  * @returns {object|null} Parsed result with rid, tail, baseUrl, displayValue
  */
 export const parseRadicleInput = (rawInput, radicleApiPrefix) => {
@@ -887,37 +887,9 @@ export const parseRadicleInput = (rawInput, radicleApiPrefix) => {
 };
 
 /**
- * Derive Radicle base URL from an API URL
- * @param {string|URL} input - URL like "http://127.0.0.1:8080/api/v1/repos/zRID/tree/main"
- * @returns {string|null} Base URL like "http://127.0.0.1:8080/api/v1/repos/zRID/"
- */
-export const deriveRadBaseFromUrl = (input) => {
-  if (!input) {
-    return null;
-  }
-  try {
-    const parsed = typeof input === 'string' ? new URL(input) : input;
-    const segments = parsed.pathname.split('/').filter(Boolean);
-    // Look for /api/v1/repos/RID pattern
-    if (segments.length >= 4 &&
-        segments[0] === 'api' &&
-        segments[1] === 'v1' &&
-        segments[2] === 'repos') {
-      const rid = segments[3];
-      if (isValidRadicleId(rid)) {
-        return ensureTrailingSlash(`${parsed.origin}/api/v1/repos/${rid}`);
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
-};
-
-/**
  * Format user input into a Radicle browser page URL
  * @param {string} input - User input (RID, rad:RID, etc.)
- * @param {string} radicleBase - Radicle httpd base URL
+ * @param {string} radicleBase - Internal Radicle API base URL
  * @returns {object|null} Object with targetUrl, displayValue, protocol
  */
 export const formatRadicleUrl = (input, radicleBase) => {

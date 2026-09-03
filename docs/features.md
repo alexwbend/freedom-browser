@@ -4,17 +4,17 @@
 
 Freedom runs Swarm, IPFS, and Radicle nodes, an experimental Myotis Ethereum light client, and optional Tor routing, giving you access to decentralized and onion networks from a single interface.
 
-|                          | Swarm                                         | IPFS                                 | Radicle                           |
-| ------------------------ | --------------------------------------------- | ------------------------------------ | --------------------------------- |
-| **Protocol**             | `bzz://`                                      | `ipfs://`, `ipns://`                 | `rad://`                          |
-| **Node Software**        | Ant (antd, bee-compatible)                    | freedom-ipfs native                  | radicle-node + radicle-httpd      |
-| **Hash Format**          | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)            |
-| **Managed Gateway Port** | 11633+ (packaged)                             | internal native handler              | 18780+ (packaged)                 |
-| **Managed API Port**     | 11633+ (packaged)                             | internal native handler              | 18780+ (packaged)                 |
-| **Managed P2P Port**     | 12633+ (packaged)                             | internal native handler              | 18776+ (packaged)                 |
-| **Route Prefix**         | `/bzz/{hash}/`                                | `/ipfs/{cid}/`, `/ipns/{name}/`      | `/api/v1/repos/{rid}/`            |
-| **Data Directory**       | `<profile>/ant-data/`                         | `<profile>/ipfs-data/freedom-ipfs/`  | profile-scoped short Radicle home |
-| **Binary Directory**     | `ant-bin/<platform>-<arch>/`                  | `native/freedom-ipfs-node/`          | `radicle-bin/<platform>-<arch>/`  |
+|                          | Swarm                                         | IPFS                                 | Radicle                                         |
+| ------------------------ | --------------------------------------------- | ------------------------------------ | ----------------------------------------------- |
+| **Protocol**             | `bzz://`                                      | `ipfs://`, `ipns://`                 | `rad://`                                        |
+| **Node Software**        | Ant (antd, bee-compatible)                    | freedom-ipfs native                  | libradicle native addon                         |
+| **Hash Format**          | 64 or 128-char hex (encrypted refs supported) | CIDv0 (`Qm...`) or CIDv1 (`bafy...`) | Repository ID (`z...`)                          |
+| **Managed Gateway Port** | 11633+ (packaged)                             | internal native handler              | internal native handler                         |
+| **Managed API Port**     | 11633+ (packaged)                             | internal native handler              | internal native handler                         |
+| **Managed P2P Port**     | 12633+ (packaged)                             | internal native handler              | in-process                                      |
+| **Route Prefix**         | `/bzz/{hash}/`                                | `/ipfs/{cid}/`, `/ipns/{name}/`      | `/api/v1/repos/{rid}/`                          |
+| **Data Directory**       | `<profile>/ant-data/`                         | `<profile>/ipfs-data/freedom-ipfs/`  | profile-scoped short Radicle home               |
+| **Binary Directory**     | `ant-bin/<platform>-<arch>/`                  | `native/freedom-ipfs-node/`          | `radicle-bin/<platform>-<arch>/libradicle.node` |
 
 The Ant and Radicle binary paths above are the source-build layout that `npm run ant:download` and `npm run radicle:download` write; packaged builds flatten both to `<resources>/ant-bin/` and `<resources>/radicle-bin/`.
 
@@ -24,16 +24,16 @@ Source builds (`npm start`) use a different, per-checkout port range; see [Confi
 
 Freedom manages nodes per browser profile:
 
-1. **Independent Managed Nodes**: By default, each profile has separate Ant, native IPFS, Myotis, Radicle, and Tor data. Ant, Radicle, and Tor use profile-specific non-default ports; IPFS and Myotis run as embedded native clients without loopback API or gateway ports.
-2. **Explicit External Nodes**: Profiles can opt into external Swarm/Radicle endpoints or an external Tor SOCKS5 endpoint under **Settings → Nodes**. External node identity, storage, or circuit state is shared outside that profile. IPFS and Myotis always use their embedded native clients.
-3. **Port Conflict Handling**: If a managed Ant, Radicle, or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
+1. **Independent Managed Nodes**: By default, each profile has separate Ant, native IPFS, Myotis, Radicle, and Tor data. Ant and Tor use profile-specific non-default ports; IPFS, Myotis, and Radicle run as embedded native clients without loopback API or gateway ports.
+2. **Explicit External Nodes**: Profiles can opt into an external Swarm endpoint or an external Tor SOCKS5 endpoint under **Settings → Nodes**. External node identity, storage, or circuit state is shared outside that profile. IPFS, Myotis, and Radicle always use their embedded native clients.
+3. **Port Conflict Handling**: If a managed Ant or Tor profile port is busy, Freedom picks a free profile port and persists the reassignment.
 4. **Visual Feedback**: The Nodes panel and profile settings show whether a node is managed, external/shared, or disabled.
 
 This means Freedom works seamlessly whether you:
 
-- Run it standalone (bundled Swarm and native IPFS nodes start automatically; Radicle is optional and behind an Experimental setting)
+- Run it standalone (bundled Swarm and native IPFS nodes start automatically; Radicle and Myotis startup are opt-in under **Settings → Automatic Startup**)
 - Create multiple independent browser profiles with their own browser data, vault, and managed node state
-- Already have system-wide Swarm/Radicle daemons running and explicitly configure a profile to use them
+- Already have a system-wide Swarm daemon running and explicitly configure a profile to use it
 - Have port conflicts with other software (Freedom finds and records available profile ports)
 
 On macOS, the packaged app explicitly allows multiple bundle instances so profile
@@ -74,17 +74,16 @@ launching can use `open -n -a Freedom --args --profile=<id>`.
 - **Optional binary**: Source builds require `npm run tor:download`; bundled Tor is currently available on macOS and Linux.
 - **Windows**: Arti is not bundled on Windows (it is built host-only from crates.io), so the Tor rows are hidden from the Experimental settings section on Windows builds and `.onion` access is unavailable.
 
-## Integrated Radicle Node (macOS & Linux)
+## Integrated Radicle Node
 
-- **Two-Process Architecture**: Manages both `radicle-node` (P2P network) and `radicle-httpd` (HTTP API) as a coordinated pair.
+- **Embedded Native Node**: Runs Radicle in the Electron main process through the `libradicle` addon — no `radicle-node`/`radicle-httpd` daemons, no CLI, and no loopback HTTP API.
+- **Native Provider Actions**: `window.radicle` seeding, identity, repository listing, COB writes, and GitHub imports all call the addon directly.
 - **Automatic Identity**: Creates a Radicle identity on first run (no manual setup required).
-- **Experimental Gate**: Radicle is controlled via **Settings → Experimental → Enable Radicle integration (Beta)**.
-- **Node Toggle**: Once enabled, start and stop Radicle from the Nodes panel.
-- **Live Statistics**: View connected peers, seeded repos, version, and Node ID.
+- **Profile Control**: Enable or disable Radicle per profile under **Settings → Nodes**.
+- **Node Toggle**: Start and stop Radicle from the Nodes panel; automatic startup is opt-in under **Settings → Automatic Startup → Start Radicle node**.
+- **Live Statistics**: View connected peers, seeded repos, addon version, and Node ID.
 - **Repository Seeding**: Seed Radicle repositories directly from the browser to help replicate them across the network.
-- **Stale Socket Cleanup**: Automatically cleans up control sockets from unclean shutdowns.
-- **Port Conflict Resolution**: Uses profile-specific managed ports and persists reassignment if one is unavailable.
-- **Windows**: Radicle is not available on Windows yet (no upstream binaries). The Radicle rows are hidden from the Experimental settings section on Windows builds; the rest of that section (Identity & Wallet, Swarm node mode, IPFS progress) is still there.
+- **Windows**: The embedded node ships in the Windows x64 and ARM64 builds.
 
 ## Universal Address Bar
 
@@ -230,7 +229,7 @@ Right-click on pages for context-sensitive actions:
 
 ## Request Rewriting
 
-- **Automatic Path Rewriting**: When a page is loaded through a loopback gateway URL, absolute paths in its markup (e.g., `/images/logo.png`) are rewritten to stay within the current content base — Swarm (`/bzz/{hash}/`) first, then Radicle (`/api/v1/repos/{rid}/`) when **Settings → Experimental → Enable Radicle integration (Beta)** is on.
+- **Automatic Path Rewriting**: When a page is loaded through a loopback gateway URL, absolute paths in its markup (e.g., `/images/logo.png`) are rewritten to stay within the current content base — Swarm (`/bzz/{hash}/`) first, then Radicle (`/api/v1/repos/{rid}/`, served by the internal `radapi://local` handler).
 - **Per-Tab Tracking**: Each tab tracks its own content base for correct path resolution.
 - **IPFS / IPNS (`ipfs://`, `ipns://`)**: No rewriting arm at all. These are standard schemes served by a custom protocol handler, so the page origin is already `ipfs://<cid>/` and same-origin subresources never reach the rewriter as gateway URLs.
 - **Swarm (`bzz://`)**: `bzz://` navigations are likewise served by a custom protocol handler — see [Swarm content retrieval](protocols/swarm.md). The Swarm rewriter arm only applies to the loopback gateway URLs that back a `bzz` content base.
@@ -267,12 +266,12 @@ Access built-in browser pages using the `freedom://` protocol:
 - **Theme**: Light, Dark, or System (follows OS preference).
 - **Tabs in Title Bar** (Linux only): Use the tab strip as the window title bar. Takes effect after restart.
 - **Search**: Choose the address-bar search engine, or add a custom one from an HTTPS URL template containing `{searchTerms}`.
-- **Node Auto-start**: Toggle whether Swarm, IPFS, and (experimental) Myotis Ethereum/Gnosis nodes start automatically at launch (Swarm and IPFS enabled by default).
+- **Node Auto-start**: Toggle whether Swarm, IPFS, Radicle, and (experimental) Myotis Ethereum/Gnosis nodes start automatically at launch (Swarm and IPFS enabled by default; Radicle and Myotis are opt-in).
 - **Site Permissions**: When a site asks to use your camera, microphone, notifications, clipboard, location, or MIDI devices, a prompt appears under the address bar (Allow / Block, with "Remember for this site"). Remembered decisions are listed under Settings → Site Permissions with per-permission, per-site, and remove-all revocation; sites with granted permissions show an indicator icon in the address bar with quick revoke.
 - **Ad Blocking**: Choose filter categories, automatic list updates, and per-host exemptions.
 - **Shortcuts**: Search and remap browser commands with conflict detection and per-command reset.
 - **Chains and RPC Providers**: Configure chain endpoints, keyed providers, and ENS verification behavior.
-- **Experimental**: Enable Identity & Wallet (Beta), Show IPFS load progress in the status bar, Swarm node mode, Enable Radicle integration (Beta), Start Radicle node when Freedom opens, Enable Tor (.onion access) (Beta), and Start Tor when Freedom opens. The Radicle and Tor rows are hidden on Windows builds.
+- **Experimental**: Enable Identity & Wallet (Beta), Show IPFS load progress in the status bar, Swarm node mode, Enable Tor (.onion access) (Beta), and Start Tor when Freedom opens. The Tor rows are hidden on Windows builds. Radicle is no longer experimental — it is configured under **Settings → Nodes** and **Settings → Automatic Startup**.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
 - **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), onchain app (Ethereum diamond), Radicle (seedling), or HTTP (globe) icon based on current protocol. When a page also has a resolution/provenance trust status (a resolved Ethereum name, or a `web3://` app whose retrieval was verified), the trust shield takes that slot instead — so onchain apps normally show the shield and fall back to the diamond only when no provenance is available.
 - **Hamburger Menu**: Access browser features (Profile submenu, New Tab, New Window, New Private Window, History, Zoom, Print, Developer Tools, Settings, About Freedom, Check for Updates…).
@@ -280,6 +279,6 @@ Access built-in browser pages using the `freedom://` protocol:
 ## Error Handling
 
 - **Friendly Error Pages**: Clear error messages with the original URL preserved.
-- **Feature-Gated Radicle Errors**: Opening `rad://` while integration is disabled shows: `Radicle integration is disabled. Enable it in Settings > Experimental`.
+- **Profile-Aware Radicle Errors**: Opening `rad://` while Radicle is disabled for the profile shows "Radicle Disabled for This Profile" and points to **Settings → Nodes**; opening it while the node is stopped shows "Cannot Connect to Radicle Node" and points to the Nodes menu.
 - **Retry on Reload**: Pressing reload on an error page retries the original request.
 - **Graceful Degradation**: Navigation errors don't crash the browser.

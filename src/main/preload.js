@@ -28,9 +28,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startSwarmProbe: (hash, path) => ipcRenderer.invoke('bzz:start-probe', { hash, path }),
   awaitSwarmProbe: (id) => ipcRenderer.invoke('bzz:await-probe', { id }),
   cancelSwarmProbe: (id) => ipcRenderer.invoke('bzz:cancel-probe', { id }),
-  setRadBase: (webContentsId, baseUrl) =>
-    ipcRenderer.invoke('rad:set-base', { webContentsId, baseUrl }),
-  clearRadBase: (webContentsId) => ipcRenderer.invoke('rad:clear-base', { webContentsId }),
   setWindowTitle: (title) => ipcRenderer.send('window:set-title', title),
   closeWindow: () => ipcRenderer.send('window:close'),
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
@@ -694,6 +691,11 @@ contextBridge.exposeInMainWorld('radiclePermissions', {
 contextBridge.exposeInMainWorld('radicleProvider', {
   execute: (method, params, origin) =>
     ipcRenderer.invoke('radicle:provider-execute', { method, params, origin }),
+  onEvent: (callback) => {
+    const handler = (_event, value) => callback(value);
+    ipcRenderer.on('radicle:providerEvent', handler);
+    return () => ipcRenderer.removeListener('radicle:providerEvent', handler);
+  },
 });
 
 contextBridge.exposeInMainWorld('swarmFeedStore', {

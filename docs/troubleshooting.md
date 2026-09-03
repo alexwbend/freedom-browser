@@ -15,12 +15,13 @@
 
 ## Radicle fails to start
 
-- Ensure **Settings → Experimental → Enable Radicle integration (Beta)** is enabled
-- Freedom automatically detects managed-port conflicts and persists a free profile port
-- Ensure all four binaries — `rad`, `radicle-node`, `radicle-httpd`, and `git-remote-rad` — exist in `radicle-bin/<platform>-<arch>/` for source builds (packaged builds use `radicle-bin/` under the app's resources directory); rerun `npm run radicle:download` if any are missing
-- Ensure Git is installed and available on `PATH`
+- Ensure Radicle is enabled for the profile under **Settings → Nodes**
+- Radicle runs in-process through the `libradicle` addon, so there are no managed ports and no daemons to conflict with
+- Ensure `libradicle.node` exists in `radicle-bin/<platform>-<arch>/` for source builds (packaged builds use `radicle-bin/` under the app's resources directory); rerun `npm run radicle:download` if it is missing
+- Ensure Git is installed and available on `PATH` — it is needed for GitHub repository imports
 - If starting for the first time, Freedom creates a Radicle identity automatically
 - Check terminal output for specific error messages
+- For a fresh Radicle identity and repository store, create a new browser profile
 
 ## Myotis fails to start or synchronize
 
@@ -37,7 +38,7 @@
 
 ## Using an external node
 
-- If you have a system-wide Swarm or Radicle daemon or Tor SOCKS5 proxy running, configure external mode in **Settings → Nodes**
+- If you have a system-wide Swarm node or Tor SOCKS5 proxy running, configure external mode in **Settings → Nodes**. Radicle has no external mode; it always runs as the profile's embedded node
 - External mode is per profile and per protocol
 - The Nodes panel shows external/shared status when connected to an external node
 - Freedom does not stop external nodes on quit
@@ -51,6 +52,6 @@
 
 ## Content not loading
 
-- Ensure the relevant Ant, IPFS, Radicle, Myotis, or Tor component is running; enable optional integrations in Settings first.
+- Ensure the relevant Ant, IPFS, Radicle, Myotis, or Tor component is running in the Nodes panel; enable optional integrations in Settings first.
 - Verify the Swarm reference (64 or 128 hex), CID, or Radicle ID is correct
 - Open **Menu (☰) → Developer Tools** and check the page's console for error messages

@@ -68,7 +68,6 @@ function envFlagEnabled(name) {
 const DEFAULT_NODES_OFF_SETTINGS = {
   startAntAtLaunch: false,
   startIpfsAtLaunch: false,
-  enableRadicleIntegration: false,
   startRadicleAtLaunch: false,
   startTorAtLaunch: false,
 };

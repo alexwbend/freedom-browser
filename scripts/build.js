@@ -21,6 +21,7 @@
  *   npm run build -- --mac --arm64 --unsigned --verbose
  *   npm run dist -- --mac --no-notarize
  *   npm run dist -- --linux --x64
+ *   npm run dist -- --win --x64
  *   npm run dist -- --win --arm64
  */
 

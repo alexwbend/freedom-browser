@@ -9,7 +9,6 @@ import { initMyotisUi } from './lib/myotis-ui.js';
 import {
   initRadicleUi,
   updateRadicleStatusLine,
-  updateRadicleToggleState,
 } from './lib/radicle-ui.js';
 import { initTorUi, updateTorStatusLine } from './lib/tor-ui.js';
 import {
@@ -110,7 +109,6 @@ window.serviceRegistry?.onUpdate?.((registry) => {
   updateIpfsStatusLine();
   updateIpfsToggleState();
   updateRadicleStatusLine();
-  updateRadicleToggleState();
   updateTorStatusLine();
 });
 

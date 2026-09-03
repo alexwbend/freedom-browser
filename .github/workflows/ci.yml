@@ -133,6 +133,60 @@ jobs:
           FREEDOM_IPFS_NATIVE_SMOKE_LIVE: '0'
           FREEDOM_IPFS_NATIVE_SMOKE_ISSUE_102: '1'
 
+  # libradicle is the ONLY Radicle runtime — there is no executable fallback —
+  # so every release asset has to download, verify against the in-repo pinned
+  # checksums, load, and answer a native call on the platform it ships for.
+  # Modelled on myotis-addon-load. win-arm64 has no hosted runner: it is
+  # downloaded and checksum-verified on windows-latest (a foreign-arch library
+  # cannot be dlopen'ed), which is what catches a missing or re-published asset.
+  radicle-addon-load:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: mac-arm64
+            flags: --mac --arm64
+          - os: macos-15-intel
+            target: mac-x64
+            flags: --mac --x64
+          - os: ubuntu-latest
+            target: linux-x64
+            flags: --linux --x64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+            flags: --linux --arm64
+          - os: windows-latest
+            target: win-x64
+            flags: --win --x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download this runner's libradicle addon
+        run: npm run radicle:download -- ${{ matrix.flags }}
+
+      - name: Load addon and verify exports
+        run: node scripts/check-radicle-addon.js radicle-bin/${{ matrix.target }}/libradicle.node
+
+      # No hosted arm64 Windows runner exists, so the asset is at least proven
+      # to be published and to match the pinned SHA256SUMS.
+      - name: Verify the win-arm64 release asset
+        if: matrix.target == 'win-x64'
+        run: npm run radicle:download -- --win --arm64
+
   # Load every native Myotis addon target that release packaging requires.
   # The live network proof below remains one representative architecture per
   # shipped OS; this fast matrix closes the packaging gap for Intel macOS and
