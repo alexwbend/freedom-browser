@@ -232,6 +232,12 @@ function startTrackedFetch(rid, onStatus) {
   return success({ status });
 }
 
+/**
+ * Seed a repository: the native fetch writes the seeding policy as it
+ * replicates, so this commits the user's disk and bandwidth. Consent for
+ * that commitment is the caller's job — every entry point either belongs
+ * to the browser's own UI or sits behind the provider's per-repo prompt.
+ */
 async function seedRepository(rid, onStatus) {
   const unavailable = requireRunning();
   if (unavailable) return unavailable;
@@ -240,8 +246,39 @@ async function seedRepository(rid, onStatus) {
   return startTrackedFetch(fullRid, onStatus);
 }
 
+async function isSeeded(fullRid) {
+  try {
+    const repos = await embedded.listSeededRepos();
+    return Array.isArray(repos) && repos.some((repo) => repo?.rid === fullRid);
+  } catch (err) {
+    log.warn(`[Radicle] Could not read seeding policies for ${fullRid}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Re-run the network fetch for an ALREADY-seeded repository — the retry
+ * path after a failed fetch (`radicle_sync`, and the sidebar's sync
+ * action).
+ *
+ * This deliberately does NOT fall through to seedRepository. The native
+ * fetch writes a persistent seeding policy as a side effect, so aliasing
+ * the two would let anything holding only the lightweight connection
+ * grant commit the user to replicating an arbitrary repo — exactly what
+ * seeding gates behind a per-repo consent prompt. Unknown repos are
+ * rejected, and a policy lookup that fails counts as "not seeded".
+ */
 async function refetchRepository(rid, onStatus) {
-  return seedRepository(rid, onStatus);
+  const unavailable = requireRunning();
+  if (unavailable) return unavailable;
+  const fullRid = validateAndNormalizeRid(rid);
+  if (!fullRid) return failure('INVALID_RID', 'Invalid Radicle Repository ID', { rid });
+  if (!(await isSeeded(fullRid))) {
+    return failure('NOT_SEEDED', 'Repository is not seeded — seed it before syncing', {
+      rid: fullRid,
+    });
+  }
+  return startTrackedFetch(fullRid, onStatus);
 }
 
 async function getSeedFetchStatus(rid, onStatus) {

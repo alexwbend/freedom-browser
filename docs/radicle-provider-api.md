@@ -177,6 +177,11 @@ retrying in the background on refs announcements.
 path after `state: 'failed'`, without a second consent prompt. Resolves
 immediately with `{ rid, status }`; follow `seedStatus` events for progress.
 
+Only repos the node already has a seeding policy for are accepted: the
+fetch writes that policy as it replicates, so allowing an unknown RID
+here would be a promptless `radicle_seed`. An unseeded RID rejects with
+-32602 and `data.reason: 'not_seeded'`.
+
 ### `radicle_getIdentity` → `{ did, nid, alias }` (signing tier)
 
 The user's Radicle identity. Bootstrap path for the signing grant, like

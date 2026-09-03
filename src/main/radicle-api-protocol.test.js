@@ -24,14 +24,20 @@ jest.mock('./radicle-embedded', () => ({
 jest.mock('./radicle-manager', () => ({
   isDisabledForProfile: jest.fn(() => false),
 }));
+jest.mock('./webrequest-dispatcher', () => ({
+  registerWebRequestHandler: jest.fn(),
+}));
 
 const embedded = require('./radicle-embedded');
 const { isDisabledForProfile } = require('./radicle-manager');
 const {
   handleRadicleApiRequest,
   registerRadicleApiProtocol,
+  guardRadicleApiRequest,
   serveRepoApi,
 } = require('./radicle-api-protocol');
+
+const INTERNAL_PAGE = 'file:///app/src/renderer/pages/rad-browser.html';
 
 const RID = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
 const REVISION = '0123456789abcdef0123456789abcdef01234567';
@@ -82,18 +88,66 @@ describe('radapi protocol', () => {
     expect(embedded.status).not.toHaveBeenCalled();
   });
 
-  test('rejects remote web origins and does not expose node responses through wildcard CORS', async () => {
+  // Chromium never sends `Origin` to a custom scheme's protocol.handle, so
+  // the old Origin check could not fire; a referrer, when there is one,
+  // does arrive and must name the internal viewer.
+  test('rejects a request referred by a page that is not the internal viewer', async () => {
     const denied = await handleRadicleApiRequest(
-      new Request('radapi://local/', { headers: { Origin: 'https://hostile.example' } })
+      new Request('radapi://local/', { referrer: 'https://hostile.example/' })
     );
     expect(denied.status).toBe(403);
     expect(denied.headers.get('access-control-allow-origin')).toBeNull();
+  });
 
-    const local = await handleRadicleApiRequest(
-      new Request('radapi://local/', { headers: { Origin: 'null' } })
+  test('serves the internal viewer, with or without a referrer', async () => {
+    const referred = await handleRadicleApiRequest(
+      new Request('radapi://local/', { referrer: INTERNAL_PAGE })
     );
-    expect(local.status).toBe(200);
-    expect(local.headers.get('access-control-allow-origin')).toBeNull();
+    expect(referred.status).toBe(200);
+
+    // Chromium suppresses referrers from `file:` origins, so the viewer's
+    // own fetches arrive with none — the frame guard covers that case.
+    const unreferred = await handleRadicleApiRequest(new Request('radapi://local/'));
+    expect(unreferred.status).toBe(200);
+    expect(unreferred.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  describe('frame guard', () => {
+    const request = (frameUrl, url = 'radapi://local/api/v1/repos') => ({
+      url,
+      frame: frameUrl === null ? null : { url: frameUrl },
+    });
+
+    test('passes requests from the internal repository viewer', () => {
+      expect(guardRadicleApiRequest(request(INTERNAL_PAGE))).toBeNull();
+      expect(
+        guardRadicleApiRequest(request(`${INTERNAL_PAGE}?rid=z3gq&base=radapi%3A%2F%2Flocal`))
+      ).toBeNull();
+    });
+
+    // The demonstrated leak: node-level endpoints and private-repo reads
+    // were readable by any page that asked.
+    test.each([
+      ['a hostile web page', 'https://hostile.example/attack.html'],
+      ['a dweb page', 'bzz://somehash/index.html'],
+      ['another internal page', 'file:///app/src/renderer/pages/settings.html'],
+      ['a file path merely ending in the viewer name', 'file:///tmp/rad-browser.html'],
+      ['no frame at all', null],
+      ['a frame with no URL', undefined],
+    ])('cancels a radapi request from %s', (_label, frameUrl) => {
+      expect(guardRadicleApiRequest(request(frameUrl))).toEqual({ cancel: true });
+    });
+
+    test('cancels a top-level navigation to a node-level endpoint', () => {
+      expect(
+        guardRadicleApiRequest(request('https://hostile.example/', 'radapi://local/api/v1/repos'))
+      ).toEqual({ cancel: true });
+    });
+
+    test('ignores requests for every other scheme', () => {
+      expect(guardRadicleApiRequest(request('https://example.com/', 'https://example.com/x'))).toBeNull();
+      expect(guardRadicleApiRequest(request('https://example.com/', 'rad://z3gq/tree'))).toBeNull();
+    });
   });
 
   test('serves the local repository collection in viewer metadata shape', async () => {
@@ -260,5 +314,24 @@ describe('radapi protocol', () => {
     const handler = targetSession.protocol.handle.mock.calls[0][1];
     const response = await handler(new Request('radapi://local/'));
     expect(response.status).toBe(200);
+  });
+
+  // The dispatcher's registry is process-wide and rejects a duplicate
+  // name, so the guard must be installed once however many sessions
+  // (default plus one per private window) register the protocol.
+  test('installs the frame guard once, for every session the dispatcher serves', () => {
+    jest.isolateModules(() => {
+      const dispatcher = require('./webrequest-dispatcher');
+      const fresh = require('./radicle-api-protocol');
+      fresh.registerRadicleApiProtocol({ protocol: { handle: jest.fn() } });
+      fresh.registerRadicleApiProtocol({ protocol: { handle: jest.fn() } });
+
+      expect(dispatcher.registerWebRequestHandler).toHaveBeenCalledTimes(1);
+      expect(dispatcher.registerWebRequestHandler).toHaveBeenCalledWith(
+        'onBeforeRequest',
+        'radapi-guard',
+        fresh.guardRadicleApiRequest
+      );
+    });
   });
 });

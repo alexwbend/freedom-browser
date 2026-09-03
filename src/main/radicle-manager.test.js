@@ -34,6 +34,7 @@ function loadManager(options = {}) {
     seeders: jest.fn(async () => ({ seeding: 2 })),
     status: jest.fn(async () => ({ connectedPeers: 3 })),
     listRepos: jest.fn(async () => [{ rid: 'rad:zRepoOne' }, { rid: 'rad:zRepoTwo' }]),
+    listSeededRepos: jest.fn(async () => [{ rid: 'rad:zRepoOne' }, { rid: 'rad:zRepoTwo' }]),
     getVersion: jest.fn(() => '0.4.0'),
     ...options.embedded,
   };
@@ -207,6 +208,64 @@ test('unseed requests native cancellation and re-applies policy after a late clo
   finishClone({ cancelled: true });
   await new Promise((resolve) => setImmediate(resolve));
   expect(ctx.embedded.unseedRepo).toHaveBeenCalledTimes(2);
+
+  await ctx.mod.stopRadicle();
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+// The native fetch writes a seeding policy as it replicates, so sync must
+// stay a retry path for repos the user already committed to — it carries no
+// per-repo consent prompt of its own.
+test('sync refuses a repository the node is not already seeding', async () => {
+  const ctx = loadManager();
+  await ctx.mod.startRadicle();
+  const rid = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+
+  await expect(ctx.mod.refetchRepository(rid)).resolves.toMatchObject({
+    success: false,
+    error: { code: 'NOT_SEEDED' },
+  });
+  expect(ctx.embedded.cloneRepoWithProgress).not.toHaveBeenCalled();
+
+  await ctx.mod.stopRadicle();
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('sync restarts the fetch for an already-seeded repository', async () => {
+  const rid = 'rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5';
+  const ctx = loadManager({
+    embedded: { listSeededRepos: jest.fn(async () => [{ rid }]) },
+  });
+  await ctx.mod.startRadicle();
+
+  await expect(ctx.mod.refetchRepository(rid)).resolves.toMatchObject({
+    success: true,
+    status: { rid, state: 'fetching' },
+  });
+  expect(ctx.embedded.cloneRepoWithProgress).toHaveBeenCalledWith(
+    rid,
+    expect.any(Number),
+    expect.any(Function)
+  );
+
+  await ctx.mod.stopRadicle();
+  fs.rmSync(ctx.dataDir, { recursive: true, force: true });
+});
+
+test('sync fails closed when the seeding policies cannot be read', async () => {
+  const ctx = loadManager({
+    embedded: {
+      listSeededRepos: jest.fn(async () => {
+        throw new Error('node busy');
+      }),
+    },
+  });
+  await ctx.mod.startRadicle();
+
+  await expect(
+    ctx.mod.refetchRepository('rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5')
+  ).resolves.toMatchObject({ success: false, error: { code: 'NOT_SEEDED' } });
+  expect(ctx.embedded.cloneRepoWithProgress).not.toHaveBeenCalled();
 
   await ctx.mod.stopRadicle();
   fs.rmSync(ctx.dataDir, { recursive: true, force: true });

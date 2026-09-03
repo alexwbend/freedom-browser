@@ -321,6 +321,18 @@ describe('node actions', () => {
     expect(manager.refetchRepository).toHaveBeenCalledWith(RID);
   });
 
+  // sync holds only the connection grant, so it must not become a second,
+  // promptless route to seeding: the native fetch writes the policy.
+  test('radicle_sync surfaces an unseeded repo as not_seeded, never as a seed', async () => {
+    manager.refetchRepository.mockResolvedValueOnce({
+      success: false,
+      error: { code: 'NOT_SEEDED', message: 'Repository is not seeded — seed it before syncing' },
+    });
+    const err = await executeRadicleMethod('radicle_sync', { rid: RID }, ORIGIN).catch((e) => e);
+    expect(err).toMatchObject({ code: -32602, data: { reason: 'not_seeded' } });
+    expect(manager.seedRepository).not.toHaveBeenCalled();
+  });
+
   test('radicle_listSeededRepos reads native seeding policies', async () => {
     const repos = await executeRadicleMethod('radicle_listSeededRepos', {}, ORIGIN);
     expect(repos).toEqual([{ rid: RID, name: 'heartwood', description: 'hw' }]);

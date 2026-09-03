@@ -8,6 +8,12 @@
  *  - the `rad:` scheme handler (radicle/rad-protocol.js), which serves
  *    dweb pages through the same native serving core.
  *
+ * The two have deliberately different reach: `rad:` is public repo data
+ * for any page, `radapi:` adds node-level endpoints and private repos and
+ * is restricted to the internal viewer by an onBeforeRequest frame check
+ * (guardRadicleApiRequest — see the note there on why the request itself
+ * carries nothing trustworthy).
+ *
  * Served repo endpoints:
  *   /                   → embedded node health/version
  *   /api/v1/stats       → node summary used by the Nodes panel
@@ -30,10 +36,48 @@
 const log = require('./logger');
 const embedded = require('./radicle-embedded');
 const { isDisabledForProfile } = require('./radicle-manager');
+const { registerWebRequestHandler } = require('./webrequest-dispatcher');
 
 const RID_RE = /^rad:z[1-9A-HJ-NP-Za-km-z]{20,60}$/;
 const REVISION_RE = /^[0-9a-f]{40}$/;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD']);
+
+// The one page allowed to reach `radapi:`. Unlike `rad:` — public repo
+// data any dweb page may read — this scheme exposes node-level endpoints
+// (health, peer counts, the full seeded-repo list) and repo reads that
+// include PRIVATE repositories, so it is browser-internal surface.
+//
+// It cannot be gated on anything in the request: Chromium sends no
+// `Origin` header to `protocol.handle` for a custom scheme, and does not
+// enforce the CORS response headers we set on one either — a plain
+// `fetch('radapi://local/api/v1/repos')` from any page reads the body.
+// The initiating frame's URL, taken from the network layer before the
+// handler runs, is the only value the main process can trust here.
+const INTERNAL_PAGE_SUFFIX = '/src/renderer/pages/rad-browser.html';
+
+function isInternalPageUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'file:') return false;
+    return decodeURIComponent(parsed.pathname).replace(/\\/g, '/').endsWith(INTERNAL_PAGE_SUFFIX);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * onBeforeRequest guard: drop every `radapi:` request that was not made
+ * by the internal repository viewer. Fails closed — a request with no
+ * attributable frame (a popup, a service worker, main-frame navigation
+ * typed into the address bar) is not the viewer and is cancelled.
+ */
+function guardRadicleApiRequest(details) {
+  if (!details?.url?.startsWith('radapi:')) return null;
+  if (isInternalPageUrl(details.frame?.url)) return null;
+  log.warn('[radapi] Blocked a request from a frame that is not the internal repository viewer');
+  return { cancel: true };
+}
 
 function json(body, status = 200, { cors = true } = {}) {
   const headers = { 'Content-Type': 'application/json' };
@@ -254,8 +298,14 @@ async function handleRadicleApiRequest(request) {
   if (!ALLOWED_METHODS.has(method)) {
     return json({ error: 'method not allowed' }, 405, { cors: false });
   }
-  const origin = request.headers?.get?.('origin');
-  if (origin && origin !== 'null' && !origin.startsWith('file://')) {
+  // Second layer behind guardRadicleApiRequest, which is what actually
+  // keeps web content out. Chromium attributes some requests with a
+  // referrer and some with nothing at all (the internal viewer's own
+  // fetches carry none — referrers from `file:` origins are suppressed),
+  // so an absent referrer cannot be a rejection; a referrer naming some
+  // other document can be, and is.
+  const referrer = request.referrer;
+  if (referrer && referrer !== 'about:client' && !isInternalPageUrl(referrer)) {
     return json({ error: 'radapi is restricted to internal pages' }, 403, { cors: false });
   }
 
@@ -297,14 +347,25 @@ async function handleRadicleApiRequest(request) {
   });
 }
 
+let guardRegistered = false;
+
 /**
  * Register the radapi: handler on the given session. The scheme must have
  * been declared in `protocol.registerSchemesAsPrivileged` at startup.
+ *
+ * Also installs the frame guard, once — the dispatcher's handler registry
+ * is process-wide, and every session that attaches the dispatcher picks it
+ * up. Must therefore run before `attachWebRequestDispatcher()` for the
+ * session, which is how src/main/index.js orders it.
  */
 function registerRadicleApiProtocol(targetSession) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[radapi] session.protocol.handle unavailable — skipping');
     return;
+  }
+  if (!guardRegistered) {
+    registerWebRequestHandler('onBeforeRequest', 'radapi-guard', guardRadicleApiRequest);
+    guardRegistered = true;
   }
   targetSession.protocol.handle('radapi', (request) => handleRadicleApiRequest(request));
   log.info('[radapi] Protocol handler registered');
@@ -313,6 +374,7 @@ function registerRadicleApiProtocol(targetSession) {
 module.exports = {
   registerRadicleApiProtocol,
   handleRadicleApiRequest,
+  guardRadicleApiRequest,
   serveRepoApi,
   decodeRepoApiPath,
 };

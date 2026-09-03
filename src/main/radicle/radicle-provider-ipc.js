@@ -24,7 +24,8 @@
  * kicks off a background fetch, returning immediately with an initial
  * status. Progress is pushed through the provider's `seedStatus` event;
  * radicle_getSeedStatus remains the snapshot/reload path, and radicle_sync
- * restarts the fetch (the retry path). See seed-status.js.
+ * restarts the fetch (the retry path) for repos that are already seeded —
+ * it can never start seeding a new one. See seed-status.js.
  */
 
 const { ipcMain, BrowserWindow } = require('electron');
@@ -220,6 +221,15 @@ async function handleSync(origin, params, onSeedStatus) {
     ? await refetchRepository(rid, onSeedStatus)
     : await refetchRepository(rid);
   if (!result.success) {
+    // sync is the retry path for a repo the user already seeded; it must
+    // not become a second, promptless way to start seeding one (the
+    // native fetch writes the policy). radicle_seed — with its per-repo
+    // consent prompt — is the only way in.
+    if (result.error?.code === 'NOT_SEEDED') {
+      throw providerError(ERRORS.INVALID_PARAMS, result.error.message, {
+        reason: 'not_seeded',
+      });
+    }
     throw providerError(ERRORS.INTERNAL, result.error?.message || 'sync failed', {
       reason: 'sync_failed',
     });
