@@ -274,7 +274,7 @@ Access built-in browser pages using the `freedom://` protocol:
 - **Chains and RPC Providers**: Configure chain endpoints, keyed providers, and ENS verification behavior.
 - **Experimental**: Enable Identity & Wallet (Beta), Show IPFS load progress in the status bar, Swarm node mode, Enable Radicle integration (Beta), Start Radicle node when Freedom opens, Enable Tor (.onion access) (Beta), and Start Tor when Freedom opens. The Radicle and Tor rows are hidden on Windows builds.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
-- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), onchain app (Ethereum diamond), Radicle (seedling), or HTTP (globe) icon based on current protocol.
+- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), onchain app (Ethereum diamond), Radicle (seedling), or HTTP (globe) icon based on current protocol. When a page also has a resolution/provenance trust status (a resolved Ethereum name, or a `web3://` app whose retrieval was verified), the trust shield takes that slot instead — so onchain apps normally show the shield and fall back to the diamond only when no provenance is available.
 - **Hamburger Menu**: Access browser features (Profile submenu, New Tab, New Window, New Private Window, History, Zoom, Print, Developer Tools, Settings, About Freedom, Check for Updates…).
 
 ## Error Handling
