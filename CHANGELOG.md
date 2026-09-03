@@ -34,8 +34,21 @@ All notable changes to Freedom will be documented in this file.
 
 ### Changed
 
-- Updated bundled [Ant](https://github.com/solardev-xyz/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
+- Updated bundled [Ant](https://github.com/freedom-hq/ant) to 0.5.36: fixes the ~250 MiB upload stall, adds upload-side Reed-Solomon encoding, end-to-end Swarm content encryption, local pinning, and ACT access control
 - The Swarm node's API now comes up instantly on start, so the node menu shows peers counting up live instead of sitting at 0 during startup
+- Radicle now runs as an embedded libradicle 0.7.1 addon instead of separate daemon, HTTP, and CLI processes:
+  - Native browsing, seeding, synchronization, unseeding, GitHub imports, and provider writes
+  - Live peer-level clone phases with cancellation, retry, and timeout handling
+  - Concurrent cold-start discovery across a device-ranked 14-node seed book
+  - Historical commit browsing with repository remotes, branches, commits, and contributor stats
+  - Profile-scoped identity, peer and repository counts, and addon version in the Nodes menu
+- Installers are about 15 MB smaller: each build now ships only the `better-sqlite3` native addon for its own platform and architecture instead of all eight upstream prebuilds
+
+### Security
+
+- Updated runtime dependencies:
+  - `better-sqlite3` 12.11.1 to 13.0.3
+  - `micro-key-producer` 0.9.0 to 0.10.2
 
 ## [0.8.0] - 2026-07-02
 
@@ -43,7 +56,7 @@ All notable changes to Freedom will be documented in this file.
 
 - In-house Rust implementations of the bundled Swarm and IPFS nodes, built for the upcoming mobile apps:
   - Reasoning: mobile needs small binaries and bounded memory; every platform gains speed and room for specialised node features
-- [Ant](https://github.com/solardev-xyz/ant) 0.5.33, a lean Swarm light node, replaces bundled Bee:
+- [Ant](https://github.com/freedom-hq/ant) 0.5.33, a lean Swarm light node, replaces bundled Bee:
   - Full Bee parity: retrieval, feeds, stamp purchase, publishing, and chequebook payments
   - Instant publishing setup (no more lengthy Gnosis chain-state download)
   - Node data and Swarm identity migrate in place on first launch

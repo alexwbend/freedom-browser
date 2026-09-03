@@ -3,7 +3,7 @@ import { state } from './state.js';
 import { startAntInfoPolling, stopAntInfoPolling } from './ant-ui.js';
 import { startIpfsInfoPolling, stopIpfsInfoPolling } from './ipfs-ui.js';
 import { startMyotisInfoPolling, stopMyotisInfoPolling } from './myotis-ui.js';
-import { startRadicleInfoPolling, stopRadicleInfoPolling } from './radicle-ui.js';
+import { startRadicleInfoUpdates, stopRadicleInfoUpdates } from './radicle-ui.js';
 import { hideTabContextMenu, getActiveWebview } from './tabs.js';
 import { hideBookmarkContextMenu, hideOverflowMenu } from './bookmarks-ui.js';
 import { showMenuBackdrop, hideMenuBackdrop } from './menu-backdrop.js';
@@ -92,7 +92,7 @@ export const setAntMenuOpen = (open) => {
     startAntInfoPolling();
     startIpfsInfoPolling();
     startMyotisInfoPolling();
-    startRadicleInfoPolling();
+    startRadicleInfoUpdates();
   } else {
     if (!state.menuOpen) {
       hideMenuBackdrop();
@@ -100,7 +100,7 @@ export const setAntMenuOpen = (open) => {
     stopAntInfoPolling();
     stopIpfsInfoPolling();
     stopMyotisInfoPolling();
-    stopRadicleInfoPolling();
+    stopRadicleInfoUpdates();
     if (beePeersCount) beePeersCount.textContent = '0';
     if (beeNetworkPeers) beeNetworkPeers.textContent = '0';
     if (beeVersionText)
@@ -133,18 +133,24 @@ const formatShortcut = (shortcut, isMac) => {
 
   return shortcut
     .replace('CmdOrCtrl', isMac ? '⌘' : 'Ctrl')
+    .replace('Cmd', isMac ? '⌘' : 'Ctrl')
     .replace('Alt', isMac ? '⌥' : 'Alt')
     .replace('Shift', isMac ? '⇧' : 'Shift')
     .replace(/\+/g, '');
 };
 
-// Initialize keyboard shortcuts based on platform
+// Initialize keyboard shortcuts based on platform.
+//
+// A hint here must name a binding the app actually implements — an item
+// with no shortcut (Print, Zoom) carries no hint at all. Where the two
+// platforms differ (History is Cmd+Y on macOS, Ctrl+H elsewhere, per
+// src/shared/shortcuts.js), `data-shortcut-other` carries the non-mac form.
 const initKeyboardShortcuts = async () => {
   const platform = await electronAPI?.getPlatform?.();
   const isMac = platform === 'darwin';
 
   document.querySelectorAll('.menu-item-shortcut[data-shortcut]').forEach((el) => {
-    const shortcut = el.dataset.shortcut;
+    const shortcut = (!isMac && el.dataset.shortcutOther) || el.dataset.shortcut;
     el.textContent = formatShortcut(shortcut, isMac);
   });
 };

@@ -8,8 +8,7 @@ const execFileAsync = promisify(execFile);
 const { ipcMain, app, dialog, clipboard, nativeImage, webContents } = require('electron');
 const { URL } = require('url');
 const path = require('path');
-const { activeBzzBases, activeRadBases } = require('./state');
-const { loadSettings } = require('./settings-store');
+const { activeBzzBases } = require('./state');
 const { fetchBuffer, fetchToFile } = require('./http-fetch');
 const { success, failure, validateWebContentsId } = require('./ipc-contract');
 const IPC = require('../shared/ipc-channels');
@@ -213,24 +212,22 @@ const PROFILE_NODE_MODES = {
   bee: new Set(['managed', 'external', 'disabled']),
   ipfs: new Set(['managed', 'disabled']),
   myotis: new Set(['managed', 'disabled']),
-  radicle: new Set(['managed', 'external', 'disabled']),
+  radicle: new Set(['managed', 'disabled']),
   tor: new Set(['managed', 'external', 'disabled']),
 };
 const PROFILE_NODE_FIELDS = {
   bee: ['mode', 'externalApi'],
   ipfs: ['mode'],
   myotis: ['mode'],
-  radicle: ['mode', 'externalHttp'],
+  radicle: ['mode'],
   tor: ['mode', 'externalSocks'],
 };
 const EXTERNAL_FIELDS = {
   bee: ['externalApi'],
-  radicle: ['externalHttp'],
   tor: ['externalSocks'],
 };
 const PROFILE_NODE_ENDPOINT_NORMALIZERS = {
   externalApi: normalizeProfileNodeEndpoint,
-  externalHttp: normalizeProfileNodeEndpoint,
   externalSocks: normalizeSocksEndpoint,
 };
 
@@ -330,7 +327,7 @@ function validateProfileNodeConfigUpdate(protocol, patch = {}) {
   return { ok: true, sanitized };
 }
 
-function updateProfileNodeConfigFromIpc(protocol, patch) {
+async function updateProfileNodeConfigFromIpc(protocol, patch) {
   const activeProfile = getActiveProfile();
   if (!activeProfile || activeProfile.source !== 'catalog') {
     return failure('PROFILE_NOT_EDITABLE', 'The active profile cannot be edited');
@@ -355,6 +352,10 @@ function updateProfileNodeConfigFromIpc(protocol, patch) {
           myotisManager.refreshMyotisStatus(chainId);
         }
       }
+    }
+    if (protocol === 'radicle') {
+      const radicleManager = require('./radicle-manager');
+      await radicleManager.syncProfileMode();
     }
     return success({ profile });
   } catch (err) {
@@ -697,40 +698,6 @@ function registerBaseIpcHandlers(callbacks = {}) {
     }
     const cancelled = cancelSwarmProbe(id);
     return success({ cancelled });
-  });
-
-  ipcMain.handle(IPC.RAD_SET_BASE, (_event, payload = {}) => {
-    const settings = loadSettings();
-    if (!settings.enableRadicleIntegration) {
-      return failure(
-        'RADICLE_DISABLED',
-        'Radicle integration is disabled. Enable it in Settings > Experimental'
-      );
-    }
-    const { webContentsId, baseUrl } = payload;
-    if (!validateWebContentsId(webContentsId)) {
-      return failure('INVALID_WEB_CONTENTS_ID', 'Invalid webContentsId', { webContentsId });
-    }
-    if (!baseUrl) {
-      return failure('INVALID_BASE_URL', 'Missing baseUrl');
-    }
-    try {
-      const normalized = new URL(baseUrl);
-      activeRadBases.set(webContentsId, normalized);
-      return success();
-    } catch (err) {
-      log.error('Invalid Radicle base URL received from renderer', err);
-      return failure('INVALID_BASE_URL', 'Invalid baseUrl', { baseUrl });
-    }
-  });
-
-  ipcMain.handle(IPC.RAD_CLEAR_BASE, (_event, payload = {}) => {
-    const { webContentsId } = payload;
-    if (!validateWebContentsId(webContentsId)) {
-      return failure('INVALID_WEB_CONTENTS_ID', 'Invalid webContentsId', { webContentsId });
-    }
-    activeRadBases.delete(webContentsId);
-    return success();
   });
 
   ipcMain.on(IPC.WINDOW_SET_TITLE, (event, title) => {

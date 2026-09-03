@@ -77,7 +77,7 @@ describe('navigation-utils', () => {
       expect(resolveProtocolIconType({ value: 'bzz://meinhard.eth/path' })).toBe('swarm');
     });
 
-    test('uses the neutral globe for internal pages and gates radicle on settings', async () => {
+    test('uses the neutral globe for internal pages and identifies Radicle URLs', async () => {
       const { resolveProtocolIconType } = await loadNavigationUtils();
 
       // Internal pages reuse the neutral http globe so the address bar
@@ -85,13 +85,7 @@ describe('navigation-utils', () => {
       // trust shield left behind by a previous navigation.
       expect(resolveProtocolIconType({ value: 'freedom://history' })).toBe('http');
       expect(resolveProtocolIconType({ value: 'freedom://settings' })).toBe('http');
-      expect(resolveProtocolIconType({ value: 'rad://rid' })).toBe('http');
-      expect(
-        resolveProtocolIconType({
-          value: 'rad://rid',
-          enableRadicleIntegration: true,
-        })
-      ).toBe('radicle');
+      expect(resolveProtocolIconType({ value: 'rad://rid' })).toBe('radicle');
     });
 
     test('prefers secure icon when the page is marked secure', async () => {
