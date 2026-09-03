@@ -50,6 +50,8 @@ const loadMenusModule = async ({ platform = 'darwin', webview } = {}) => {
   const shortcutEls = [
     { dataset: { shortcut: 'CmdOrCtrl+Shift+T' }, textContent: '' },
     { dataset: { shortcut: 'Alt+CmdOrCtrl+I' }, textContent: '' },
+    // History differs per platform (Cmd+Y on macOS, Ctrl+H elsewhere).
+    { dataset: { shortcut: 'Cmd+Y', shortcutOther: 'Ctrl+H' }, textContent: '' },
   ];
 
   const documentHandlers = {};
@@ -204,6 +206,7 @@ describe('menus', () => {
 
     expect(elements.shortcutEls[0].textContent).toBe('⌘⇧T');
     expect(elements.shortcutEls[1].textContent).toBe('⌥⌘I');
+    expect(elements.shortcutEls[2].textContent).toBe('⌘Y');
 
     elements.menuButton.handlers.click();
 
@@ -246,6 +249,11 @@ describe('menus', () => {
     menus.setOnOpenHistory(onOpenHistory);
     menus.initMenus();
     await Promise.resolve();
+
+    // Off macOS the hint must show the binding this platform actually has
+    // (Ctrl+H), not the mac-only Cmd+Y.
+    expect(elements.shortcutEls[0].textContent).toBe('CtrlShiftT');
+    expect(elements.shortcutEls[2].textContent).toBe('CtrlH');
 
     elements.newTabMenuBtn.handlers.click();
     elements.newWindowMenuBtn.handlers.click();

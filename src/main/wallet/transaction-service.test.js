@@ -157,12 +157,12 @@ describe('signAndSendTransaction (signer-based)', () => {
 
     beforeEach(() => {
       getTransaction = jest.fn(async () => ({ from: testWallet.address }));
-      mockChainRequest.mockImplementation(async (chainId, method, params) => ({
-        result: await getTransaction(...params),
-        source: 'direct',
-        chainId,
-        method,
-      }));
+      mockChainRequest.mockImplementation(async (_chainId, method, args) => {
+        if (method === 'eth_getTransactionByHash') {
+          return { result: await getTransaction(...args), source: 'direct' };
+        }
+        return { result: '0x5', source: 'direct' };
+      });
       broadcastingSigner = { ...signer, sendTransaction: jest.fn(async () => hash) };
     });
 
@@ -178,6 +178,7 @@ describe('signAndSendTransaction (signer-based)', () => {
       expect(broadcastedRaw).toBeNull(); // never touched our provider's broadcast path
       expect(getTransaction).toHaveBeenCalledWith(hash);
       expect(mockChainRequest).toHaveBeenCalledWith(8453, 'eth_getTransactionByHash', [hash]);
+      expect(mockGetFeeQuote).not.toHaveBeenCalled();
       expect(result).toEqual({
         hash,
         from: testWallet.address,

@@ -931,7 +931,11 @@
           <!-- Group 2: Browser Data -->
           <button id="history-btn" class="menu-item" type="button">
             <span class="menu-item-label">History</span>
-            <span class="menu-item-shortcut" data-shortcut="CmdOrCtrl+Y"></span>
+            <span
+              class="menu-item-shortcut"
+              data-shortcut="Cmd+Y"
+              data-shortcut-other="Ctrl+H"
+            ></span>
           </button>
 
           <div class="menu-divider"></div>
@@ -975,9 +979,11 @@
           <div class="menu-divider"></div>
 
           <!-- Group 4: Page Actions -->
+          <!-- No Cmd/Ctrl+P hint: printing has no keyboard binding (it is
+               not in the shortcut registry), and advertising one here is
+               what put a phantom `Cmd+P` into docs/features.md. -->
           <button id="print-btn" class="menu-item" type="button">
             <span class="menu-item-label">Print...</span>
-            <span class="menu-item-shortcut" data-shortcut="CmdOrCtrl+P"></span>
           </button>
 
           <div class="menu-divider"></div>

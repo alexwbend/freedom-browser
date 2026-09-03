@@ -100,6 +100,9 @@ function getSigner(walletIndex) {
   // there. Fail loudly instead.
   const record = getWalletRecord(walletIndex);
   if (!record && isHardwareWalletIndex(walletIndex)) {
+    // "Device", not "hardware wallet": remote (phone) accounts share the
+    // same index range as Ledger accounts, so a deleted phone account
+    // lands here too.
     throw new Error('Device account no longer exists; reconnect the device');
   }
   if (record && record.type === WALLET_TYPES.SAFE) {

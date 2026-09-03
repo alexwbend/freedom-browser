@@ -197,7 +197,13 @@ describe('getSigner (ledger-backed dispatch)', () => {
     expect(mockLedgerBackend.signTypedData).toHaveBeenCalledWith({ domain: {}, types: {}, message: {} });
   });
 
-  test('a deleted hardware account fails loudly instead of falling through to the vault', async () => {
+  test('vault and ledger signers do not advertise the sendTransaction capability', () => {
+    expect(getSigner(2).sendTransaction).toBeUndefined();
+    mockGetWalletRecord.mockReturnValue({ index: 0, name: 'Main Wallet', type: 'mnemonic' });
+    expect(getSigner(0).sendTransaction).toBeUndefined();
+  });
+
+  test('a deleted hardware account fails loudly instead of falling through to the vault', () => {
     // Deleting a Ledger leaves no record, so the type check can't fire.
     // A stale reference to its index (dApp permission, publisher identity)
     // must not reach the vault backend, which would derive and sign with a
@@ -206,12 +212,6 @@ describe('getSigner (ledger-backed dispatch)', () => {
     expect(() => getSigner(1000000)).toThrow('Device account no longer exists');
     expect(mockIdentity.exportPrivateKey).not.toHaveBeenCalled();
     expect(mockCreateLedgerBackend).not.toHaveBeenCalled();
-  });
-
-  test('vault and ledger signers do not advertise the sendTransaction capability', () => {
-    expect(getSigner(2).sendTransaction).toBeUndefined();
-    mockGetWalletRecord.mockReturnValue({ index: 0, name: 'Main Wallet', type: 'mnemonic' });
-    expect(getSigner(0).sendTransaction).toBeUndefined();
   });
 });
 

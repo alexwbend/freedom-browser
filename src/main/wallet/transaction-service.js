@@ -170,6 +170,30 @@ function buildTransaction({
 }
 
 /**
+ * Best-effort check that a device-broadcast tx really came from the
+ * signer's account: a compromised responder could report the hash of
+ * someone else's transaction. The tx usually reaches our RPC a beat
+ * after the device's, so "not visible yet" is not an error — only a
+ * visible mismatch is.
+ */
+async function verifyDeviceBroadcastFrom(hash, expectedFrom, chainId) {
+  let tx;
+  try {
+    ({ result: tx } = await chainData.request(chainId, 'eth_getTransactionByHash', [hash]));
+  } catch (err) {
+    console.warn('[TransactionService] Device-broadcast lookup failed:', err.message);
+    return;
+  }
+  if (!tx) {
+    console.warn('[TransactionService] Device-broadcast tx not visible on our RPC yet:', hash);
+    return;
+  }
+  if (tx.from.toLowerCase() !== expectedFrom.toLowerCase()) {
+    throw createRemoteError(REMOTE_ERROR_CODES.WRONG_ACCOUNT);
+  }
+}
+
+/**
  * Fill in fee parameters the caller didn't supply.
  *
  * ethers' Wallet.sendTransaction used to populate missing fees from the
@@ -208,30 +232,6 @@ function isPositiveFee(value) {
 }
 
 /**
- * Best-effort check that a device-broadcast tx really came from the
- * signer's account: a compromised responder could report the hash of
- * someone else's transaction. The tx usually reaches our RPC a beat
- * after the device's, so "not visible yet" is not an error — only a
- * visible mismatch is.
- */
-async function verifyDeviceBroadcastFrom(hash, expectedFrom, chainId) {
-  let tx;
-  try {
-    ({ result: tx } = await chainData.request(chainId, 'eth_getTransactionByHash', [hash]));
-  } catch (err) {
-    console.warn('[TransactionService] Device-broadcast lookup failed:', err.message);
-    return;
-  }
-  if (!tx) {
-    console.warn('[TransactionService] Device-broadcast tx not visible on our RPC yet:', hash);
-    return;
-  }
-  if (tx.from.toLowerCase() !== expectedFrom.toLowerCase()) {
-    throw createRemoteError(REMOTE_ERROR_CODES.WRONG_ACCOUNT);
-  }
-}
-
-/**
  * Sign and broadcast a transaction.
  *
  * Signing and broadcasting are separate steps so the signer can be
@@ -257,9 +257,11 @@ async function verifyDeviceBroadcastFrom(hash, expectedFrom, chainId) {
 async function signAndSendTransaction(params, signer) {
   const { to, value, data, gasLimit, maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId } = params;
 
-  // Outside the try: fee-resolution failures should surface as-is instead
-  // of being remapped to the generic "gas estimation" message below.
-  const fees = await resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId });
+  // Phone wallets populate fees and broadcast through their own RPC. All
+  // raw-signing backends need complete fee data before device approval.
+  const fees = typeof signer.sendTransaction === 'function'
+    ? null
+    : await resolveFeeParams({ maxFeePerGas, maxPriorityFeePerGas, gasPrice, chainId });
 
   try {
     const from = await signer.getAddress();
