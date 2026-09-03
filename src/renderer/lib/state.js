@@ -169,6 +169,11 @@ export const buildRadicleUrl = (endpoint) => {
   return buildServiceUrl(base, endpoint, 'Radicle');
 };
 
+// True when the active profile has Radicle switched off entirely (Settings →
+// Nodes → Radicle → Disabled). The main process publishes the mode into the
+// service registry, so this stays a synchronous read for navigation.
+export const isRadicleDisabledForProfile = () => state.registry?.radicle?.mode === 'disabled';
+
 // Update registry state from main process
 export const updateRegistry = (newRegistry) => {
   state.registry = newRegistry;

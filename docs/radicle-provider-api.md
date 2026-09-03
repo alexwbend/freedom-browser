@@ -77,8 +77,11 @@ provider:
    the user-visible URL; `bzz://<ref>`, `ens name`, `rad://<rid>` and
    `https://host` origins each map to a stable key).
 2. **Node actions** — `radicle_seed`, `radicle_unseed`, `radicle_sync`,
-   `radicle_listSeededRepos`: require connection. `seed` SHOULD present a
-   per-repo prompt (disk/bandwidth commitment) unless auto-approve is on.
+   `radicle_listSeededRepos`: require connection. `seed` and `unseed`
+   present a per-repo prompt (each changes the seeding policy: a
+   disk/bandwidth commitment, or dropping one the user made) unless
+   auto-approve is on. `sync` does not prompt, and is therefore restricted
+   to repos that already have a seeding policy.
 3. **Identity & writes** — `radicle_getIdentity` and all COB writes:
    require a separate **signing grant** (analog of the Swarm feed tier).
    First call MAY prompt; rejection → 4001. Writes sign with the user's
@@ -140,6 +143,12 @@ than awaited. Subscribe to `seedStatus` before starting the action; use
 is the gateway action for browsing repos the node doesn't have yet.
 `unseed` removes the policy (and cancels any fetch in flight), resolving
 `{ rid, seeded: false }`.
+
+Both prompt per repository (unless the origin's `node` auto-approve is
+on): seeding commits disk and bandwidth, and unseeding drops a policy the
+user chose — a connected origin can already enumerate what to target with
+`radicle_listSeededRepos`. A rejected prompt returns 4001 and the node is
+never touched.
 
 ### `radicle_getSeedStatus { rid }` (connection tier)
 

@@ -71,9 +71,11 @@ function shouldRewriteRequest(requestUrl, baseUrl) {
   if (normalizedPath.startsWith('/ipfs/') || normalizedPath.startsWith('/ipns/')) {
     return { shouldRewrite: false, reason: 'already_ipfs_path' };
   }
-  if (normalizedPath.startsWith('/api/v1/repos/')) {
-    return { shouldRewrite: false, reason: 'already_rad_path' };
-  }
+  // NOTE: there is deliberately no `/api/v1/repos/` exclusion here. Radicle
+  // is served in-process over the `rad:`/`radapi:` schemes, which never reach
+  // webRequest — so such a path can only be a same-origin asset of the bzz
+  // page itself (`/api/v1/repos/...` is an ordinary site path), and skipping
+  // it would send the request to the Bee node's real origin and 404.
 
   // Don't rewrite cross-origin requests
   if (requested.origin !== base.origin) {

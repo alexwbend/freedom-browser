@@ -209,6 +209,7 @@ const {
   registerRadicleIpc,
   stopRadicle,
   startRadicle,
+  syncProfileMode: syncRadicleProfileMode,
   setUseInjectedIdentity: setRadicleInjectedIdentity,
 } = require('./radicle-manager');
 const {
@@ -397,7 +398,7 @@ async function bootstrap() {
       registerIpfsProtocol(privateSession, { privatePartition: partition });
       registerIpnsProtocol(privateSession, { privatePartition: partition });
       registerRadProtocol(privateSession, { privatePartition: partition });
-      registerRadicleApiProtocol(privateSession);
+      registerRadicleApiProtocol(privateSession, { privatePartition: partition });
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),
@@ -487,6 +488,12 @@ async function bootstrap() {
     }
     if (settings.startRadicleAtLaunch) {
       startRadicle();
+    } else {
+      // Publish the profile's Radicle mode even when the node is not started
+      // at launch: the renderer routes a rad: navigation to the "disabled for
+      // this profile" panel off the registry entry, and without this the
+      // registry would still say 'none' for a disabled profile.
+      void syncRadicleProfileMode();
     }
     // EXPERIMENTAL: Myotis P2P light client. Opt-in via the settings toggle
     // (requires the addon — myotis:download or packaged resource); the

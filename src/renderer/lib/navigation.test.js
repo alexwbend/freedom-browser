@@ -396,7 +396,12 @@ const loadNavigationModule = async (options = {}) => {
   tabsRef.list = options.tabs || [firstTab];
   activeRef.tab = options.activeTab || firstTab;
 
-  jest.doMock('./state.js', () => ({ state }));
+  jest.doMock('./state.js', () => ({
+    state,
+    // Mirrors the real helper: the profile's Radicle mode is published into
+    // the service registry by the main process.
+    isRadicleDisabledForProfile: () => state.registry?.radicle?.mode === 'disabled',
+  }));
   jest.doMock('./debug.js', () => debugMocks);
   jest.doMock('./bookmarks-ui.js', () => bookmarksUiMocks);
   jest.doMock('./github-bridge-ui.js', () => githubBridgeUiMocks);
@@ -1014,6 +1019,41 @@ describe('navigation', () => {
       expect(loadedUrl).toContain('error=ERR_CONNECTION_REFUSED');
       expect(loadedUrl).toContain('protocol=ipfs');
       expect(loadedUrl).toContain(encodeURIComponent('ipfs://QmTest'));
+    });
+
+    // A profile with Radicle disabled can never start the node, so the
+    // generic connection-error panel would point at a toggle this profile
+    // does not have. The purpose-built panel explains the profile setting.
+    test('Radicle: a disabled profile lands on the explanatory disabled panel', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'disabled' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).toHaveBeenCalledWith(
+        expect.any(String),
+        'rad://zrepo123'
+      );
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toBe('file:///app/pages/rad-browser.html?error=disabled');
+      expect(ctx.urlUtilsMocks.formatRadicleUrl).not.toHaveBeenCalled();
+    });
+
+    test('Radicle: an enabled profile still routes to the repository viewer', async () => {
+      const ctx = await loadNavigationModule({
+        registry: { ipfs: { mode: 'bundled' }, radicle: { mode: 'embedded' } },
+      });
+      await ctx.mod.initNavigation();
+
+      ctx.mod.loadTarget('rad://zrepo123');
+      await flushMicrotasks();
+
+      expect(ctx.navigationUtilsMocks.buildRadicleDisabledUrl).not.toHaveBeenCalled();
+      const loadedUrl = ctx.activeRef.tab.webview.loadURL.mock.calls.at(-1)[0];
+      expect(loadedUrl).toContain('rad-browser.html?rid=zrepo123');
     });
 
     test('IPNS: error page carries protocol=ipns', async () => {

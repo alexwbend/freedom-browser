@@ -75,6 +75,20 @@ describe('request-rewriter', () => {
       expect(result).toEqual({ shouldRewrite: false, reason: 'already_bzz_path' });
     });
 
+    // The rad rewrite arm this exclusion belonged to is gone: Radicle is
+    // served in-process over rad:/radapi:, which never reach webRequest. A
+    // `/api/v1/repos/...` request here is an ordinary same-origin asset of
+    // the bzz page, and skipping it sent the request to the Bee node's real
+    // origin, where it 404s.
+    test('rewrites same-origin /api/v1/repos/ assets of a bzz page', () => {
+      expect(
+        shouldRewriteRequest('http://127.0.0.1:1633/api/v1/repos/index.json', BASE_URL)
+      ).toEqual({ shouldRewrite: true });
+      expect(buildRewriteTarget('http://127.0.0.1:1633/api/v1/repos/index.json', BASE_URL)).toBe(
+        'http://127.0.0.1:1633/bzz/abc123def456/api/v1/repos/index.json'
+      );
+    });
+
     test('returns false with reason for cross-origin requests', () => {
       const result = shouldRewriteRequest('https://cdn.example.com/images/logo.png', BASE_URL);
       expect(result).toEqual({ shouldRewrite: false, reason: 'cross_origin' });

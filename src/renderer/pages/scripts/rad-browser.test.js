@@ -32,6 +32,9 @@ const { parseViewerPath, serializeViewerPath } = loadHelpers([
   'parseViewerPath',
   'serializeViewerPath',
 ]);
+const { encodePathSegments } = loadHelpers(['encodePathSegments']);
+const { buildViewerHref } = loadHelpers(['buildViewerHref']);
+const { resolveRevision } = loadHelpers(['resolveRevision']);
 const REVISION = '0123456789abcdef0123456789abcdef01234567';
 
 describe('escapeHtml', () => {
@@ -98,5 +101,81 @@ describe('historical revision routing', () => {
     expect(serializeViewerPath('tree/src', REVISION)).toBe(`tree/${REVISION}/src`);
     expect(serializeViewerPath('blob/README.md', REVISION)).toBe(`blob/${REVISION}/README.md`);
     expect(serializeViewerPath('tree/src', null)).toBe('tree/src');
+  });
+});
+
+describe('encodePathSegments', () => {
+  // The main-process boundary decodeURIComponent()s each segment and 400s on
+  // an invalid escape, so an unencoded `%` in a legitimate file name made the
+  // viewer show "Failed to load file" for a file that exists.
+  test('encodes names the API boundary would otherwise reject or truncate', () => {
+    expect(encodePathSegments('100%.md')).toBe('100%25.md');
+    expect(encodePathSegments('docs/notes#1.md')).toBe('docs/notes%231.md');
+    expect(encodePathSegments('docs/a?b.txt')).toBe('docs/a%3Fb.txt');
+    expect(encodePathSegments('src/lib/ünïcode.rs')).toBe('src/lib/%C3%BCn%C3%AFcode.rs');
+  });
+
+  test('keeps the segment separators and drops empty segments', () => {
+    expect(encodePathSegments('src/main.rs')).toBe('src/main.rs');
+    expect(encodePathSegments('/src//main.rs/')).toBe('src/main.rs');
+    expect(encodePathSegments('')).toBe('');
+    expect(encodePathSegments(null)).toBe('');
+  });
+
+  // Traversal segments stay verbatim: the main-process boundary is what
+  // rejects them (encoding them here would smuggle them past that check).
+  test('does not encode dot segments into something the boundary would accept', () => {
+    expect(encodePathSegments('../secret')).toBe('../secret');
+    expect(encodePathSegments('a/./b')).toBe('a/./b');
+  });
+});
+
+describe('buildViewerHref', () => {
+  const BASE = 'radapi://local';
+
+  test('builds the internal viewer URL for a well-formed RID', () => {
+    const href = buildViewerHref('z3gqcJUoA1n9HaHKufZs5FCSGazv5', BASE);
+    const url = new URL(href, 'file:///app/src/renderer/pages/');
+    expect(url.searchParams.get('rid')).toBe('z3gqcJUoA1n9HaHKufZs5FCSGazv5');
+    expect(url.searchParams.get('base')).toBe(BASE);
+  });
+
+  // A seed node is untrusted input: an `&base=` smuggled through the RID
+  // used to win URLSearchParams.get() and repoint this privileged page's
+  // API reads at the attacker's origin.
+  test('neutralizes a hostile RID that tries to inject its own base', () => {
+    const href = buildViewerHref('zabc&base=https://evil.example', BASE);
+    const url = new URL(href, 'file:///app/src/renderer/pages/');
+    expect(url.searchParams.get('base')).toBe(BASE);
+    expect(url.searchParams.get('rid')).toBe('zabc&base=https://evil.example');
+    expect(url.searchParams.getAll('base')).toEqual([BASE]);
+  });
+
+  test('neutralizes hostile RIDs that try to add a fragment or extra params', () => {
+    for (const hostile of ['zabc#/x', 'zabc?base=https://evil.example', 'zabc&status=offline']) {
+      const url = new URL(buildViewerHref(hostile, BASE), 'file:///app/src/renderer/pages/');
+      expect(url.searchParams.get('base')).toBe(BASE);
+      expect(url.searchParams.get('status')).toBeNull();
+      expect(url.hash).toBe('');
+    }
+  });
+});
+
+describe('resolveRevision', () => {
+  test('a pinned object id wins over the repository head', () => {
+    expect(resolveRevision('aaaa', REVISION)).toEqual({ sha: REVISION, pinned: true });
+  });
+
+  // The regression: the "no head → No commit history found" bail-out ran
+  // before the deep link was parsed, so a valid pinned OID could not rescue
+  // a repo whose head is unresolvable.
+  test('a pinned object id serves a repo with no resolvable head', () => {
+    expect(resolveRevision(null, REVISION)).toEqual({ sha: REVISION, pinned: true });
+    expect(resolveRevision(undefined, REVISION)).toEqual({ sha: REVISION, pinned: true });
+  });
+
+  test('falls back to the repository head, unpinned, without a deep link', () => {
+    expect(resolveRevision('aaaa', null)).toEqual({ sha: 'aaaa', pinned: false });
+    expect(resolveRevision(null, null)).toEqual({ sha: null, pinned: false });
   });
 });

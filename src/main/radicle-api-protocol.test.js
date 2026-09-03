@@ -35,6 +35,7 @@ const {
   registerRadicleApiProtocol,
   guardRadicleApiRequest,
   serveRepoApi,
+  decodeRepoApiPath,
 } = require('./radicle-api-protocol');
 
 const INTERNAL_PAGE = 'file:///app/src/renderer/pages/rad-browser.html';
@@ -306,6 +307,27 @@ describe('radapi protocol', () => {
     expect(embedded.blobAt).not.toHaveBeenCalled();
   });
 
+  // The viewer builds these paths (rad-browser.js encodePathSegments). A
+  // legitimately-named file has to survive the round trip: raw `%` makes the
+  // decode throw (400) and `#`/`?` never even reach here — they truncate the
+  // request URL in the renderer.
+  test.each([
+    ['100%.md', '100%25.md'],
+    ['notes#1.md', 'notes%231.md'],
+    ['a?b.txt', 'a%3Fb.txt'],
+    ['ünïcode.rs', '%C3%BCn%C3%AFcode.rs'],
+  ])('accepts %s when the viewer encodes it as %s', (name, encoded) => {
+    expect(decodeRepoApiPath(`/blob/${REVISION}/${encoded}`)).toEqual([
+      'blob',
+      REVISION,
+      name,
+    ]);
+  });
+
+  test('rejects the unencoded form the viewer used to send', () => {
+    expect(decodeRepoApiPath(`/blob/${REVISION}/100%.md`)).toBeNull();
+  });
+
   test('registers the request handler on the target session', async () => {
     const targetSession = { protocol: { handle: jest.fn() } };
     registerRadicleApiProtocol(targetSession);
@@ -314,6 +336,45 @@ describe('radapi protocol', () => {
     const handler = targetSession.protocol.handle.mock.calls[0][1];
     const response = await handler(new Request('radapi://local/'));
     expect(response.status).toBe(200);
+  });
+
+  // PRIVATE MODE GUARD: a read that errs writes the RID and the repo path
+  // to the persistent main.log. `rad:` already registers per session with
+  // the private-log context; `radapi:` must too, and the shared log site
+  // must redact — otherwise a private window leaves a history-grade trace.
+  test('redacts the RID, path and error text for a private-session registration', async () => {
+    const log = require('./logger');
+    embedded.treeAt.mockRejectedValue(new Error(`tree read failed for ${RID}:/secret/plans.md`));
+    const privateSession = { protocol: { handle: jest.fn() } };
+    registerRadicleApiProtocol(privateSession, { privatePartition: 'private-abc' });
+    const handler = privateSession.protocol.handle.mock.calls[0][1];
+
+    const response = await handler(
+      new Request(`radapi://local/api/v1/repos/${encodeURIComponent(RID)}/tree/${REVISION}/secret`)
+    );
+
+    expect(response.status).toBe(500);
+    const warnings = log.warn.mock.calls.filter((call) => call[0] === '[radapi]');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toEqual(['[radapi]', '<private>', '<private>', '→', '<private>']);
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain('secret');
+    expect(JSON.stringify(log.warn.mock.calls)).not.toContain(RID);
+  });
+
+  test('logs the RID and path normally outside a private session', async () => {
+    const log = require('./logger');
+    embedded.treeAt.mockRejectedValue(new Error('tree read failed'));
+    const defaultSession = { protocol: { handle: jest.fn() } };
+    registerRadicleApiProtocol(defaultSession);
+    const handler = defaultSession.protocol.handle.mock.calls[0][1];
+
+    await handler(
+      new Request(`radapi://local/api/v1/repos/${encodeURIComponent(RID)}/tree/${REVISION}/src`)
+    );
+
+    const warnings = log.warn.mock.calls.filter((call) => call[0] === '[radapi]');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toEqual(['[radapi]', RID, `/tree/${REVISION}/src`, '→', 'tree read failed']);
   });
 
   // The dispatcher's registry is process-wide and rejects a duplicate

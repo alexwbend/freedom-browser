@@ -97,6 +97,39 @@ function serializeViewerPath(logicalPath, revision) {
   return `tree/${revision}${treePath ? `/${treePath}` : ''}`;
 }
 
+// Which commit the viewer reads at. An explicit object id carried by the
+// deep link always wins — including when the repository has no resolvable
+// head (no project payload, no usable remote), where it is the only thing
+// that makes the repo browsable at all.
+function resolveRevision(repoHead, requestedRevision) {
+  return requestedRevision
+    ? { sha: requestedRevision, pinned: true }
+    : { sha: repoHead || null, pinned: false };
+}
+
+// Repository entry names are arbitrary text to this page — `100%.md`,
+// `notes#1.md` and `a?b.txt` are all legal file names. The main-process
+// boundary decodeURIComponent()s every path segment and rejects invalid
+// escape sequences, so each segment must be encoded here: unencoded, `%`
+// makes the decode throw (400) and `#`/`?` truncate the request URL.
+function encodePathSegments(rawPath) {
+  return String(rawPath ?? '')
+    .split('/')
+    .filter((segment) => segment !== '')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+}
+
+// Internal viewer URL for a repository. The RID comes from a seed node's
+// repository listing — attacker-controlled data — so it is encoded rather
+// than interpolated: a value like `zabc&base=https://evil.example` would
+// otherwise inject a `base` parameter that wins `URLSearchParams.get()` and
+// point this privileged page's API reads at another origin.
+function buildViewerHref(itemRid, apiBase) {
+  const query = new URLSearchParams({ rid: String(itemRid ?? ''), base: String(apiBase ?? '') });
+  return `rad-browser.html?${query.toString()}`;
+}
+
 function timeAgo(timestamp) {
   const seconds = Math.floor(Date.now() / 1000 - timestamp);
   if (seconds < 60) return 'just now';
@@ -288,31 +321,37 @@ function handleMarkdownLinkClick(event) {
 // DATA FETCHING
 // =============================================
 
+// Repo-scoped API root. The RID is encoded as a single path segment (the
+// main process decodes it back before validating), so it can never widen
+// the path it sits in.
+const repoApiRoot = `${base}/api/v1/repos/rad:${encodeURIComponent(rid ?? '')}`;
+
 async function fetchRepoMeta() {
-  const res = await fetch(`${base}/api/v1/repos/rad:${rid}`);
+  const res = await fetch(repoApiRoot);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 async function fetchTree(sha, path) {
-  const url = path
-    ? `${base}/api/v1/repos/rad:${rid}/tree/${sha}/${path}`
-    : `${base}/api/v1/repos/rad:${rid}/tree/${sha}/`;
+  const encoded = encodePathSegments(path);
+  const url = encoded
+    ? `${repoApiRoot}/tree/${sha}/${encoded}`
+    : `${repoApiRoot}/tree/${sha}/`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 async function fetchBlob(sha, path) {
-  const res = await fetch(`${base}/api/v1/repos/rad:${rid}/blob/${sha}/${path}`);
+  const res = await fetch(`${repoApiRoot}/blob/${sha}/${encodePathSegments(path)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.json();
 }
 
 async function fetchReadme(sha) {
   try {
-    const res = await fetch(`${base}/api/v1/repos/rad:${rid}/readme/${sha}`);
+    const res = await fetch(`${repoApiRoot}/readme/${sha}`);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -322,7 +361,7 @@ async function fetchReadme(sha) {
 
 async function fetchStats(sha) {
   try {
-    const res = await fetch(`${base}/api/v1/repos/rad:${rid}/stats/tree/${sha}`);
+    const res = await fetch(`${repoApiRoot}/stats/tree/${sha}`);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -332,7 +371,7 @@ async function fetchStats(sha) {
 
 async function fetchRemotes() {
   try {
-    const res = await fetch(`${base}/api/v1/repos/rad:${rid}/remotes`);
+    const res = await fetch(`${repoApiRoot}/remotes`);
     if (!res.ok) return [];
     return await res.json();
   } catch {
@@ -886,7 +925,7 @@ function renderRepoList(repos) {
   repoList.querySelectorAll('.repo-item').forEach((item) => {
     item.addEventListener('click', () => {
       const itemRid = item.dataset.rid;
-      window.location.href = `rad-browser.html?rid=${itemRid}&base=${encodeURIComponent(base)}`;
+      window.location.href = buildViewerHref(itemRid, base);
     });
   });
 }
@@ -951,7 +990,7 @@ function renderNetworkRepoList(repos) {
   networkList.querySelectorAll('.repo-item').forEach((item) => {
     item.addEventListener('click', () => {
       const itemRid = item.dataset.rid;
-      window.location.href = `rad-browser.html?rid=${itemRid}&base=${encodeURIComponent(base)}`;
+      window.location.href = buildViewerHref(itemRid, base);
     });
   });
 }
@@ -1140,8 +1179,20 @@ async function init() {
       }
     }
 
+    // A direct `rad://RID/tree/<commit>/...` or `/blob/<commit>/...`
+    // pins all reads and subsequent in-repo navigation to that commit.
+    // Resolved BEFORE the no-head bail-out below: an explicit object id in
+    // the link is a revision the API can serve on its own, so a repo whose
+    // head is unresolvable (no project payload, no usable remote) is still
+    // browsable through the pinned link.
+    const requested = parseViewerPath(params.get('path'));
+    const urlPath = requested.logicalPath;
+    const resolved = resolveRevision(headSha, requested.revision);
+    headSha = resolved.sha;
+    pinnedRevision = resolved.pinned;
+
     if (!headSha) {
-      // Still no head SHA — can't browse files
+      // No head SHA and no pinned revision — can't browse files
       showState('success');
       renderRepoHeader(meta);
       repoHeaderEl.insertAdjacentHTML(
@@ -1153,15 +1204,6 @@ async function init() {
 
     showState('success');
     renderRepoHeader(meta);
-
-    // A direct `rad://RID/tree/<commit>/...` or `/blob/<commit>/...`
-    // pins all reads and subsequent in-repo navigation to that commit.
-    const requested = parseViewerPath(params.get('path'));
-    const urlPath = requested.logicalPath;
-    if (requested.revision) {
-      pinnedRevision = true;
-      headSha = requested.revision;
-    }
 
     // Stats follow the selected revision, not necessarily default-branch HEAD.
     fetchStats(headSha).then(renderStats);

@@ -1,10 +1,11 @@
 // Navigation, webview, and address bar handling
-import { state } from './state.js';
+import { state, isRadicleDisabledForProfile } from './state.js';
 import { pushDebug } from './debug.js';
 import { updateBookmarkButtonVisibility } from './bookmarks-ui.js';
 import { updateGithubBridgeIcon } from './github-bridge-ui.js';
 import {
   applyEnsSuffix,
+  buildRadicleDisabledUrl,
   buildTrustRows,
   buildViewSourceNavigation,
   deriveDisplayAddress,
@@ -75,6 +76,11 @@ const getNavState = () => getActiveTabState() || {};
 // second is slack for a legitimate redirect. Anything beyond that is a
 // resolve→navigate loop, not a real site.
 const MAX_NAME_RESOLUTION_DEPTH = 3;
+
+// Shown (in the debug trail) when a rad: navigation is refused because the
+// active profile has Radicle disabled — the page itself explains the setting.
+const RADICLE_DISABLED_MESSAGE =
+  'Radicle is disabled for this profile. Enable it in Settings > Nodes';
 
 const isIpfsProgressUrl = (value) => {
   const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -1373,6 +1379,20 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
 
   // Try Radicle (rad:RID or rad://RID)
   if (value.trim().toLowerCase().startsWith('rad:') || value.trim().toLowerCase().startsWith('rad://')) {
+    if (isRadicleDisabledForProfile()) {
+      // Radicle is off for this profile: the node can never start, so the
+      // generic connection-error panel ("enable Radicle in the Nodes menu")
+      // would point at a control this profile doesn't have. Send the user to
+      // the panel that explains the profile setting instead.
+      pushDebug(RADICLE_DISABLED_MESSAGE);
+      const disabledUrl = buildRadicleDisabledUrl(window.location.href, value.trim());
+      addressInput.value = value.trim();
+      navState.pendingNavigationUrl = disabledUrl;
+      navState.hasNavigatedDuringCurrentLoad = false;
+      webview.loadURL(disabledUrl);
+      syncBzzBase(null);
+      return;
+    }
     const radicleTarget = formatRadicleUrl(value, state.radicleBase);
     if (radicleTarget) {
       const radicleDisplayValue = displayOverride || radicleTarget.displayValue;

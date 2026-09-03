@@ -13,6 +13,7 @@ import { getDisplayUrlForWebview } from './tabs.js';
 import {
   showRadicleConnect,
   showRadicleSeedApproval,
+  showRadicleUnseedApproval,
   showRadicleSigningApproval,
   dismissRadicleConsent,
 } from './radicle-consent.js';
@@ -22,6 +23,10 @@ const ERRORS = {
   INTERNAL_ERROR: { code: -32603, message: 'Internal error' },
   NAVIGATED: { code: 4900, message: 'Document navigated away before the request completed' },
 };
+
+// Node-tier methods that mutate the user's seeding policy for one repo.
+// Each takes a per-repo consent prompt (unless auto-approve is on).
+const NODE_METHODS = new Set(['radicle_seed', 'radicle_unseed']);
 
 const SIGNING_METHODS = new Set([
   'radicle_getIdentity',
@@ -97,11 +102,19 @@ async function handleRadicleRequest(webview, request) {
       result = await handleRequestAccess(webview, permissionKey, assertSameDocument);
     } else if (method === 'radicle_getCapabilities') {
       result = await forwardToMain(method, params, permissionKey);
-    } else if (method === 'radicle_seed') {
+    } else if (NODE_METHODS.has(method)) {
+      // Node tier: both directions of the seeding policy are a per-repo
+      // decision (see docs/radicle-provider-api.md, "Node actions").
+      // Seeding commits disk and bandwidth; unseeding silently drops a
+      // policy the user chose — and a connected origin can enumerate
+      // targets through radicle_listSeededRepos — so neither may run off
+      // the lightweight connection grant alone.
       await requirePermission(permissionKey);
       const autoApproved = await window.radiclePermissions.getAutoApprove(permissionKey, 'node');
       if (!autoApproved) {
-        await showRadicleSeedApproval(permissionKey, params?.rid ?? '', webview);
+        const showApproval =
+          method === 'radicle_seed' ? showRadicleSeedApproval : showRadicleUnseedApproval;
+        await showApproval(permissionKey, params?.rid ?? '', webview);
       }
       assertSameDocument();
       result = await forwardToMain(method, params, permissionKey);
@@ -119,7 +132,7 @@ async function handleRadicleRequest(webview, request) {
       result = await forwardToMain(method, params, permissionKey);
     } else {
       // Remaining connection-tier methods: getNodeStatus, listSeededRepos,
-      // unseed, sync, getSeedStatus, disconnect.
+      // sync, getSeedStatus, disconnect.
       await requirePermission(permissionKey);
       assertSameDocument();
       result = await forwardToMain(method, params, permissionKey);

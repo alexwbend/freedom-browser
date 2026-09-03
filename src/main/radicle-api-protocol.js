@@ -37,6 +37,7 @@ const log = require('./logger');
 const embedded = require('./radicle-embedded');
 const { isDisabledForProfile } = require('./radicle-manager');
 const { registerWebRequestHandler } = require('./webrequest-dispatcher');
+const { runWithPrivateLogContext, redactForLog } = require('./private/private-log-context');
 
 const RID_RE = /^rad:z[1-9A-HJ-NP-Za-km-z]{20,60}$/;
 const REVISION_RE = /^[0-9a-f]{40}$/;
@@ -277,7 +278,11 @@ async function serveRepoApi(
   } catch (err) {
     const missing = /not found|does not exist|NotFound/i.test(err.message);
     if (!missing) {
-      log.warn('[radapi]', rid, apiPath, '→', err.message);
+      // PRIVATE MODE GUARD: this core serves both `rad:` and `radapi:`, and
+      // both registrations mark private sessions — the RID, the repo path
+      // and the error text (which quotes them) must never reach main.log
+      // for a private window.
+      log.warn('[radapi]', redactForLog(rid), redactForLog(apiPath), '→', redactForLog(err.message));
     }
     return json({ error: err.message }, missing ? 404 : 500);
   }
@@ -358,7 +363,7 @@ let guardRegistered = false;
  * up. Must therefore run before `attachWebRequestDispatcher()` for the
  * session, which is how src/main/index.js orders it.
  */
-function registerRadicleApiProtocol(targetSession) {
+function registerRadicleApiProtocol(targetSession, { privatePartition = null } = {}) {
   if (!targetSession?.protocol?.handle) {
     log.warn('[radapi] session.protocol.handle unavailable — skipping');
     return;
@@ -367,7 +372,14 @@ function registerRadicleApiProtocol(targetSession) {
     registerWebRequestHandler('onBeforeRequest', 'radapi-guard', guardRadicleApiRequest);
     guardRegistered = true;
   }
-  targetSession.protocol.handle('radapi', (request) => handleRadicleApiRequest(request));
+  // PRIVATE MODE GUARD (request logging): same contract as registerRadProtocol
+  // — one registration per session, so the private session's handler marks
+  // every request it serves as private and the shared `serveRepoApi` log
+  // sites redact the RID and repo path they would otherwise persist.
+  const isPrivate = !!privatePartition;
+  targetSession.protocol.handle('radapi', (request) =>
+    runWithPrivateLogContext(isPrivate, () => handleRadicleApiRequest(request))
+  );
   log.info('[radapi] Protocol handler registered');
 }
 

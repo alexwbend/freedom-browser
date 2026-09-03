@@ -16,44 +16,16 @@
 const log = require('./logger');
 const path = require('path');
 const fs = require('fs');
-const { RADICLE_ADDON_VERSION } = require('../shared/radicle-addon-version');
+const {
+  RADICLE_ADDON_VERSION,
+  RADICLE_ADDON_REQUIRED_EXPORTS,
+} = require('../shared/radicle-addon-version');
 
 let addon = null;
 let addonPath = null;
 let started = false;
 
-const REQUIRED_EXPORTS = [
-  'start',
-  'shutdown',
-  'connectSeeds',
-  'cloneRepo',
-  'cloneRepoWithProgress',
-  'cancelClone',
-  'unseedRepo',
-  'listRepos',
-  'listSeededRepos',
-  'issues',
-  'issue',
-  'patches',
-  'patch',
-  'identity',
-  'createIssue',
-  'commentIssue',
-  'editIssueState',
-  'commentPatch',
-  'importRepo',
-  'repoInfo',
-  'commits',
-  'commit',
-  'tree',
-  'treeAt',
-  'blob',
-  'blobAt',
-  'remotes',
-  'repoStats',
-  'status',
-  'seeders',
-];
+const REQUIRED_EXPORTS = RADICLE_ADDON_REQUIRED_EXPORTS;
 
 function platformKey() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';

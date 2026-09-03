@@ -66,7 +66,10 @@ function providerError(base, message, data) {
   return err;
 }
 
-// method -> required tier
+// method -> required grant this process checks. The node-tier per-repo
+// consent prompt for `radicle_seed`/`radicle_unseed` is the renderer's
+// (radicle-provider.js NODE_METHODS): both are recorded here as needing
+// the connection grant, and neither reaches main without its prompt.
 const METHOD_TIERS = {
   radicle_requestAccess: 'connection',
   radicle_getCapabilities: 'none',

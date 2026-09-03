@@ -1649,11 +1649,15 @@
           }
           if (radicleLaunchRow) radicleLaunchRow.classList.toggle('disabled', disabled || !available);
         } catch {
+          // Every piece of row state a previous successful run may have set
+          // has to come back with the checkbox — otherwise a transient status
+          // failure leaves the row greyed out around a live control.
           fields.startRadicle.disabled = false;
           if (radicleLaunchHelp) {
             radicleLaunchHelp.textContent =
               'Radicle status could not be read. The startup preference can still be saved.';
           }
+          if (radicleLaunchRow) radicleLaunchRow.classList.remove('disabled');
         }
       };
 
