@@ -10,17 +10,19 @@
 //
 // Budgets (minutes): MYOTIS_E2E_READY_TIMEOUT_MIN caps each chain's readiness
 // wait, MYOTIS_E2E_STALL_TIMEOUT_MIN caps how long a beacon light client may
-// make zero catch-up progress before the wait gives up.
+// make zero catch-up progress before the wait gives up. The stall window must
+// stay strictly below the readiness window or the guard can never fire — see
+// myotis-sync-guard.js, which owns both defaults and warns on an inverted pair.
 const path = require('path');
 const { test, expect } = require('../live-fixtures');
+const {
+  envFlagEnabled,
+  resolveTimeoutBudgets,
+  createStallTracker,
+} = require('./myotis-sync-guard');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const MYOTIS_ENABLED = Boolean(process.env.MYOTIS_NODE_PATH);
-
-function envFlagEnabled(name) {
-  const raw = process.env[name];
-  return typeof raw === 'string' && raw !== '' && raw !== '0' && raw.toLowerCase() !== 'false';
-}
 
 // The pinned addon (biafra23/myotis v0.1.7, the newest published release)
 // bootstraps every COLD start from a checkpoint embedded in the binary and
@@ -39,23 +41,17 @@ const IGNORE_KNOWN_STALL = envFlagEnabled('MYOTIS_E2E_IGNORE_KNOWN_STALL');
 // CI lets the production app perform the one and only native-client launch,
 // so it grants the cold-sync budget directly instead of pre-warming through a
 // separate process whose immediate restart can inherit peer backoff.
-const configuredReadyTimeoutMinutes = Number(process.env.MYOTIS_E2E_READY_TIMEOUT_MIN);
-const READY_TIMEOUT_MINUTES = Number.isFinite(configuredReadyTimeoutMinutes) &&
-  configuredReadyTimeoutMinutes > 0
-  ? configuredReadyTimeoutMinutes
-  : 5;
-const READY_TIMEOUT_MS = READY_TIMEOUT_MINUTES * 60 * 1000;
-
+//
 // A light client that is genuinely catching up advances (currentPeriod,
 // finalizedSlot) in seconds — the last successful cold run applied nine
 // periods in 15 s. When neither moves for minutes the sync is wedged, not
 // slow, and no extra budget rescues it. Abort on the stall instead of sitting
 // out the whole readiness budget (which cost ~1.3 h per platform before).
-const configuredStallTimeoutMinutes = Number(process.env.MYOTIS_E2E_STALL_TIMEOUT_MIN);
-const STALL_TIMEOUT_MINUTES = Number.isFinite(configuredStallTimeoutMinutes) &&
-  configuredStallTimeoutMinutes > 0
-  ? configuredStallTimeoutMinutes
-  : 6;
+const budgets = resolveTimeoutBudgets();
+if (budgets.warning) console.warn(budgets.warning);
+const READY_TIMEOUT_MINUTES = budgets.readyTimeoutMinutes;
+const READY_TIMEOUT_MS = READY_TIMEOUT_MINUTES * 60 * 1000;
+const STALL_TIMEOUT_MINUTES = budgets.stallTimeoutMinutes;
 const STALL_TIMEOUT_MS = STALL_TIMEOUT_MINUTES * 60 * 1000;
 
 const POLL_INTERVAL_MS = 5000;
@@ -75,23 +71,13 @@ function readinessSummary(state) {
   };
 }
 
-// Identity of the beacon light client's sync progress, or null when the stall
-// guard does not apply. Once the beacon is SYNCED the period legitimately
-// stops moving for many minutes while the execution layer hunts a snap peer,
-// so the guard deliberately only watches the pre-SYNCED phase.
-function syncProgressKey(status) {
-  if (!status || status.beaconState === 'SYNCED') return null;
-  return `${status.beaconState}:${status.currentPeriod}:${status.finalizedSlot}`;
-}
-
 // Poll `read()` until `satisfied()`, bounded by both the readiness budget and
 // the beacon-sync stall guard. Shared by the Ethereum and Gnosis waits so a
 // wedged client on either chain fails fast with the same diagnostics.
 async function waitForVerifiedRead({ label, read, satisfied }) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   let lastReadinessLog = '';
-  let progressKey = null;
-  let progressAt = Date.now();
+  const stall = createStallTracker(Date.now());
   for (;;) {
     const state = await read();
     const serializedSummary = JSON.stringify(readinessSummary(state));
@@ -101,11 +87,8 @@ async function waitForVerifiedRead({ label, read, satisfied }) {
     }
     if (satisfied(state)) return state;
 
-    const key = syncProgressKey(state.status);
-    if (key !== progressKey) {
-      progressKey = key;
-      progressAt = Date.now();
-    } else if (key !== null && Date.now() - progressAt > STALL_TIMEOUT_MS) {
+    const stalledForMs = stall.update(state.status, Date.now());
+    if (stalledForMs !== null && stalledForMs > STALL_TIMEOUT_MS) {
       throw new Error(
         `${label} Myotis light client sync is wedged: no beacon progress for ` +
           `${STALL_TIMEOUT_MINUTES} min (see ${KNOWN_STALL_ISSUE}); ` +

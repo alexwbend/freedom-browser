@@ -4,6 +4,16 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      myotis_force_live:
+        description: >-
+          Run the myotis-native-e2e live spec even though issue #200 keeps it
+          skipped (sets MYOTIS_E2E_IGNORE_KNOWN_STALL=1). This is how we check
+          whether a newer addon clears the upstream beacon wedge; a still-wedged
+          addon now aborts on the spec's stall guard in a few minutes rather
+          than burning the readiness budget.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -340,6 +350,12 @@ jobs:
           # headroom without inviting another 1.3 h stall: a wedged catch-up
           # now aborts on the stall guard inside the spec instead.
           MYOTIS_E2E_READY_TIMEOUT_MIN: '25'
+          # The stall window keeps its 3-minute default, which must stay below
+          # the readiness budget above for the guard to be reachable at all
+          # (test-e2e/live/myotis-sync-guard.js owns and unit-tests that
+          # invariant). Empty unless a maintainer forces the run from the
+          # workflow_dispatch input.
+          MYOTIS_E2E_IGNORE_KNOWN_STALL: ${{ inputs.myotis_force_live && '1' || '' }}
           FREEDOM_TEST_HIDE_WINDOW: '1'
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -352,6 +368,15 @@ jobs:
       # not exist at all — actions/cache/save fails outright on a missing path,
       # and saving an empty dir would shadow a genuinely warm snapshot on the
       # next prefix restore.
+      #
+      # Evidence for each branch, so a future reader knows what is proven:
+      #   present=true  — ubuntu-latest and macos-14 (run 33450528176, cache
+      #                   restore hit), and windows-latest via a forced
+      #                   `myotis_force_live` dispatch, which populates the data
+      #                   dir before the stall guard aborts.
+      #   present=false — windows-latest (run 33450528176: cache miss + skip,
+      #                   the case that would have failed the job outright under
+      #                   the previous `if: always()` save).
       - name: Check for a Myotis sync snapshot
         id: myotis-snapshot
         if: always()
@@ -359,11 +384,19 @@ jobs:
         env:
           MYOTIS_DATA_DIR: ${{ runner.temp }}/myotis-data
         run: |
-          if [ -n "$(ls -A "$MYOTIS_DATA_DIR" 2>/dev/null)" ]; then
-            echo 'present=true' >> "$GITHUB_OUTPUT"
+          # runner.temp is a native path, so on Windows this arrives as
+          # 'D:\a\_temp/myotis-data'. Normalize to forward slashes before
+          # handing it to msys `ls`, which is the only separator form it is
+          # documented to accept, and echo the result so the branch taken is
+          # visible in the log.
+          dir="${MYOTIS_DATA_DIR//\\//}"
+          if [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+            present=true
           else
-            echo 'present=false' >> "$GITHUB_OUTPUT"
+            present=false
           fi
+          echo "snapshot dir: $dir (present=$present)"
+          echo "present=$present" >> "$GITHUB_OUTPUT"
 
       - name: Save Myotis sync snapshot
         if: always() && steps.myotis-snapshot.outputs.present == 'true'
