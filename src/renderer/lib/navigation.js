@@ -27,6 +27,9 @@ import {
   buildEnsDisplayUri,
   isEnsBackedDisplay,
   isSupportedEnsTransport,
+  formatOnchainAppUrl,
+  formatOnchainAppDisplayUrl,
+  looksLikeOnchainAppInput,
 } from './url-utils.js';
 import { buildSearchUrl } from './search-utils.js';
 import {
@@ -34,6 +37,7 @@ import {
   getActiveTab,
   getActiveTabState,
   openInNewTabWithTarget,
+  setOnchainProvenanceChangeHandler,
   setWebviewEventHandler,
   updateActiveTabTitle,
   updateTabFavicon,
@@ -493,6 +497,7 @@ const toggleTrustPopover = () => {
   const badge = resolveTrustBadge({
     value: addressInput?.value || '',
     ensTrustByName: state.ensTrustByName,
+    onchainProvenance: getActiveTab()?.onchainProvenance,
   });
   if (!badge) return;
 
@@ -503,6 +508,7 @@ const toggleTrustPopover = () => {
   const statusEl = document.getElementById('trust-popover-status');
   const trustFieldsEl = document.getElementById('trust-popover-trust-fields');
   const contentEl = document.getElementById('trust-popover-content');
+  const contentTitleEl = document.getElementById('trust-popover-content-title');
   const contentFieldsEl = document.getElementById('trust-popover-content-fields');
 
   if (title) title.textContent = name;
@@ -515,7 +521,11 @@ const toggleTrustPopover = () => {
     level,
     uri: state.ensUriByName.get(name) || '',
     proto: state.ensProtocols.get(name),
+    onchainProvenance: badge.provenance,
   });
+  if (contentTitleEl) {
+    contentTitleEl.textContent = badge.kind === 'onchain' ? 'Loads from' : 'Resolves to';
+  }
 
   if (statusEl) {
     if (status === null) {
@@ -686,17 +696,20 @@ const updateProtocolIcon = () => {
     const badge = resolveTrustBadge({
       value: addressInput?.value || '',
       ensTrustByName: state.ensTrustByName,
+      onchainProvenance: getActiveTab()?.onchainProvenance,
     });
     if (badge) {
       trustShield.setAttribute('data-trust', badge.level);
       trustShield.setAttribute(
         'aria-label',
-        TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
+        badge.kind === 'onchain'
+          ? `Onchain application provenance: ${badge.level}`
+          : TRUST_ARIA_LABEL[badge.level] || 'Ethereum name resolution trust status'
       );
       trustShield.hidden = false;
     } else {
       trustShield.removeAttribute('data-trust');
-      trustShield.setAttribute('aria-label', 'Ethereum name resolution trust status');
+      trustShield.setAttribute('aria-label', 'Site provenance status');
       trustShield.hidden = true;
     }
 
@@ -1158,6 +1171,32 @@ export const loadTarget = (value, displayOverride = null, targetWebview = null, 
         `Unknown internal page: ${pageName}\nAvailable: ${Object.keys(internalPages).join(', ')}`
       );
     }
+    return;
+  }
+
+  // ERC-8244 contract-hosted applications. The standard `web3:` origin is
+  // scoped by both contract and chain (`web3://<address>.eip155-<chainId>/`), while
+  // the main-process handler reads the document through Freedom's verified
+  // chain-data router. No gateway URL or page-owned RPC endpoint is involved.
+  const onchainAppUrl = formatOnchainAppUrl(value);
+  if (onchainAppUrl) {
+    const displayValue =
+      displayOverride || formatOnchainAppDisplayUrl(value) || onchainAppUrl;
+    setAddressDisplayForTab(displayValue, targetTabId);
+    navState.pendingTitleForUrl = onchainAppUrl;
+    navState.pendingNavigationUrl = onchainAppUrl;
+    navState.hasNavigatedDuringCurrentLoad = false;
+    webview.loadURL(onchainAppUrl);
+    pushDebug(`[Onchain App] Loading ${onchainAppUrl}`);
+    syncBzzBase(null);
+    return;
+  }
+  if (looksLikeOnchainAppInput(value)) {
+    pushDebug(`[Onchain App] Invalid web3 URL: ${value}`);
+    alert(
+      'Invalid onchain application URL. Expected web3://<contract>:<chainId>/ ' +
+        '(Ethereum mainnet is used when the chain is omitted).'
+    );
     return;
   }
 
@@ -1977,6 +2016,10 @@ export const initNavigation = () => {
   protocolIcon = document.getElementById('protocol-icon');
   trustShield = document.getElementById('trust-shield');
   trustPopover = document.getElementById('trust-popover');
+
+  setOnchainProvenanceChangeHandler((tabId) => {
+    if (isActiveTab(tabId)) updateProtocolIcon();
+  });
 
   if (trustShield) {
     // Don't stopPropagation: we want the click to bubble to the

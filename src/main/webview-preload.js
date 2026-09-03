@@ -138,7 +138,29 @@ const findClosestAnchor = (start) => {
 const getRawDwebHref = (anchor) => {
   const rawHref = anchor?.getAttribute?.('href')?.trim();
   if (!rawHref) return null;
-  if (/^(ipfs|ipns):\/\//i.test(rawHref)) return rawHref;
+  if (/^(ipfs|ipns|web3):\/\//i.test(rawHref)) return rawHref;
+  return null;
+};
+
+const getHostRoutedHref = (anchor) => {
+  const rawHref = anchor?.getAttribute?.('href')?.trim();
+  if (!rawHref) return null;
+  const rawDwebHref = getRawDwebHref(anchor);
+  if (rawDwebHref) return rawDwebHref;
+  if (globalThis.location?.protocol === 'web3:') {
+    if (anchor?.hasAttribute?.('download')) return null;
+    try {
+      const resolved = new URL(rawHref, globalThis.location.href);
+      if (
+        ['web3:', 'http:', 'https:', 'bzz:', 'ipfs:', 'ipns:', 'rad:', 'ens:',
+          'freedom:', 'ethereum:'].includes(resolved.protocol)
+      ) {
+        return resolved.toString();
+      }
+    } catch {
+      return null;
+    }
+  }
   return null;
 };
 
@@ -152,6 +174,9 @@ const getRawDwebHref = (anchor) => {
 // both handled here so the new-window code path (Chromium →
 // setWindowOpenHandler → tab:new-with-url in the main process) never gets
 // the lowercased URL — see `src/main/webcontents-setup.js#setWindowOpenHandler`.
+// The same early path preserves Freedom's friendly
+// `web3://<contract>:<chain>` input before Chromium rejects the bare all-hex
+// host; renderer navigation canonicalizes it to `<contract>.eip155-<chain>`.
 //
 // Two listeners — one each for `click` (primary button) and `auxclick`
 // (non-primary, i.e. middle/right). Per the UI Events spec, modern
@@ -168,8 +193,13 @@ const handleDwebLinkActivation = (event) => {
   if (event.button !== 0 && event.button !== 1) return;
 
   const anchor = findClosestAnchor(event.target);
-  const href = getRawDwebHref(anchor);
+  const href = getHostRoutedHref(anchor);
   if (!href) return;
+
+  // Onchain documents cannot navigate themselves. Only a real user
+  // activation may ask the browser chrome to leave the isolated app; a page
+  // dispatching a synthetic click is equivalent to a scripted redirect.
+  if (globalThis.location?.protocol === 'web3:' && event.isTrusted !== true) return;
 
   // Mirror Chromium's link disposition heuristic: middle-click,
   // ctrl/cmd-click, shift-click, or `target="_blank"` open in a new tab;
@@ -661,23 +691,37 @@ ipcRenderer.on('context-menu-action', (_event, action, data) => {
 // no injection, no bridges. Nothing announces via EIP-6963.
 if (!IS_PRIVATE_WINDOW) {
   try {
-    const script = document.createElement('script');
-    script.textContent = ETHEREUM_INJECT_SOURCE;
-
-    // Inject before any page scripts run
-    const inject = () => {
-      const head = document.head || document.documentElement;
-      head.insertBefore(script, head.firstChild);
-      script.remove();
-    };
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', inject, { once: true });
-    } else {
-      inject();
-    }
+    // Preloads finish before Chromium executes the document's inline scripts.
+    // Execute Freedom's trusted provider source synchronously in the page's
+    // main world so an eager dapp may capture `window.ethereum` while parsing.
+    // A DOMContentLoaded <script> was too late: apps that saved the initial
+    // undefined value could never recover even though the provider appeared
+    // later. `new Function` runs only our packaged source fetched over sync
+    // IPC; contract HTML never contributes code to this compilation step.
+    const installProvider = new Function(ETHEREUM_INJECT_SOURCE);
+    contextBridge.executeInMainWorld({ func: installProvider });
   } catch (err) {
-    console.error('[webview-preload] Failed to inject ethereum provider:', err);
+    console.error('[webview-preload] Failed early ethereum provider injection:', err);
+
+    // Defensive compatibility fallback for an Electron/runtime regression.
+    // The provider source is idempotent, so a partially completed early
+    // install will not be replaced or receive duplicate listeners.
+    try {
+      const script = document.createElement('script');
+      script.textContent = ETHEREUM_INJECT_SOURCE;
+      const inject = () => {
+        const head = document.head || document.documentElement;
+        head.insertBefore(script, head.firstChild);
+        script.remove();
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', inject, { once: true });
+      } else {
+        inject();
+      }
+    } catch (fallbackErr) {
+      console.error('[webview-preload] Failed fallback ethereum provider injection:', fallbackErr);
+    }
   }
 
   // Bridge postMessage from page to IPC

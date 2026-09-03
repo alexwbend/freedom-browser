@@ -218,6 +218,45 @@ describe('webcontents-setup', () => {
     expect(ctx.log.warn).toHaveBeenCalledWith('[webcontents:33:webview] responsive again');
   });
 
+  test('blocks scripted navigation and popups from an onchain app', () => {
+    const parentWindow = { webContents: { id: 2, send: jest.fn() } };
+    const ctx = loadWebContentsSetupModule({ windows: [parentWindow] });
+    const contents = createContentsMock({
+      id: 34,
+      type: 'webview',
+      url: 'web3://0x00000095643cffa7d9fae407a84dfcb6406456c6.eip155-1/',
+    });
+
+    ctx.mod.registerWebContentsHandlers();
+    ctx.app.emit('web-contents-created', {}, contents);
+
+    const navigationEvent = { preventDefault: jest.fn() };
+    contents.emit('will-navigate', navigationEvent, 'https://evil.example/phish');
+    expect(navigationEvent.preventDefault).toHaveBeenCalled();
+    expect(parentWindow.webContents.send).not.toHaveBeenCalled();
+
+    expect(
+      contents.windowOpenHandler({ url: 'https://evil.example/popup', frameName: '_blank' })
+    ).toEqual({ action: 'deny' });
+    expect(parentWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
+  test('routes a web3 link from a normal page through renderer navigation', () => {
+    const parentWindow = { webContents: { id: 2, send: jest.fn() } };
+    const ctx = loadWebContentsSetupModule({ windows: [parentWindow] });
+    const contents = createContentsMock({ id: 35, type: 'webview', url: 'https://example.com' });
+    const target = 'web3://0x00000095643cffa7d9fae407a84dfcb6406456c6.eip155-1/';
+
+    ctx.mod.registerWebContentsHandlers();
+    ctx.app.emit('web-contents-created', {}, contents);
+
+    const event = { preventDefault: jest.fn() };
+    contents.emit('will-navigate', event, target);
+
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(parentWindow.webContents.send).toHaveBeenCalledWith('navigate-to-url', target);
+  });
+
   // PRIVATE MODE GUARD (navigation logging): log.info is written to the
   // persistent <userData>/logs/main.log, which outlives the private window.
   // Neither an intercepted custom-protocol URL nor a new-window target may

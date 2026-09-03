@@ -16,6 +16,7 @@ const sanitizeUrlForLog = (rawUrl) => {
       parsed.protocol === 'bzz:' ||
       parsed.protocol === 'ipfs:' ||
       parsed.protocol === 'ipns:' ||
+      parsed.protocol === 'web3:' ||
       parsed.protocol === 'freedom:'
     ) {
       return `${parsed.protocol}//<redacted>`;
@@ -26,6 +27,7 @@ const sanitizeUrlForLog = (rawUrl) => {
       rawUrl.startsWith('bzz://') ||
       rawUrl.startsWith('ipfs://') ||
       rawUrl.startsWith('ipns://') ||
+      rawUrl.startsWith('web3://') ||
       rawUrl.startsWith('freedom://')
     ) {
       return `${rawUrl.split('://')[0]}://<redacted>`;
@@ -143,6 +145,13 @@ function registerWebContentsHandlers() {
         log.info(
           `${tag} intercepted new window request: ${navUrlForLog(contents, url)} (target: ${frameName || 'none'})`
         );
+        // Contract-hosted pages are not allowed to create windows themselves.
+        // Trusted anchor activations are intercepted in webview-preload and
+        // handed to the host renderer before this callback; anything reaching
+        // here from a web3: document is therefore denied without navigation.
+        if (contents.getURL().startsWith('web3://')) {
+          return { action: 'deny' };
+        }
         // Send message to the owning BrowserWindow to open URL in new tab
         const parentWindow = ownerWindowOf(contents);
         if (parentWindow) {
@@ -155,16 +164,26 @@ function registerWebContentsHandlers() {
       });
 
       // Intercept navigation to custom protocols (freedom://, bzz://, ipfs://,
-      // ipns://, rad:, ethereum:, ens://). `ens://` is included so legacy
+      // ipns://, web3://, rad:, ethereum:, ens://). `ens://` is included so legacy
       // links inside pages route through the renderer's ENS resolver instead
       // of failing as an unknown scheme — bookmarks created before the
       // transport-aware migration still carry the legacy prefix.
       contents.on('will-navigate', (event, url) => {
+        // A CSP sandbox is the primary boundary for contract-hosted HTML. This
+        // main-process guard is defence in depth: scripted location changes
+        // cannot replace the isolated app with a mutable web origin. Genuine
+        // link clicks are already routed through `link:navigate` by preload.
+        if (contents.getURL().startsWith('web3://')) {
+          log.info(`${tag} blocked onchain app navigation: ${navUrlForLog(contents, url)}`);
+          event.preventDefault();
+          return;
+        }
         if (
           url.startsWith('freedom://') ||
           url.startsWith('bzz://') ||
           url.startsWith('ipfs://') ||
           url.startsWith('ipns://') ||
+          url.startsWith('web3://') ||
           url.startsWith('ens://') ||
           url.startsWith('rad:') ||
           url.startsWith('ethereum:')

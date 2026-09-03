@@ -1,4 +1,8 @@
-import { applyEnsNamePreservation, deriveDisplayValue } from './url-utils.js';
+import {
+  applyEnsNamePreservation,
+  deriveDisplayValue,
+  parseOnchainAppUrl,
+} from './url-utils.js';
 import { getInternalPageName, parseEnsInput } from './page-urls.js';
 import { isDwebNameHost } from './origin-utils.js';
 
@@ -12,8 +16,34 @@ const extractEnsName = (normalizedValue) => parseEnsInput(normalizedValue)?.name
 // (non-name URLs, or names we haven't resolved this session). Otherwise
 // returns `{ level, name, trust }` so the shield can render and the popover
 // can fill in details.
-export const resolveTrustBadge = ({ value = '', ensTrustByName = new Map() } = {}) => {
+const onchainIdentity = (value) => {
+  const parsed = parseOnchainAppUrl(value);
+  if (!parsed) return null;
+  return { contract: parsed.address, chainId: parsed.chainId };
+};
+
+export const resolveTrustBadge = ({
+  value = '',
+  ensTrustByName = new Map(),
+  onchainProvenance = null,
+} = {}) => {
   const normalizedValue = value.toLowerCase();
+  const identity = onchainIdentity(normalizedValue);
+  if (
+    identity &&
+    onchainProvenance?.trust?.level &&
+    Number(onchainProvenance.chainId) === identity.chainId &&
+    onchainProvenance.contract?.toLowerCase() === identity.contract
+  ) {
+    const shortContract = `${identity.contract.slice(0, 12)}…${identity.contract.slice(-10)}`;
+    return {
+      kind: 'onchain',
+      level: onchainProvenance.trust.level,
+      name: `web3://${shortContract}`,
+      trust: onchainProvenance.trust,
+      provenance: onchainProvenance,
+    };
+  }
   const ensName = extractEnsName(normalizedValue);
   if (!ensName) return null;
   const trust = ensTrustByName.get(ensName);
@@ -49,6 +79,14 @@ export const getTrustStatusSentence = (statusKey, trust = {}) => {
     return `${nameSystemLabel(trust)} resolution not verified`;
   }
   return TRUST_STATUS_SENTENCE[statusKey] || null;
+};
+
+const getOnchainTrustStatusSentence = (level) => {
+  if (level === 'verified') return 'Onchain application retrieval verified';
+  if (level === 'user-configured') return 'Loaded with your configured RPC';
+  if (level === 'unverified') return 'Onchain application retrieval not verified';
+  if (level === 'conflict') return 'Verification failed: RPCs disagree';
+  return null;
 };
 
 // Long-form warning for a recipient name whose forward lookup completed
@@ -122,6 +160,26 @@ const buildContentRows = ({ uri = '', proto = '' } = {}) => {
   return contentRows;
 };
 
+const buildOnchainContentRows = (provenance) => [
+  {
+    label: 'Network',
+    display: provenance.network || `Chain ${provenance.chainId}`,
+    copy: '',
+  },
+  {
+    label: 'Contract',
+    display: provenance.contract,
+    copy: provenance.contract,
+    autoFit: provenance.contract,
+  },
+  {
+    label: 'HTML hash',
+    display: provenance.htmlHash,
+    copy: provenance.htmlHash,
+    autoFit: provenance.htmlHash,
+  },
+];
+
 // Pure helper that turns a `(trust, level, uri, proto)` tuple into the
 // data the popover renders: a status sentence and two ordered arrays of
 // row descriptors for the trust and content sections. Each row is
@@ -134,12 +192,18 @@ export const buildTrustRows = ({
   level = '',
   uri = '',
   proto = '',
+  onchainProvenance = null,
 } = {}) => {
   const method = trust.method;
   const isColibri = level === 'verified' && method === 'colibri';
   const isMyotis = method === 'myotis';
   const statusKey = isColibri ? 'verified-colibri' : level;
-  const status = getTrustStatusSentence(statusKey, trust);
+  const status = onchainProvenance
+    ? getOnchainTrustStatusSentence(level)
+    : getTrustStatusSentence(statusKey, trust);
+  const contentRows = () => onchainProvenance
+    ? buildOnchainContentRows(onchainProvenance)
+    : buildContentRows({ uri, proto });
 
   const agreed = Array.isArray(trust.agreed) ? trust.agreed : [];
   const queried = Array.isArray(trust.queried) ? trust.queried : [];
@@ -173,7 +237,7 @@ export const buildTrustRows = ({
       copy: '',
     });
     pushBlockRow();
-    return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+    return { status, trustRows, contentRows: contentRows() };
   }
 
   if (isColibri) {
@@ -192,7 +256,7 @@ export const buildTrustRows = ({
         autoFit: trust.prover,
       });
     }
-    return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+    return { status, trustRows, contentRows: contentRows() };
   }
 
   // RPC-backed methods use the same summary fields while keeping the status
@@ -269,7 +333,7 @@ export const buildTrustRows = ({
     });
   }
 
-  return { status, trustRows, contentRows: buildContentRows({ uri, proto }) };
+  return { status, trustRows, contentRows: contentRows() };
 };
 
 export const resolveProtocolIconType = ({
@@ -287,6 +351,7 @@ export const resolveProtocolIconType = ({
   if (normalizedValue.startsWith('bzz://')) return 'swarm';
   if (normalizedValue.startsWith('ipfs://')) return 'ipfs';
   if (normalizedValue.startsWith('ipns://')) return 'ipns';
+  if (normalizedValue.startsWith('web3://')) return 'onchain';
   if (normalizedValue.startsWith('rad://')) return 'radicle';
   // Internal pages aren't network-served, but we still surface the
   // neutral globe (same icon `rad://` falls back to when its integration

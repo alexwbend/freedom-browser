@@ -141,9 +141,14 @@ const { registerX402Ipc } = require('./x402/ipc');
 const { registerBzzProtocol } = require('./swarm/bzz-protocol');
 const { registerIpfsProtocol, registerIpnsProtocol } = require('./ipfs/ipfs-protocol');
 const { registerRadProtocol } = require('./radicle/rad-protocol');
+const {
+  installOnchainProvenanceCapture,
+  registerOnchainAppProtocol,
+  registerOnchainProvenanceIpc,
+} = require('./onchain/onchain-app-protocol');
 const { registerRadicleApiProtocol } = require('./radicle-api-protocol');
 
-// Register `bzz:`, `ipfs:`, and `ipns:` as privileged standard schemes.
+// Register `bzz:`, `ipfs:`, `ipns:`, and `web3:` as privileged standard schemes.
 // Must run before `app.whenReady()` —
 // see https://www.electronjs.org/docs/latest/api/protocol.
 // See README "Swarm Content Retrieval" and "IPFS / IPNS Content Retrieval"
@@ -160,6 +165,20 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'bzz', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipfs', privileges: DWEB_PROTOCOL_PRIVILEGES },
   { scheme: 'ipns', privileges: DWEB_PROTOCOL_PRIVILEGES },
+  // ERC-8244 documents are single onchain HTML responses. They need a
+  // standard, secure origin and Fetch-compatible Response handling, but
+  // deliberately do not get service-worker privileges: their response CSP
+  // denies ambient network access and mutable offchain dependencies.
+  {
+    scheme: 'web3',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
   // Embedded Radicle API (radicle-api-protocol.js). Standard host casing
   // is fine here — RIDs travel in the path, not the host.
   { scheme: 'radapi', privileges: DWEB_PROTOCOL_PRIVILEGES },
@@ -329,6 +348,7 @@ async function bootstrap() {
   registerDappPermissionsIpc();
   registerPermissionsIpc();
   registerX402Ipc();
+  registerOnchainProvenanceIpc();
   paymentHistory.registerPaymentHistoryIpc();
   registerSwarmIpc();
   registerPublishIpc();
@@ -349,7 +369,7 @@ async function bootstrap() {
   });
 
   if (!TEST_MODE) {
-    // Skip registering the real bzz/ipfs/ipns handlers in test mode —
+    // Skip registering the real bzz/ipfs/ipns/web3 handlers in test mode —
     // installTestHarness() registers fixture-driven stubs on the same
     // schemes below. Electron only allows one handler per scheme per
     // session, so the harness must own them outright in test mode.
@@ -357,7 +377,10 @@ async function bootstrap() {
     registerIpfsProtocol(defaultSession);
     registerIpnsProtocol(defaultSession);
     registerRadProtocol(defaultSession);
+    // Before attachWebRequestDispatcher() below: this also installs the
+    // process-wide `radapi-guard` onBeforeRequest handler.
     registerRadicleApiProtocol(defaultSession);
+    registerOnchainAppProtocol(defaultSession);
   }
   // All consumers register their handlers first, then the dispatcher
   // attaches exactly one Electron listener per event to the session.
@@ -365,6 +388,7 @@ async function bootstrap() {
   // After the rewriter (which owns scheme/gateway rewriting) and before
   // x402, so blocked requests never reach the payment flow.
   installAdblockInterception();
+  installOnchainProvenanceCapture();
   installX402Interception();
   attachWebRequestDispatcher(defaultSession);
   // Per-site permission prompts (camera, mic, notifications, …) with
@@ -399,6 +423,7 @@ async function bootstrap() {
       registerIpnsProtocol(privateSession, { privatePartition: partition });
       registerRadProtocol(privateSession, { privatePartition: partition });
       registerRadicleApiProtocol(privateSession, { privatePartition: partition });
+      registerOnchainAppProtocol(privateSession, { privatePartition: partition });
     }
     attachWebRequestDispatcher(privateSession, {
       exclude: (name) => name.startsWith('x402-'),

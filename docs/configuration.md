@@ -27,7 +27,7 @@ npm start
 
 ## External Protocol Links And Profiles
 
-Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, `rad://`, and `.onion` URLs always resolve through the active profile's node settings and storage. OS-level protocol launches from other apps are a v1 limitation: they are not profile-aware and should not be used when a link must open in a specific profile. Open the target profile first and paste or navigate to the URL inside that window.
+Inside Freedom, `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, and `.onion` URLs always resolve through the active profile's node and network settings and storage. OS-level protocol launches from other apps are a v1 limitation: they are not profile-aware and should not be used when a link must open in a specific profile. Open the target profile first and paste or navigate to the URL inside that window.
 
 ## Ethereum Name Resolution
 

@@ -96,6 +96,7 @@ Enter any of the following in the address bar:
 | IPFS CID      | `QmHash...` or `bafybeic...`                                                |
 | IPFS URL      | `ipfs://QmHash.../path`                                                     |
 | IPNS URL      | `ipns://k51...` or `ipns://domain.eth`                                      |
+| Onchain App   | `web3://0x0000...56c6` or `web3://0x0000...56c6:100/` (chain ID optional)   |
 | Radicle ID    | `rad://z3gqc...`                                                            |
 | Onion URL     | `http://example.onion`                                                      |
 | Ethereum Name | `vitalik.eth`, `mysite.box`, `alice.wei`, `apoorv.gwei`, `mysite.eth/about` |
@@ -124,6 +125,14 @@ Input that is not a URL, hash, or name is sent to your search engine — DuckDuc
 - **Published website records**: `web:redirect_url` takes precedence over `web:content_url`, matching Tezos Domains publishing semantics. HTTP(S) records navigate directly; IPFS and IPNS records stay on Freedom's native transports and keep the `.tez` name as the page origin.
 - **Paths and assertions**: A base path embedded in the published URI is preserved when an address-bar path is appended. Typed `ipfs://name.tez` and `ipns://name.tez` forms assert that transport; `ens://name.tez` is intentionally rejected because `.tez` is not ENS.
 - **Expiry and caching**: Expired domains do not resolve. Positive cache entries honor `td:ttl` within a bounded lifetime and never outlive the on-chain expiry; negative results use a short cache.
+
+## Contract-hosted Applications (`web3://`)
+
+- **Draft ERC-8244 support**: `web3://<contract>:<chainId>/` loads an application whose HTML lives in contract storage. The chain ID is optional and defaults to Ethereum mainnet.
+- **No gateway**: The document is read through the same chain-data router the wallet uses, not an HTTP gateway or a page-selected RPC endpoint.
+- **Chain-scoped origin**: Each contract-and-chain pair gets its own web-storage origin and wallet permission key; the wallet provider is pinned to the app's chain and `wallet_switchEthereumChain` cannot move it.
+
+See [contract-hosted applications](protocols/onchain-apps.md) for the origin model, sandbox, and limits.
 
 ## Tabbed Browsing
 
@@ -166,7 +175,7 @@ Input that is not a URL, hash, or name is sent to your search engine — DuckDuc
 ## Bookmarks
 
 - **Address Bar Star**: Click the star icon to bookmark or unbookmark the current page.
-- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `rad://`, `freedom://`, `http://`, or `https://` URL. The legacy `ens://` form is bookmarkable too, so older bookmarks and the seeded `ens://` defaults keep working.
+- **Supported Protocols**: Bookmark any `bzz://`, `ipfs://`, `ipns://`, `web3://`, `rad://`, `freedom://`, `http://`, or `https://` URL. The legacy `ens://` form is bookmarkable too, so older bookmarks and the seeded `ens://` defaults keep working.
 - **Named Bookmarks**: Name and edit bookmarks via modal or right-click.
 - **Bookmarks Bar**: Quick access below the toolbar, with an overflow menu when bookmarks don't fit. Always visible on the new tab page; toggle visibility on other pages with `Cmd+Shift+B` / `Ctrl+Shift+B` (persisted across sessions).
 
@@ -181,7 +190,7 @@ Input that is not a URL, hash, or name is sent to your search engine — DuckDuc
 - **Ephemeral by construction**: Every private window runs its webviews on a unique in-memory session (`private-<uuid>` partition, never written to disk). Cookies, logins, caches, and site data evaporate when the window closes.
 - **No local traces**: Nothing browsed in a private window is written to history, the favicon cache, or address-bar autocomplete. Downloads still work, but their entries are kept in memory only — never written to the profile's download database, visible only inside the private window, and gone when it closes (saved files stay on disk). Site-permission decisions made in a private window last only as long as the window — never remembered, even if you tick "remember".
 - **Wallet disabled**: Your identity and wallet are persistent by design, so they are unavailable in private windows — pages see no `window.ethereum` / `window.swarm` / `window.radicle` (nothing announces via EIP-6963), and x402 pay-per-request interception is off. Use a normal window for anything wallet-related.
-- **Decentralized protocols still work**: `bzz://`, `ipfs://`, `ipns://`, and ENS names resolve and load through the shared local nodes, and `.onion` sites route through Tor in private windows too when Tor is enabled. Publishing (which records publish history) is unavailable from private windows.
+- **Decentralized protocols still work**: `bzz://`, `ipfs://`, `ipns://`, and ENS names resolve and load through the shared local nodes, `web3://` onchain apps render through the chain-data router (without a wallet provider — see above), and `.onion` sites route through Tor in private windows too when Tor is enabled. Publishing (which records publish history) is unavailable from private windows.
 - **What private windows do NOT protect**: This is local privacy, not anonymity. Websites you sign in to still know it's you; your network operator can still see your traffic; Swarm/IPFS/Radicle peers still see your nodes' requests; and your IP address remains visible to every site and peer. The private new-tab page spells this out.
 
 ## Downloads
@@ -224,6 +233,7 @@ Right-click on pages for context-sensitive actions:
 - **Per-Tab Tracking**: Each tab tracks its own content base for correct path resolution.
 - **IPFS / IPNS (`ipfs://`, `ipns://`)**: No rewriting arm at all. These are standard schemes served by a custom protocol handler, so the page origin is already `ipfs://<cid>/` and same-origin subresources never reach the rewriter as gateway URLs.
 - **Swarm (`bzz://`)**: `bzz://` navigations are likewise served by a custom protocol handler — see [Swarm content retrieval](protocols/swarm.md). The Swarm rewriter arm only applies to the loopback gateway URLs that back a `bzz` content base.
+- **Onchain apps (`web3://`)**: No rewriting arm either — the document is read from the contract and served under its own chain-scoped origin, so there is no gateway URL to rewrite.
 - **Invalid-Reference Guard**: Requests to `/bzz/` with a missing or malformed reference are cancelled rather than sent to the node.
 
 ## Developer Tools
@@ -263,7 +273,7 @@ Access built-in browser pages using the `freedom://` protocol:
 - **Chains and RPC Providers**: Configure chain endpoints, keyed providers, and ENS verification behavior.
 - **Experimental**: Enable Identity & Wallet (Beta), Show IPFS load progress in the status bar, Swarm node mode, Enable Tor (.onion access) (Beta), and Start Tor when Freedom opens. The Tor rows are hidden on Windows builds. Radicle is no longer experimental — it is configured under **Settings → Nodes** and **Settings → Automatic Startup**.
 - **Auto-Updates**: Toggle automatic update checks (enabled by default).
-- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), Radicle (seedling), or HTTP (globe) icon based on current protocol.
+- **Protocol Icons**: Address bar shows Swarm (hexagon), IPFS (cube), onchain app (Ethereum diamond), Radicle (seedling), or HTTP (globe) icon based on current protocol. When a page also has a resolution/provenance trust status (a resolved Ethereum name, or a `web3://` app whose retrieval was verified), the trust shield takes that slot instead — so onchain apps normally show the shield and fall back to the diamond only when no provenance is available.
 - **Hamburger Menu**: Access browser features (Profile submenu, New Tab, New Window, New Private Window, History, Zoom, Print, Developer Tools, Settings, About Freedom, Check for Updates…).
 
 ## Error Handling
