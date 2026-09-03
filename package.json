@@ -64,9 +64,12 @@
     "radicle:reset": "rm -rf radicle-data && echo 'Legacy repo-root Radicle data removed; managed profile data was not changed.'",
     "identity:reset": "rm -rf ant-data ipfs-data radicle-data identity-data && echo 'Legacy repo-root Ant/IPFS/Radicle/identity data removed; managed profile data was not changed.'",
     "dapp:reset": "node scripts/reset-dapp-permissions.js",
+    "vendor:openlv": "node scripts/bundle-openlv.js",
+    "bridge:serve": "node scripts/serve-bridge.js",
+    "openlv:ios-harness": "node scripts/openlv-ios-harness.js",
     "serve:updates": "node scripts/serve-updates.js",
     "start:test-updater": "ENABLE_DEV_UPDATER=true npm start",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "node scripts/better-sqlite3-prebuilds.js && electron-builder install-app-deps",
     "radicle:build-addon": "node scripts/build-radicle-addon.js"
   },
   "build": {
@@ -95,6 +98,9 @@
       "entitlements": "config/entitlements.mac.plist",
       "entitlementsInherit": "config/entitlements.mac.plist",
       "notarize": true,
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(darwin-${arch}).node"
+      ],
       "extraResources": [
         {
           "from": "radicle-bin/${os}-${arch}/",
@@ -130,6 +136,9 @@
         "x-scheme-handler/ipns",
         "x-scheme-handler/bzz"
       ],
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(linux-${arch}).node"
+      ],
       "extraResources": [
         {
           "from": "radicle-bin/${os}-${arch}/",
@@ -153,6 +162,9 @@
         "zip"
       ],
       "icon": "assets/icon.png",
+      "files": [
+        "!**/node_modules/better-sqlite3/prebuilds/!(win32-${arch}).node"
+      ],
       "extraResources": [
         {
           "from": "radicle-bin/${os}-${arch}/",
@@ -213,21 +225,24 @@
     ]
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=24.11.0 <25"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
     "@babel/preset-env": "^8.0.2",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
+    "aedes": "^0.51.3",
     "babel-jest": "^30.4.1",
     "dotenv-cli": "^11.0.0",
     "electron": "^43.0.0",
     "electron-builder": "^26.8.1",
+    "esbuild": "^0.28.1",
     "eslint": "^10.4.0",
     "globals": "^17.6.0",
     "jest": "^30.4.2",
-    "prettier": "^3.8.3"
+    "prettier": "^3.8.3",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "@adraffy/ens-normalize": "^1.11.1",
@@ -238,14 +253,16 @@
     "@ledgerhq/hw-app-eth": "^7.8.8",
     "@ledgerhq/hw-transport-node-hid": "^6.33.5",
     "@metamask/browser-passworder": "^6.0.0",
+    "@openlv/core": "^0.0.2",
+    "@openlv/session": "^0.0.3",
     "@scure/bip39": "^2.2.0",
     "@x402/core": "^2.12.0",
     "@x402/evm": "^2.12.0",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^13.0.3",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.3",
     "ethers": "^6.16.0",
-    "micro-key-producer": "^0.9.0",
+    "micro-key-producer": "^0.10.0",
     "proper-lockfile": "^4.1.2",
     "qrcode": "^1.5.4"
   },

@@ -194,7 +194,14 @@ test('unseed requests native cancellation and re-applies policy after a late clo
   expect(ctx.embedded.cancelClone).toHaveBeenCalledWith(rid);
   expect(ctx.embedded.unseedRepo).toHaveBeenCalledTimes(1);
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  // cancelCloneWithRetry backs off 0/10/25ms before the third attempt reports
+  // `cancelled: true` and the loop stops. Poll for that instead of racing a
+  // single fixed sleep, which flakes when the event loop stalls under load,
+  // then settle past the next (100ms) backoff to prove it really stopped at 3.
+  for (let i = 0; i < 200 && ctx.embedded.cancelClone.mock.calls.length < 3; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  await new Promise((resolve) => setTimeout(resolve, 150));
   expect(ctx.embedded.cancelClone).toHaveBeenCalledTimes(3);
 
   finishClone({ cancelled: true });
