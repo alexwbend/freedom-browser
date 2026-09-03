@@ -143,8 +143,20 @@ A UTM Windows VM on Apple Silicon is **Windows on ARM (arm64)**. Two traps:
   without one would produce an app with no addon that throws at startup, so
   `scripts/build.js` checks the target's prebuild before packaging and fails
   loudly (`Error: better-sqlite3 ships no prebuilt addon for this target`)
-  instead. To build such a target you would have to restore `binding.gyp`
-  (`npm rebuild better-sqlite3`) and install MSVC + Python in the guest.
+  instead. To build such a target, use the source-build escape hatch — note
+  `npm rebuild better-sqlite3` does **not** bring `binding.gyp` back (it only
+  re-runs lifecycle scripts; only an install that re-extracts the package
+  restores the file, and that immediately re-prunes it). Instead set
+  `FREEDOM_BS3_SOURCE_BUILD=1` for both the install and the build, which skips
+  the prune and the per-target guard:
+
+  ```
+  set FREEDOM_BS3_SOURCE_BUILD=1 && npm ci
+  set FREEDOM_BS3_SOURCE_BUILD=1 && npm run build -- --win --x64
+  ```
+
+  That path needs the node-gyp toolchain in the guest: Python and MSVC (Visual
+  Studio Build Tools) — the very prerequisites the prune otherwise removes.
 
 ## End-to-end build
 

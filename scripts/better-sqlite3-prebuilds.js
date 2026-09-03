@@ -31,8 +31,18 @@
  *
  * Removing the unused `binding.gyp` takes better-sqlite3 out of the rebuild
  * pass entirely. It is not packaged (electron-builder drops `binding.gyp` from
- * the app), and any `npm install`/`npm ci` restores it, so this runs from
- * `postinstall` and again from `scripts/build.js` before every build.
+ * the app), and any `npm install`/`npm ci` re-extracts the tarball and restores
+ * it (`npm rebuild` does *not* — it only re-runs lifecycle scripts), so this
+ * runs from `postinstall` and again from `scripts/build.js` before every build.
+ *
+ * Escape hatch: set `FREEDOM_BS3_SOURCE_BUILD=1` to keep `binding.gyp` and
+ * build better-sqlite3 from source instead — for a target upstream ships no
+ * prebuild for. It has to be set for *both* the install and the build:
+ *
+ *   FREEDOM_BS3_SOURCE_BUILD=1 npm ci                     # re-extracts, prune skipped
+ *   FREEDOM_BS3_SOURCE_BUILD=1 npm run build -- --linux --x64
+ *
+ * and needs the node-gyp toolchain (Python + a C++ compiler; MSVC on Windows).
  *
  * Usage: node scripts/better-sqlite3-prebuilds.js [--quiet]
  */
@@ -44,6 +54,20 @@ const MODULE_ROOT = path.join(__dirname, '..', 'node_modules', 'better-sqlite3')
 
 /** electron-builder platform flag -> the prefix better-sqlite3 names its prebuilds with. */
 const PREBUILD_PLATFORM = { mac: 'darwin', linux: 'linux', win: 'win32' };
+
+/** Opt out of the prune (and of the per-target prebuild guard) to build from source. */
+const SOURCE_BUILD_ENV = 'FREEDOM_BS3_SOURCE_BUILD';
+
+/**
+ * Is the source-build escape hatch requested?
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {boolean}
+ */
+function isSourceBuildRequested(env = process.env) {
+  const value = env[SOURCE_BUILD_ENV];
+  return value !== undefined && value !== '' && value !== '0' && value !== 'false';
+}
 
 /**
  * Remove better-sqlite3's source-build fallback `binding.gyp`.
@@ -57,17 +81,29 @@ const PREBUILD_PLATFORM = { mac: 'darwin', linux: 'linux', win: 'win32' };
  * `better-sqlite3-prebuilds.test.js` guards that all six targets we package
  * still have a prebuild.
  *
+ * `FREEDOM_BS3_SOURCE_BUILD=1` skips the prune entirely, leaving the package's
+ * source-build path intact for a target with no shipped prebuild.
+ *
  * @param {string} moduleRoot path to the installed better-sqlite3 package
- * @returns {{ removed: boolean, reason: string }}
+ * @param {{ env?: NodeJS.ProcessEnv }} [options]
+ * @returns {{ removed: boolean, reason: string, overridden: boolean }}
  */
-function pruneSourceBuildFallback(moduleRoot = MODULE_ROOT) {
+function pruneSourceBuildFallback(moduleRoot = MODULE_ROOT, { env = process.env } = {}) {
+  if (isSourceBuildRequested(env)) {
+    return {
+      removed: false,
+      reason: `${SOURCE_BUILD_ENV} is set; keeping binding.gyp for a source build`,
+      overridden: true,
+    };
+  }
+
   if (!fs.existsSync(moduleRoot)) {
-    return { removed: false, reason: 'better-sqlite3 is not installed' };
+    return { removed: false, reason: 'better-sqlite3 is not installed', overridden: false };
   }
 
   const bindingGyp = path.join(moduleRoot, 'binding.gyp');
   if (!fs.existsSync(bindingGyp)) {
-    return { removed: false, reason: 'binding.gyp already removed' };
+    return { removed: false, reason: 'binding.gyp already removed', overridden: false };
   }
 
   const prebuildsDir = path.join(moduleRoot, 'prebuilds');
@@ -78,11 +114,16 @@ function pruneSourceBuildFallback(moduleRoot = MODULE_ROOT) {
     return {
       removed: false,
       reason: 'no prebuilt addons found; keeping the source-build fallback',
+      overridden: false,
     };
   }
 
   fs.rmSync(bindingGyp);
-  return { removed: true, reason: `${prebuilds.length} prebuilt addons available` };
+  return {
+    removed: true,
+    reason: `${prebuilds.length} prebuilt addons available`,
+    overridden: false,
+  };
 }
 
 /**
@@ -93,12 +134,19 @@ function pruneSourceBuildFallback(moduleRoot = MODULE_ROOT) {
  * so a missing prebuild is silent — the app would package with no addon and
  * throw at startup. Fail the build here instead.
  *
- * @param {{ platform: string, archs: string[], moduleRoot?: string }} target
- * @returns {{ ok: boolean, missing: string[], expected: string[] }}
+ * `FREEDOM_BS3_SOURCE_BUILD=1` skips the check: the prune was skipped too, so
+ * `binding.gyp` is still there and @electron/rebuild will build the addon from
+ * source for the target instead of relying on a shipped prebuild.
+ *
+ * @param {{ platform: string, archs: string[], moduleRoot?: string, env?: NodeJS.ProcessEnv }} target
+ * @returns {{ ok: boolean, missing: string[], expected: string[], overridden?: boolean }}
  */
-function assertTargetPrebuild({ platform, archs, moduleRoot = MODULE_ROOT }) {
+function assertTargetPrebuild({ platform, archs, moduleRoot = MODULE_ROOT, env = process.env }) {
   const prefix = PREBUILD_PLATFORM[platform];
   const expected = prefix ? archs.map((arch) => `${prefix}-${arch}.node`) : [];
+  if (isSourceBuildRequested(env)) {
+    return { ok: true, missing: [], expected, overridden: true };
+  }
   if (!prefix || !fs.existsSync(moduleRoot)) {
     return { ok: true, missing: [], expected };
   }
@@ -108,16 +156,30 @@ function assertTargetPrebuild({ platform, archs, moduleRoot = MODULE_ROOT }) {
   return { ok: missing.length === 0, missing, expected };
 }
 
-module.exports = { MODULE_ROOT, PREBUILD_PLATFORM, pruneSourceBuildFallback, assertTargetPrebuild };
+module.exports = {
+  MODULE_ROOT,
+  PREBUILD_PLATFORM,
+  SOURCE_BUILD_ENV,
+  isSourceBuildRequested,
+  pruneSourceBuildFallback,
+  assertTargetPrebuild,
+};
 
 if (require.main === module) {
   const quiet = process.argv.includes('--quiet');
-  const { removed, reason } = pruneSourceBuildFallback();
+  const { removed, reason, overridden } = pruneSourceBuildFallback();
   if (!quiet) {
-    console.log(
-      removed
-        ? `→ better-sqlite3: removed the unused binding.gyp (${reason}); @electron/rebuild will leave it alone`
-        : `→ better-sqlite3: nothing to do (${reason})`
-    );
+    if (overridden) {
+      console.log(
+        `→ better-sqlite3: ${SOURCE_BUILD_ENV} is set — keeping binding.gyp so @electron/rebuild ` +
+          `builds the addon from source (needs Python + a C++ compiler; MSVC on Windows)`
+      );
+    } else {
+      console.log(
+        removed
+          ? `→ better-sqlite3: removed the unused binding.gyp (${reason}); @electron/rebuild will leave it alone`
+          : `→ better-sqlite3: nothing to do (${reason})`
+      );
+    }
   }
 }

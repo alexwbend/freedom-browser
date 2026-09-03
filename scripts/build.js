@@ -27,7 +27,11 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { pruneSourceBuildFallback, assertTargetPrebuild } = require('./better-sqlite3-prebuilds');
+const {
+  SOURCE_BUILD_ENV,
+  pruneSourceBuildFallback,
+  assertTargetPrebuild,
+} = require('./better-sqlite3-prebuilds');
 
 const args = process.argv.slice(2);
 
@@ -125,8 +129,10 @@ const cmd = useDotenv
 // no rebuild is wanted — but its leftover binding.gyp makes @electron/rebuild
 // treat it as a node-gyp module, which cannot cross-compile. `postinstall`
 // already prunes that file, so this is normally a silent no-op; repeat it here
-// so a build still works after a manual `npm rebuild`. See
-// scripts/better-sqlite3-prebuilds.js.
+// so a build still works after an install that skipped `postinstall`
+// (`npm ci --ignore-scripts`) or a manual restore of the file. Note `npm
+// rebuild better-sqlite3` does *not* restore it — it re-runs lifecycle scripts
+// and never re-extracts the tarball. See scripts/better-sqlite3-prebuilds.js.
 // No host-binary protection is needed either: a cross-build never overwrites a
 // host-specific build/Release/better_sqlite3.node — that file is not produced
 // at all — so local dev keeps working after `--win`/`--linux` builds.
@@ -135,13 +141,25 @@ const cmd = useDotenv
 // target is known), so check the *target's* prebuild here: with binding.gyp
 // gone @electron/rebuild skips the module entirely, and a missing prebuild
 // would ship an app with no addon that throws at startup.
-const { missing } = assertTargetPrebuild({ platform, archs });
-if (missing.length > 0) {
+// `FREEDOM_BS3_SOURCE_BUILD=1` opts out of both halves (guard and prune) so
+// @electron/rebuild source-builds the addon for a target with no prebuild.
+const { missing, overridden: sourceBuild } = assertTargetPrebuild({ platform, archs });
+if (sourceBuild) {
+  console.log(
+    `\n→ ${SOURCE_BUILD_ENV} is set: skipping better-sqlite3's prebuild check and binding.gyp ` +
+      `prune; @electron/rebuild will build it from source (needs Python + a C++ compiler).\n`
+  );
+} else if (missing.length > 0) {
   console.error(
     `Error: better-sqlite3 ships no prebuilt addon for this target (missing ${missing.join(', ')} ` +
       `in node_modules/better-sqlite3/prebuilds/). Packaging would produce an app that throws at ` +
-      `startup. Add the target upstream, or restore better-sqlite3's binding.gyp (npm rebuild ` +
-      `better-sqlite3) and build from source on the target platform.`
+      `startup. Add the target upstream, or build better-sqlite3 from source on the target ` +
+      `platform. \`npm rebuild better-sqlite3\` does NOT restore the pruned binding.gyp (it only ` +
+      `re-runs lifecycle scripts, it never re-extracts the package); the supported source-build ` +
+      `path is:\n` +
+      `  ${SOURCE_BUILD_ENV}=1 npm ci            # re-extracts better-sqlite3 with the prune skipped\n` +
+      `  ${SOURCE_BUILD_ENV}=1 npm run build -- ${args.join(' ') || '<target>'}\n` +
+      `which requires the node-gyp toolchain (Python + a C++ compiler; MSVC on Windows).`
   );
   process.exit(1);
 }

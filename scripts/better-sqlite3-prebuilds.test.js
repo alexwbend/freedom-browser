@@ -13,6 +13,8 @@ const path = require('path');
 
 const {
   MODULE_ROOT,
+  SOURCE_BUILD_ENV,
+  isSourceBuildRequested,
   pruneSourceBuildFallback,
   assertTargetPrebuild,
 } = require('./better-sqlite3-prebuilds');
@@ -134,6 +136,98 @@ describe('assertTargetPrebuild', () => {
     ]) {
       expect(assertTargetPrebuild({ platform, archs })).toMatchObject({ ok: true, missing: [] });
     }
+  });
+});
+
+// The escape hatch for a target upstream ships no prebuild for: keep the
+// package's source-build path intact (binding.gyp) and let @electron/rebuild
+// run node-gyp, instead of failing the build at the per-target guard.
+describe(`${SOURCE_BUILD_ENV} override`, () => {
+  let savedEnv;
+
+  beforeEach(() => {
+    // Jest reuses one process per worker: restore whatever was there.
+    savedEnv = process.env[SOURCE_BUILD_ENV];
+  });
+
+  afterEach(() => {
+    if (savedEnv === undefined) delete process.env[SOURCE_BUILD_ENV];
+    else process.env[SOURCE_BUILD_ENV] = savedEnv;
+  });
+
+  test('recognises set values and ignores unset/empty/falsey ones', () => {
+    expect(isSourceBuildRequested({})).toBe(false);
+    expect(isSourceBuildRequested({ [SOURCE_BUILD_ENV]: '' })).toBe(false);
+    expect(isSourceBuildRequested({ [SOURCE_BUILD_ENV]: '0' })).toBe(false);
+    expect(isSourceBuildRequested({ [SOURCE_BUILD_ENV]: 'false' })).toBe(false);
+    expect(isSourceBuildRequested({ [SOURCE_BUILD_ENV]: '1' })).toBe(true);
+  });
+
+  test('skips the prune, leaving binding.gyp for a source build', () => {
+    const moduleRoot = makeModule();
+
+    const result = pruneSourceBuildFallback(moduleRoot, { env: { [SOURCE_BUILD_ENV]: '1' } });
+
+    expect(result).toEqual({
+      removed: false,
+      reason: `${SOURCE_BUILD_ENV} is set; keeping binding.gyp for a source build`,
+      overridden: true,
+    });
+    expect(fs.existsSync(path.join(moduleRoot, 'binding.gyp'))).toBe(true);
+  });
+
+  test('skips the prune when read from the real process env (postinstall path)', () => {
+    const moduleRoot = makeModule();
+    process.env[SOURCE_BUILD_ENV] = '1';
+
+    expect(pruneSourceBuildFallback(moduleRoot).overridden).toBe(true);
+    expect(fs.existsSync(path.join(moduleRoot, 'binding.gyp'))).toBe(true);
+  });
+
+  test('skips the per-target guard for a target with no prebuild', () => {
+    const moduleRoot = makeModule({ prebuilds: ['win32-x64.node'] });
+
+    // Without the override this target fails the guard (see above).
+    expect(assertTargetPrebuild({ platform: 'win', archs: ['arm64'], moduleRoot }).ok).toBe(false);
+
+    const result = assertTargetPrebuild({
+      platform: 'win',
+      archs: ['arm64'],
+      moduleRoot,
+      env: { [SOURCE_BUILD_ENV]: '1' },
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      missing: [],
+      expected: ['win32-arm64.node'],
+      overridden: true,
+    });
+  });
+
+  test('skips the per-target guard when read from the real process env (build.js path)', () => {
+    const moduleRoot = makeModule({ prebuilds: [] });
+    process.env[SOURCE_BUILD_ENV] = '1';
+
+    expect(assertTargetPrebuild({ platform: 'linux', archs: ['x64'], moduleRoot })).toMatchObject({
+      ok: true,
+      missing: [],
+      overridden: true,
+    });
+  });
+
+  test('is wired into scripts/build.js: no exit(1) and no prune when set', () => {
+    const buildScript = fs.readFileSync(path.join(__dirname, 'build.js'), 'utf8');
+    // The guard's failure branch must be reachable only when the override is off.
+    expect(buildScript).toContain(
+      'const { missing, overridden: sourceBuild } = assertTargetPrebuild({ platform, archs });'
+    );
+    expect(buildScript).toContain('if (sourceBuild) {');
+    expect(buildScript).toContain('} else if (missing.length > 0) {');
+    // ...and the error message must point at the override, not the `npm rebuild` dead end.
+    expect(buildScript).toContain('does NOT restore the pruned binding.gyp');
+    expect(buildScript).toContain('${SOURCE_BUILD_ENV}=1 npm ci');
+    expect(buildScript).toContain('${SOURCE_BUILD_ENV}=1 npm run build --');
   });
 });
 
