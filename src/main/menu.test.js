@@ -297,6 +297,42 @@ describe('menu', () => {
     }
   });
 
+  test('zoom aliases get hidden rows, so no action is duplicated in the View menu', () => {
+    for (const platform of ['darwin', 'win32', 'linux']) {
+      const send = jest.fn();
+      const { capturedTemplate } = loadMenuModule(platform, {
+        targetWindow: { webContents: { send } },
+      });
+      const view = findTopLabel(capturedTemplate, 'View');
+
+      const cases = [
+        ['Zoom In', 'page.zoomIn', 'page:zoom-in'],
+        ['Zoom Out', 'page.zoomOut', 'page:zoom-out'],
+        ['Actual Size', 'page.zoomReset', 'page:zoom-reset'],
+      ];
+
+      for (const [label, id, channel] of cases) {
+        const rows = view.submenu.filter((entry) => entry.label === label);
+        const aliases = getAliasAccelerators(id, platform);
+        expect(aliases.length).toBeGreaterThan(0);
+        expect(rows).toHaveLength(1 + aliases.length);
+
+        // Exactly one visible row per action; every alias is hidden but
+        // still carries its accelerator and the same click target.
+        const visible = rows.filter((row) => row.visible !== false);
+        expect(visible).toHaveLength(1);
+        const hidden = rows.filter((row) => row.visible === false);
+        expect(hidden.map((row) => row.accelerator)).toEqual(aliases);
+
+        for (const row of hidden) {
+          send.mockClear();
+          row.click();
+          expect(send).toHaveBeenCalledWith(channel);
+        }
+      }
+    }
+  });
+
   test('zoom accelerators follow a user remap', () => {
     const { capturedTemplate } = loadMenuModule('linux', {
       shortcutOverrides: { 'page.zoomIn': 'Ctrl+Shift+Up' },

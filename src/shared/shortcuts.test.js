@@ -572,4 +572,98 @@ describe('formatAccelerator', () => {
     expect(formatAccelerator('F11', 'win32')).toBe('F11');
     expect(formatAccelerator('', 'win32')).toBe('');
   });
+
+  test('labels keypad keys the way keyboards do, not with Electron key codes', () => {
+    expect(formatAccelerator('CmdOrCtrl+numadd', 'win32')).toBe('Ctrl+Num +');
+    expect(formatAccelerator('CmdOrCtrl+numsub', 'linux')).toBe('Ctrl+Num -');
+    expect(formatAccelerator('CmdOrCtrl+num0', 'darwin')).toBe('⌘Num 0');
+    expect(formatAccelerator('CmdOrCtrl+Plus', 'win32')).toBe('Ctrl++');
+  });
+});
+
+describe('zoom binding reachability across layouts and the keypad', () => {
+  // Regression cover for the alias set on page.zoom*: `=` is a shifted key on
+  // several common layouts, and eventMatchesAccelerator is deliberately strict
+  // about modifiers, so the bare `CmdOrCtrl+=` default can never fire there.
+  // The keypad is a separate physical key set for the same reason.
+  const bindings = (id, platform) => [
+    getDefaultAccelerator(id, platform),
+    ...getAliasAccelerators(id, platform),
+  ];
+  const fires = (event, id, platform) =>
+    bindings(id, platform).some((accelerator) =>
+      eventMatchesAccelerator(event, accelerator, platform)
+    );
+
+  // German layout: `=` is Shift+0, so the browser reports key '=' with
+  // shiftKey true on the physical Digit0 key.
+  const germanEquals = (modifier) =>
+    keyEvent({ key: '=', code: 'Digit0', shiftKey: true, ...modifier });
+  // US layout: the same chord types a literal '+'.
+  const usPlus = (modifier) => keyEvent({ key: '+', code: 'Equal', shiftKey: true, ...modifier });
+
+  test('the primary CmdOrCtrl+= binding alone cannot fire on a shifted-= layout', () => {
+    // The gap the aliases exist to close — assert it directly so a future
+    // change that drops them fails here rather than silently regressing.
+    expect(eventMatchesAccelerator(germanEquals({ ctrlKey: true }), 'CmdOrCtrl+=', 'linux')).toBe(
+      false
+    );
+    expect(eventMatchesAccelerator(usPlus({ ctrlKey: true }), 'CmdOrCtrl+=', 'win32')).toBe(false);
+  });
+
+  test('zoom in fires for a shifted = on every platform', () => {
+    expect(fires(germanEquals({ ctrlKey: true }), 'page.zoomIn', 'linux')).toBe(true);
+    expect(fires(germanEquals({ ctrlKey: true }), 'page.zoomIn', 'win32')).toBe(true);
+    expect(fires(germanEquals({ metaKey: true }), 'page.zoomIn', 'darwin')).toBe(true);
+    expect(fires(usPlus({ ctrlKey: true }), 'page.zoomIn', 'win32')).toBe(true);
+    expect(fires(usPlus({ metaKey: true }), 'page.zoomIn', 'darwin')).toBe(true);
+  });
+
+  test('a shifted = without the Cmd/Ctrl modifier still zooms nothing', () => {
+    expect(fires(germanEquals(), 'page.zoomIn', 'linux')).toBe(false);
+    expect(fires(germanEquals({ altKey: true, ctrlKey: true }), 'page.zoomIn', 'linux')).toBe(
+      false
+    );
+  });
+
+  test('the keypad drives all three zoom actions', () => {
+    const cases = [
+      ['page.zoomIn', { key: '+', code: 'NumpadAdd' }],
+      ['page.zoomOut', { key: '-', code: 'NumpadSubtract' }],
+      ['page.zoomReset', { key: '0', code: 'Numpad0' }],
+    ];
+    for (const [id, key] of cases) {
+      expect(fires(keyEvent({ ...key, ctrlKey: true }), id, 'linux')).toBe(true);
+      expect(fires(keyEvent({ ...key, metaKey: true }), id, 'darwin')).toBe(true);
+    }
+    // NumLock off relabels the keypad keys; the physical code still matches.
+    expect(
+      fires(keyEvent({ key: 'Insert', code: 'Numpad0', ctrlKey: true }), 'page.zoomReset', 'linux')
+    ).toBe(true);
+  });
+
+  test('the keypad aliases do not collide with the main-row bindings', () => {
+    for (const platform of PLATFORMS) {
+      expect(normalizeAccelerator('CmdOrCtrl+numsub', platform)).not.toBe(
+        normalizeAccelerator('CmdOrCtrl+-', platform)
+      );
+      expect(findConflict('page.zoomOut', 'CmdOrCtrl+numsub', {}, platform)).toBeNull();
+      // …but they are real registry bindings, so nothing else may take them.
+      expect(findConflict('tab.new', 'CmdOrCtrl+numsub', {}, platform)).toEqual({
+        id: 'page.zoomOut',
+        description: 'Zoom Out',
+        fixed: true,
+      });
+    }
+  });
+
+  test('aliases survive a user remap of the primary binding', () => {
+    const overrides = { 'page.zoomIn': 'Ctrl+Shift+U' };
+    expect(getEffectiveAccelerator('page.zoomIn', overrides, 'linux')).toBe('Ctrl+Shift+U');
+    expect(getAliasAccelerators('page.zoomIn', 'linux')).toEqual([
+      'CmdOrCtrl+Shift+=',
+      'CmdOrCtrl+Plus',
+      'CmdOrCtrl+numadd',
+    ]);
+  });
 });
